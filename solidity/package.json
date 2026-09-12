@@ -36,7 +36,6 @@
     "@keep-network/bitcoin-spv-sol": "3.4.0-solc-0.8",
     "@keep-network/ecdsa": "2.1.0-dev.19",
     "@keep-network/random-beacon": "2.1.0-dev.18",
-    "@keep-network/tbtc": "1.1.2-dev.1",
     "@openzeppelin/contracts": "^4.8.1",
     "@openzeppelin/contracts-upgradeable": "^4.8.1",
     "@thesis/solidity-contracts": "github:thesis/solidity-contracts#4985bcf"
@@ -70,7 +69,7 @@
     "prettier-plugin-sh": "^0.8.1",
     "prettier-plugin-solidity": "^1.0.0-beta.19",
     "solhint": "^3.3.7",
-    "solhint-config-keep": "github:keep-network/solhint-config-keep",
+    "solhint-config-tbtc": "file:../config/solhint-config-tbtc",
     "solidity-docgen": "^0.6.0-beta.34",
     "ts-node": "^10.4.0",
     "typechain": "^8.3.2",

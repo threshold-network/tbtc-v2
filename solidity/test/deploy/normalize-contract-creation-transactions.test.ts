@@ -19,6 +19,49 @@ describe("contract-creation RPC normalization", () => {
     expect(transaction.to).to.equal("")
   })
 
+  it("normalizes an empty recipient in a transaction receipt", async () => {
+    const receipt = { transactionHash: "0x1234", to: "", status: 1 }
+    const provider = {
+      send: async (_method: string, _params: unknown[]) => receipt,
+    }
+    normalizeContractCreationTransactions(provider)
+
+    expect(
+      await provider.send("eth_getTransactionReceipt", ["0x1234"])
+    ).to.deep.equal({ ...receipt, to: null })
+    expect(receipt.to).to.equal("")
+  })
+
+  it("normalizes empty recipients embedded in a full block response", async () => {
+    const block = {
+      hash: "0xabcd",
+      transactions: [
+        { hash: "0x1234", to: "", input: "0x6000" },
+        { hash: "0x5678", to: "0x1234" },
+        "0x9abc",
+      ],
+    }
+    const provider = {
+      send: async (_method: string, _params: unknown[]) => block,
+    }
+    normalizeContractCreationTransactions(provider)
+
+    expect(
+      await provider.send("eth_getBlockByHash", ["0xabcd", true])
+    ).to.deep.equal({
+      ...block,
+      transactions: [
+        { hash: "0x1234", to: null, input: "0x6000" },
+        { hash: "0x5678", to: "0x1234" },
+        "0x9abc",
+      ],
+    })
+    expect(block.transactions[0]).to.deep.equal({
+      hash: "0x1234",
+      to: "",
+      input: "0x6000",
+    })
+  })
   it("preserves valid transaction results and missing transactions", async () => {
     await Promise.all(
       [null, { to: null }, { to: "0x1234" }].map(async (result) => {

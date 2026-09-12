@@ -8,6 +8,7 @@ on:
       - main
     paths:
       - "solidity/**"
+      - "config/**"
       - ".github/workflows/contracts.yml"
   pull_request:
   # We intend to use `workflow dispatch` in two different situations/paths:
@@ -53,6 +54,7 @@ jobs:
           filters: |
             path-filter:
               - './solidity/**'
+              - './config/**'
               - './.github/workflows/contracts.yml'
 
   contracts-validate-inputs:
@@ -89,14 +91,6 @@ jobs:
         run: |
           corepack enable
           corepack prepare yarn@4.12.0 --activate
-
-      # We need this step because the `@keep-network/tbtc` which we update in
-      # next step has a dependency to `@summa-tx/relay-sol@2.0.2` package, which
-      # downloads one of its sub-dependencies via unathenticated `git://`
-      # protocol. That protocol is no longer supported. Thanks to this step
-      # `https://` is used instead of `git://`.
-      - name: Configure git to don't use unauthenticated protocol
-        run: git config --global url."https://".insteadOf git://
 
       - name: Install dependencies
         run: yarn install
@@ -138,15 +132,6 @@ jobs:
           corepack enable
           corepack prepare yarn@4.12.0 --activate
 
-      # This step forces Git to download dependencies using `https://` protocol,
-      # even if `yarn.json` refers to some package via `git://`. Using `git://`
-      # is no longer supported by GH. One of the `tbtc-v2` dependencies by
-      # default uses `git://` and we needed to manually remove it every time
-      # it re-appeared in the lock file. Now even if it does re-appear, the
-      # `yarn install --immutable` will not fail.
-      - name: Configure git to don't use unauthenticated protocol
-        run: git config --global url."https://".insteadOf git://
-
       - name: Install dependencies
         run: yarn install --immutable
 
@@ -175,16 +160,6 @@ jobs:
           corepack enable
           corepack prepare yarn@4.12.0 --activate
 
-      # We need this step because the `@keep-network/tbtc` which we update in
-      # next steps has a dependency to `@summa-tx/relay-sol@2.0.2` package, which
-      # downloads one of its sub-dependencies via unathenticated `git://`
-      # protocol. That protocol is no longer supported. Thanks to this step
-      # `https://` is used instead of `git://`. This step also prevents the
-      # error during `yarn install --immutable` step in case `git://` gets
-      # introduced to tbtc-v2's `yarn.lock`.
-      - name: Configure git to don't use unauthenticated protocol
-        run: git config --global url."https://".insteadOf git://
-
       - name: Install dependencies
         run: yarn install --immutable
 
@@ -201,12 +176,10 @@ jobs:
         env:
           RANDOM_BEACON_CONTRACTS_VERSION: ${{ steps.upstream-builds-query.outputs.random-beacon-contracts-version }}
           ECDSA_CONTRACTS_VERSION: ${{ steps.upstream-builds-query.outputs.ecdsa-contracts-version }}
-          ENVIRONMENT: ${{ github.event.inputs.environment }}
         run: |
           yarn up \
             "@keep-network/random-beacon@${RANDOM_BEACON_CONTRACTS_VERSION}" \
-            "@keep-network/ecdsa@${ECDSA_CONTRACTS_VERSION}" \
-            "@keep-network/tbtc@${ENVIRONMENT}"
+            "@keep-network/ecdsa@${ECDSA_CONTRACTS_VERSION}"
 
       - name: Configure tenderly
         env:
@@ -280,15 +253,6 @@ jobs:
           corepack enable
           corepack prepare yarn@4.12.0 --activate
 
-      # This step forces Git to download dependencies using `https://` protocol,
-      # even if `yarn.json` refers to some package via `git://`. Using `git://`
-      # is no longer supported by GH. One of the `tbtc-v2` dependencies by
-      # default uses `git://` and we needed to manually remove it every time
-      # it re-appeared in the lock file. Now even if it does re-appear, the
-      # `yarn install --immutable` will not fail.
-      - name: Configure git to don't use unauthenticated protocol
-        run: git config --global url."https://".insteadOf git://
-
       - name: Install needed dependencies
         run: yarn install --immutable
 
@@ -298,7 +262,6 @@ jobs:
         run: |
           rm -rf ./node_modules/@keep-network/random-beacon/artifacts
           rm -rf ./node_modules/@keep-network/ecdsa/artifacts
-          rm -rf ./node_modules/@keep-network/tbtc/artifacts
 
       - name: Verify contracts on Etherscan
         env:
@@ -334,16 +297,6 @@ jobs:
           corepack enable
           corepack prepare yarn@4.12.0 --activate
 
-      # We need this step because the `@keep-network/tbtc` which we update in
-      # next steps has a dependency to `@summa-tx/relay-sol@2.0.2` package, which
-      # downloads one of its sub-dependencies via unathenticated `git://`
-      # protocol. That protocol is no longer supported. Thanks to this step
-      # `https://` is used instead of `git://`. This step also prevents the
-      # error during `yarn install --immutable` step in case `git://` gets
-      # introduced to tbtc-v2's `yarn.lock`.
-      - name: Configure git to don't use unauthenticated protocol
-        run: git config --global url."https://".insteadOf git://
-
       - name: Install dependencies
         run: yarn install --immutable
 
@@ -360,12 +313,10 @@ jobs:
         env:
           RANDOM_BEACON_CONTRACTS_VERSION: ${{ steps.upstream-builds-query.outputs.random-beacon-contracts-version }}
           ECDSA_CONTRACTS_VERSION: ${{ steps.upstream-builds-query.outputs.ecdsa-contracts-version }}
-          ENVIRONMENT: ${{ github.event.inputs.environment }}
         run: |
           yarn up \
             "@keep-network/random-beacon@${RANDOM_BEACON_CONTRACTS_VERSION}" \
-            "@keep-network/ecdsa@${ECDSA_CONTRACTS_VERSION}" \
-            "@keep-network/tbtc@${ENVIRONMENT}"
+            "@keep-network/ecdsa@${ECDSA_CONTRACTS_VERSION}"
 
       - name: Deploy contracts
         env:
@@ -411,9 +362,10 @@ jobs:
       # wrong here. Same ordering applies elsewhere: root Classic first, then
       # Berry for `solidity/`.
       #
-      # Workaround rationale: ESLint run from `solidity/` resolves `.prettierrc.js`
-      # from the repo root and fails unless `@keep-network/prettier-config-keep`
-      # is installed at the root.
+      # Workaround rationale: ESLint/Prettier runs from subdirectories resolve the
+      # root `.prettierrc.js`, whose `plugins: ["prettier-plugin-sh"]` must be
+      # resolvable from the root install (config/prettier-base.js is repo-local,
+      # no install needed).
       - name: Install dependencies in the root directory
         run: |
           cd ..
@@ -423,14 +375,6 @@ jobs:
         run: |
           corepack enable
           corepack prepare yarn@4.12.0 --activate
-
-      # We need this step because the `@keep-network/tbtc` which we update in
-      # next steps has a dependency to `@summa-tx/relay-sol@2.0.2` package, which
-      # downloads one of its sub-dependencies via unathenticated `git://`
-      # protocol. That protocol is no longer supported. Thanks to this step
-      # `https://` is used instead of `git://`.
-      - name: Configure git to don't use unauthenticated protocol
-        run: git config --global url."https://".insteadOf git://
 
       - name: Install dependencies
         run: yarn install
@@ -478,14 +422,6 @@ jobs:
         env:
           SLITHER_VERSION: 0.9.0
         run: pip3 install slither-analyzer==$SLITHER_VERSION
-
-      # We need this step because the `@keep-network/tbtc` which we update in
-      # next steps has a dependency to `@summa-tx/relay-sol@2.0.2` package, which
-      # downloads one of its sub-dependencies via unathenticated `git://`
-      # protocol. That protocol is no longer supported. Thanks to this step
-      # `https://` is used instead of `git://`.
-      - name: Configure git to don't use unauthenticated protocol
-        run: git config --global url."https://".insteadOf git://
 
       - name: Install dependencies
         run: yarn install

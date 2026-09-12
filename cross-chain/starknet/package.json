@@ -6,13 +6,14 @@
   "files": [
     "artifacts/",
     "export/",
-    "deploy_l1/"
+    "deploy_l1/",
+    "contracts/vendor/"
   ],
   "scripts": {
     "clean": "hardhat clean && rm -rf cache/ export/ external/npm export.json",
     "build": "hardhat compile",
     "deploy": "hardhat deploy --export export.json",
-    "deploy:test": "USE_EXTERNAL_DEPLOY=true TEST_USE_STUBS_TBTC=true hardhat deploy",
+    "deploy:test": "TEST_USE_STUBS_TBTC=true hardhat deploy",
     "test": "hardhat test",
     "format": "npm run lint",
     "format:fix": "npm run lint:fix:sol && npm run lint:config:fix",
@@ -39,27 +40,23 @@
     "transfer-ownership:sepolia": "hardhat deploy --network sepolia --tags TransferStarkNetBitcoinDepositorOwnership",
     "transfer-ownership:mainnet": "hardhat deploy --network mainnet --tags TransferStarkNetBitcoinDepositorOwnership",
     "prepublishOnly": "./scripts/pre-publish-check.sh && ./scripts/prepare-artifacts.sh --network $npm_config_network",
-    "verify": "hardhat etherscan-verify --network"
+    "verify": "hardhat etherscan-verify --network",
+    "verify:vendor": "node scripts/verify-vendor.cjs"
   },
   "dependencies": {
-    "@keep-network/bitcoin-spv-sol": "3.4.0-solc-0.8",
-    "@keep-network/ecdsa": "2.1.0-dev.19",
-    "@keep-network/random-beacon": "2.1.0-dev.18",
-    "@keep-network/tbtc-v2": "1.8.0-dev.1",
     "@openzeppelin/contracts": "^4.8.1",
-    "@openzeppelin/contracts-upgradeable": "^4.8.1",
-    "@thesis/solidity-contracts": "github:thesis/solidity-contracts#4985bcf"
+    "@openzeppelin/contracts-upgradeable": "^4.8.1"
   },
   "devDependencies": {
     "@defi-wonderland/smock": "2.4.1",
     "@keep-network/hardhat-helpers": "^0.6.0-pre.20",
-    "@keep-network/hardhat-local-networks-config": "^0.1.0-pre.4",
+    "@keep-network/hardhat-local-networks-config": "github:threshold-network/hardhat-local-networks-config#b8423e102710be537a874b002cf9052ffc2bd93e",
     "@nomiclabs/hardhat-ethers": "^2.0.6",
     "@nomiclabs/hardhat-etherscan": "^3.1.0",
     "@nomiclabs/hardhat-waffle": "^2.0.2",
     "@openzeppelin/hardhat-upgrades": "1.22.0",
     "@tenderly/hardhat-tenderly": ">=1.0.12 <1.2.0",
-    "@thesis-co/eslint-config": "github:thesis/eslint-config",
+    "@thesis-co/eslint-config": "https://codeload.github.com/thesis/eslint-config/tar.gz/3b7128d0489ec49c3b290c32e5536281550cd1eb",
     "@typechain/ethers-v5": "^8.0.5",
     "@typechain/hardhat": "^4.0.0",
     "@types/chai": "^4.3.0",
@@ -80,7 +77,7 @@
     "prettier-plugin-sh": "^0.8.1",
     "prettier-plugin-solidity": "^1.0.0-beta.19",
     "solhint": "^3.3.7",
-    "solhint-config-keep": "github:keep-network/solhint-config-keep",
+    "solhint-config-tbtc": "file:../../config/solhint-config-tbtc",
     "solidity-docgen": "^0.6.0-beta.34",
     "ts-node": "^10.4.0",
     "typechain": "^6.1.0",

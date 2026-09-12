@@ -10,6 +10,16 @@
     // top-level directories. `--noEmit` never needed it; ts-node's emit path
     // does, so hardhat refuses to start without it.
     "rootDir": ".",
+    // `downlevelIteration` is deprecated in 6 and gone in 7. `prepack` builds
+    // the published `export/` bundle through tsconfig.export.json, which this
+    // branch raises from `target: es5` to `target: ES2020` -- ES2020 natively
+    // supports the iterables/spread/destructuring this flag downlevels, so it
+    // is a no-op for that bundle here, but a plain `target: es5` build (e.g.
+    // before this branch, or if the export target is ever lowered again)
+    // still depends on it. Left in place rather than dropped so the ES2020
+    // bump doesn't silently couple to removing it too.
+    "ignoreDeprecations": "6.0",
+    "downlevelIteration": true,
     "target": "ES2020",
     "module": "commonJS",
     "esModuleInterop": true,

@@ -1,5 +1,5 @@
 /**
- * Patched copy of @threshold-network/solidity-contracts@1.3.0-dev.12/export/deploy/07_deploy_token_staking.js
+ * Patched copy of @threshold-network/solidity-contracts@1.3.0-dev.11/export/deploy/07_deploy_token_staking.js
  *
  * Upstream always calls initialize() after deployments.deploy(), which fails when reusing an
  * already-initialized TokenStaking proxy from Phase A (solidity-contracts) with

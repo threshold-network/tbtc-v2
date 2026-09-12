@@ -123,11 +123,6 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
         },
         proxyOpts: {
           kind: "transparent",
-          // Allow external libraries linking. We need to ensure manually that the
-          // external libraries we link are upgrade safe, as the OpenZeppelin plugin
-          // doesn't perform such a validation yet.
-          // See: https://docs.openzeppelin.com/upgrades-plugins/1.x/faq#why-cant-i-use-external-libraries
-          unsafeAllow: ["external-library-linking"],
         },
       }
     )

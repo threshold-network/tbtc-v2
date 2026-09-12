@@ -121,6 +121,16 @@ cd "$parity_root/candidate/solidity"
 
 The raw comparison has expected exit status **1** for this migration:
 
+The printed "Byte parity" summary verdict covers `export.json`,
+`export/artifacts/`, and `deployments/` only. `export/deploy/` (the 19
+compiled deploy scripts) is deliberately excluded from that summary: those
+files are expected to differ under this and any future ethers-version
+migration, so folding them into the same PASS/FAIL verdict would pin it to
+FAIL permanently and the flag would stop carrying information. The full
+per-group breakdown, including `export/deploy/`, is still printed in the raw
+JSON report above the summary line; only the summary is scoped to the other
+three groups.
+
 ```sh
 yarn ts-node scripts/compare-pr1067-parity.ts \
   "$parity_root/dev-snapshot" "$parity_root/candidate-snapshot" --raw
@@ -135,7 +145,7 @@ yarn ts-node scripts/compare-pr1067-parity.ts \
 PARITY_BASELINE="$parity_root/dev-snapshot" \
   PARITY_CANDIDATE="$parity_root/candidate-snapshot" \
   yarn hardhat test --network hardhat --no-compile \
-  scripts/compare-pr1067-parity.test.ts
+  test/scripts/compare-pr1067-parity.test.ts
 ```
 
 The mutation tests use real snapshots and leave them intact. Changes to ABI,
@@ -157,6 +167,14 @@ operations need their own applicable fork/dry-run validation; deprecated
 scripts remain unsuitable for live governance. The consumer search found no
 GitHub-indexed external deployment-script consumer, but executing the
 published v6 scripts requires compatible ethers v6 tooling.
+
+## Retention
+
+This compatibility gate is scoped to this PR's ethers-v6 migration only; it is not intended as permanent infrastructure.
+Once this PR has landed and stabilized, either delete `scripts/pr1067-parity*.{ts,json}`, `scripts/compare-pr1067-parity.ts`,
+and `test/scripts/compare-pr1067-parity.test.ts` in a follow-up cleanup PR (keeping this document as the permanent historical record),
+or -- if a reusable deployment-parity harness is wanted for future migrations -- file a tracked issue to de-pin the hardcoded
+baseline revision/ethers version/lockfile hashes into policy/CLI arguments first.
 
 Future proxy/admin choices are tracked in
 [#1130](https://github.com/threshold-network/tbtc-v2/issues/1130);

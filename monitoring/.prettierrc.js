@@ -1,3 +1,1 @@
-module.exports = {
-  ...require("@keep-network/prettier-config-keep"),
-}
+module.exports = require("../config/prettier-base")

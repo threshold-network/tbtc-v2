@@ -73,7 +73,7 @@ export function readSnapshot(directory: string): Snapshot {
   return result
 }
 
-function bytes(snapshot: Snapshot, name: string): Buffer {
+export function bytes(snapshot: Snapshot, name: string): Buffer {
   const value = snapshot.get(name)
   check(value !== undefined, `Missing snapshot file: ${name}`)
   return value
@@ -542,11 +542,19 @@ if (require.main === module) {
     const raw = rawReport(baseline, candidate)
     checkRawInventory(raw)
     process.stdout.write(`${stringify(raw)}\n`)
+    // export/deploy/ (compiled deploy scripts) is intentionally excluded from
+    // this verdict: those 19 files are expected to differ under this and any
+    // future ethers-version migration, so including them would permanently
+    // pin --raw to FAIL and the flag would stop carrying information. The
+    // full per-group breakdown, including export/deploy/, is still printed
+    // above via `raw`; only the summary verdict is scoped to the other three.
     const strict = groups
       .slice(0, 3)
       .every((group) => raw[group].different.length === 0)
     process.stdout.write(
-      `Original whole-file byte parity: ${strict ? "PASS" : "FAIL"}\n`
+      `Byte parity (export.json, export/artifacts/, deployments/): ${
+        strict ? "PASS" : "FAIL"
+      }\n`
     )
     if (mode === "--raw") process.exitCode = strict ? 0 : 1
     else {

@@ -196,9 +196,6 @@ const config: HardhatUserConfig = {
       process.env.USE_EXTERNAL_DEPLOY === "true"
         ? [
             {
-              artifacts: "node_modules/@keep-network/tbtc/artifacts",
-            },
-            {
               artifacts:
                 "node_modules/@threshold-network/solidity-contracts/export/artifacts",
               deploy:
