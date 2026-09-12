@@ -24,6 +24,20 @@ CONTRACT_OWNER_ACCOUNT_PRIVATE_KEY=your_key     # for mainnet
 ETHERSCAN_API_KEY=your_etherscan_api_key
 ```
 
+## Local Network Configuration
+
+`hardhat.config.ts` loads `@keep-network/hardhat-local-networks-config`,
+pinned to the maintained `threshold-network/hardhat-local-networks-config`
+fork (github: dependency), which merges per-developer network overrides
+from `~/.hardhat/networks.json` into `hre.config.networks` on every
+`hardhat` invocation. A network defined there is added, or its fields
+merged, for all hardhat commands — so developers can override RPC URLs or
+accounts privately without touching version-controlled config. Networks
+declared in `hardhat.config.ts` take precedence over this overlay. The
+fork keeps upstream quirks (array duplication, home-entry precedence)
+except the two deviations recorded in its `src/index.ts` header; the
+remaining quirks are tracked in threshold-network/tbtc-v2#1146.
+
 ## Available Commands
 
 ### Development

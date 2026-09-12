@@ -584,10 +584,9 @@
   resolved "https://registry.yarnpkg.com/@keep-network/hardhat-helpers/-/hardhat-helpers-0.6.0-pre.21.tgz#ff6baecfd0e0bbf02d783d18d1884b892067e8fe"
   integrity sha512-jrBg3qFxbSrYG+ipzWDuLxET0mt3FJ0DxYHc2bYbyzZi1HOCqxtHpziGiprjZSELnYkwWYJM54Xv6Mr5Cu6zVQ==
 
-"@keep-network/hardhat-local-networks-config@^0.1.0-pre.4":
+"@keep-network/hardhat-local-networks-config@github:threshold-network/hardhat-local-networks-config#b8423e102710be537a874b002cf9052ffc2bd93e":
   version "0.1.0-pre.4"
-  resolved "https://registry.yarnpkg.com/@keep-network/hardhat-local-networks-config/-/hardhat-local-networks-config-0.1.0-pre.4.tgz#cc0c8ac1f5e30f33378e7451f696ab17d504ab86"
-  integrity sha512-HSQv1xXMUoJCJKrjDJg2Afxj5VmCxEshWZUGNxk1d6D5p5+GBpakb/m6COwMkdwa6cVIcZqUMEBEAnf0fKLWog==
+  resolved "https://codeload.github.com/threshold-network/hardhat-local-networks-config/tar.gz/b8423e102710be537a874b002cf9052ffc2bd93e"
   dependencies:
     deepmerge "^4.2.2"
     untildify "^4.0.0"
