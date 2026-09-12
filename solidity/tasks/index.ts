@@ -8,5 +8,4 @@ if (fs.existsSync("./typechain")) {
   require("./test-utils")
 }
 
-// eslint-disable-next-line global-require
 require("./initialize-wallet-owner")

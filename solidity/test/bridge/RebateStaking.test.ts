@@ -33,7 +33,6 @@ describe("RebateStaking", () => {
   const defaultStakeAmount = to1e18(100000000)
 
   before(async () => {
-    // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({
       deployer,
       governance,

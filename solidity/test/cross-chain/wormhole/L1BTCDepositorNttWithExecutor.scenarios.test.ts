@@ -284,7 +284,7 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
       const [, , user] = await ethers.getSigners()
 
       // Perform multiple rapid updates
-      // eslint-disable-next-line no-plusplus
+
       for (let i = 0; i < 5; i++) {
         const executorArgs = {
           value: ethers.parseEther(`${0.01 + i * 0.01}`),

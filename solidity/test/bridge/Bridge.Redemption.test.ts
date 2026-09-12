@@ -6,8 +6,6 @@ import {
   ContractTransactionResponse,
   BytesLike,
 } from "ethers"
-/* eslint-disable no-underscore-dangle */
-/* eslint-disable @typescript-eslint/no-unused-expressions */
 
 import { ethers, getUnnamedAccounts, helpers } from "hardhat"
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
@@ -91,7 +89,6 @@ describe("Bridge - Redemption", () => {
   let deployer: HardhatEthersSigner
 
   before(async () => {
-    // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({
       deployer,
       governance,
@@ -1491,8 +1488,6 @@ describe("Bridge - Redemption", () => {
                               // allow using the whole wallet's main UTXO value
                               // to fulfill the redemption request.
                               await bridge.setRedemptionTreasuryFeeDivisor(0)
-
-                              // eslint-disable-next-line @typescript-eslint/no-extra-semi
                               ;({
                                 tx,
                                 bridgeBalance,
@@ -1628,7 +1623,6 @@ describe("Bridge - Redemption", () => {
                                 await increaseTime(toNumber(redemptionTimeout))
                               }
 
-                              // eslint-disable-next-line @typescript-eslint/no-extra-semi
                               ;({
                                 tx,
                                 bridgeBalance,
@@ -1775,7 +1769,6 @@ describe("Bridge - Redemption", () => {
                                 )
                               }
 
-                              // eslint-disable-next-line @typescript-eslint/no-extra-semi
                               ;({
                                 tx,
                                 bridgeBalance,
@@ -2189,8 +2182,6 @@ describe("Bridge - Redemption", () => {
                               // allow using the whole wallet's main UTXO value
                               // to fulfill the redemption requests.
                               await bridge.setRedemptionTreasuryFeeDivisor(0)
-
-                              // eslint-disable-next-line @typescript-eslint/no-extra-semi
                               ;({
                                 tx,
                                 bridgeBalance,
@@ -2328,8 +2319,6 @@ describe("Bridge - Redemption", () => {
 
                             before(async () => {
                               await createSnapshot()
-
-                              // eslint-disable-next-line @typescript-eslint/no-extra-semi
                               ;({
                                 tx,
                                 bridgeBalance,
@@ -2504,7 +2493,6 @@ describe("Bridge - Redemption", () => {
                                 }
                               }
 
-                              // eslint-disable-next-line @typescript-eslint/no-extra-semi
                               ;({
                                 tx,
                                 bridgeBalance,
@@ -2677,7 +2665,6 @@ describe("Bridge - Redemption", () => {
                                 }
                               }
 
-                              // eslint-disable-next-line @typescript-eslint/no-extra-semi
                               ;({
                                 tx,
                                 bridgeBalance,
@@ -2859,7 +2846,6 @@ describe("Bridge - Redemption", () => {
                                 )
                               }
 
-                              // eslint-disable-next-line @typescript-eslint/no-extra-semi
                               ;({
                                 tx,
                                 bridgeBalance,
@@ -3067,7 +3053,6 @@ describe("Bridge - Redemption", () => {
                                 )
                               }
 
-                              // eslint-disable-next-line @typescript-eslint/no-extra-semi
                               ;({
                                 tx,
                                 bridgeBalance,

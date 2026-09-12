@@ -135,7 +135,6 @@ describe("AbstractL1BTCDepositor", () => {
   let depositor: TestL1BTCDepositor
 
   before(async () => {
-    // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({
       governance,
       relayer,
@@ -280,7 +279,7 @@ describe("AbstractL1BTCDepositor", () => {
           // Checks-effects-interactions: the deferred gas reimbursement
           // must be deleted from storage before the external
           // `_transferTbtc` call is made.
-          // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+
           expect(await depositor.reimbursementClearedBeforeTransfer()).to.be
             .true
         })
@@ -295,7 +294,6 @@ describe("AbstractL1BTCDepositor", () => {
         })
 
         it("should reimburse finalization before deferred initialization", async () => {
-          // eslint-disable-next-line @typescript-eslint/no-unused-expressions
           await expectCalledTwice(reimbursementPool.refund)
 
           // The finalization reimbursement must be calculated and paid before

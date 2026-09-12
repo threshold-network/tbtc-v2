@@ -1,6 +1,6 @@
 import { toNumber } from "ethers"
 /* eslint-disable no-await-in-loop */
-/* eslint-disable @typescript-eslint/no-extra-semi */
+
 import hre, { ethers, helpers } from "hardhat"
 import { expect } from "chai"
 
@@ -195,7 +195,6 @@ describeFn("Integration Test - Slashing", async () => {
         })
 
         it("should close the wallet in the wallet registry", async () => {
-          // eslint-disable-next-line @typescript-eslint/no-unused-expressions
           expect(await walletRegistry.isWalletRegistered(ecdsaWalletID)).to.be
             .false
         })
@@ -371,7 +370,6 @@ describeFn("Integration Test - Slashing", async () => {
         })
 
         it("should not close the wallet in the wallet registry", async () => {
-          // eslint-disable-next-line @typescript-eslint/no-unused-expressions
           expect(await walletRegistry.isWalletRegistered(ecdsaWalletID)).to.be
             .true
         })
@@ -527,7 +525,6 @@ describeFn("Integration Test - Slashing", async () => {
         })
 
         it("should close the wallet in the wallet registry", async () => {
-          // eslint-disable-next-line @typescript-eslint/no-unused-expressions
           expect(await walletRegistry.isWalletRegistered(ecdsaWalletID)).to.be
             .false
         })

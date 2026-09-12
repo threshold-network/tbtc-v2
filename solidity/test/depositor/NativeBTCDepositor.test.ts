@@ -92,7 +92,6 @@ describe("NativeBTCDepositor", () => {
   let nativeBtcDepositor: NativeBTCDepositor
 
   before(async () => {
-    // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({
       governance,
       relayer,
@@ -219,7 +218,6 @@ describe("NativeBTCDepositor", () => {
       })
 
       it("should set the authorization properly", async () => {
-        // eslint-disable-next-line @typescript-eslint/no-unused-expressions
         expect(
           await nativeBtcDepositor.reimbursementAuthorizations(relayer.address)
         ).to.be.true
@@ -405,7 +403,6 @@ describe("NativeBTCDepositor", () => {
             })
 
             it("should reveal the deposit to the Bridge", async () => {
-              // eslint-disable-next-line @typescript-eslint/no-unused-expressions
               await expectCalledOnce(bridge.revealDepositWithExtraData)
 
               const { fundingTx, reveal, ethereumReceiverBytes32 } =
@@ -500,7 +497,6 @@ describe("NativeBTCDepositor", () => {
               })
 
               it("should reveal the deposit to the Bridge", async () => {
-                // eslint-disable-next-line @typescript-eslint/no-unused-expressions
                 await expectCalledOnce(bridge.revealDepositWithExtraData)
 
                 const { fundingTx, reveal, ethereumReceiverBytes32 } =
@@ -607,7 +603,6 @@ describe("NativeBTCDepositor", () => {
               })
 
               it("should reveal the deposit to the Bridge", async () => {
-                // eslint-disable-next-line @typescript-eslint/no-unused-expressions
                 await expectCalledOnce(bridge.revealDepositWithExtraData)
 
                 const { fundingTx, reveal, ethereumReceiverBytes32 } =
@@ -972,7 +967,6 @@ describe("NativeBTCDepositor", () => {
             })
 
             it("should not call the reimbursement pool", async () => {
-              // eslint-disable-next-line @typescript-eslint/no-unused-expressions
               await expectNotCalled(reimbursementPool.refund)
             })
           })
@@ -1113,7 +1107,6 @@ describe("NativeBTCDepositor", () => {
               })
 
               it("should reimburse finalization before initialization", async () => {
-                // eslint-disable-next-line @typescript-eslint/no-unused-expressions
                 await expectCalledTwice(reimbursementPool.refund)
 
                 // Pay the finalization reimbursement first so gas consumed
@@ -1281,7 +1274,6 @@ describe("NativeBTCDepositor", () => {
               })
 
               it("should pay out proper reimbursements", async () => {
-                // eslint-disable-next-line @typescript-eslint/no-unused-expressions
                 await expectCalledOnce(reimbursementPool.refund)
 
                 // The only call is the deferred gas reimbursement for deposit

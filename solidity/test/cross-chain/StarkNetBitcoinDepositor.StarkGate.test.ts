@@ -86,7 +86,6 @@ describe("StarkNet Bitcoin Depositor - StarkGate Integration Tests", () => {
       //   "   This adds unnecessary overhead (~2000 gas) for array processing"
       // )
 
-      // eslint-disable-next-line @typescript-eslint/no-unused-expressions
       expect(true).to.be.true // Document findings
     })
 
@@ -174,7 +173,7 @@ describe("StarkNet Bitcoin Depositor - StarkGate Integration Tests", () => {
 
       // Research complete
       expect(findings.recommendedFunction).to.equal("deposit")
-      // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+
       expect(findings.hasDepositFunction).to.be.true
     })
   })

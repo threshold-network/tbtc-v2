@@ -5,8 +5,6 @@ import {
   ContractTransactionResponse,
   BytesLike,
 } from "ethers"
-/* eslint-disable no-underscore-dangle */
-/* eslint-disable @typescript-eslint/no-unused-expressions */
 
 import { ethers, helpers } from "hardhat"
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
@@ -59,7 +57,6 @@ describe("Bridge - Fraud", () => {
   let fraudNotifierRewardMultiplier: bigint
 
   before(async () => {
-    // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({ thirdParty, treasury, walletRegistry, bridge } = await bridgeFixture())
     ;({
       fraudChallengeDepositAmount,

@@ -27,7 +27,7 @@ describe("L1BTCDepositorNttWithExecutor - Advanced Functionality", () => {
 
   before(async () => {
     // Get signers
-    // eslint-disable-next-line @typescript-eslint/no-extra-semi
+
     ;[owner] = await ethers.getSigners()
 
     // Deploy mock contracts following StarkNet pattern
