@@ -123,6 +123,9 @@ configuration retains `semi: false`, Solidity's four-space indentation, and
 `trailingComma: "es5"` so upgrading does not silently adopt Prettier 3's new
 trailing-comma default. The formatting-only commit is separate from the
 dependency and configuration changes. Existing generated and deployment
-artifacts remain excluded. Formatting Solidity source changes its compiler
+artifacts remain excluded, as does
+`contracts/cross-chain/wormhole/L1BTCDepositorNttWithExecutor.sol`: its
+deployment record is reconstructed from on-chain state, so the source must stay
+byte-frozen to remain verifiable. Formatting Solidity source changes its compiler
 metadata hash even when the parsed code is unchanged; this does not regenerate
 or replace historical deployment records.
