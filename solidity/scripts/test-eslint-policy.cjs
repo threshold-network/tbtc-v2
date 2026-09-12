@@ -258,45 +258,52 @@ module.exports.value = value
     await context.test(
       "flags waffle.loadFixture as restricted property",
       async () => {
-        const result = await lintJavaScript(`module.exports = function deploy() {
+        const result =
+          await lintJavaScript(`module.exports = function deploy() {
   return waffle.loadFixture(fixture)
 }`)
         assert.ok(
           result.messages.some(
-            (message) => message.ruleId === "no-restricted-properties" && message.severity === 2
+            (message) =>
+              message.ruleId === "no-restricted-properties" &&
+              message.severity === 2
           ),
           JSON.stringify(result.messages)
         )
       }
     )
 
-    await context.test(
-      "flags describe.only in test files",
-      async () => {
-        const result = await lintTestTypescript()
-        assert.ok(
-          result.messages.some(
-            (message) => message.ruleId === "no-only-tests/no-only-tests" && message.severity === 2
-          ),
-          JSON.stringify(result.messages)
-        )
-      }
-    )
+    await context.test("flags describe.only in test files", async () => {
+      const result = await lintTestTypescript()
+      assert.ok(
+        result.messages.some(
+          (message) =>
+            message.ruleId === "no-only-tests/no-only-tests" &&
+            message.severity === 2
+        ),
+        JSON.stringify(result.messages)
+      )
+    })
 
-    await context.test(
-      "reports unused eslint-disable directive",
-      async () => {
-        const result = await lintJavaScript(`// eslint-disable-next-line no-console
+    await context.test("reports unused eslint-disable directive", async () => {
+      const result =
+        await lintJavaScript(`// eslint-disable-next-line no-console
 module.exports = function deploy() {
   return 1
 }`)
-        // The message may have ruleId null or contain the text
-        const unusedMsg = result.messages.find(
-          (m) => m.ruleId === null || (m.message && m.message.includes("Unused eslint-disable directive"))
-        )
-        assert.ok(unusedMsg, `Expected unused eslint-disable directive message. Got: ${JSON.stringify(result.messages)}`)
-      }
-    )
+      // The message may have ruleId null or contain the text
+      const unusedMsg = result.messages.find(
+        (m) =>
+          m.ruleId === null ||
+          (m.message && m.message.includes("Unused eslint-disable directive"))
+      )
+      assert.ok(
+        unusedMsg,
+        `Expected unused eslint-disable directive message. Got: ${JSON.stringify(
+          result.messages
+        )}`
+      )
+    })
   } finally {
     fs.rmSync(directory, { recursive: true, force: true })
   }
