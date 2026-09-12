@@ -28,8 +28,9 @@ This repo also carries two `postinstall` shell scripts under `scripts/` that
 patch other dependencies in place (`apply-solidity-contracts-export-deploy-patch.sh`,
 `patch-hardhat-undici-connect-timeout.sh`). For any future npm-published
 dependency patch, prefer this Yarn `patch:` protocol: it is lockfile-checksummed
-and fails loudly if the patch no longer applies, where the shell scripts silently
-skip on a pattern mismatch. Treat the shell scripts as legacy.
+and verifies that the patch applies. Of the two legacy scripts, the deploy-script
+copier overwrites files without checking their original contents, while the
+Hardhat timeout patch exits successfully if its expected pattern is absent.
 
 A third legacy postinstall script, `patch-upgrades-core-unlinked-bytecode.sh`,
 was removed because this Yarn patch fully supersedes it.
