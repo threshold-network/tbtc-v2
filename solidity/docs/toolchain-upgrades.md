@@ -41,6 +41,21 @@ immutable #1067 revision to reproduce that historical result. This change
 does not revise the checked-in policy, regenerate evidence or claim compatibility
 for the additional TypeScript/export changes.
 
+Raising the export target to ES2020 additionally invalidates the checked-in
+policy on its own, independent of the capture-config-hash rejection above:
+the emit (and therefore the pinned candidate hash) of all 19
+`compiledDeployScripts` entries in `pr1067-parity-policy.json` changes; the
+~42 unpinned `export/deploy/*.js` modules the checker also compares now
+differ from the es5 baseline; and this package's `package.json`/`yarn.lock`
+hashes, also pinned by the policy, change from the `@types/mocha`/
+`@types/chai` bumps above. No fresh capture taken from this branch can
+satisfy `compare-pr1067-parity.ts`. No `for…of` loop in `deploy/` or
+`tasks/` iterates a non-array iterable -- the one semantic risk
+`downlevelIteration` removal could have introduced -- so dropping it while
+raising the target is semantics-preserving for this package's actual code;
+that source-level reasoning is offered in place of a full before/after
+emit capture, which this repository's current tooling cannot produce.
+
 The stack incorporates [#1127](https://github.com/threshold-network/tbtc-v2/pull/1127)
 to include its deployment validation patch and regression coverage.
 
