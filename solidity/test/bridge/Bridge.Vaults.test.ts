@@ -1,15 +1,15 @@
 import { expect } from "chai"
-import { ContractTransaction } from "ethers"
+import { ContractTransactionResponse } from "ethers"
 import { helpers } from "hardhat"
-import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import bridgeFixture from "../fixtures/bridge"
 import type { Bridge, BridgeStub, BridgeGovernance } from "../../typechain"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 
 describe("Bridge - Vaults", () => {
-  let governance: SignerWithAddress
-  let thirdParty: SignerWithAddress
+  let governance: HardhatEthersSigner
+  let thirdParty: HardhatEthersSigner
   let bridge: Bridge & BridgeStub
   let bridgeGovernance: BridgeGovernance
 
@@ -46,7 +46,7 @@ describe("Bridge - Vaults", () => {
     })
 
     describe("when called by the governance", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       describe("when setting vault status as trusted", () => {
         before(async () => {

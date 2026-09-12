@@ -1,8 +1,8 @@
 import { ethers, getUnnamedAccounts, helpers } from "hardhat"
 import { randomBytes } from "crypto"
 import { expect } from "chai"
-import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
-import { BigNumber, ContractTransaction } from "ethers"
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
+import { ContractTransactionResponse } from "ethers"
 import { loadFixture } from "../../helpers/fixture"
 import {
   IBridge,
@@ -48,7 +48,7 @@ describe("BTCDepositorWormhole", () => {
       address: tbtcVaultAddress,
     })
     // Attach the tbtcToken mock to the tbtcVault mock.
-    await tbtcVault.tbtcToken.returns(tbtcToken.address)
+    await tbtcVault.tbtcToken.returns(tbtcToken.target)
 
     const wormhole = await createMock<IWormhole>("IWormhole")
     await wormhole.chainId.returns(l1ChainId)
@@ -92,7 +92,7 @@ describe("BTCDepositorWormhole", () => {
         },
       }
     )
-    const NonEvmBtcDepositor = deployment[0] as BTCDepositorWormhole
+    const NonEvmBtcDepositor = deployment[0] as unknown as BTCDepositorWormhole
 
     await NonEvmBtcDepositor.connect(deployer).transferOwnership(
       governance.address
@@ -114,8 +114,8 @@ describe("BTCDepositorWormhole", () => {
     }
   }
 
-  let governance: SignerWithAddress
-  let relayer: SignerWithAddress
+  let governance: HardhatEthersSigner
+  let relayer: HardhatEthersSigner
 
   let bridge: Mock<IBridge>
   let tbtcToken: TestERC20
@@ -153,7 +153,7 @@ describe("BTCDepositorWormhole", () => {
           NonEvmBtcDepositor.connect(relayer).updateReimbursementPool(
             reimbursementPool.address
           )
-        ).to.be.revertedWith("'Caller is not the owner")
+        ).to.be.revertedWith("Caller is not the owner")
       })
     })
 
@@ -250,7 +250,7 @@ describe("BTCDepositorWormhole", () => {
     })
 
     context("when the caller is the owner", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -286,7 +286,7 @@ describe("BTCDepositorWormhole", () => {
           NonEvmBtcDepositor.connect(relayer).initializeDeposit(
             initializeDepositFixture.fundingTx,
             initializeDepositFixture.reveal,
-            ethers.constants.HashZero
+            ethers.ZeroHash
           )
         ).to.be.revertedWith("L2 deposit owner must not be 0x0")
       })
@@ -295,13 +295,13 @@ describe("BTCDepositorWormhole", () => {
     context("when the destination chain deposit owner is non-zero", () => {
       context("when the requested vault is not TBTCVault", () => {
         it("should revert", async () => {
-          const corruptedReveal = JSON.parse(
-            JSON.stringify(initializeDepositFixture.reveal)
+          const corruptedReveal = structuredClone(
+            initializeDepositFixture.reveal
           )
 
           // Set another vault address deliberately. This value must be
           // different from the tbtcVaultAddress constant used in the fixture.
-          corruptedReveal.vault = ethers.constants.AddressZero
+          corruptedReveal.vault = ethers.ZeroAddress
 
           await expect(
             NonEvmBtcDepositor.connect(relayer).initializeDeposit(
@@ -360,13 +360,13 @@ describe("BTCDepositorWormhole", () => {
               await bridge.deposits
                 .whenCalledWith(initializeDepositFixture.depositKey)
                 .returns({
-                  depositor: ethers.constants.AddressZero,
-                  amount: BigNumber.from(100000),
+                  depositor: ethers.ZeroAddress,
+                  amount: BigInt(100000),
                   revealedAt,
-                  vault: ethers.constants.AddressZero,
-                  treasuryFee: BigNumber.from(0),
+                  vault: ethers.ZeroAddress,
+                  treasuryFee: BigInt(0),
                   sweptAt: finalizedAt,
-                  extraData: ethers.constants.HashZero,
+                  extraData: ethers.ZeroHash,
                 })
 
               // Set the TBTCVault mock to return a deposit state
@@ -413,7 +413,7 @@ describe("BTCDepositorWormhole", () => {
 
         context("when the deposit state is Unknown", () => {
           context("when the reimbursement pool is not set", () => {
-            let tx: ContractTransaction
+            let tx: ContractTransactionResponse
 
             before(async () => {
               await createSnapshot()
@@ -458,7 +458,7 @@ describe("BTCDepositorWormhole", () => {
                 fundingTx.locktime,
               ])
               expect(call.args[1]).to.eql([
-                reveal.fundingOutputIndex,
+                ethers.toBigInt(reveal.fundingOutputIndex),
                 reveal.blindingFactor,
                 reveal.walletPubKeyHash,
                 reveal.refundPubKeyHash,
@@ -492,15 +492,15 @@ describe("BTCDepositorWormhole", () => {
               const gr = await NonEvmBtcDepositor.gasReimbursements(
                 initializeDepositFixture.depositKey
               )
-              expect(gr.receiver).to.equal(ethers.constants.AddressZero)
-              expect(BigNumber.from(gr.gasSpent).eq(0)).to.be.true
+              expect(gr.receiver).to.equal(ethers.ZeroAddress)
+              expect(BigInt(gr.gasSpent) === 0n).to.be.true
             })
           })
 
           context(
             "when the reimbursement pool is set and caller is authorized",
             () => {
-              let tx: ContractTransaction
+              let tx: ContractTransactionResponse
 
               before(async () => {
                 await createSnapshot()
@@ -555,7 +555,7 @@ describe("BTCDepositorWormhole", () => {
                   fundingTx.locktime,
                 ])
                 expect(call.args[1]).to.eql([
-                  reveal.fundingOutputIndex,
+                  ethers.toBigInt(reveal.fundingOutputIndex),
                   reveal.blindingFactor,
                   reveal.walletPubKeyHash,
                   reveal.refundPubKeyHash,
@@ -597,9 +597,9 @@ describe("BTCDepositorWormhole", () => {
                 // the resulting value won't be realistic. We only check that
                 // the gas spent is greater than zero which means the deferred
                 // reimbursement has been recorded properly.
-                expect(gasReimbursement.gasSpent.toNumber()).to.be.greaterThan(
-                  0
-                )
+                expect(
+                  ethers.toNumber(gasReimbursement.gasSpent)
+                ).to.be.greaterThan(0)
               })
             }
           )
@@ -607,7 +607,7 @@ describe("BTCDepositorWormhole", () => {
           context(
             "when the reimbursement pool is set and caller is not authorized",
             () => {
-              let tx: ContractTransaction
+              let tx: ContractTransactionResponse
 
               before(async () => {
                 await createSnapshot()
@@ -662,7 +662,7 @@ describe("BTCDepositorWormhole", () => {
                   fundingTx.locktime,
                 ])
                 expect(call.args[1]).to.eql([
-                  reveal.fundingOutputIndex,
+                  ethers.toBigInt(reveal.fundingOutputIndex),
                   reveal.blindingFactor,
                   reveal.walletPubKeyHash,
                   reveal.refundPubKeyHash,
@@ -696,8 +696,8 @@ describe("BTCDepositorWormhole", () => {
                 const gr = await NonEvmBtcDepositor.gasReimbursements(
                   initializeDepositFixture.depositKey
                 )
-                expect(gr.receiver).to.equal(ethers.constants.AddressZero)
-                expect(BigNumber.from(gr.gasSpent).eq(0)).to.be.true
+                expect(gr.receiver).to.equal(ethers.ZeroAddress)
+                expect(BigInt(gr.gasSpent) === 0n).to.be.true
               })
             }
           )
@@ -743,13 +743,13 @@ describe("BTCDepositorWormhole", () => {
           await bridge.deposits
             .whenCalledWith(initializeDepositFixture.depositKey)
             .returns({
-              depositor: ethers.constants.AddressZero,
-              amount: BigNumber.from(100000),
+              depositor: ethers.ZeroAddress,
+              amount: BigInt(100000),
               revealedAt,
-              vault: ethers.constants.AddressZero,
-              treasuryFee: BigNumber.from(0),
+              vault: ethers.ZeroAddress,
+              treasuryFee: BigInt(0),
               sweptAt: finalizedAt,
-              extraData: ethers.constants.HashZero,
+              extraData: ethers.ZeroHash,
             })
 
           // Set the TBTCVault mock to return a deposit state
@@ -810,13 +810,13 @@ describe("BTCDepositorWormhole", () => {
           await bridge.deposits
             .whenCalledWith(initializeDepositFixture.depositKey)
             .returns({
-              depositor: ethers.constants.AddressZero,
-              amount: BigNumber.from(100000),
+              depositor: ethers.ZeroAddress,
+              amount: BigInt(100000),
               revealedAt,
-              vault: ethers.constants.AddressZero,
-              treasuryFee: BigNumber.from(0),
+              vault: ethers.ZeroAddress,
+              treasuryFee: BigInt(0),
               sweptAt: 0,
-              extraData: ethers.constants.HashZero,
+              extraData: ethers.ZeroHash,
             })
 
           // Set the TBTCVault mock to return a deposit state
@@ -862,13 +862,13 @@ describe("BTCDepositorWormhole", () => {
             await bridge.deposits
               .whenCalledWith(initializeDepositFixture.depositKey)
               .returns({
-                depositor: ethers.constants.AddressZero,
-                amount: BigNumber.from(0),
+                depositor: ethers.ZeroAddress,
+                amount: BigInt(0),
                 revealedAt,
-                vault: ethers.constants.AddressZero,
-                treasuryFee: BigNumber.from(0),
+                vault: ethers.ZeroAddress,
+                treasuryFee: BigInt(0),
                 sweptAt: finalizedAt,
-                extraData: ethers.constants.HashZero,
+                extraData: ethers.ZeroHash,
               })
 
             // Set the TBTCVault mock to return a deposit state that pass the
@@ -915,13 +915,13 @@ describe("BTCDepositorWormhole", () => {
               await bridge.deposits
                 .whenCalledWith(initializeDepositFixture.depositKey)
                 .returns({
-                  depositor: ethers.constants.AddressZero,
-                  amount: BigNumber.from(100000),
+                  depositor: ethers.ZeroAddress,
+                  amount: BigInt(100000),
                   revealedAt,
-                  vault: ethers.constants.AddressZero,
-                  treasuryFee: BigNumber.from(0),
+                  vault: ethers.ZeroAddress,
+                  treasuryFee: BigInt(0),
                   sweptAt: finalizedAt,
-                  extraData: ethers.constants.HashZero,
+                  extraData: ethers.ZeroHash,
                 })
 
               // Set the TBTCVault mock to return a deposit state
@@ -962,10 +962,10 @@ describe("BTCDepositorWormhole", () => {
             const satoshiMultiplier = to1ePrecision(1, 10)
             const messageFee = 1000
             const transferSequence = 10 // Just an arbitrary value.
-            const depositAmount = BigNumber.from(100000)
-            const treasuryFee = BigNumber.from(500)
+            const depositAmount = BigInt(100000)
+            const treasuryFee = BigInt(500)
             const optimisticMintingFeeDivisor = 20 // 5%
-            const depositTxMaxFee = BigNumber.from(1000)
+            const depositTxMaxFee = BigInt(1000)
 
             // amountSubTreasury = (depositAmount - treasuryFee) * satoshiMultiplier = 99500 * 1e10
             // omFee = amountSubTreasury / optimisticMintingFeeDivisor = 4975 * 1e10
@@ -973,7 +973,7 @@ describe("BTCDepositorWormhole", () => {
             // tbtcAmount = amountSubTreasury - omFee - txMaxFee = 93525 * 1e10
             const expectedTbtcAmount = to1ePrecision(93525, 10)
 
-            let tx: ContractTransaction
+            let tx: ContractTransactionResponse
 
             context("when the reimbursement pool is not set", () => {
               before(async () => {
@@ -1003,7 +1003,7 @@ describe("BTCDepositorWormhole", () => {
                 await bridge.deposits
                   .whenCalledWith(initializeDepositFixture.depositKey)
                   .returns({
-                    depositor: NonEvmBtcDepositor.address,
+                    depositor: NonEvmBtcDepositor.target,
                     amount: depositAmount,
                     revealedAt,
                     vault: initializeDepositFixture.reveal.vault,
@@ -1060,7 +1060,7 @@ describe("BTCDepositorWormhole", () => {
                     initializeDepositFixture.depositKey,
                     initializeDepositFixture.destinationChainDepositOwner.toLowerCase(),
                     relayer.address,
-                    depositAmount.mul(satoshiMultiplier),
+                    depositAmount * satoshiMultiplier,
                     expectedTbtcAmount
                   )
               })
@@ -1068,7 +1068,7 @@ describe("BTCDepositorWormhole", () => {
               it("should increase TBTC allowance for Wormhole Token Bridge", async () => {
                 expect(
                   await tbtcToken.allowance(
-                    NonEvmBtcDepositor.address,
+                    NonEvmBtcDepositor.target,
                     wormholeTokenBridge.address
                   )
                 ).to.equal(expectedTbtcAmount)
@@ -1087,7 +1087,7 @@ describe("BTCDepositorWormhole", () => {
                 const call =
                   await wormholeTokenBridge.transferTokensWithPayload.getCall(0)
                 expect(call.value).to.equal(messageFee)
-                expect(call.args[0]).to.equal(tbtcToken.address)
+                expect(call.args[0]).to.equal(tbtcToken.target)
                 expect(call.args[1]).to.equal(expectedTbtcAmount)
                 expect(call.args[2]).to.equal(
                   await NonEvmBtcDepositor.destinationChainId()
@@ -1113,10 +1113,10 @@ describe("BTCDepositorWormhole", () => {
                 // Use 1Gwei to make sure it's smaller than default gas price
                 // used by Hardhat (200 Gwei) and this value will be used
                 // for msgValueOffset calculation.
-                const reimbursementPoolMaxGasPrice = BigNumber.from(1000000000)
+                const reimbursementPoolMaxGasPrice = BigInt(1000000000)
                 const reimbursementPoolStaticGas = 10000 // Just an arbitrary value.
 
-                let initializeDepositGasSpent: BigNumber
+                let initializeDepositGasSpent: bigint
 
                 before(async () => {
                   await createSnapshot()
@@ -1168,7 +1168,7 @@ describe("BTCDepositorWormhole", () => {
                   await bridge.deposits
                     .whenCalledWith(initializeDepositFixture.depositKey)
                     .returns({
-                      depositor: NonEvmBtcDepositor.address,
+                      depositor: NonEvmBtcDepositor.target,
                       amount: depositAmount,
                       revealedAt,
                       vault: initializeDepositFixture.reveal.vault,
@@ -1229,7 +1229,7 @@ describe("BTCDepositorWormhole", () => {
                       initializeDepositFixture.depositKey,
                       initializeDepositFixture.destinationChainDepositOwner.toLowerCase(),
                       relayer.address,
-                      depositAmount.mul(satoshiMultiplier),
+                      depositAmount * satoshiMultiplier,
                       expectedTbtcAmount
                     )
                 })
@@ -1237,7 +1237,7 @@ describe("BTCDepositorWormhole", () => {
                 it("should increase TBTC allowance for Wormhole Token Bridge", async () => {
                   expect(
                     await tbtcToken.allowance(
-                      NonEvmBtcDepositor.address,
+                      NonEvmBtcDepositor.target,
                       wormholeTokenBridge.address
                     )
                   ).to.equal(expectedTbtcAmount)
@@ -1258,7 +1258,7 @@ describe("BTCDepositorWormhole", () => {
                       0
                     )
                   expect(call.value).to.equal(messageFee)
-                  expect(call.args[0]).to.equal(tbtcToken.address)
+                  expect(call.args[0]).to.equal(tbtcToken.target)
                   expect(call.args[1]).to.equal(expectedTbtcAmount)
                   expect(call.args[2]).to.equal(
                     await NonEvmBtcDepositor.destinationChainId()
@@ -1287,12 +1287,12 @@ describe("BTCDepositorWormhole", () => {
                   // message value attached to the finalizeDeposit call which
                   // is a good indicator that the reimbursement has been
                   // calculated properly.
-                  const msgValueOffset = BigNumber.from(messageFee)
-                    .div(reimbursementPoolMaxGasPrice)
-                    .sub(reimbursementPoolStaticGas)
+                  const msgValueOffset =
+                    BigInt(messageFee) / reimbursementPoolMaxGasPrice -
+                    ethers.toBigInt(reimbursementPoolStaticGas)
                   expect(
-                    BigNumber.from(call1.args[0]).toNumber()
-                  ).to.be.greaterThan(msgValueOffset.toNumber())
+                    ethers.toNumber(BigInt(String(call1.args[0])))
+                  ).to.be.greaterThan(ethers.toNumber(msgValueOffset))
                   expect(call1.args[1]).to.equal(relayer.address)
 
                   // Second call is the deferred gas reimbursement for deposit
@@ -1310,10 +1310,10 @@ describe("BTCDepositorWormhole", () => {
                 // Use 1Gwei to make sure it's smaller than default gas price
                 // used by Hardhat (200 Gwei) and this value will be used
                 // for msgValueOffset calculation.
-                const reimbursementPoolMaxGasPrice = BigNumber.from(1000000000)
+                const reimbursementPoolMaxGasPrice = BigInt(1000000000)
                 const reimbursementPoolStaticGas = 10000 // Just an arbitrary value.
 
-                let initializeDepositGasSpent: BigNumber
+                let initializeDepositGasSpent: bigint
 
                 before(async () => {
                   await createSnapshot()
@@ -1366,7 +1366,7 @@ describe("BTCDepositorWormhole", () => {
                   await bridge.deposits
                     .whenCalledWith(initializeDepositFixture.depositKey)
                     .returns({
-                      depositor: NonEvmBtcDepositor.address,
+                      depositor: NonEvmBtcDepositor.target,
                       amount: depositAmount,
                       revealedAt,
                       vault: initializeDepositFixture.reveal.vault,
@@ -1430,7 +1430,7 @@ describe("BTCDepositorWormhole", () => {
                       initializeDepositFixture.depositKey,
                       initializeDepositFixture.destinationChainDepositOwner.toLowerCase(),
                       relayer.address,
-                      depositAmount.mul(satoshiMultiplier),
+                      depositAmount * satoshiMultiplier,
                       expectedTbtcAmount
                     )
                 })
@@ -1438,7 +1438,7 @@ describe("BTCDepositorWormhole", () => {
                 it("should increase TBTC allowance for Wormhole Token Bridge", async () => {
                   expect(
                     await tbtcToken.allowance(
-                      NonEvmBtcDepositor.address,
+                      NonEvmBtcDepositor.target,
                       wormholeTokenBridge.address
                     )
                   ).to.equal(expectedTbtcAmount)
@@ -1459,7 +1459,7 @@ describe("BTCDepositorWormhole", () => {
                       0
                     )
                   expect(call.value).to.equal(messageFee)
-                  expect(call.args[0]).to.equal(tbtcToken.address)
+                  expect(call.args[0]).to.equal(tbtcToken.target)
                   expect(call.args[1]).to.equal(expectedTbtcAmount)
                   expect(call.args[2]).to.equal(
                     await NonEvmBtcDepositor.destinationChainId()
@@ -1513,9 +1513,9 @@ describe("BTCDepositorWormhole", () => {
   context("when reimburseTxMaxFee is true", () => {
     const satoshiMultiplier = to1ePrecision(1, 10)
     const messageFee = 1000
-    const depositTxMaxFee = BigNumber.from(1000)
-    const depositAmount = BigNumber.from(100000)
-    const treasuryFee = BigNumber.from(500)
+    const depositTxMaxFee = BigInt(1000)
+    const depositAmount = BigInt(100000)
+    const treasuryFee = BigInt(500)
     const optimisticMintingFeeDivisor = 20
 
     // For depositAmount=100000 & treasuryFee=500:
@@ -1565,7 +1565,7 @@ describe("BTCDepositorWormhole", () => {
       await bridge.deposits
         .whenCalledWith(initializeDepositFixture.depositKey)
         .returns({
-          depositor: NonEvmBtcDepositor.address,
+          depositor: NonEvmBtcDepositor.target,
           amount: depositAmount,
           revealedAt,
           vault: initializeDepositFixture.reveal.vault,
@@ -1585,7 +1585,7 @@ describe("BTCDepositorWormhole", () => {
 
       // 7) Mint enough tBTC to cover the reimbursed amount.
       await tbtcToken.mint(
-        NonEvmBtcDepositor.address,
+        NonEvmBtcDepositor.target,
         expectedTbtcAmountReimbursed
       )
 
@@ -1604,7 +1604,7 @@ describe("BTCDepositorWormhole", () => {
           initializeDepositFixture.depositKey,
           initializeDepositFixture.destinationChainDepositOwner.toLowerCase(),
           relayer.address,
-          depositAmount.mul(satoshiMultiplier),
+          depositAmount * satoshiMultiplier,
           expectedTbtcAmountReimbursed
         )
     })

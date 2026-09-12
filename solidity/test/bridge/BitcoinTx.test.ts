@@ -1,6 +1,6 @@
 import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
-import { ContractTransaction } from "ethers"
+import { ContractTransactionResponse } from "ethers"
 import type { SystemTestRelay, TestBitcoinTx } from "../../typechain"
 import { assertGasUsed } from "../integration/utils/gas"
 
@@ -15,12 +15,12 @@ describe("BitcoinTx", () => {
     relay = await SystemTestRelay.deploy()
 
     const TestBitcoinTx = await ethers.getContractFactory("TestBitcoinTx")
-    bitcoinTx = await TestBitcoinTx.deploy(relay.address)
+    bitcoinTx = await TestBitcoinTx.deploy(relay.target)
   })
 
   describe("validateProof", () => {
     context("when used with a valid but long proof", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       // Source: https://github.com/keep-network/bitcoin-spv/blob/releases/mainnet/solidity/v3.4.0-solc-0.8/testVectors.json#L910-L916
       const testData = {
@@ -138,7 +138,7 @@ describe("BitcoinTx", () => {
     ) =>
       // callStatic because the function is pure
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (bitcoinTx as any).callStatic.exposeDetermineRequestedDifficulty(
+      (bitcoinTx as any).exposeDetermineRequestedDifficulty.staticCall(
         headers,
         currentDiff,
         prevDiff

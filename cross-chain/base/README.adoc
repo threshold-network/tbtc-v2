@@ -42,13 +42,15 @@ yarn deploy --network <network>
 
 Supported networks:
 - `hardhat` - for local development
-- `baseGoerli` - L2 testing network (will become deprecated with end of 2023)
 - `baseSepolia` - L2 testing network
 - `base` - L2 mainnet
 
 Currently, this module does not deploy any contracts on L1. All the existing 
 Wormhole contract addresses that are used in this module are stored under 
 `external/<network>` dir.
+
+Historical Goerli-era deployment records are retained in `external/` for
+reference; those networks are no longer configured for deployment.
 
 If contracts haven't been built yet or changes occurred, `deploy` task will build
 the contracts before running the deployment script. This command produces

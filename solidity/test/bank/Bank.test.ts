@@ -1,25 +1,30 @@
 import { ethers, getUnnamedAccounts, helpers } from "hardhat"
-import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import { expect } from "chai"
 
-import { ContractTransaction, Signature, Wallet } from "ethers"
+import {
+  ContractTransactionResponse,
+  Signature,
+  Wallet,
+  HDNodeWallet,
+} from "ethers"
 import { loadFixture } from "../helpers/fixture"
-import type { Bank, IVault } from "../../typechain"
+import type { Bank, IVault, TBTC, TBTCVault } from "../../typechain"
 import { to1e18, toSatoshis } from "../helpers/contract-test-helpers"
 import { createMock, expectCalledOnceWith } from "../helpers/mock"
 import type { Mock } from "../helpers/mock"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 
-const ZERO_ADDRESS = ethers.constants.AddressZero
-const MAX_UINT256 = ethers.constants.MaxUint256
+const ZERO_ADDRESS = ethers.ZeroAddress
+const MAX_UINT256 = ethers.MaxUint256
 
 const fixture = async () => {
   const [deployer, governance, bridge, thirdParty] = await ethers.getSigners()
 
   const Bank = await ethers.getContractFactory("Bank")
   const bank = await Bank.deploy()
-  await bank.deployed()
+  await bank.waitForDeployment()
 
   await bank.connect(deployer).updateBridge(bridge.address)
   await bank.connect(deployer).transferOwnership(governance.address)
@@ -37,11 +42,11 @@ describe("Bank", () => {
   // default Hardhat's networks blockchain, see https://hardhat.org/config/
   const hardhatNetworkId = 31337
 
-  let deployer: SignerWithAddress
+  let deployer: HardhatEthersSigner
 
-  let governance: SignerWithAddress
-  let bridge: SignerWithAddress
-  let thirdParty: SignerWithAddress
+  let governance: HardhatEthersSigner
+  let bridge: HardhatEthersSigner
+  let thirdParty: HardhatEthersSigner
 
   let bank: Bank
 
@@ -54,8 +59,8 @@ describe("Bank", () => {
 
   describe("PERMIT_TYPEHASH", () => {
     it("should be keccak256 of EIP2612 Permit message", async () => {
-      const expected = ethers.utils.keccak256(
-        ethers.utils.toUtf8Bytes(
+      const expected = ethers.keccak256(
+        ethers.toUtf8Bytes(
           "Permit(address owner,address spender,uint256 value,uint256 nonce,uint256 deadline)"
         )
       )
@@ -93,7 +98,7 @@ describe("Bank", () => {
     })
 
     context("when called by the governance", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -119,7 +124,7 @@ describe("Bank", () => {
   describe("transferBalance", () => {
     const initialBalance = toSatoshis(500)
 
-    let spender: SignerWithAddress
+    let spender: HardhatEthersSigner
     let recipient: string
 
     before(async () => {
@@ -150,7 +155,7 @@ describe("Bank", () => {
     context("when the recipient is the bank address", () => {
       it("should revert", async () => {
         await expect(
-          bank.connect(spender).transferBalance(bank.address, initialBalance)
+          bank.connect(spender).transferBalance(bank.target, initialBalance)
         ).to.be.revertedWith("Can not transfer to the Bank address")
       })
     })
@@ -158,16 +163,14 @@ describe("Bank", () => {
     context("when the spender has not enough balance", () => {
       it("should revert", async () => {
         await expect(
-          bank
-            .connect(spender)
-            .transferBalance(recipient, initialBalance.add(1))
+          bank.connect(spender).transferBalance(recipient, initialBalance + 1n)
         ).to.be.revertedWith("Transfer amount exceeds balance")
       })
     })
 
     context("when the spender transfers part of their balance", () => {
       const amount = toSatoshis(21)
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -180,7 +183,7 @@ describe("Bank", () => {
 
       it("should transfer the requested amount", async () => {
         expect(await bank.balanceOf(spender.address)).to.equal(
-          initialBalance.sub(amount)
+          initialBalance - amount
         )
         expect(await bank.balanceOf(recipient)).to.equal(amount)
       })
@@ -210,16 +213,16 @@ describe("Bank", () => {
 
         it("should transfer the requested amount", async () => {
           expect(await bank.balanceOf(spender.address)).to.equal(
-            initialBalance.sub(amount1).sub(amount2)
+            initialBalance - amount1 - amount2
           )
-          expect(await bank.balanceOf(recipient)).to.equal(amount1.add(amount2))
+          expect(await bank.balanceOf(recipient)).to.equal(amount1 + amount2)
         })
       }
     )
 
     context("when the spender transfers their entire balance", () => {
       const amount = initialBalance
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -244,7 +247,7 @@ describe("Bank", () => {
 
     context("when the spender transfers 0 balance", () => {
       const amount = 0
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -271,7 +274,7 @@ describe("Bank", () => {
   describe("approveBalanceAndCall", () => {
     const amount = toSatoshis(11)
 
-    let owner: SignerWithAddress
+    let owner: HardhatEthersSigner
 
     let mockVault: Mock<IVault>
 
@@ -284,7 +287,7 @@ describe("Bank", () => {
     context("when the spender is the zero address", () => {
       it("should revert", async () => {
         await expect(
-          bank.connect(owner).approveBalanceAndCall(ZERO_ADDRESS, amount, [])
+          bank.connect(owner).approveBalanceAndCall(ZERO_ADDRESS, amount, "0x")
         ).to.be.revertedWith("Can not approve to the zero address")
       })
     })
@@ -302,13 +305,13 @@ describe("Bank", () => {
         await expect(
           bank
             .connect(owner)
-            .approveBalanceAndCall(mockVault.address, amount, [])
+            .approveBalanceAndCall(mockVault.address, amount, "0x")
         ).to.be.reverted
       })
     })
 
     context("when the spender had no approved balance before", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -379,7 +382,7 @@ describe("Bank", () => {
   describe("approveBalance", () => {
     const amount = toSatoshis(10)
 
-    let owner: SignerWithAddress
+    let owner: HardhatEthersSigner
     let spender: string
 
     before(async () => {
@@ -398,7 +401,7 @@ describe("Bank", () => {
     })
 
     context("when the spender had no approved balance before", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       context("when setting approval to non-zero amount", () => {
         before(async () => {
@@ -486,7 +489,7 @@ describe("Bank", () => {
   describe("increaseBalanceAllowance", () => {
     const amount = toSatoshis(12)
 
-    let owner: SignerWithAddress
+    let owner: HardhatEthersSigner
     let spender: string
 
     before(async () => {
@@ -506,12 +509,12 @@ describe("Bank", () => {
       it("should revert", async () => {
         await expect(
           bank.connect(owner).increaseBalanceAllowance(ZERO_ADDRESS, amount)
-        ).to.be.revertedWith("Can not approve")
+        ).to.be.revertedWith("Can not approve to the zero address")
       })
     })
 
     context("when the spender had no approved balance before", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -546,7 +549,7 @@ describe("Bank", () => {
 
       it("should increase the previous allowance", async () => {
         expect(await bank.allowance(owner.address, spender)).to.equal(
-          toSatoshis(1337).add(amount)
+          toSatoshis(1337) + amount
         )
       })
     })
@@ -572,7 +575,7 @@ describe("Bank", () => {
   describe("decreaseBalanceAllowance", () => {
     const approvedAmount = toSatoshis(99)
 
-    let owner: SignerWithAddress
+    let owner: HardhatEthersSigner
     let spender: string
 
     before(async () => {
@@ -622,7 +625,7 @@ describe("Bank", () => {
 
       it("should decrease the previous allowance", async () => {
         expect(await bank.allowance(owner.address, spender)).to.equal(
-          approvedAmount.sub(decreaseBy)
+          approvedAmount - decreaseBy
         )
       })
     })
@@ -632,8 +635,8 @@ describe("Bank", () => {
     const initialBalance = toSatoshis(500)
     const approvedBalance = toSatoshis(45)
 
-    let owner: SignerWithAddress
-    let spender: SignerWithAddress
+    let owner: HardhatEthersSigner
+    let spender: HardhatEthersSigner
     let recipient: string
 
     before(async () => {
@@ -668,7 +671,7 @@ describe("Bank", () => {
         await expect(
           bank
             .connect(spender)
-            .transferBalanceFrom(owner.address, bank.address, approvedBalance)
+            .transferBalanceFrom(owner.address, bank.target, approvedBalance)
         ).to.be.revertedWith("Can not transfer to the Bank address")
       })
     })
@@ -678,17 +681,13 @@ describe("Bank", () => {
         await expect(
           bank
             .connect(spender)
-            .transferBalanceFrom(
-              owner.address,
-              recipient,
-              approvedBalance.add(1)
-            )
+            .transferBalanceFrom(owner.address, recipient, approvedBalance + 1n)
         ).to.be.revertedWith("Transfer amount exceeds allowance")
       })
     })
 
     context("when the owner has not enough balance", () => {
-      const amount = initialBalance.add(1)
+      const amount = initialBalance + 1n
 
       before(async () => {
         await createSnapshot()
@@ -714,7 +713,7 @@ describe("Bank", () => {
 
     context("when the spender transfers part of the approved balance", () => {
       const amount = toSatoshis(2)
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -729,7 +728,7 @@ describe("Bank", () => {
 
       it("should transfer the requested amount", async () => {
         expect(await bank.balanceOf(owner.address)).to.equal(
-          initialBalance.sub(amount)
+          initialBalance - amount
         )
         expect(await bank.balanceOf(recipient)).to.equal(amount)
       })
@@ -742,7 +741,7 @@ describe("Bank", () => {
 
       it("should reduce the spender allowance", async () => {
         expect(await bank.allowance(owner.address, spender.address)).to.equal(
-          approvedBalance.sub(amount)
+          approvedBalance - amount
         )
       })
     })
@@ -753,8 +752,8 @@ describe("Bank", () => {
         const amount1 = toSatoshis(1)
         const amount2 = toSatoshis(3)
 
-        let tx1: ContractTransaction
-        let tx2: ContractTransaction
+        let tx1: ContractTransactionResponse
+        let tx2: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -772,9 +771,9 @@ describe("Bank", () => {
 
         it("should transfer the requested amount", async () => {
           expect(await bank.balanceOf(owner.address)).to.equal(
-            initialBalance.sub(amount1).sub(amount2)
+            initialBalance - amount1 - amount2
           )
-          expect(await bank.balanceOf(recipient)).to.equal(amount1.add(amount2))
+          expect(await bank.balanceOf(recipient)).to.equal(amount1 + amount2)
         })
 
         it("should emit BalanceTransferred events", async () => {
@@ -788,7 +787,7 @@ describe("Bank", () => {
 
         it("should reduce the spender allowance", async () => {
           expect(await bank.allowance(owner.address, spender.address)).to.equal(
-            approvedBalance.sub(amount1).sub(amount2)
+            approvedBalance - amount1 - amount2
           )
         })
       }
@@ -812,7 +811,7 @@ describe("Bank", () => {
 
         it("should transfer the requested amount", async () => {
           expect(await bank.balanceOf(owner.address)).to.equal(
-            initialBalance.sub(amount)
+            initialBalance - amount
           )
           expect(await bank.balanceOf(recipient)).to.equal(amount)
         })
@@ -886,7 +885,7 @@ describe("Bank", () => {
     const initialBalance = toSatoshis(1231)
     const permittedBalance = toSatoshis(45)
 
-    let owner: Wallet
+    let owner: HDNodeWallet
     let spender: string
 
     let yesterday: number
@@ -911,28 +910,32 @@ describe("Bank", () => {
       await restoreSnapshot()
     })
 
-    const getApproval = async (amount, spenderAddress, deadline) => {
-      // We use ethers.utils.SigningKey for a Wallet instead of
+    const getApproval = async (
+      amount: bigint,
+      spenderAddress: string,
+      deadline: number | bigint
+    ) => {
+      // We use ethers.SigningKey for a Wallet instead of
       // Signer.signMessage to do not add '\x19Ethereum Signed Message:\n'
       // prefix to the signed message. The '\x19` protection (see EIP191 for
       // more details on '\x19' rationale and format) is already included in
       // EIP2612 permit signed message and '\x19Ethereum Signed Message:\n'
       // should not be used there.
-      const signingKey = new ethers.utils.SigningKey(owner.privateKey)
+      const signingKey = new ethers.SigningKey(owner.privateKey)
 
       const domainSeparator = await bank.DOMAIN_SEPARATOR()
       const permitTypehash = await bank.PERMIT_TYPEHASH()
       const nonce = await bank.nonces(owner.address)
 
-      const approvalDigest = ethers.utils.keccak256(
-        ethers.utils.solidityPack(
+      const approvalDigest = ethers.keccak256(
+        ethers.solidityPacked(
           ["bytes1", "bytes1", "bytes32", "bytes32"],
           [
             "0x19",
             "0x01",
             domainSeparator,
-            ethers.utils.keccak256(
-              ethers.utils.defaultAbiCoder.encode(
+            ethers.keccak256(
+              ethers.AbiCoder.defaultAbiCoder().encode(
                 [
                   "bytes32",
                   "address",
@@ -955,7 +958,7 @@ describe("Bank", () => {
         )
       )
 
-      return ethers.utils.splitSignature(signingKey.signDigest(approvalDigest))
+      return ethers.Signature.from(signingKey.sign(approvalDigest))
     }
 
     context("when permission expired", () => {
@@ -1039,7 +1042,7 @@ describe("Bank", () => {
             bank.connect(thirdParty).permit(
               owner.address,
               spender,
-              permittedBalance.add(1), // does not match the signature
+              permittedBalance + 1n, // does not match the signature
               deadline,
               signature.v,
               signature.r,
@@ -1099,7 +1102,7 @@ describe("Bank", () => {
     })
 
     context("when the spender had no permitted balance before", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -1143,7 +1146,7 @@ describe("Bank", () => {
     })
 
     context("when the spender had a permitted balance before", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -1259,14 +1262,13 @@ describe("Bank", () => {
       context("when increasing balance for the Bank", () => {
         it("should revert", async () => {
           await expect(
-            bank.connect(bridge).increaseBalance(bank.address, amount)
+            bank.connect(bridge).increaseBalance(bank.target, amount)
           ).to.be.revertedWith("Can not increase balance for Bank")
         })
       })
 
       context("when called for a valid recipient", () => {
-        let tx
-
+        let tx: ContractTransactionResponse
         before(async () => {
           await createSnapshot()
           tx = await bank.connect(bridge).increaseBalance(recipient, amount)
@@ -1327,7 +1329,7 @@ describe("Bank", () => {
             bank
               .connect(bridge)
               .increaseBalances(
-                [recipient1, bank.address, recipient3],
+                [recipient1, bank.target, recipient3],
                 [amount1, amount2, amount3]
               )
           ).to.be.revertedWith("Can not increase balance for Bank")
@@ -1358,7 +1360,7 @@ describe("Bank", () => {
       })
 
       context("when called for a valid recipient", () => {
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -1403,21 +1405,21 @@ describe("Bank", () => {
     const depositedAmount2 = toSatoshis(11)
     const totalDepositedAmount = toSatoshis(30) // 19 + 11
 
-    let vault
-    let tbtc
+    let vault: TBTCVault
+    let tbtc: TBTC
 
     before(async () => {
       await createSnapshot()
 
       const TBTC = await ethers.getContractFactory("TBTC")
       tbtc = await TBTC.deploy()
-      await tbtc.deployed()
+      await tbtc.waitForDeployment()
 
       const Vault = await ethers.getContractFactory("TBTCVault")
-      vault = await Vault.deploy(bank.address, tbtc.address, bridge.address)
-      await vault.deployed()
+      vault = await Vault.deploy(bank.target, tbtc.target, bridge.address)
+      await vault.waitForDeployment()
 
-      await tbtc.connect(deployer).transferOwnership(vault.address)
+      await tbtc.connect(deployer).transferOwnership(vault.target)
     })
 
     after(async () => {
@@ -1430,7 +1432,7 @@ describe("Bank", () => {
           bank
             .connect(thirdParty)
             .increaseBalanceAndCall(
-              vault.address,
+              vault.target,
               [depositor1, depositor2],
               [depositedAmount1, depositedAmount2]
             )
@@ -1439,7 +1441,7 @@ describe("Bank", () => {
     })
 
     context("when called by the bridge", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -1447,7 +1449,7 @@ describe("Bank", () => {
         tx = await bank
           .connect(bridge)
           .increaseBalanceAndCall(
-            vault.address,
+            vault.target,
             [depositor1, depositor2],
             [depositedAmount1, depositedAmount2]
           )
@@ -1465,7 +1467,7 @@ describe("Bank", () => {
               bank
                 .connect(bridge)
                 .increaseBalanceAndCall(
-                  vault.address,
+                  vault.target,
                   [depositor1, depositor2],
                   [depositedAmount1]
                 )
@@ -1482,7 +1484,7 @@ describe("Bank", () => {
               bank
                 .connect(bridge)
                 .increaseBalanceAndCall(
-                  vault.address,
+                  vault.target,
                   [depositor1],
                   [depositedAmount1, depositedAmount2]
                 )
@@ -1492,7 +1494,7 @@ describe("Bank", () => {
       )
 
       it("should increase vault's balance", async () => {
-        expect(await bank.balanceOf(vault.address)).to.equal(
+        expect(await bank.balanceOf(vault.target)).to.equal(
           totalDepositedAmount
         )
       })
@@ -1500,7 +1502,7 @@ describe("Bank", () => {
       it("should emit BalanceIncreased event", async () => {
         await expect(tx)
           .to.emit(bank, "BalanceIncreased")
-          .withArgs(vault.address, totalDepositedAmount)
+          .withArgs(vault.target, totalDepositedAmount)
       })
 
       it("should call the vault", async () => {
@@ -1515,7 +1517,7 @@ describe("Bank", () => {
     const initialBalance = toSatoshis(21)
     const amount = toSatoshis(10)
 
-    let tx: ContractTransaction
+    let tx: ContractTransactionResponse
 
     before(async () => {
       await createSnapshot()
@@ -1533,7 +1535,7 @@ describe("Bank", () => {
 
     it("should decrease caller's balance", async () => {
       expect(await bank.balanceOf(thirdParty.address)).to.equal(
-        initialBalance.sub(amount)
+        initialBalance - amount
       )
     })
 
@@ -1546,9 +1548,9 @@ describe("Bank", () => {
 
   describe("DOMAIN_SEPARATOR", () => {
     it("should be keccak256 of EIP712 domain struct", async () => {
-      const { keccak256 } = ethers.utils
-      const { defaultAbiCoder } = ethers.utils
-      const { toUtf8Bytes } = ethers.utils
+      const { keccak256 } = ethers
+      const defaultAbiCoder = ethers.AbiCoder.defaultAbiCoder()
+      const { toUtf8Bytes } = ethers
 
       const expected = keccak256(
         defaultAbiCoder.encode(
@@ -1562,7 +1564,7 @@ describe("Bank", () => {
             keccak256(toUtf8Bytes("TBTC Bank")),
             keccak256(toUtf8Bytes("1")),
             hardhatNetworkId,
-            bank.address,
+            bank.target,
           ]
         )
       )

@@ -1452,9 +1452,9 @@
   dependencies:
     defer-to-connect "^2.0.0"
 
-"@thesis-co/eslint-config@github:thesis/eslint-config":
+"@thesis-co/eslint-config@https://codeload.github.com/thesis/eslint-config/tar.gz/495d98594315527450bba336c4319acebcaebb7f":
   version "0.5.0-pre"
-  resolved "https://codeload.github.com/thesis/eslint-config/tar.gz/495d98594315527450bba336c4319acebcaebb7f"
+  resolved "https://codeload.github.com/thesis/eslint-config/tar.gz/495d98594315527450bba336c4319acebcaebb7f#76825fa5f789acd68128f8efaf928ac1e27b779e"
   dependencies:
     "@thesis-co/prettier-config" "github:thesis/prettier-config"
     "@typescript-eslint/eslint-plugin" ">4.32.0"
@@ -10224,9 +10224,8 @@ solc@^0.6.3:
     semver "^5.5.0"
     tmp "0.0.33"
 
-"solhint-config-keep@github:keep-network/solhint-config-keep":
-  version "0.1.0"
-  resolved "https://codeload.github.com/keep-network/solhint-config-keep/tar.gz/5e1751e58c0f1c507305ffc8c7f6c58047657ada"
+"solhint-config-tbtc@file:../../config/solhint-config-tbtc":
+  version "1.0.0"
 
 solhint@3.3.6:
   version "3.3.6"

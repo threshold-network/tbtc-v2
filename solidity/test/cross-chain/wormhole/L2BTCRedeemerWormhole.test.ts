@@ -1,8 +1,9 @@
 import { ethers, getUnnamedAccounts, helpers } from "hardhat"
 import { randomBytes } from "crypto"
 import { expect } from "chai"
-import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
-import { BigNumber, Contract, ContractTransaction } from "ethers"
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
+import { BaseContract, ContractTransactionResponse } from "ethers"
+import { requireValue } from "../../../helpers/require-value"
 import { loadFixture } from "../../helpers/fixture"
 import {
   IL2WormholeGateway,
@@ -18,16 +19,19 @@ const { createSnapshot, restoreSnapshot } = helpers.snapshot
 
 // Returns hexString padded on the left with zeros to 32 bytes.
 const toWormholeFormat = (address: string): string =>
-  ethers.utils.hexlify(ethers.utils.zeroPad(address, 32))
+  ethers.hexlify(ethers.zeroPadValue(address, 32))
 
 // Assert a no-argument custom error revert without depending on hardhat's
 // error-decode state (proxies can surface the error as raw selector data).
 const expectRevertWithCustomError = async (
   promise: Promise<unknown>,
-  contract: Contract,
+  contract: BaseContract,
   errorName: string
 ) => {
-  const selector = contract.interface.getSighash(`${errorName}()`)
+  const { selector } = requireValue(
+    contract.interface.getError(`${errorName}()`),
+    `${errorName}() ABI fragment`
+  )
   try {
     await promise
   } catch (error: unknown) {
@@ -55,9 +59,9 @@ const expectRevertWithCustomError = async (
 }
 
 describe("L2BTCRedeemerWormhole", () => {
-  let deployer: SignerWithAddress
-  let governance: SignerWithAddress
-  let user: SignerWithAddress
+  let deployer: HardhatEthersSigner
+  let governance: HardhatEthersSigner
+  let user: HardhatEthersSigner
 
   let l2BtcRedeemer: L2BTCRedeemerWormhole
   let tbtc: L2TBTC
@@ -68,7 +72,7 @@ describe("L2BTCRedeemerWormhole", () => {
   const l1BtcRedeemerWormholeAddress =
     "0x0000000000000000000000000000000000000001"
 
-  const exampleAmount = ethers.utils.parseUnits("1", 18)
+  const exampleAmount = ethers.parseUnits("1", 18)
   // Use a raw 25-byte P2PKH script structure, consistent with how L2BTCRedeemerWormhole uses BTCUtils.extractHashAt
   // prefix with 0x19 (25 bytes length)
   const exampleRedeemerOutputScript =
@@ -99,7 +103,7 @@ describe("L2BTCRedeemerWormhole", () => {
     )
     const _testBTCUtilsHelper =
       (await TestBTCUtilsHelperFactory.deploy()) as TestBTCUtilsHelper
-    await _testBTCUtilsHelper.deployed()
+    await _testBTCUtilsHelper.waitForDeployment()
 
     // Deploy L2TBTC using the project's deployProxy helper structure
     const tbtcDeployment = await helpers.upgrades.deployProxy(
@@ -111,7 +115,7 @@ describe("L2BTCRedeemerWormhole", () => {
         proxyOpts: { kind: "transparent" },
       }
     )
-    const _tbtc = tbtcDeployment[0] as L2TBTC
+    const _tbtc = tbtcDeployment[0] as unknown as L2TBTC
 
     // The deployer of L2TBTC is its owner. The owner needs to add itself as a minter.
     await _tbtc.connect(_deployer).addMinter(_deployer.address)
@@ -122,7 +126,7 @@ describe("L2BTCRedeemerWormhole", () => {
       {
         contractName: "L2BTCRedeemerWormhole",
         initializerArgs: [
-          _tbtc.address,
+          _tbtc.target,
           _gateway.address,
           toWormholeFormat(l1BtcRedeemerWormholeAddress),
           l1ChainId,
@@ -131,7 +135,8 @@ describe("L2BTCRedeemerWormhole", () => {
         proxyOpts: { kind: "transparent" },
       }
     )
-    const _l2BtcRedeemer = l2RedeemerDeployment[0] as L2BTCRedeemerWormhole
+    const _l2BtcRedeemer =
+      l2RedeemerDeployment[0] as unknown as L2BTCRedeemerWormhole
 
     // Transfer ownership from the deployer (initial owner) to governance
     await _l2BtcRedeemer
@@ -171,7 +176,7 @@ describe("L2BTCRedeemerWormhole", () => {
 
   describe("initialization", () => {
     it("should set the tBTC token address", async () => {
-      expect(await l2BtcRedeemer.tbtc()).to.equal(tbtc.address)
+      expect(await l2BtcRedeemer.tbtc()).to.equal(tbtc.target)
     })
 
     it("should set the gateway address", async () => {
@@ -192,7 +197,7 @@ describe("L2BTCRedeemerWormhole", () => {
 
     it("should set the default minimum redemption amount", async () => {
       expect(await l2BtcRedeemer.minimumRedemptionAmount()).to.equal(
-        ethers.BigNumber.from("10000000000000000")
+        BigInt("10000000000000000")
       )
     })
 
@@ -208,7 +213,7 @@ describe("L2BTCRedeemerWormhole", () => {
         helpers.upgrades.deployProxy(proxyName, {
           contractName: "L2BTCRedeemerWormhole",
           initializerArgs: [
-            tbtc.address,
+            tbtc.target,
             gateway.address,
             toWormholeFormat(l1BtcRedeemerWormholeAddress),
             0,
@@ -258,13 +263,13 @@ describe("L2BTCRedeemerWormhole", () => {
         await createSnapshot()
         // Explicitly set user balance for this test to avoid state leakage
         const currentBalance = await tbtc.balanceOf(user.address)
-        if (currentBalance.gt(0)) {
+        if (currentBalance > 0n) {
           await tbtc.connect(user).burn(currentBalance)
         }
-        await tbtc.connect(deployer).mint(user.address, exampleAmount.mul(2))
+        await tbtc.connect(deployer).mint(user.address, exampleAmount * 2n)
         await tbtc
           .connect(user)
-          .approve(l2BtcRedeemer.address, ethers.constants.MaxUint256)
+          .approve(l2BtcRedeemer.target, ethers.MaxUint256)
       })
 
       afterEach(async () => {
@@ -272,7 +277,7 @@ describe("L2BTCRedeemerWormhole", () => {
       })
 
       it("should revert", async () => {
-        const largeAmount = exampleAmount.mul(10)
+        const largeAmount = exampleAmount * 10n
 
         await expect(
           l2BtcRedeemer
@@ -289,7 +294,7 @@ describe("L2BTCRedeemerWormhole", () => {
   })
 
   describe("updateMinimumRedemptionAmount", () => {
-    const newMinAmount = ethers.utils.parseUnits("0.05", 18)
+    const newMinAmount = ethers.parseUnits("0.05", 18)
 
     beforeEach(async () => {
       await createSnapshot()
@@ -314,7 +319,7 @@ describe("L2BTCRedeemerWormhole", () => {
         await expectRevertWithCustomError(
           l2BtcRedeemer
             .connect(governance)
-            .updateMinimumRedemptionAmount(ethers.constants.Zero),
+            .updateMinimumRedemptionAmount(BigInt(0)),
           l2BtcRedeemer,
           "MinimumRedemptionAmountZero"
         )
@@ -322,7 +327,7 @@ describe("L2BTCRedeemerWormhole", () => {
     })
 
     context("when the caller is the owner and amount is valid", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
       beforeEach(async () => {
         await createSnapshot()
         tx = await l2BtcRedeemer
@@ -375,7 +380,7 @@ describe("L2BTCRedeemerWormhole", () => {
         await expectRevertWithCustomError(
           l2BtcRedeemer
             .connect(governance)
-            .updateL1BtcRedeemer(ethers.constants.HashZero, newChainId),
+            .updateL1BtcRedeemer(ethers.ZeroHash, newChainId),
           l2BtcRedeemer,
           "ZeroAddress"
         )
@@ -395,7 +400,7 @@ describe("L2BTCRedeemerWormhole", () => {
     })
 
     context("when the caller is the owner and params are valid", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       beforeEach(async () => {
         await createSnapshot()
@@ -429,20 +434,18 @@ describe("L2BTCRedeemerWormhole", () => {
     beforeEach(async () => {
       await createSnapshot()
       await gateway.sendTbtcWithPayloadToNativeChain.reset()
-      await tbtc
-        .connect(user)
-        .approve(l2BtcRedeemer.address, ethers.constants.MaxUint256)
+      await tbtc.connect(user).approve(l2BtcRedeemer.target, ethers.MaxUint256)
 
       // Reset user's balance to 0 before minting to ensure consistent test state
       const currentUserBalance = await tbtc.balanceOf(user.address)
-      if (currentUserBalance.gt(0)) {
+      if (currentUserBalance > 0n) {
         await tbtc.connect(user).burn(currentUserBalance)
       }
-      await tbtc.connect(deployer).mint(user.address, exampleAmount.mul(2))
+      await tbtc.connect(deployer).mint(user.address, exampleAmount * 2n)
 
       await l2BtcRedeemer
         .connect(governance)
-        .updateMinimumRedemptionAmount(ethers.utils.parseUnits("0.001", 18))
+        .updateMinimumRedemptionAmount(ethers.parseUnits("0.001", 18))
     })
 
     afterEach(async () => {
@@ -450,8 +453,8 @@ describe("L2BTCRedeemerWormhole", () => {
     })
 
     context("when redemption is successful", () => {
-      let tx: ContractTransaction
-      const expectedGatewaySequence = BigNumber.from(789)
+      let tx: ContractTransactionResponse
+      const expectedGatewaySequence = BigInt(789)
 
       beforeEach(async () => {
         await createSnapshot()
@@ -477,14 +480,14 @@ describe("L2BTCRedeemerWormhole", () => {
 
       it("should transfer tBTC from user to L2BTCRedeemerWormhole contract", async () => {
         expect(await tbtc.balanceOf(user.address)).to.equal(exampleAmount)
-        expect(await tbtc.balanceOf(l2BtcRedeemer.address)).to.equal(
+        expect(await tbtc.balanceOf(l2BtcRedeemer.target)).to.equal(
           exampleAmount
         )
       })
 
       it("should approve L2WormholeGateway to spend tBTC from L2BTCRedeemerWormhole", async () => {
         const allowance = await tbtc.allowance(
-          l2BtcRedeemer.address,
+          l2BtcRedeemer.target,
           gateway.address
         )
         expect(allowance).to.be.gte(exampleAmount)
@@ -520,7 +523,7 @@ describe("L2BTCRedeemerWormhole", () => {
 
         const sequence = await l2BtcRedeemer
           .connect(user)
-          .callStatic.requestRedemption(
+          .requestRedemption.staticCall(
             exampleAmount,
             l1ChainId,
             exampleRedeemerOutputScript,
@@ -560,8 +563,8 @@ describe("L2BTCRedeemerWormhole", () => {
     })
 
     context("when redeemerOutputScript is P2WPKH (successful)", () => {
-      let tx: ContractTransaction
-      const expectedGatewaySequence = BigNumber.from(790)
+      let tx: ContractTransactionResponse
+      const expectedGatewaySequence = BigInt(790)
 
       beforeEach(async () => {
         await createSnapshot()
@@ -587,7 +590,7 @@ describe("L2BTCRedeemerWormhole", () => {
 
       it("should transfer tBTC from user to L2BTCRedeemerWormhole contract", async () => {
         expect(await tbtc.balanceOf(user.address)).to.equal(exampleAmount)
-        expect(await tbtc.balanceOf(l2BtcRedeemer.address)).to.equal(
+        expect(await tbtc.balanceOf(l2BtcRedeemer.target)).to.equal(
           exampleAmount
         )
       })
@@ -610,8 +613,8 @@ describe("L2BTCRedeemerWormhole", () => {
     })
 
     context("when redeemerOutputScript is P2SH (successful)", () => {
-      let tx: ContractTransaction
-      const expectedGatewaySequence = BigNumber.from(791)
+      let tx: ContractTransactionResponse
+      const expectedGatewaySequence = BigInt(791)
 
       beforeEach(async () => {
         await createSnapshot()
@@ -637,7 +640,7 @@ describe("L2BTCRedeemerWormhole", () => {
 
       it("should transfer tBTC from user to L2BTCRedeemerWormhole contract", async () => {
         expect(await tbtc.balanceOf(user.address)).to.equal(exampleAmount)
-        expect(await tbtc.balanceOf(l2BtcRedeemer.address)).to.equal(
+        expect(await tbtc.balanceOf(l2BtcRedeemer.target)).to.equal(
           exampleAmount
         )
       })
@@ -662,8 +665,8 @@ describe("L2BTCRedeemerWormhole", () => {
     context(
       "when redeemerOutputScript is P2WSH (should be successful if BTCUtils truncates/handles 32-byte hash)",
       () => {
-        let tx: ContractTransaction
-        const expectedGatewaySequence = BigNumber.from(792)
+        let tx: ContractTransactionResponse
+        const expectedGatewaySequence = BigInt(792)
 
         beforeEach(async () => {
           await createSnapshot()
@@ -689,7 +692,7 @@ describe("L2BTCRedeemerWormhole", () => {
 
         it("should transfer tBTC from user to L2BTCRedeemerWormhole contract", async () => {
           expect(await tbtc.balanceOf(user.address)).to.equal(exampleAmount)
-          expect(await tbtc.balanceOf(l2BtcRedeemer.address)).to.equal(
+          expect(await tbtc.balanceOf(l2BtcRedeemer.target)).to.equal(
             exampleAmount
           )
         })
@@ -751,7 +754,7 @@ describe("L2BTCRedeemerWormhole", () => {
       beforeEach(async () => {
         await l2BtcRedeemer
           .connect(governance)
-          .updateMinimumRedemptionAmount(ethers.utils.parseUnits("2", 18))
+          .updateMinimumRedemptionAmount(ethers.parseUnits("2", 18))
       })
       it("should revert", async () => {
         await expectRevertWithCustomError(
@@ -771,7 +774,7 @@ describe("L2BTCRedeemerWormhole", () => {
 
     context("when normalized amount is zero (dust)", () => {
       it("should revert", async () => {
-        const dustAmount = BigNumber.from(100)
+        const dustAmount = BigInt(100)
         await expectRevertWithCustomError(
           l2BtcRedeemer
             .connect(user)
@@ -789,7 +792,7 @@ describe("L2BTCRedeemerWormhole", () => {
 
     context("when user has not approved L2BTCRedeemerWormhole", () => {
       it("should revert", async () => {
-        await tbtc.connect(user).approve(l2BtcRedeemer.address, 0)
+        await tbtc.connect(user).approve(l2BtcRedeemer.target, 0)
         await expect(
           l2BtcRedeemer
             .connect(user)

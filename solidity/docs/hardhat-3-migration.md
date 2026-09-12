@@ -66,7 +66,6 @@ That is an afternoon, not a quarter. ESM is not the blocker; the plugins are.
 | `@openzeppelin/hardhat-upgrades`  | 4.1.0         | `^3.6.0`       | yes |
 | `hardhat-deploy`                  | 2.0.10        | `^3.4.5`       | yes |
 | `hardhat-gas-reporter`            | 2.3.0         | `^2.16.0`      | no  |
-| `@nomiclabs/hardhat-waffle`       | 2.0.6         | `^2.0.0`       | no  |
 | `@typechain/hardhat`              | 9.1.0         | `^2.9.9`       | no  |
 | `hardhat-contract-sizer`          | 2.10.1        | `^2.0.0`       | no  |
 | `hardhat-dependency-compiler`     | 1.2.1         | `^2.0.0`       | no  |
@@ -74,7 +73,7 @@ That is an afternoon, not a quarter. ESM is not the blocker; the plugins are.
 | `@keep-network/hardhat-helpers`   | 0.7.2         | `^2.19.4`      | no  |
 | `@tenderly/hardhat-tenderly`      | 2.5.2         | none declared  | ?   |
 
-Three of eleven. `@keep-network/hardhat-helpers` is ours, so it gates on our own
+Three of ten. `@keep-network/hardhat-helpers` is ours, so it gates on our own
 release cycle rather than on anyone else.
 
 **The deploy layer is a port, not a bump.** `hardhat-deploy@2` does support
@@ -87,11 +86,12 @@ fixtures.
 Ordered by what actually costs something, which is not the order this document
 had before:
 
-1. Replace `@nomiclabs/hardhat-waffle` and the ethers v5 + typechain stack. This
-   is the real body of work: `hardhat-ethers@4` is ready, the waffle matchers
-   are not, so every assertion moves to `hardhat-chai-matchers` or the viem
-   toolbox. 92 test files (originally 89 prior to helper and test additions). Which of the two, and on what prerequisites, is
-   settled below in "Replacing waffle: viem or ethers v6".
+1. ~~Replace `@nomiclabs/hardhat-waffle` and the ethers v5 + typechain stack.~~
+   **Done** ([#1067](https://github.com/threshold-network/tbtc-v2/pull/1067)): every
+   assertion moved to `@nomicfoundation/hardhat-chai-matchers`, all 92 test files
+   run on ethers v6, and TypeChain targets `ethers-v6`. The residual step for full
+   Hardhat 3 readiness is bumping `@nomicfoundation/hardhat-ethers` from the
+   current v3 pin to v4 (`^3.8.0` peer requirement).
 2. Port the deploy layer to `hardhat-deploy@2` / rocketh. 60 scripts and the
    tests that consume their fixtures.
 3. Release `@keep-network/hardhat-helpers` for Hardhat 3. Ours, so it gates on
@@ -379,15 +379,132 @@ Two things follow that are worth doing regardless of which way this goes:
   is worth revisiting — the remainder of viem's prerequisite cost was that chain,
   not viem itself.
 - `test/helpers/viem.ts`, `test/helpers/viem.test.ts`, and the interop test are preserved in the immutable
-  [`3cfc4e4`](https://github.com/threshold-network/tbtc-v2/commit/3cfc4e4e0b9d87f40ee12474f3a361ee1084366f)
+  [`spike/viem-2026-07-27`](https://github.com/threshold-network/tbtc-v2/tree/spike/viem-2026-07-27)
   spike commit (note that these files were part of the spike only and are not present in this tree). If the decision is revisited, the matchers and the proof that
   the mock needs no port are the two things that would otherwise be redone.
-- The incomplete ethers v6 migration is preserved at
-  [`c367c63`](https://github.com/threshold-network/tbtc-v2/commit/c367c63c00ddfaed91d6f14bb3c34714a02bad95)
+- The incomplete July ethers v6 migration is preserved at
+  [`archive/solidity-ethers-v6-2026-07-27`](https://github.com/threshold-network/tbtc-v2/tree/archive/solidity-ethers-v6-2026-07-27)
   from [`#1067`](https://github.com/threshold-network/tbtc-v2/pull/1067). It
   reduced the compiler error count from 1,922 to 536 but never completed the
   typecheck or ran the test suite; use it as migration evidence, not as a merge
   candidate.
+
+PR [#1067](https://github.com/threshold-network/tbtc-v2/pull/1067) was rebased onto
+`dev` on 2026-09-07. The completed migration has **0 TypeScript errors** in both
+the normal and export configurations, **3,140 passing / 33 pending / 0 failing**
+in the full suite, and **0 ESLint/Solhint errors**. The CI follow-up unblocks
+47 existing `BTCDepositorWormhole` cases and adds eight regression/provenance
+checks. Six added tests cover the contract-creation RPC compatibility layer;
+ten more cover Etherscan V2 and full legacy proxy verification with mocked HTTP.
+OpenZeppelin upgrades 2.5.1 retains the shared-admin proxy behavior. Its Yarn patch
+backports the Etherscan V2 request transport from
+[upstream](https://github.com/OpenZeppelin/openzeppelin-upgrades/blob/542818d7309cd9d2bfecf8e0109a0794891a2f3c/packages/plugin-hardhat/src/utils/etherscan-api.ts),
+with the chain ID omitted when a custom explorer has none. Hardhat Verify uses a
+single `ETHERSCAN_API_KEY` for supported Etherscan chains. The patch covers both
+package source and compiled code; it does not change proxy deployment or upgrade
+validation. The pin is temporary: [#1075](https://github.com/threshold-network/tbtc-v2/issues/1075)
+tracks upgrading the OpenZeppelin stack, and
+[#1128](https://github.com/threshold-network/tbtc-v2/issues/1128) tracks the deployment-layer
+rewrite. Those changes need an explicit decision about legacy shared admins,
+new per-proxy admins, existing governance operations and verification; that design
+decision is tracked in [#1130](https://github.com/threshold-network/tbtc-v2/issues/1130).
+
+The CI follow-up also patches upgrades-core 1.46.0's bytecode matching for
+[upstream issue #1227](https://github.com/OpenZeppelin/openzeppelin-upgrades/issues/1227).
+Matching needs only the full bytecode hash; decoding metadata after applying an
+unrelated contract's library offsets can otherwise reject a valid contract.
+The patch retains malformed-input validation and covers source and compiled code.
+The two Slither reports on failed deferred-refund recovery were triaged
+individually in `slither.db.json`, with a source-hash-guarded test requiring
+re-review if the reviewed Solidity source changed. `dev` landed its own,
+independent fix for the same two findings three days later; the 2026-09-12
+rebase below removed this branch's now-redundant triage database in favor of
+`dev`'s fix.
+
+The existing-governance preflight converts hardhat-deploy's ethers v5 `BigNumber`
+delay through its decimal string before ethers v6 `toBigInt`. Its tests use the
+reader's real v5 value type and check Council Safe actions and pending-update
+ETAs; fresh local deployments do not exercise this branch.
+
+Explorer-tagged external deployments use transaction-response confirmation
+waits because the ethers v6 Hardhat provider does not implement
+`waitForTransaction`. Six random-beacon scripts are installed from checked-in
+copies, with a shared helper retaining two confirmations and the five-minute
+timeout before verification. Eighteen regression tests cover every installed
+caller, untagged networks, failed lookups/confirmations and the real local
+provider's confirmation counting. These checks use mocked explorer effects;
+they do not submit live deployments or explorer requests.
+
+The original whole-file export/deployment byte comparison still fails. The
+accepted criterion is a [reproducible compatibility check](./ethers-v6-parity.md)
+with two bounded exceptions: compiler-verified storage-layout additions for the
+three overrides, and one identified local ProxyAdmin ownership-transfer gas limit
+with its verified signature/block/receipt consequences. All other artifact and
+deployment content must match, including bytecode, ABIs, addresses, owners, admin
+relationships and execution state. The raw failure remains visible alongside the
+compatibility result; snapshots are preserved without rewriting their fields.
+The checked-in policy fixes the permitted paths and reviewed script hashes.
+Local parity covers eleven changed deploy scripts; eight inactive scripts and
+live-only paths still need their own applicable validation before live use.
+
+### Rebased again onto `dev` on 2026-09-12
+
+`dev` advanced 37 commits past the 2026-09-07 merge base before this rebase.
+Two conflicts were textual: `yarn.lock` (regenerated via `yarn install --mode=update-lockfile` against the merged `package.json` rather than hand-
+merged) and one line in `L1BTCDepositorNttWithExecutor.security.test.ts`'s
+`decodeRevertReason`, where `dev` had reformatted the same statement this
+branch's codemod touched; the resolution kept `dev`'s template-literal style
+with this branch's `ethers.AbiCoder.defaultAbiCoder()` v6 call, which is also
+what this branch's own later hand-fix commit already converges on. A third,
+purely additive conflict in `deploy/14_set_deposit_parameters.ts` kept a
+clarifying comment `dev` added next to unrelated code this branch also
+touched.
+
+Two more conflicts were semantic rather than textual: `dev` independently
+fixed bugs this branch had already fixed differently, and git merged both
+copies without complaint.
+
+- **upgrades-core's `getUnlinkedBytecode` crash.** `dev`'s commit `750477f8`
+  added `scripts/patch-upgrades-core-unlinked-bytecode.sh`, a postinstall step
+  wrapping the vendored `getVersion()` call in try/catch to skip a corrupted
+  candidate instead of throwing. This branch's existing
+  `.yarn/patches/@openzeppelin-upgrades-core-npm-1.46.0-bytecode-matching.patch`
+  fixes the same upstream bug by comparing the full bytecode hash directly
+  instead of decoding metadata, so it never reaches the throwing call for a
+  corrupted candidate, and — unlike the try/catch — still lets genuinely
+  malformed bytecode fail validation (see the third case in
+  `test/deploy/upgrades-bytecode-matching.test.ts`). With both patches
+  installed, the postinstall script's own textual precondition no longer
+  matched the file it patches and it was silently exiting 0 on every install.
+  Removed the now-redundant script and its `postinstall` wiring.
+- **The same two Slither reentrancy findings in
+  `AbstractL1BTCDepositor.finalizeDeposit`.** `dev`'s commit `2f7bad49` added
+  inline `slither-disable-next-line` annotations at the two flagged lines.
+  This branch's `slither.db.json` triaged the same two findings externally by
+  source hash, with `docs/slither-triage.md` and
+  `test/deploy/slither-triage.test.ts` guarding it. `dev`'s inline annotations
+  suppress the findings before Slither reports them, making the external
+  triage unreachable, and `dev`'s edit changed
+  `AbstractL1BTCDepositor.sol`'s hash, so the guard test failed outright after
+  the rebase. Removed `slither.db.json`, `docs/slither-triage.md` and
+  `test/deploy/slither-triage.test.ts` in favor of `dev`'s already-landed
+  inline annotations. `dev`'s own Solidity CI run went from failure (at this
+  branch's merge base, `5b655854`) to success once `2f7bad49` landed, and
+  `contracts/**/*.sol` is byte-identical between this branch and `dev` after
+  this rebase, so Slither sees the same source either way.
+
+Local validation after the rebase (`yarn build`, `yarn typecheck`, `yarn format`, `yarn test`, `yarn test:integration`, `yarn install --immutable`,
+`yarn deploy:test`, all with the sandbox's ambient `FORKING_URL` unset to
+match CI's environment): 0 TypeScript errors, 0 ESLint/Solhint errors,
+**3138 passing / 61 pending / 0 failing** in the unit suite and **27
+passing / 0 failing** in the integration suite. A stray `FORKING_URL` in the
+local sandbox (unrelated to this repo) flips the `NuCypherToken` deploy
+script's stub-vs-throw branch and produces a local-only false failure; a
+fresh CI checkout never sets it. `deployments/hardhat/` is a gitignored,
+non-`clean`-scripted cache that persists across local `yarn test` invocations
+in the same checkout and must be cleared between runs to avoid stale
+chain-ID/ownership state bleeding across processes; a fresh CI checkout never
+carries it either.
 
 ## What Hardhat 3 is actually worth here
 

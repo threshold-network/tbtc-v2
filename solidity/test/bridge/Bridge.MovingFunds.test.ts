@@ -1,9 +1,11 @@
+import { toNumber, Contract, ContractTransactionResponse } from "ethers"
 /* eslint-disable no-underscore-dangle */
-import { ethers, helpers, waffle } from "hardhat"
+import { ethers, helpers } from "hardhat"
 import chai, { assert, expect } from "chai"
-import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
-import { BigNumber, Contract, ContractTransaction } from "ethers"
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import { Deployment } from "hardhat-deploy/types"
+import { requireValue } from "../../helpers/require-value"
+import { walletToStruct, to1ePrecision } from "../helpers/contract-test-helpers"
 import type { Mock } from "../helpers/mock"
 import type {
   Bridge,
@@ -37,17 +39,16 @@ import {
 } from "../data/moving-funds"
 import { ecdsaWalletTestData } from "../data/ecdsa"
 import { NO_MAIN_UTXO } from "../data/deposit-sweep"
-import { to1ePrecision } from "../helpers/contract-test-helpers"
 import { expectCalledOnceWith } from "../helpers/mock"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 const { lastBlockTime, increaseTime } = helpers.time
 
 describe("Bridge - Moving funds", () => {
-  let deployer: SignerWithAddress
-  let governance: SignerWithAddress
-  let thirdParty: SignerWithAddress
-  let spvMaintainer: SignerWithAddress
+  let deployer: HardhatEthersSigner
+  let governance: HardhatEthersSigner
+  let thirdParty: HardhatEthersSigner
+  let spvMaintainer: HardhatEthersSigner
 
   let relay: Mock<IRelay>
   let walletRegistry: Mock<IWalletRegistry>
@@ -58,13 +59,13 @@ describe("Bridge - Moving funds", () => {
     txProofDifficultyFactor: number
   ) => Promise<[Contract, Deployment]>
 
-  let movingFundsTimeoutResetDelay: number
-  let movingFundsTimeout: number
-  let movingFundsTimeoutSlashingAmount: BigNumber
-  let movingFundsTimeoutNotifierRewardMultiplier: number
-  let movedFundsSweepTimeout: number
-  let movedFundsSweepTimeoutSlashingAmount: BigNumber
-  let movedFundsSweepTimeoutNotifierRewardMultiplier: number
+  let movingFundsTimeoutResetDelay: bigint
+  let movingFundsTimeout: bigint
+  let movingFundsTimeoutSlashingAmount: bigint
+  let movingFundsTimeoutNotifierRewardMultiplier: bigint
+  let movedFundsSweepTimeout: bigint
+  let movedFundsSweepTimeoutSlashingAmount: bigint
+  let movedFundsSweepTimeoutNotifierRewardMultiplier: bigint
 
   before(async () => {
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
@@ -94,14 +95,14 @@ describe("Bridge - Moving funds", () => {
   describe("submitMovingFundsCommitment", () => {
     const walletDraft = {
       ecdsaWalletID: ecdsaWalletTestData.walletID,
-      mainUtxoHash: ethers.constants.HashZero,
+      mainUtxoHash: ethers.ZeroHash,
       pendingRedemptionsValue: 0,
       createdAt: 0,
       movingFundsRequestedAt: 0,
       closingStartedAt: 0,
       pendingMovedFundsSweepRequestsCount: 0,
       state: walletState.Unknown,
-      movingFundsTargetWalletsCommitmentHash: ethers.constants.HashZero,
+      movingFundsTargetWalletsCommitmentHash: ethers.ZeroHash,
     }
 
     context("when source wallet is in the MovingFunds state", () => {
@@ -138,7 +139,7 @@ describe("Bridge - Moving funds", () => {
                   const walletMembersIDs = [1, 2, 3, 4, 5]
                   const walletMemberIndex = 2
 
-                  let caller: SignerWithAddress
+                  let caller: HardhatEthersSigner
 
                   before(async () => {
                     await createSnapshot()
@@ -237,7 +238,7 @@ describe("Bridge - Moving funds", () => {
                                       context(
                                         "when all target wallets are in the Live state",
                                         () => {
-                                          let tx: ContractTransaction
+                                          let tx: ContractTransactionResponse
 
                                           const targetWallets =
                                             liveWallets.slice(
@@ -245,17 +246,16 @@ describe("Bridge - Moving funds", () => {
                                               expectedTargetWalletsCount
                                             )
 
-                                          const { provider } = waffle
+                                          const { provider } = ethers
 
-                                          let initialCallerBalance: BigNumber
+                                          let initialCallerBalance: bigint
 
                                           before(async () => {
                                             await createSnapshot()
 
                                             await deployer.sendTransaction({
-                                              to: reimbursementPool.address,
-                                              value:
-                                                ethers.utils.parseEther("100"),
+                                              to: reimbursementPool.target,
+                                              value: ethers.parseEther("100"),
                                             })
 
                                             initialCallerBalance =
@@ -287,7 +287,7 @@ describe("Bridge - Moving funds", () => {
                                               )
                                                 .movingFundsTargetWalletsCommitmentHash
                                             ).to.be.equal(
-                                              ethers.utils.solidityKeccak256(
+                                              ethers.solidityPackedKeccak256(
                                                 ["bytes20[]"],
                                                 [targetWallets]
                                               )
@@ -313,13 +313,12 @@ describe("Bridge - Moving funds", () => {
                                                 caller.address
                                               )
                                             const diff =
-                                              postCallerBalance.sub(
-                                                initialCallerBalance
-                                              )
+                                              postCallerBalance -
+                                              initialCallerBalance
 
                                             expect(diff).to.be.gt(0)
                                             expect(diff).to.be.lt(
-                                              ethers.utils.parseUnits(
+                                              ethers.parseUnits(
                                                 "1000000",
                                                 "gwei"
                                               ) // 0,001 ETH
@@ -727,14 +726,14 @@ describe("Bridge - Moving funds", () => {
   describe("resetMovingFundsTimeout", () => {
     const walletDraft = {
       ecdsaWalletID: ecdsaWalletTestData.walletID,
-      mainUtxoHash: ethers.constants.HashZero,
+      mainUtxoHash: ethers.ZeroHash,
       pendingRedemptionsValue: 0,
       createdAt: 0,
       movingFundsRequestedAt: 0,
       closingStartedAt: 0,
       pendingMovedFundsSweepRequestsCount: 0,
       state: walletState.Unknown,
-      movingFundsTargetWalletsCommitmentHash: ethers.constants.HashZero,
+      movingFundsTargetWalletsCommitmentHash: ethers.ZeroHash,
     }
 
     context("when the wallet is in the MovingFunds state", () => {
@@ -758,7 +757,7 @@ describe("Bridge - Moving funds", () => {
           // Those preconditions are met by default.
 
           context("when reset delay has elapsed", () => {
-            let tx: ContractTransaction
+            let tx: ContractTransactionResponse
 
             before(async () => {
               await createSnapshot()
@@ -766,11 +765,13 @@ describe("Bridge - Moving funds", () => {
               // One second ahead of the `setWallet` block, which reuses its
               // parent's timestamp under `allowBlocksWithSameTimestamp`.
               await bridge.setWallet(ecdsaWalletTestData.pubKeyHash160, {
-                ...(await bridge.wallets(ecdsaWalletTestData.pubKeyHash160)),
+                ...walletToStruct(
+                  await bridge.wallets(ecdsaWalletTestData.pubKeyHash160)
+                ),
                 movingFundsRequestedAt: (await lastBlockTime()) + 1,
               })
 
-              await increaseTime(movingFundsTimeoutResetDelay + 2)
+              await increaseTime(toNumber(movingFundsTimeoutResetDelay + 2n))
 
               tx = await bridge.resetMovingFundsTimeout(
                 ecdsaWalletTestData.pubKeyHash160
@@ -801,11 +802,13 @@ describe("Bridge - Moving funds", () => {
 
               // Set the timestamp of the block that contains the `setWallet` tx.
               await bridge.setWallet(ecdsaWalletTestData.pubKeyHash160, {
-                ...(await bridge.wallets(ecdsaWalletTestData.pubKeyHash160)),
+                ...walletToStruct(
+                  await bridge.wallets(ecdsaWalletTestData.pubKeyHash160)
+                ),
                 movingFundsRequestedAt: (await lastBlockTime()) + 1,
               })
 
-              await increaseTime(movingFundsTimeoutResetDelay - 1)
+              await increaseTime(toNumber(movingFundsTimeoutResetDelay - 1n))
             })
 
             after(async () => {
@@ -824,7 +827,7 @@ describe("Bridge - Moving funds", () => {
           context(
             "when one reset occurred and the reset delay has elapsed again",
             () => {
-              let tx: ContractTransaction
+              let tx: ContractTransactionResponse
 
               before(async () => {
                 await createSnapshot()
@@ -832,11 +835,13 @@ describe("Bridge - Moving funds", () => {
                 // One second ahead of the `setWallet` block, which reuses its
                 // parent's timestamp under `allowBlocksWithSameTimestamp`.
                 await bridge.setWallet(ecdsaWalletTestData.pubKeyHash160, {
-                  ...(await bridge.wallets(ecdsaWalletTestData.pubKeyHash160)),
+                  ...walletToStruct(
+                    await bridge.wallets(ecdsaWalletTestData.pubKeyHash160)
+                  ),
                   movingFundsRequestedAt: (await lastBlockTime()) + 1,
                 })
 
-                await increaseTime(movingFundsTimeoutResetDelay + 2)
+                await increaseTime(toNumber(movingFundsTimeoutResetDelay + 2n))
 
                 // Reset for the first time.
                 await bridge.resetMovingFundsTimeout(
@@ -844,7 +849,7 @@ describe("Bridge - Moving funds", () => {
                 )
 
                 // The reset delay elapses again.
-                await increaseTime(movingFundsTimeoutResetDelay + 1)
+                await increaseTime(toNumber(movingFundsTimeoutResetDelay + 1n))
 
                 // The next reset.
                 tx = await bridge.resetMovingFundsTimeout(
@@ -880,11 +885,13 @@ describe("Bridge - Moving funds", () => {
                 // One second ahead of the `setWallet` block, which reuses its
                 // parent's timestamp under `allowBlocksWithSameTimestamp`.
                 await bridge.setWallet(ecdsaWalletTestData.pubKeyHash160, {
-                  ...(await bridge.wallets(ecdsaWalletTestData.pubKeyHash160)),
+                  ...walletToStruct(
+                    await bridge.wallets(ecdsaWalletTestData.pubKeyHash160)
+                  ),
                   movingFundsRequestedAt: (await lastBlockTime()) + 1,
                 })
 
-                await increaseTime(movingFundsTimeoutResetDelay + 2)
+                await increaseTime(toNumber(movingFundsTimeoutResetDelay + 2n))
 
                 // Reset for the first time.
                 await bridge.resetMovingFundsTimeout(
@@ -892,7 +899,7 @@ describe("Bridge - Moving funds", () => {
                 )
 
                 // The reset delay has not elapsed again yet.
-                await increaseTime(movingFundsTimeoutResetDelay - 1)
+                await increaseTime(toNumber(movingFundsTimeoutResetDelay - 1n))
               })
 
               after(async () => {
@@ -944,9 +951,11 @@ describe("Bridge - Moving funds", () => {
 
           // Set an arbitrary non-zero commitment.
           await bridge.setWallet(ecdsaWalletTestData.pubKeyHash160, {
-            ...(await bridge.wallets(ecdsaWalletTestData.pubKeyHash160)),
+            ...walletToStruct(
+              await bridge.wallets(ecdsaWalletTestData.pubKeyHash160)
+            ),
             movingFundsTargetWalletsCommitmentHash:
-              ethers.utils.solidityKeccak256(
+              ethers.solidityPackedKeccak256(
                 ["bytes20"],
                 ["0xc214a5e9ec1b7792af9894e8f9ff0dd9bf427d79"]
               ),
@@ -1066,7 +1075,7 @@ describe("Bridge - Moving funds", () => {
 
                                             testData.forEach((test) => {
                                               context(test.testName, () => {
-                                                let tx: ContractTransaction
+                                                let tx: ContractTransactionResponse
 
                                                 before(async () => {
                                                   await createSnapshot()
@@ -1083,7 +1092,7 @@ describe("Bridge - Moving funds", () => {
 
                                                 it("should mark the main UTXO as correctly spent", async () => {
                                                   const key =
-                                                    ethers.utils.solidityKeccak256(
+                                                    ethers.solidityPackedKeccak256(
                                                       ["bytes32", "uint32"],
                                                       [
                                                         test.data.mainUtxo
@@ -1109,9 +1118,7 @@ describe("Bridge - Moving funds", () => {
                                                           .pubKeyHash
                                                       )
                                                     ).mainUtxoHash
-                                                  ).to.be.equal(
-                                                    ethers.constants.HashZero
-                                                  )
+                                                  ).to.be.equal(ethers.ZeroHash)
                                                 })
 
                                                 it("should put the source wallet in the Closing state", async () => {
@@ -1169,22 +1176,22 @@ describe("Bridge - Moving funds", () => {
                                                 })
 
                                                 it("should create appropriate moved funds sweep requests", async () => {
+                                                  const expectedRequests =
+                                                    requireValue(
+                                                      test.data
+                                                        .expectedMovedFundsSweepRequests,
+                                                      "Expected sweep requests"
+                                                    )
                                                   for (
                                                     let i = 0;
-                                                    i <
-                                                    test.data
-                                                      .expectedMovedFundsSweepRequests
-                                                      .length;
+                                                    i < expectedRequests.length;
                                                     i++
                                                   ) {
                                                     const expectedMovedFundsSweepRequest =
-                                                      test.data
-                                                        .expectedMovedFundsSweepRequests[
-                                                        i
-                                                      ]
+                                                      expectedRequests[i]
 
                                                     const requestKey =
-                                                      ethers.utils.solidityKeccak256(
+                                                      ethers.solidityPackedKeccak256(
                                                         ["bytes32", "uint32"],
                                                         [
                                                           expectedMovedFundsSweepRequest.txHash,
@@ -1351,7 +1358,7 @@ describe("Bridge - Moving funds", () => {
 
                                             testData.forEach((test) => {
                                               context(test.testName, () => {
-                                                let tx: Promise<ContractTransaction>
+                                                let tx: Promise<ContractTransactionResponse>
 
                                                 before(async () => {
                                                   await createSnapshot()
@@ -1359,9 +1366,7 @@ describe("Bridge - Moving funds", () => {
                                                   // Pass a copy of the original data.
                                                   const modifiedData =
                                                     test.modifyData(
-                                                      JSON.parse(
-                                                        JSON.stringify(data)
-                                                      )
+                                                      structuredClone(data)
                                                     )
 
                                                   tx =
@@ -1392,11 +1397,9 @@ describe("Bridge - Moving funds", () => {
                                       "when target wallets commitment is not submitted",
                                       () => {
                                         const data: MovingFundsTestData =
-                                          JSON.parse(
-                                            JSON.stringify(SingleTargetWallet)
-                                          )
+                                          structuredClone(SingleTargetWallet)
 
-                                        let tx: Promise<ContractTransaction>
+                                        let tx: Promise<ContractTransactionResponse>
 
                                         before(async () => {
                                           await createSnapshot()
@@ -1456,11 +1459,9 @@ describe("Bridge - Moving funds", () => {
                                     testData.forEach((test) => {
                                       context(test.testName, () => {
                                         const data: MovingFundsTestData =
-                                          JSON.parse(
-                                            JSON.stringify(SingleTargetWallet)
-                                          )
+                                          structuredClone(SingleTargetWallet)
 
-                                        let tx: Promise<ContractTransaction>
+                                        let tx: Promise<ContractTransactionResponse>
 
                                         before(async () => {
                                           await createSnapshot()
@@ -1490,7 +1491,7 @@ describe("Bridge - Moving funds", () => {
                               const data: MovingFundsTestData =
                                 SingleTargetWallet
 
-                              let tx: Promise<ContractTransaction>
+                              let tx: Promise<ContractTransactionResponse>
 
                               before(async () => {
                                 await createSnapshot()
@@ -1504,7 +1505,9 @@ describe("Bridge - Moving funds", () => {
                                     .connect(governance)
                                     .beginMovingFundsTxMaxTotalFeeUpdate(8999)
                                   await increaseTime(
-                                    await bridgeGovernance.governanceDelays(0)
+                                    toNumber(
+                                      await bridgeGovernance.governanceDelays(0)
+                                    )
                                   )
                                   await bridgeGovernance
                                     .connect(governance)
@@ -1536,7 +1539,7 @@ describe("Bridge - Moving funds", () => {
                             const data: MovingFundsTestData =
                               MultipleTargetWalletsButAmountDistributedUnevenly
 
-                            let tx: Promise<ContractTransaction>
+                            let tx: Promise<ContractTransactionResponse>
 
                             before(async () => {
                               await createSnapshot()
@@ -1569,7 +1572,7 @@ describe("Bridge - Moving funds", () => {
                         const data: MovingFundsTestData =
                           SingleTargetWalletButP2SH
 
-                        let tx: Promise<ContractTransaction>
+                        let tx: Promise<ContractTransactionResponse>
 
                         before(async () => {
                           await createSnapshot()
@@ -1599,7 +1602,7 @@ describe("Bridge - Moving funds", () => {
                     // that makes sure the output payload is 20-byte.
                     const data: MovingFundsTestData = SingleProvablyUnspendable
 
-                    let tx: Promise<ContractTransaction>
+                    let tx: Promise<ContractTransactionResponse>
 
                     before(async () => {
                       await createSnapshot()
@@ -1624,11 +1627,10 @@ describe("Bridge - Moving funds", () => {
             context(
               "when the single input doesn't point to the wallet's main UTXO",
               () => {
-                const data: MovingFundsTestData = JSON.parse(
-                  JSON.stringify(SingleTargetWallet)
-                )
+                const data: MovingFundsTestData =
+                  structuredClone(SingleTargetWallet)
 
-                let tx: Promise<ContractTransaction>
+                let tx: Promise<ContractTransactionResponse>
 
                 before(async () => {
                   await createSnapshot()
@@ -1660,7 +1662,7 @@ describe("Bridge - Moving funds", () => {
           context("when input count is other than one", () => {
             const data: MovingFundsTestData = MultipleInputs
 
-            let tx: Promise<ContractTransaction>
+            let tx: Promise<ContractTransactionResponse>
 
             before(async () => {
               await createSnapshot()
@@ -1766,9 +1768,7 @@ describe("Bridge - Moving funds", () => {
 
     context("when transaction proof is not valid", () => {
       context("when input vector is not valid", () => {
-        const data: MovingFundsTestData = JSON.parse(
-          JSON.stringify(SingleTargetWallet)
-        )
+        const data: MovingFundsTestData = structuredClone(SingleTargetWallet)
 
         before(async () => {
           await createSnapshot()
@@ -1792,9 +1792,7 @@ describe("Bridge - Moving funds", () => {
       })
 
       context("when output vector is not valid", () => {
-        const data: MovingFundsTestData = JSON.parse(
-          JSON.stringify(SingleTargetWallet)
-        )
+        const data: MovingFundsTestData = structuredClone(SingleTargetWallet)
 
         before(async () => {
           await createSnapshot()
@@ -1820,9 +1818,7 @@ describe("Bridge - Moving funds", () => {
       context(
         "when transaction is not on same level of merkle tree as coinbase",
         () => {
-          const data: MovingFundsTestData = JSON.parse(
-            JSON.stringify(SingleTargetWallet)
-          )
+          const data: MovingFundsTestData = structuredClone(SingleTargetWallet)
 
           before(async () => {
             await createSnapshot()
@@ -1837,8 +1833,8 @@ describe("Bridge - Moving funds", () => {
             // than the coinbase. This is achieved by appending additional
             // hashes to the merkle proof.
             data.movingFundsProof.merkleProof +=
-              ethers.utils.sha256("0x01").substring(2) +
-              ethers.utils.sha256("0x02").substring(2)
+              ethers.sha256("0x01").substring(2) +
+              ethers.sha256("0x02").substring(2)
 
             await expect(runMovingFundsScenario(data)).to.be.revertedWith(
               "Tx not on same level of merkle tree as coinbase"
@@ -1848,9 +1844,7 @@ describe("Bridge - Moving funds", () => {
       )
 
       context("when merkle proof is not valid", () => {
-        const data: MovingFundsTestData = JSON.parse(
-          JSON.stringify(SingleTargetWallet)
-        )
+        const data: MovingFundsTestData = structuredClone(SingleTargetWallet)
 
         before(async () => {
           await createSnapshot()
@@ -1872,9 +1866,7 @@ describe("Bridge - Moving funds", () => {
       })
 
       context("when coinbase merkle proof is not valid", () => {
-        const data: MovingFundsTestData = JSON.parse(
-          JSON.stringify(SingleTargetWallet)
-        )
+        const data: MovingFundsTestData = structuredClone(SingleTargetWallet)
 
         before(async () => {
           await createSnapshot()
@@ -1886,7 +1878,7 @@ describe("Bridge - Moving funds", () => {
 
         it("should revert", async () => {
           // Corrupt the coinbase preimage.
-          data.movingFundsProof.coinbasePreimage = ethers.utils.sha256(
+          data.movingFundsProof.coinbasePreimage = ethers.sha256(
             data.movingFundsProof.coinbasePreimage
           )
 
@@ -1897,9 +1889,7 @@ describe("Bridge - Moving funds", () => {
       })
 
       context("when proof difficulty is not current nor previous", () => {
-        const data: MovingFundsTestData = JSON.parse(
-          JSON.stringify(SingleTargetWallet)
-        )
+        const data: MovingFundsTestData = structuredClone(SingleTargetWallet)
 
         before(async () => {
           await createSnapshot()
@@ -1922,9 +1912,7 @@ describe("Bridge - Moving funds", () => {
       })
 
       context("when headers chain length is not valid", () => {
-        const data: MovingFundsTestData = JSON.parse(
-          JSON.stringify(SingleTargetWallet)
-        )
+        const data: MovingFundsTestData = structuredClone(SingleTargetWallet)
 
         before(async () => {
           await createSnapshot()
@@ -1952,9 +1940,7 @@ describe("Bridge - Moving funds", () => {
       })
 
       context("when headers chain is not valid", () => {
-        const data: MovingFundsTestData = JSON.parse(
-          JSON.stringify(SingleTargetWallet)
-        )
+        const data: MovingFundsTestData = structuredClone(SingleTargetWallet)
 
         before(async () => {
           await createSnapshot()
@@ -1986,9 +1972,7 @@ describe("Bridge - Moving funds", () => {
       })
 
       context("when the work in the header is insufficient", () => {
-        const data: MovingFundsTestData = JSON.parse(
-          JSON.stringify(SingleTargetWallet)
-        )
+        const data: MovingFundsTestData = structuredClone(SingleTargetWallet)
 
         before(async () => {
           await createSnapshot()
@@ -2020,9 +2004,7 @@ describe("Bridge - Moving funds", () => {
         "when accumulated difficulty in headers chain is insufficient",
         () => {
           let otherBridge: BridgeStub
-          const data: MovingFundsTestData = JSON.parse(
-            JSON.stringify(SingleTargetWallet)
-          )
+          const data: MovingFundsTestData = structuredClone(SingleTargetWallet)
 
           before(async () => {
             await createSnapshot()
@@ -2036,7 +2018,7 @@ describe("Bridge - Moving funds", () => {
             // to deem transaction proof validity. This scenario uses test
             // data which has only 6 confirmations. That should force the
             // failure we expect within this scenario.
-            otherBridge = (await deployBridge(12))[0] as BridgeStub
+            otherBridge = (await deployBridge(12))[0] as unknown as BridgeStub
             await otherBridge.setSpvMaintainerStatus(
               spvMaintainer.address,
               true
@@ -2072,9 +2054,7 @@ describe("Bridge - Moving funds", () => {
         // the transaction data (version, locktime, inputs, outputs)
         // length is 64 bytes or less.
 
-        const data: MovingFundsTestData = JSON.parse(
-          JSON.stringify(SingleTargetWallet)
-        )
+        const data: MovingFundsTestData = structuredClone(SingleTargetWallet)
 
         before(async () => {
           await createSnapshot()
@@ -2118,14 +2098,14 @@ describe("Bridge - Moving funds", () => {
   describe("notifyMovingFundsTimeout", () => {
     const walletDraft = {
       ecdsaWalletID: ecdsaWalletTestData.walletID,
-      mainUtxoHash: ethers.constants.HashZero,
+      mainUtxoHash: ethers.ZeroHash,
       pendingRedemptionsValue: 0,
       createdAt: 0,
       movingFundsRequestedAt: 0,
       closingStartedAt: 0,
       pendingMovedFundsSweepRequestsCount: 0,
       state: walletState.Unknown,
-      movingFundsTargetWalletsCommitmentHash: ethers.constants.HashZero,
+      movingFundsTargetWalletsCommitmentHash: ethers.ZeroHash,
     }
 
     context("when source wallet is in the MovingFunds state", () => {
@@ -2140,7 +2120,7 @@ describe("Bridge - Moving funds", () => {
         // Wallet must have funds to be not closed immediately by
         // the following `__ecdsaWalletHeartbeatFailedCallback` call.
         await bridge.setWalletMainUtxo(ecdsaWalletTestData.pubKeyHash160, {
-          txHash: ethers.constants.HashZero,
+          txHash: ethers.ZeroHash,
           txOutputIndex: 0,
           txOutputValue: to1ePrecision(10, 8),
         })
@@ -2160,7 +2140,7 @@ describe("Bridge - Moving funds", () => {
       })
 
       context("when the moving funds process has timed out", () => {
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
         const walletMembersIDs = [1, 2, 3, 4, 5]
 
         before(async () => {
@@ -2169,7 +2149,7 @@ describe("Bridge - Moving funds", () => {
           await walletRegistry.closeWallet.reset()
           await walletRegistry.seize.reset()
 
-          await increaseTime(movingFundsTimeout + 1)
+          await increaseTime(toNumber(movingFundsTimeout + 1n))
 
           tx = await bridge
             .connect(thirdParty)
@@ -2229,7 +2209,7 @@ describe("Bridge - Moving funds", () => {
         before(async () => {
           await createSnapshot()
 
-          await increaseTime(movingFundsTimeout - 1)
+          await increaseTime(toNumber(movingFundsTimeout - 1n))
         })
 
         after(async () => {
@@ -2305,14 +2285,14 @@ describe("Bridge - Moving funds", () => {
   describe("notifyMovingFundsBelowDust", () => {
     const walletDraft = {
       ecdsaWalletID: ecdsaWalletTestData.walletID,
-      mainUtxoHash: ethers.constants.HashZero,
+      mainUtxoHash: ethers.ZeroHash,
       pendingRedemptionsValue: 0,
       createdAt: 0,
       movingFundsRequestedAt: 0,
       closingStartedAt: 0,
       pendingMovedFundsSweepRequestsCount: 0,
       state: walletState.Unknown,
-      movingFundsTargetWalletsCommitmentHash: ethers.constants.HashZero,
+      movingFundsTargetWalletsCommitmentHash: ethers.ZeroHash,
     }
 
     context("when the wallet is in the MovingFunds state", () => {
@@ -2332,12 +2312,12 @@ describe("Bridge - Moving funds", () => {
       context("when the main UTXO parameter is valid", () => {
         context("when the balance is below the dust threshold", () => {
           const mainUtxo = {
-            txHash: ethers.constants.HashZero,
+            txHash: ethers.ZeroHash,
             txOutputIndex: 0,
             txOutputValue: constants.movingFundsDustThreshold - 1,
           }
 
-          let tx: ContractTransaction
+          let tx: ContractTransactionResponse
 
           before(async () => {
             await createSnapshot()
@@ -2390,7 +2370,7 @@ describe("Bridge - Moving funds", () => {
 
         context("when the balance is not below the dust threshold", () => {
           const mainUtxo = {
-            txHash: ethers.constants.HashZero,
+            txHash: ethers.ZeroHash,
             txOutputIndex: 0,
             txOutputValue: constants.movingFundsDustThreshold,
           }
@@ -2423,7 +2403,7 @@ describe("Bridge - Moving funds", () => {
 
       context("when the main UTXO parameter is invalid", () => {
         const mainUtxo = {
-          txHash: ethers.constants.HashZero,
+          txHash: ethers.ZeroHash,
           txOutputIndex: 0,
           txOutputValue: to1ePrecision(1, 8),
         }
@@ -2536,7 +2516,7 @@ describe("Bridge - Moving funds", () => {
                                 const data: MovedFundsSweepTestData =
                                   MovedFundsSweepWithoutMainUtxo
 
-                                let tx: ContractTransaction
+                                let tx: ContractTransactionResponse
 
                                 before(async () => {
                                   await createSnapshot()
@@ -2549,7 +2529,7 @@ describe("Bridge - Moving funds", () => {
                                 })
 
                                 it("should mark the sweep request as processed", async () => {
-                                  const key = ethers.utils.solidityKeccak256(
+                                  const key = ethers.solidityPackedKeccak256(
                                     ["bytes32", "uint32"],
                                     [
                                       data.movedFundsSweepRequest.txHash,
@@ -2585,7 +2565,7 @@ describe("Bridge - Moving funds", () => {
                                   // in a Bitcoin testnet explorer. In this case,
                                   // the output  value is 16500.
                                   const expectedMainUtxoHash =
-                                    ethers.utils.solidityKeccak256(
+                                    ethers.solidityPackedKeccak256(
                                       ["bytes32", "uint32", "uint64"],
                                       [data.sweepTx.hash, 0, 16500]
                                     )
@@ -2649,7 +2629,7 @@ describe("Bridge - Moving funds", () => {
                                     const data: MovedFundsSweepTestData =
                                       MovedFundsSweepWithoutMainUtxo
 
-                                    let tx: Promise<ContractTransaction>
+                                    let tx: Promise<ContractTransactionResponse>
 
                                     before(async () => {
                                       await createSnapshot()
@@ -2686,7 +2666,7 @@ describe("Bridge - Moving funds", () => {
                                     const data: MovedFundsSweepTestData =
                                       MovedFundsSweepWithoutMainUtxo
 
-                                    let tx: Promise<ContractTransaction>
+                                    let tx: Promise<ContractTransactionResponse>
 
                                     before(async () => {
                                       await createSnapshot()
@@ -2796,7 +2776,7 @@ describe("Bridge - Moving funds", () => {
                                 const data: MovedFundsSweepTestData =
                                   MovedFundsSweepWithMainUtxo
 
-                                let tx: ContractTransaction
+                                let tx: ContractTransactionResponse
 
                                 before(async () => {
                                   await createSnapshot()
@@ -2809,7 +2789,7 @@ describe("Bridge - Moving funds", () => {
                                 })
 
                                 it("should mark the sweep request as processed", async () => {
-                                  const key = ethers.utils.solidityKeccak256(
+                                  const key = ethers.solidityPackedKeccak256(
                                     ["bytes32", "uint32"],
                                     [
                                       data.movedFundsSweepRequest.txHash,
@@ -2845,7 +2825,7 @@ describe("Bridge - Moving funds", () => {
                                   // in a Bitcoin testnet explorer. In this case,
                                   // the output  value is 2612530.
                                   const expectedMainUtxoHash =
-                                    ethers.utils.solidityKeccak256(
+                                    ethers.solidityPackedKeccak256(
                                       ["bytes32", "uint32", "uint64"],
                                       [data.sweepTx.hash, 0, 2612530]
                                     )
@@ -2869,7 +2849,7 @@ describe("Bridge - Moving funds", () => {
                                 })
 
                                 it("should mark the current sweeping wallet main UTXO as correctly spent", async () => {
-                                  const key = ethers.utils.solidityKeccak256(
+                                  const key = ethers.solidityPackedKeccak256(
                                     ["bytes32", "uint32"],
                                     [
                                       data.mainUtxo.txHash,
@@ -2972,7 +2952,7 @@ describe("Bridge - Moving funds", () => {
                                     const data: MovedFundsSweepTestData =
                                       MovedFundsSweepWithMainUtxo
 
-                                    let tx: Promise<ContractTransaction>
+                                    let tx: Promise<ContractTransactionResponse>
 
                                     before(async () => {
                                       await createSnapshot()
@@ -3009,7 +2989,7 @@ describe("Bridge - Moving funds", () => {
                                     const data: MovedFundsSweepTestData =
                                       MovedFundsSweepWithMainUtxo
 
-                                    let tx: Promise<ContractTransaction>
+                                    let tx: Promise<ContractTransactionResponse>
 
                                     before(async () => {
                                       await createSnapshot()
@@ -3185,7 +3165,7 @@ describe("Bridge - Moving funds", () => {
                     const data: MovedFundsSweepTestData =
                       MovedFundsSweepWithMainUtxo
 
-                    let tx: Promise<ContractTransaction>
+                    let tx: Promise<ContractTransactionResponse>
 
                     before(async () => {
                       await createSnapshot()
@@ -3220,7 +3200,7 @@ describe("Bridge - Moving funds", () => {
                     const data: MovedFundsSweepTestData =
                       MovedFundsSweepWithoutMainUtxo
 
-                    let tx: Promise<ContractTransaction>
+                    let tx: Promise<ContractTransactionResponse>
 
                     before(async () => {
                       await createSnapshot()
@@ -3276,7 +3256,7 @@ describe("Bridge - Moving funds", () => {
                     const data: MovedFundsSweepTestData =
                       MovedFundsSweepWithoutMainUtxo
 
-                    let tx: Promise<ContractTransaction>
+                    let tx: Promise<ContractTransactionResponse>
 
                     before(async () => {
                       await createSnapshot()
@@ -3365,8 +3345,8 @@ describe("Bridge - Moving funds", () => {
 
     context("when transaction proof is not valid", () => {
       context("when input vector is not valid", () => {
-        const data: MovedFundsSweepTestData = JSON.parse(
-          JSON.stringify(MovedFundsSweepWithoutMainUtxo)
+        const data: MovedFundsSweepTestData = structuredClone(
+          MovedFundsSweepWithoutMainUtxo
         )
 
         before(async () => {
@@ -3391,8 +3371,8 @@ describe("Bridge - Moving funds", () => {
       })
 
       context("when output vector is not valid", () => {
-        const data: MovedFundsSweepTestData = JSON.parse(
-          JSON.stringify(MovedFundsSweepWithoutMainUtxo)
+        const data: MovedFundsSweepTestData = structuredClone(
+          MovedFundsSweepWithoutMainUtxo
         )
 
         before(async () => {
@@ -3419,8 +3399,8 @@ describe("Bridge - Moving funds", () => {
       context(
         "when transaction is not on same level of merkle tree as coinbase",
         () => {
-          const data: MovedFundsSweepTestData = JSON.parse(
-            JSON.stringify(MovedFundsSweepWithoutMainUtxo)
+          const data: MovedFundsSweepTestData = structuredClone(
+            MovedFundsSweepWithoutMainUtxo
           )
 
           before(async () => {
@@ -3436,8 +3416,8 @@ describe("Bridge - Moving funds", () => {
             // than the coinbase. This is achieved by appending additional
             // hashes to the merkle proof.
             data.sweepProof.merkleProof +=
-              ethers.utils.sha256("0x01").substring(2) +
-              ethers.utils.sha256("0x02").substring(2)
+              ethers.sha256("0x01").substring(2) +
+              ethers.sha256("0x02").substring(2)
 
             await expect(runMovedFundsSweepScenario(data)).to.be.revertedWith(
               "Tx not on same level of merkle tree as coinbase"
@@ -3447,8 +3427,8 @@ describe("Bridge - Moving funds", () => {
       )
 
       context("when merkle proof is not valid", () => {
-        const data: MovedFundsSweepTestData = JSON.parse(
-          JSON.stringify(MovedFundsSweepWithoutMainUtxo)
+        const data: MovedFundsSweepTestData = structuredClone(
+          MovedFundsSweepWithoutMainUtxo
         )
 
         before(async () => {
@@ -3471,8 +3451,8 @@ describe("Bridge - Moving funds", () => {
       })
 
       context("when coinbase merkle proof is not valid", () => {
-        const data: MovedFundsSweepTestData = JSON.parse(
-          JSON.stringify(MovedFundsSweepWithoutMainUtxo)
+        const data: MovedFundsSweepTestData = structuredClone(
+          MovedFundsSweepWithoutMainUtxo
         )
 
         before(async () => {
@@ -3485,7 +3465,7 @@ describe("Bridge - Moving funds", () => {
 
         it("should revert", async () => {
           // Corrupt the coinbase preimage.
-          data.sweepProof.coinbasePreimage = ethers.utils.sha256(
+          data.sweepProof.coinbasePreimage = ethers.sha256(
             data.sweepProof.coinbasePreimage
           )
 
@@ -3496,8 +3476,8 @@ describe("Bridge - Moving funds", () => {
       })
 
       context("when proof difficulty is not current nor previous", () => {
-        const data: MovedFundsSweepTestData = JSON.parse(
-          JSON.stringify(MovedFundsSweepWithoutMainUtxo)
+        const data: MovedFundsSweepTestData = structuredClone(
+          MovedFundsSweepWithoutMainUtxo
         )
 
         before(async () => {
@@ -3521,8 +3501,8 @@ describe("Bridge - Moving funds", () => {
       })
 
       context("when headers chain length is not valid", () => {
-        const data: MovedFundsSweepTestData = JSON.parse(
-          JSON.stringify(MovedFundsSweepWithoutMainUtxo)
+        const data: MovedFundsSweepTestData = structuredClone(
+          MovedFundsSweepWithoutMainUtxo
         )
 
         before(async () => {
@@ -3551,8 +3531,8 @@ describe("Bridge - Moving funds", () => {
       })
 
       context("when headers chain is not valid", () => {
-        const data: MovedFundsSweepTestData = JSON.parse(
-          JSON.stringify(MovedFundsSweepWithoutMainUtxo)
+        const data: MovedFundsSweepTestData = structuredClone(
+          MovedFundsSweepWithoutMainUtxo
         )
 
         before(async () => {
@@ -3585,8 +3565,8 @@ describe("Bridge - Moving funds", () => {
       })
 
       context("when the work in the header is insufficient", () => {
-        const data: MovedFundsSweepTestData = JSON.parse(
-          JSON.stringify(MovedFundsSweepWithoutMainUtxo)
+        const data: MovedFundsSweepTestData = structuredClone(
+          MovedFundsSweepWithoutMainUtxo
         )
 
         before(async () => {
@@ -3619,8 +3599,8 @@ describe("Bridge - Moving funds", () => {
         "when accumulated difficulty in headers chain is insufficient",
         () => {
           let otherBridge: Bridge
-          const data: MovedFundsSweepTestData = JSON.parse(
-            JSON.stringify(MovedFundsSweepWithMainUtxo)
+          const data: MovedFundsSweepTestData = structuredClone(
+            MovedFundsSweepWithMainUtxo
           )
 
           before(async () => {
@@ -3635,7 +3615,7 @@ describe("Bridge - Moving funds", () => {
             // to deem transaction proof validity. This scenario uses test
             // data which has only 6 confirmations. That should force the
             // failure we expect within this scenario.
-            otherBridge = (await deployBridge(12))[0] as BridgeStub
+            otherBridge = (await deployBridge(12))[0] as unknown as BridgeStub
             await otherBridge.setSpvMaintainerStatus(
               spvMaintainer.address,
               true
@@ -3670,8 +3650,8 @@ describe("Bridge - Moving funds", () => {
         // the transaction data (version, locktime, inputs, outputs)
         // length is 64 bytes or less.
 
-        const data: MovedFundsSweepTestData = JSON.parse(
-          JSON.stringify(MovedFundsSweepWithoutMainUtxo)
+        const data: MovedFundsSweepTestData = structuredClone(
+          MovedFundsSweepWithoutMainUtxo
         )
 
         before(async () => {
@@ -3716,14 +3696,14 @@ describe("Bridge - Moving funds", () => {
   describe("notifyMovedFundsSweepTimeout", () => {
     const walletDraft = {
       ecdsaWalletID: ecdsaWalletTestData.walletID,
-      mainUtxoHash: ethers.constants.HashZero,
+      mainUtxoHash: ethers.ZeroHash,
       pendingRedemptionsValue: 0,
       createdAt: 0,
       movingFundsRequestedAt: 0,
       closingStartedAt: 0,
       pendingMovedFundsSweepRequestsCount: 0,
       state: walletState.Unknown,
-      movingFundsTargetWalletsCommitmentHash: ethers.constants.HashZero,
+      movingFundsTargetWalletsCommitmentHash: ethers.ZeroHash,
     }
 
     const walletMembersIDs = [1, 2, 3, 4, 5]
@@ -3757,7 +3737,7 @@ describe("Bridge - Moving funds", () => {
         before(async () => {
           await createSnapshot()
 
-          await increaseTime(movedFundsSweepTimeout + 1)
+          await increaseTime(toNumber(movedFundsSweepTimeout + 1n))
         })
 
         after(async () => {
@@ -3770,8 +3750,8 @@ describe("Bridge - Moving funds", () => {
             const testData: {
               testName: string
               walletState: number
-              additionalSetup?: () => Promise<void>
-              additionalAssertions?: () => Promise<void>
+              additionalSetup: () => Promise<void>
+              additionalAssertions: () => Promise<void>
             }[] = [
               {
                 testName:
@@ -3828,7 +3808,7 @@ describe("Bridge - Moving funds", () => {
 
             testData.forEach((test) => {
               context(test.testName, async () => {
-                let tx: ContractTransaction
+                let tx: ContractTransactionResponse
 
                 before(async () => {
                   await createSnapshot()
@@ -3840,9 +3820,11 @@ describe("Bridge - Moving funds", () => {
                   await bridge.setWallet(
                     movedFundsSweepRequest.walletPubKeyHash,
                     {
-                      ...(await bridge.wallets(
-                        movedFundsSweepRequest.walletPubKeyHash
-                      )),
+                      ...walletToStruct(
+                        await bridge.wallets(
+                          movedFundsSweepRequest.walletPubKeyHash
+                        )
+                      ),
                       state: test.walletState,
                     }
                   )
@@ -3866,7 +3848,7 @@ describe("Bridge - Moving funds", () => {
                 })
 
                 it("should switch the moved funds sweep request to the TimedOut state", async () => {
-                  const requestKey = ethers.utils.solidityKeccak256(
+                  const requestKey = ethers.solidityPackedKeccak256(
                     ["bytes32", "uint32"],
                     [
                       movedFundsSweepRequest.txHash,
@@ -3941,15 +3923,15 @@ describe("Bridge - Moving funds", () => {
         )
 
         context("when the wallet is in the Terminated state", () => {
-          let tx: ContractTransaction
+          let tx: ContractTransactionResponse
 
           before(async () => {
             await createSnapshot()
 
             await bridge.setWallet(movedFundsSweepRequest.walletPubKeyHash, {
-              ...(await bridge.wallets(
-                movedFundsSweepRequest.walletPubKeyHash
-              )),
+              ...walletToStruct(
+                await bridge.wallets(movedFundsSweepRequest.walletPubKeyHash)
+              ),
               state: walletState.Terminated,
             })
 
@@ -3967,7 +3949,7 @@ describe("Bridge - Moving funds", () => {
           })
 
           it("should switch the moved funds sweep request to the TimedOut state", async () => {
-            const requestKey = ethers.utils.solidityKeccak256(
+            const requestKey = ethers.solidityPackedKeccak256(
               ["bytes32", "uint32"],
               [
                 movedFundsSweepRequest.txHash,
@@ -4020,9 +4002,11 @@ describe("Bridge - Moving funds", () => {
                   await bridge.setWallet(
                     movedFundsSweepRequest.walletPubKeyHash,
                     {
-                      ...(await bridge.wallets(
-                        movedFundsSweepRequest.walletPubKeyHash
-                      )),
+                      ...walletToStruct(
+                        await bridge.wallets(
+                          movedFundsSweepRequest.walletPubKeyHash
+                        )
+                      ),
                       state: test.walletState,
                     }
                   )
@@ -4053,7 +4037,7 @@ describe("Bridge - Moving funds", () => {
         before(async () => {
           await createSnapshot()
 
-          await increaseTime(movedFundsSweepTimeout - 1)
+          await increaseTime(toNumber(movedFundsSweepTimeout - 1n))
         })
 
         after(async () => {
@@ -4180,14 +4164,14 @@ describe("Bridge - Moving funds", () => {
   async function runMovingFundsScenario(
     data: MovingFundsTestData,
     beforeProofActions?: () => Promise<void>
-  ): Promise<ContractTransaction> {
+  ): Promise<ContractTransactionResponse> {
     await relay.getCurrentEpochDifficulty.returns(data.chainDifficulty)
     await relay.getPrevEpochDifficulty.returns(data.chainDifficulty)
 
     // Simulate the wallet is a registered one.
     await bridge.setWallet(data.wallet.pubKeyHash, {
       ecdsaWalletID: data.wallet.ecdsaWalletID,
-      mainUtxoHash: ethers.constants.HashZero,
+      mainUtxoHash: ethers.ZeroHash,
       pendingRedemptionsValue: 0,
       createdAt: await lastBlockTime(),
       movingFundsRequestedAt: await lastBlockTime(),
@@ -4196,11 +4180,11 @@ describe("Bridge - Moving funds", () => {
       state: data.wallet.state,
       movingFundsTargetWalletsCommitmentHash:
         data.targetWalletsCommitment.length > 0
-          ? ethers.utils.solidityKeccak256(
+          ? ethers.solidityPackedKeccak256(
               ["bytes20[]"],
               [data.targetWalletsCommitment]
             )
-          : ethers.constants.HashZero,
+          : ethers.ZeroHash,
     })
     // Simulate the prepared main UTXO belongs to the wallet.
     await bridge.setWalletMainUtxo(data.wallet.pubKeyHash, data.mainUtxo)
@@ -4225,26 +4209,30 @@ describe("Bridge - Moving funds", () => {
   }
 
   async function runMovedFundsSweepScenario(
-    data: MovedFundsSweepTestData,
+    data: Omit<MovedFundsSweepTestData, "movedFundsSweepRequest"> & {
+      movedFundsSweepRequest:
+        | MovedFundsSweepTestData["movedFundsSweepRequest"]
+        | null
+    },
     beforeProofActions?: () => Promise<void>
-  ): Promise<ContractTransaction> {
+  ): Promise<ContractTransactionResponse> {
     await relay.getCurrentEpochDifficulty.returns(data.chainDifficulty)
     await relay.getPrevEpochDifficulty.returns(data.chainDifficulty)
 
     // Simulate the wallet is a registered one.
     await bridge.setWallet(data.wallet.pubKeyHash, {
       ecdsaWalletID: data.wallet.ecdsaWalletID,
-      mainUtxoHash: ethers.constants.HashZero,
+      mainUtxoHash: ethers.ZeroHash,
       pendingRedemptionsValue: 0,
       createdAt: await lastBlockTime(),
       movingFundsRequestedAt: 0,
       closingStartedAt: 0,
       pendingMovedFundsSweepRequestsCount: 0,
       state: data.wallet.state,
-      movingFundsTargetWalletsCommitmentHash: ethers.constants.HashZero,
+      movingFundsTargetWalletsCommitmentHash: ethers.ZeroHash,
     })
 
-    if (data.mainUtxo.txHash !== ethers.constants.HashZero) {
+    if (data.mainUtxo.txHash !== ethers.ZeroHash) {
       // Simulate the prepared main UTXO belongs to the wallet.
       await bridge.setWalletMainUtxo(data.wallet.pubKeyHash, data.mainUtxo)
     }
@@ -4258,7 +4246,7 @@ describe("Bridge - Moving funds", () => {
       // initialized the counter properly.
       assert(
         (await bridge.wallets(data.movedFundsSweepRequest.walletPubKeyHash))
-          .pendingMovedFundsSweepRequestsCount === 1,
+          .pendingMovedFundsSweepRequestsCount === 1n,
         "Pending moved funds request counter for the sweeping wallet should be set up to 1"
       )
     }

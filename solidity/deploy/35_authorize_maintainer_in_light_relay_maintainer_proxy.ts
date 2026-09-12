@@ -7,7 +7,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const { execute } = deployments
   const { deployer } = await getNamedAccounts()
 
-  const relayMaintainerMainnet = ethers.utils.getAddress(
+  const relayMaintainerMainnet = ethers.getAddress(
     "0xCb6Ed7E78d27FDff28127F9CbD61d861F09a2324"
   )
 

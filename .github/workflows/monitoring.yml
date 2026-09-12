@@ -8,6 +8,7 @@ on:
       - main
     paths:
       - "monitoring/**"
+      - "config/**"
   pull_request:
   workflow_dispatch:
     inputs:
@@ -37,6 +38,7 @@ jobs:
           filters: |
             path-filter:
               - './monitoring/**'
+              - './config/**'
 
   monitoring-build:
     needs: monitoring-detect-changes

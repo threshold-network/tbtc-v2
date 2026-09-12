@@ -97,17 +97,14 @@ const config: HardhatUserConfig = {
   },
 
   deploymentArtifactsExport: {
-    goerli: "artifacts/l1",
     sepolia: "artifacts/l1",
     mainnet: "artifacts/l1",
-    arbitrumGoerli: "artifacts/l2",
-    arbitrumSepolia: "artifacts/l2",
-    arbitrumOne: "artifacts/l2",
+    bobSepolia: "artifacts/l2",
+    bobMainnet: "artifacts/l2",
   },
 
   etherscan: {
     apiKey: {
-      goerli: process.env.ETHERSCAN_API_KEY,
       sepolia: process.env.ETHERSCAN_API_KEY,
       mainnet: process.env.ETHERSCAN_API_KEY,
       bobMainnet: "empty",
@@ -152,7 +149,6 @@ const config: HardhatUserConfig = {
   namedAccounts: {
     deployer: {
       default: 1,
-      goerli: 0,
       sepolia: 0,
       mainnet: "0x15424dC94D4da488DB0d0e0B7aAdB86835813a63",
       bobMainnet: "0x15424dC94D4da488DB0d0e0B7aAdB86835813a63",
@@ -160,7 +156,6 @@ const config: HardhatUserConfig = {
     },
     governance: {
       default: 2,
-      goerli: 0,
       sepolia: 0,
       mainnet: "0x9f6e831c8f8939dc0c830c6e492e7cef4f9c2f5f",
       bobMainnet: "0x694DeC29F197c76eb13d4Cc549cE38A1e06Cd24C",

@@ -1,12 +1,16 @@
+import {
+  toBigInt,
+  ContractTransactionResponse,
+  ContractTransactionReceipt,
+} from "ethers"
 import { ethers, getUnnamedAccounts, helpers } from "hardhat"
 import { expect } from "chai"
-import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
-import {
-  BigNumber,
-  ContractTransaction,
-  Contract,
-  ContractReceipt,
-} from "ethers"
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
+import { requireValue } from "../../helpers/require-value"
+import type {
+  GasBurningReceiver,
+  ReentrantRefundReceiver,
+} from "../../typechain"
 import { loadFixture } from "../helpers/fixture"
 import {
   IBridge,
@@ -15,13 +19,13 @@ import {
   TestERC20,
   TestL1BTCDepositor,
 } from "../../typechain"
-import type {
-  BitcoinTxInfoStruct,
-  DepositRevealInfoStruct,
-} from "../../typechain/L2BTCDepositorWormhole"
+import type { IBridgeTypes as IBridgeTypesTypes } from "../../typechain/contracts/cross-chain/wormhole/L2BTCDepositorWormhole"
 import { to1ePrecision } from "../helpers/contract-test-helpers"
 import { createMock, expectCalledTwice, expectNotCalled } from "../helpers/mock"
 import type { Mock } from "../helpers/mock"
+
+type BitcoinTxInfoStruct = IBridgeTypesTypes.BitcoinTxInfoStruct
+type DepositRevealInfoStruct = IBridgeTypesTypes.DepositRevealInfoStruct
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 const { lastBlockTime } = helpers.time
@@ -67,10 +71,10 @@ const initializeDepositFixture: InitializeDepositFixture = {
 
 describe("AbstractL1BTCDepositor", () => {
   const satoshiMultiplier = to1ePrecision(1, 10)
-  const depositAmount = BigNumber.from(100000)
-  const treasuryFee = BigNumber.from(500)
+  const depositAmount = toBigInt(100000)
+  const treasuryFee = toBigInt(500)
   const optimisticMintingFeeDivisor = 20 // 5%
-  const depositTxMaxFee = BigNumber.from(1000)
+  const depositTxMaxFee = toBigInt(1000)
 
   // amountSubTreasury = (depositAmount - treasuryFee) * satoshiMultiplier = 99500 * 1e10
   // omFee = amountSubTreasury / optimisticMintingFeeDivisor = 4975 * 1e10
@@ -96,7 +100,7 @@ describe("AbstractL1BTCDepositor", () => {
       address: tbtcVaultAddress,
     })
     // Attach the tbtcToken mock to the tbtcVault mock.
-    await tbtcVault.tbtcToken.returns(tbtcToken.address)
+    await tbtcVault.tbtcToken.returns(tbtcToken.target)
 
     const reimbursementPool = await createMock<ReimbursementPool>(
       "ReimbursementPool"
@@ -121,9 +125,9 @@ describe("AbstractL1BTCDepositor", () => {
     }
   }
 
-  let governance: SignerWithAddress
-  let relayer: SignerWithAddress
-  let initializer: SignerWithAddress
+  let governance: HardhatEthersSigner
+  let relayer: HardhatEthersSigner
+  let initializer: HardhatEthersSigner
 
   let bridge: Mock<IBridge>
   let tbtcVault: Mock<ITBTCVault>
@@ -162,7 +166,7 @@ describe("AbstractL1BTCDepositor", () => {
     await bridge.deposits
       .whenCalledWith(initializeDepositFixture.depositKey)
       .returns({
-        depositor: depositor.address,
+        depositor: depositor.target,
         amount: depositAmount,
         revealedAt,
         vault: initializeDepositFixture.reveal.vault,
@@ -190,8 +194,8 @@ describe("AbstractL1BTCDepositor", () => {
     context(
       "when the reimbursement pool is set and a deferred gas reimbursement exists",
       () => {
-        let initializeDepositGasSpent: BigNumber
-        let tx: ContractTransaction
+        let initializeDepositGasSpent: bigint
+        let tx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -199,9 +203,7 @@ describe("AbstractL1BTCDepositor", () => {
           // Use 1Gwei to make sure it's smaller than default gas price
           // used by Hardhat (200 Gwei) and this value will be used
           // for msgValueOffset calculation.
-          await reimbursementPool.maxGasPrice.returns(
-            BigNumber.from(1000000000)
-          )
+          await reimbursementPool.maxGasPrice.returns(toBigInt(1000000000))
           await reimbursementPool.staticGas.returns(10000) // Just an arbitrary value.
 
           await depositor
@@ -269,7 +271,7 @@ describe("AbstractL1BTCDepositor", () => {
               initializeDepositFixture.depositKey,
               initializeDepositFixture.destinationChainDepositOwner,
               relayer.address,
-              depositAmount.mul(satoshiMultiplier),
+              depositAmount * satoshiMultiplier,
               expectedTbtcAmount
             )
         })
@@ -288,9 +290,7 @@ describe("AbstractL1BTCDepositor", () => {
             initializeDepositFixture.depositKey
           )
 
-          expect(gasReimbursement.receiver).to.equal(
-            ethers.constants.AddressZero
-          )
+          expect(gasReimbursement.receiver).to.equal(ethers.ZeroAddress)
           expect(gasReimbursement.gasSpent).to.equal(0)
         })
 
@@ -305,7 +305,7 @@ describe("AbstractL1BTCDepositor", () => {
           const firstCall = await reimbursementPool.refund.getCall(0)
           expect(firstCall.args[1]).to.equal(relayer.address)
           expect(
-            BigNumber.from(firstCall.args[0]).toNumber()
+            ethers.toNumber(toBigInt(String(firstCall.args[0])))
           ).to.be.greaterThan(0)
 
           const secondCall = await reimbursementPool.refund.getCall(1)
@@ -314,85 +314,16 @@ describe("AbstractL1BTCDepositor", () => {
         })
       }
     )
-    context("when the deferred reimbursement pool call fails", () => {
-      let initializeDepositGasSpent: BigNumber
-      let tx: ContractTransaction
-
-      before(async () => {
-        await createSnapshot()
-
-        await depositor
-          .connect(governance)
-          .updateReimbursementPool(reimbursementPool.address)
-        await depositor
-          .connect(governance)
-          .updateReimbursementAuthorization(initializer.address, true)
-        await depositor
-          .connect(initializer)
-          .initializeDeposit(
-            initializeDepositFixture.fundingTx,
-            initializeDepositFixture.reveal,
-            initializeDepositFixture.destinationChainDepositOwner
-          )
-
-        initializeDepositGasSpent = (
-          await depositor.gasReimbursements(initializeDepositFixture.depositKey)
-        ).gasSpent
-        expect(initializeDepositGasSpent).to.be.gt(0)
-
-        await depositor.setTrackedDepositKey(
-          initializeDepositFixture.depositKey
-        )
-        await allowFinalization()
-        await reimbursementPool.refund.reverts("Refund unavailable")
-
-        // The finalizer is not reimbursement-authorized, so only the
-        // deferred pool call is attempted and fails.
-        tx = await depositor
-          .connect(relayer)
-          .finalizeDeposit(initializeDepositFixture.depositKey)
-      })
-
-      after(async () => {
-        await resetFakes()
-        await restoreSnapshot()
-      })
-
-      it("should complete the transfer", async () => {
-        await expect(tx)
-          .to.emit(depositor, "TbtcTransferred")
-          .withArgs(
-            expectedTbtcAmount,
-            initializeDepositFixture.destinationChainDepositOwner
-          )
-      })
-
-      it("should preserve the original reimbursement and report the failure", async () => {
-        const reimbursement = await depositor.gasReimbursements(
-          initializeDepositFixture.depositKey
-        )
-        expect(reimbursement.receiver).to.equal(initializer.address)
-        expect(reimbursement.gasSpent).to.equal(initializeDepositGasSpent)
-        await expect(tx)
-          .to.emit(depositor, "DeferredReimbursementFailed")
-          .withArgs(
-            initializeDepositFixture.depositKey,
-            initializer.address,
-            initializeDepositGasSpent
-          )
-      })
-    })
-
     context(
       "when the deferred initialization receiver burns gas on receipt",
       () => {
-        const gasPrice = ethers.utils.parseUnits("1", "gwei")
+        const gasPrice = ethers.parseUnits("1", "gwei")
 
         let realReimbursementPool: ReimbursementPool
-        let gasBurningReceiver: Contract
-        let relayerBalanceBefore: BigNumber
-        let relayerBalanceAfter: BigNumber
-        let receipt: ContractReceipt
+        let gasBurningReceiver: GasBurningReceiver
+        let relayerBalanceBefore: bigint
+        let relayerBalanceAfter: bigint
+        let receipt: ContractTransactionReceipt
 
         before(async () => {
           await createSnapshot()
@@ -402,10 +333,10 @@ describe("AbstractL1BTCDepositor", () => {
           realReimbursementPool = (await (
             await ethers.getContractFactory("ReimbursementPool")
           ).deploy(10000, gasPrice)) as ReimbursementPool
-          await realReimbursementPool.authorize(depositor.address)
+          await realReimbursementPool.authorize(depositor.target)
           await funder.sendTransaction({
-            to: realReimbursementPool.address,
-            value: ethers.utils.parseEther("1"),
+            to: realReimbursementPool.target,
+            value: ethers.parseEther("1"),
           })
 
           // Burns far more gas in `receive` than a plain EOA ever would.
@@ -415,16 +346,16 @@ describe("AbstractL1BTCDepositor", () => {
 
           await depositor
             .connect(governance)
-            .updateReimbursementPool(realReimbursementPool.address)
+            .updateReimbursementPool(realReimbursementPool.target)
           await depositor
             .connect(governance)
             .updateReimbursementAuthorization(relayer.address, true)
           await depositor
             .connect(governance)
-            .updateReimbursementAuthorization(gasBurningReceiver.address, true)
+            .updateReimbursementAuthorization(gasBurningReceiver.target, true)
 
           await gasBurningReceiver.callInitializeDeposit(
-            depositor.address,
+            depositor.target,
             initializeDepositFixture.fundingTx,
             initializeDepositFixture.reveal,
             initializeDepositFixture.destinationChainDepositOwner
@@ -434,22 +365,29 @@ describe("AbstractL1BTCDepositor", () => {
             initializeDepositFixture.depositKey
           )
           expect(deferredReimbursement.receiver).to.equal(
-            gasBurningReceiver.address
+            gasBurningReceiver.target
           )
           expect(deferredReimbursement.gasSpent).to.be.gt(0)
 
           await allowFinalization()
 
-          relayerBalanceBefore = await relayer.getBalance()
+          relayerBalanceBefore = await ethers.provider.getBalance(
+            relayer.address
+          )
 
           const tx = await depositor
             .connect(relayer)
             .finalizeDeposit(initializeDepositFixture.depositKey, {
               gasPrice,
+              // Estimation can succeed when the caught reimbursement call runs
+              // out of gas. This case requires the successful payment path.
+              gasLimit: 2_000_000,
             })
-          receipt = await tx.wait()
+          receipt = requireValue(await tx.wait(), "Transaction receipt")
 
-          relayerBalanceAfter = await relayer.getBalance()
+          relayerBalanceAfter = await ethers.provider.getBalance(
+            relayer.address
+          )
         })
 
         after(async () => {
@@ -460,15 +398,14 @@ describe("AbstractL1BTCDepositor", () => {
 
         it("should pay the gas-burning receiver its deferred reimbursement without reverting finalization", async () => {
           expect(
-            await ethers.provider.getBalance(gasBurningReceiver.address)
+            await ethers.provider.getBalance(gasBurningReceiver.target)
           ).to.be.gt(0)
         })
 
         it("should still reimburse the finalizer despite the receiver's real gas burn", async () => {
-          const txCost = receipt.gasUsed.mul(gasPrice)
-          const netReimbursement = relayerBalanceAfter
-            .sub(relayerBalanceBefore)
-            .add(txCost)
+          const txCost = receipt.gasUsed * gasPrice
+          const netReimbursement =
+            relayerBalanceAfter - relayerBalanceBefore + ethers.toBigInt(txCost)
 
           expect(netReimbursement).to.be.gt(0)
         })
@@ -478,12 +415,12 @@ describe("AbstractL1BTCDepositor", () => {
     context(
       "when the deferred initialization receiver reenters finalizeDeposit",
       () => {
-        const gasPrice = ethers.utils.parseUnits("1", "gwei")
+        const gasPrice = ethers.parseUnits("1", "gwei")
 
         let realReimbursementPool: ReimbursementPool
-        let reentrantReceiver: Contract
-        let deferredReimbursementGasSpent: BigNumber
-        let tx: ContractTransaction
+        let reentrantReceiver: ReentrantRefundReceiver
+        let deferredReimbursementGasSpent: bigint
+        let tx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -493,28 +430,30 @@ describe("AbstractL1BTCDepositor", () => {
           realReimbursementPool = (await (
             await ethers.getContractFactory("ReimbursementPool")
           ).deploy(10000, gasPrice)) as ReimbursementPool
-          await realReimbursementPool.authorize(depositor.address)
+          await realReimbursementPool.authorize(depositor.target)
           await funder.sendTransaction({
-            to: realReimbursementPool.address,
-            value: ethers.utils.parseEther("1"),
+            to: realReimbursementPool.target,
+            value: ethers.parseEther("1"),
           })
 
           // Reenters `finalizeDeposit` for the same deposit key from its
           // `receive` function, i.e. as soon as it is paid its deferred
           // reimbursement.
-          reentrantReceiver = await (
+          reentrantReceiver = (await (
             await ethers.getContractFactory("ReentrantRefundReceiver")
-          ).deploy(initializeDepositFixture.depositKey)
+          ).deploy(
+            initializeDepositFixture.depositKey
+          )) as ReentrantRefundReceiver
 
           await depositor
             .connect(governance)
-            .updateReimbursementPool(realReimbursementPool.address)
+            .updateReimbursementPool(realReimbursementPool.target)
           await depositor
             .connect(governance)
-            .updateReimbursementAuthorization(reentrantReceiver.address, true)
+            .updateReimbursementAuthorization(reentrantReceiver.target, true)
 
           await reentrantReceiver.callInitializeDeposit(
-            depositor.address,
+            depositor.target,
             initializeDepositFixture.fundingTx,
             initializeDepositFixture.reveal,
             initializeDepositFixture.destinationChainDepositOwner
@@ -524,7 +463,7 @@ describe("AbstractL1BTCDepositor", () => {
             initializeDepositFixture.depositKey
           )
           expect(deferredReimbursement.receiver).to.equal(
-            reentrantReceiver.address
+            reentrantReceiver.target
           )
           expect(deferredReimbursement.gasSpent).to.be.gt(0)
           deferredReimbursementGasSpent = deferredReimbursement.gasSpent
@@ -568,7 +507,7 @@ describe("AbstractL1BTCDepositor", () => {
           // before), the reentrant `finalizeDeposit` call would succeed
           // instead of reverting, and this balance would be non-zero.
           expect(
-            await ethers.provider.getBalance(reentrantReceiver.address)
+            await ethers.provider.getBalance(reentrantReceiver.target)
           ).to.equal(0)
         })
 
@@ -589,16 +528,90 @@ describe("AbstractL1BTCDepositor", () => {
           // from the mined tx (which can be unreliable for `.gasPrice` on
           // networks that default to EIP-1559 type-2 transactions).
           const staticGas = await realReimbursementPool.staticGas()
-          const refundAmount = deferredReimbursementGasSpent
-            .add(staticGas)
-            .mul(gasPrice)
+          const refundAmount =
+            (deferredReimbursementGasSpent + staticGas) * gasPrice
 
           await expect(tx)
             .to.emit(realReimbursementPool, "SendingEtherFailed")
-            .withArgs(refundAmount, reentrantReceiver.address)
+            .withArgs(refundAmount, reentrantReceiver.target)
         })
       }
     )
+
+    context("when the deferred reimbursement fails", () => {
+      let tx: ContractTransactionResponse
+      let deferredGasSpent: bigint
+
+      before(async () => {
+        await createSnapshot()
+        await reimbursementPool.maxGasPrice.returns(toBigInt(1000000000))
+        await reimbursementPool.staticGas.returns(10000)
+        await depositor
+          .connect(governance)
+          .updateReimbursementPool(reimbursementPool.address)
+        await depositor
+          .connect(governance)
+          .updateReimbursementAuthorization(initializer.address, true)
+        await depositor
+          .connect(initializer)
+          .initializeDeposit(
+            initializeDepositFixture.fundingTx,
+            initializeDepositFixture.reveal,
+            initializeDepositFixture.destinationChainDepositOwner
+          )
+        deferredGasSpent = (
+          await depositor.gasReimbursements(initializeDepositFixture.depositKey)
+        ).gasSpent
+        expect(deferredGasSpent).to.be.gt(0)
+        await reimbursementPool.refund
+          .whenCalledWith(deferredGasSpent, initializer.address)
+          .reverts("Receiver unavailable")
+        await depositor.setTrackedDepositKey(
+          initializeDepositFixture.depositKey
+        )
+        await allowFinalization()
+        tx = await depositor
+          .connect(relayer)
+          .finalizeDeposit(initializeDepositFixture.depositKey)
+      })
+
+      after(async () => {
+        await resetFakes()
+        await restoreSnapshot()
+      })
+
+      it("keeps the deposit finalized and restores the original unpaid reimbursement", async () => {
+        expect(
+          await depositor.deposits(initializeDepositFixture.depositKey)
+        ).to.equal(2) // DepositState.Finalized
+        const reimbursement = await depositor.gasReimbursements(
+          initializeDepositFixture.depositKey
+        )
+        expect(reimbursement.receiver).to.equal(initializer.address)
+        expect(reimbursement.gasSpent).to.equal(deferredGasSpent)
+        expect(await depositor.reimbursementClearedBeforeTransfer()).to.equal(
+          true
+        )
+      })
+
+      it("emits the failed refund's deposit key and original reimbursement", async () => {
+        await expect(tx)
+          .to.emit(depositor, "DeferredReimbursementFailed")
+          .withArgs(
+            initializeDepositFixture.depositKey,
+            initializer.address,
+            deferredGasSpent
+          )
+      })
+
+      it("prevents a second finalization from paying the restored reimbursement", async () => {
+        await expect(
+          depositor
+            .connect(relayer)
+            .finalizeDeposit(initializeDepositFixture.depositKey)
+        ).to.be.revertedWith("Wrong deposit state")
+      })
+    })
 
     context("when the reimbursement pool is not set", () => {
       before(async () => {
@@ -623,7 +636,7 @@ describe("AbstractL1BTCDepositor", () => {
         // ...but detach the reimbursement pool before finalization.
         await depositor
           .connect(governance)
-          .updateReimbursementPool(ethers.constants.AddressZero)
+          .updateReimbursementPool(ethers.ZeroAddress)
 
         await allowFinalization()
 
@@ -644,7 +657,7 @@ describe("AbstractL1BTCDepositor", () => {
         )
 
         expect(gasReimbursement.receiver).to.equal(relayer.address)
-        expect(gasReimbursement.gasSpent.toNumber()).to.be.greaterThan(0)
+        expect(ethers.toNumber(gasReimbursement.gasSpent)).to.be.greaterThan(0)
       })
 
       it("should not call the reimbursement pool", async () => {

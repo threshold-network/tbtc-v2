@@ -1,11 +1,17 @@
+import {
+  toBigInt,
+  BaseContract,
+  EventLog,
+  DeferredTopicFilter,
+  ethers as utils,
+} from "ethers"
 import type { HardhatRuntimeEnvironment } from "hardhat/types"
 import type { DeployFunction } from "hardhat-deploy/types"
-import { BigNumber, Contract, Event, EventFilter, utils } from "ethers"
 
 // We set the deposit reveal ahead period to 150 days. Paired with the SDK's
 // 180-day refund locktime, this leaves 30 days to fund and reveal a deposit.
 // 150 * 24 * 60 * 60 = 12960000 seconds
-export const DEPOSIT_REVEAL_AHEAD_PERIOD = BigNumber.from("12960000")
+export const DEPOSIT_REVEAL_AHEAD_PERIOD = toBigInt("12960000")
 
 const bridgeGovernanceInterface = new utils.Interface([
   "function beginDepositRevealAheadPeriodUpdate(uint32 newDepositRevealAheadPeriod)",
@@ -23,25 +29,30 @@ const EVENT_QUERY_CHUNK_BLOCKS = 2000
 const FALLBACK_LOOKBACK_BLOCKS = 200_000 // ~27 days at 12s/block
 
 async function queryEventsInChunks(
-  contract: Contract,
-  filter: EventFilter,
+  contract: BaseContract,
+  filter: DeferredTopicFilter,
   fromBlock: number,
   toBlock: number
-): Promise<Event[]> {
-  const events: Event[] = []
+): Promise<EventLog[]> {
+  const events: EventLog[] = []
   for (
     let chunkStart = fromBlock;
     chunkStart <= toBlock;
     chunkStart += EVENT_QUERY_CHUNK_BLOCKS
   ) {
-    // Keep RPC requests sequential to respect rate limits and block order.
+    // Keep RPC requests sequential so a bounded scan cannot flood the provider.
     // eslint-disable-next-line no-await-in-loop
     const chunkEvents = await contract.queryFilter(
       filter,
       chunkStart,
       Math.min(chunkStart + EVENT_QUERY_CHUNK_BLOCKS - 1, toBlock)
     )
-    events.push(...chunkEvents)
+    chunkEvents.forEach((event) => {
+      if (!("args" in event)) {
+        throw new Error("Unable to decode BridgeGovernance event")
+      }
+      events.push(event)
+    })
   }
   return events
 }
@@ -60,7 +71,7 @@ interface DepositRevealAheadPeriodGovernanceActions {
 
 export function buildDepositRevealAheadPeriodGovernanceActions(
   bridgeGovernance: string,
-  governanceDelay: BigNumber
+  governanceDelay: bigint
 ): DepositRevealAheadPeriodGovernanceActions {
   return {
     begin: {
@@ -70,8 +81,8 @@ export function buildDepositRevealAheadPeriodGovernanceActions(
         "beginDepositRevealAheadPeriodUpdate",
         [DEPOSIT_REVEAL_AHEAD_PERIOD]
       ),
-      description: `Begin the Bridge deposit reveal-ahead period update to ${DEPOSIT_REVEAL_AHEAD_PERIOD.div(
-        86400
+      description: `Begin the Bridge deposit reveal-ahead period update to ${(
+        DEPOSIT_REVEAL_AHEAD_PERIOD / BigInt(86400)
       ).toString()} days`,
     },
     finalize: {
@@ -97,7 +108,7 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
   // as of TIP-109, the mainnet deposit and redemption treasury fee divisors
   // are both 500 (20 bps). Always query Bridge.depositParameters() and
   // Bridge.redemptionParameters() on-chain for current values.
-  const depositTreasuryFeeDivisor = ethers.BigNumber.from("0")
+  const depositTreasuryFeeDivisor = ethers.toBigInt("0")
 
   // Fetch the current values of other deposit parameters to keep them unchanged,
   // and to compare the live reveal-ahead period against the governance target below.
@@ -114,11 +125,11 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
     bridgeGovernance.toLowerCase() ===
       bridgeGovernanceDeployment.address.toLowerCase()
   ) {
-    const currentDepositRevealAheadPeriod = BigNumber.from(
+    const currentDepositRevealAheadPeriod = toBigInt(
       depositParameters.depositRevealAheadPeriod
     )
 
-    if (currentDepositRevealAheadPeriod.eq(DEPOSIT_REVEAL_AHEAD_PERIOD)) {
+    if (currentDepositRevealAheadPeriod === DEPOSIT_REVEAL_AHEAD_PERIOD) {
       log(
         "deposit reveal-ahead period is already finalized at 150 days; " +
           "no governance transaction is required"
@@ -126,8 +137,9 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
       return
     }
 
-    const governanceDelay = BigNumber.from(
-      await read("BridgeGovernance", "governanceDelays", 0)
+    // hardhat-deploy decodes uint256 values as ethers v5 BigNumber objects.
+    const governanceDelay = toBigInt(
+      (await read("BridgeGovernance", "governanceDelays", 0)).toString()
     )
     const bridgeGovernanceContract = await ethers.getContractAt(
       "BridgeGovernance",
@@ -165,15 +177,15 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
       (!lastUpdated ||
         lastStarted.blockNumber > lastUpdated.blockNumber ||
         (lastStarted.blockNumber === lastUpdated.blockNumber &&
-          (lastStarted.logIndex ?? 0) > (lastUpdated.logIndex ?? 0)))
+          (lastStarted.index ?? 0) > (lastUpdated.index ?? 0)))
     ) {
       const newPeriod = lastStarted.args[0]
       const timestamp = lastStarted.args[1]
-      const eta = timestamp.add(governanceDelay)
+      const eta = toBigInt(timestamp) + governanceDelay
       log(
         `Pending deposit reveal-ahead period update: new value ${newPeriod}, start timestamp ${timestamp}, ETA ${eta}`
       )
-      const warning = !BigNumber.from(newPeriod).eq(DEPOSIT_REVEAL_AHEAD_PERIOD)
+      const warning = !(toBigInt(newPeriod) === DEPOSIT_REVEAL_AHEAD_PERIOD)
         ? ` (pending value ${newPeriod.toString()} does not match target ${DEPOSIT_REVEAL_AHEAD_PERIOD.toString()})`
         : ""
       throw new Error(

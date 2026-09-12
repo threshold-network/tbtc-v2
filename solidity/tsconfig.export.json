@@ -2,7 +2,9 @@
   "extends": "./tsconfig.json",
   "exclude": ["./test", "./typechain", "./scripts"],
   "compilerOptions": {
-    "target": "es5",
+    // Deploy scripts are require()d by hardhat-deploy v1 consumers.
+    // ES2020 is supported by the package's Node >=22 runtime; retain CommonJS.
+    "target": "ES2020",
     "outDir": "export"
   }
 }

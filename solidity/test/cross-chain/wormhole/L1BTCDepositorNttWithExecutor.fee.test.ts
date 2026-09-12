@@ -1,7 +1,7 @@
 import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
-import { BigNumber } from "ethers"
-import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
+
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import type {
   L1BTCDepositorNttWithExecutor,
   MockTBTCBridge,
@@ -25,7 +25,7 @@ describe("L1BTCDepositorNttWithExecutor - Fee Handling", () => {
   let tbtcToken: TestERC20
   let nttManagerWithExecutor: MockNttManagerWithExecutor
   let underlyingNttManager: MockNttManager
-  let owner: SignerWithAddress
+  let owner: HardhatEthersSigner
 
   before(async () => {
     // Get signers
@@ -43,7 +43,7 @@ describe("L1BTCDepositorNttWithExecutor - Fee Handling", () => {
       "contracts/test/MockTBTCVault.sol:MockTBTCVault"
     )
     tbtcVault = (await MockTBTCVaultFactory.deploy()) as MockTBTCVault
-    await tbtcVault.setTbtcToken(tbtcToken.address)
+    await tbtcVault.setTbtcToken(tbtcToken.target)
 
     // Deploy proper mock NTT managers
     const MockNttManagerWithExecutorFactory = await ethers.getContractFactory(
@@ -71,14 +71,16 @@ describe("L1BTCDepositorNttWithExecutor - Fee Handling", () => {
     // Deploy proxy
     const ProxyFactory = await ethers.getContractFactory("ERC1967Proxy")
     const initData = depositorImpl.interface.encodeFunctionData("initialize", [
-      bridge.address,
-      tbtcVault.address,
-      nttManagerWithExecutor.address,
-      underlyingNttManager.address,
+      bridge.target,
+      tbtcVault.target,
+      nttManagerWithExecutor.target,
+      underlyingNttManager.target,
     ])
-    const proxy = await ProxyFactory.deploy(depositorImpl.address, initData)
+    const proxy = await ProxyFactory.deploy(depositorImpl.target, initData)
 
-    depositor = L1BTCDepositorFactory.attach(proxy.address)
+    depositor = L1BTCDepositorFactory.attach(
+      proxy.target
+    ) as L1BTCDepositorNttWithExecutor
 
     // Set up basic configuration
     await depositor.setSupportedChain(WORMHOLE_CHAIN_DESTINATION, true)
@@ -90,7 +92,7 @@ describe("L1BTCDepositorNttWithExecutor - Fee Handling", () => {
       100,
       owner.address,
       0,
-      ethers.constants.AddressZero
+      ethers.ZeroAddress
     )
   })
 
@@ -132,7 +134,7 @@ describe("L1BTCDepositorNttWithExecutor - Fee Handling", () => {
   describe("Executor Parameters Management", () => {
     it("should reject empty signed quote", async () => {
       const executorArgs = {
-        value: ethers.utils.parseEther("0.01"),
+        value: ethers.parseEther("0.01"),
         refundAddress: owner.address,
         signedQuote: "0x", // Empty signed quote
         instructions: "0x",
@@ -158,7 +160,7 @@ describe("L1BTCDepositorNttWithExecutor - Fee Handling", () => {
 
     it("should accept valid executor parameters", async () => {
       const executorArgs = {
-        value: ethers.utils.parseEther("0.01"),
+        value: ethers.parseEther("0.01"),
         refundAddress: owner.address,
         signedQuote: `0x${"a".repeat(64)}`, // Mock signed quote (32 bytes)
         instructions: `0x${"b".repeat(32)}`, // Mock instructions (16 bytes)
@@ -189,29 +191,29 @@ describe("L1BTCDepositorNttWithExecutor - Fee Handling", () => {
   describe("Fee Validation", () => {
     it("should handle zero fee values", async () => {
       const feeArgs = {
-        gasLimit: BigNumber.from(0),
-        feeBps: BigNumber.from(0),
-        feeRecipient: ethers.constants.AddressZero,
+        gasLimit: BigInt(0),
+        feeBps: BigInt(0),
+        feeRecipient: ethers.ZeroAddress,
       }
 
       // This should not revert - zero fees are valid
       expect(feeArgs.gasLimit).to.equal(0)
       expect(feeArgs.feeBps).to.equal(0)
-      expect(feeArgs.feeRecipient).to.equal(ethers.constants.AddressZero)
+      expect(feeArgs.feeRecipient).to.equal(ethers.ZeroAddress)
     })
 
     it("should handle maximum fee values", async () => {
-      const maxUint256 = ethers.constants.MaxUint256
+      const maxUint256 = ethers.MaxUint256
       const maxFeeArgs = {
         gasLimit: maxUint256,
-        feeBps: BigNumber.from(10000), // 100% in basis points
+        feeBps: BigInt(10000), // 100% in basis points
         feeRecipient: ethers.Wallet.createRandom().address,
       }
 
       // These should be valid values
       expect(maxFeeArgs.gasLimit).to.equal(maxUint256)
       expect(maxFeeArgs.feeBps).to.equal(10000)
-      expect(maxFeeArgs.feeRecipient).to.not.equal(ethers.constants.AddressZero)
+      expect(maxFeeArgs.feeRecipient).to.not.equal(ethers.ZeroAddress)
     })
   })
 
