@@ -13,7 +13,7 @@
     "export.json"
   ],
   "scripts": {
-    "postinstall": "bash scripts/apply-solidity-contracts-export-deploy-patch.sh && bash scripts/patch-hardhat-undici-connect-timeout.sh && bash scripts/patch-upgrades-core-unlinked-bytecode.sh",
+    "postinstall": "bash scripts/apply-solidity-contracts-export-deploy-patch.sh && bash scripts/patch-hardhat-undici-connect-timeout.sh",
     "clean": "hardhat clean && rm -rf cache/ export/ external/npm export.json",
     "build": "hardhat compile",
     "typecheck": "tsc --noEmit -p tsconfig.json",
