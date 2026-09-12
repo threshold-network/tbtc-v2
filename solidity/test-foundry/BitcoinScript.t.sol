@@ -87,9 +87,14 @@ contract BitcoinScriptTest is Test {
         assertEq(harness.extractPubKeyHash(output), pubKeyHash);
     }
 
-    /// @dev Distinct key hashes must not collide into one script. This guards
-    ///      against builders discarding or masking part of the key hash, which
-    ///      could make distinct hashes produce the same script.
+    /// @dev Distinct key hashes must not collide into one script -- an
+    ///      injectivity check on the builders in its own right. On its own
+    ///      this is a weak guard against a builder that masks or discards
+    ///      part of the key hash: two independently fuzzed 160-bit hashes
+    ///      are astronomically unlikely to collide in exactly the masked
+    ///      bits, so that class of bug is actually caught by the round-trip
+    ///      tests above, which fail on nearly every fuzzed input the moment
+    ///      any bit is silently dropped.
     function testFuzz_distinctKeyHashesGiveDistinctScripts(bytes20 a, bytes20 b)
         public
         view
@@ -126,8 +131,12 @@ contract BitcoinScriptTest is Test {
         assertEq(uint8(script[2]), 0x14); // push 20 bytes
     }
 
-    /// @dev Only the two supported script lengths are accepted. Anything else
-    ///      must be rejected rather than parsed into a plausible key hash.
+    /// @dev A script whose declared length prefix disagrees with the actual
+    ///      output length is never parsed at all -- the underlying byte-
+    ///      extraction helper's own self-consistency check rejects it before
+    ///      the Bridge's `scriptLen == 26 || scriptLen == 23` gate is ever
+    ///      reached. Anything else must be rejected rather than parsed into
+    ///      a plausible key hash.
     function testFuzz_rejectsUnsupportedScriptLength(
         bytes20 pubKeyHash,
         uint8 extra
@@ -151,6 +160,18 @@ contract BitcoinScriptTest is Test {
         bytes memory script = bytes.concat(hex"17a914", scriptHash, hex"87");
 
         vm.expectRevert("Output must be P2PKH or P2WPKH");
+        harness.extractPubKeyHash(_output(0, script));
+    }
+
+    /// @dev A P2WSH output (35 bytes: OP_0 <32-byte witness script hash>) is
+    ///      the one other script length that survives the underlying byte-
+    ///      extraction helper with a clean (32-byte) result while not
+    ///      matching either supported script length; the 20-byte length
+    ///      check, not the script-length gate, is its defense.
+    function testFuzz_rejectsP2wshOutput(bytes32 witnessScriptHash) public {
+        bytes memory script = bytes.concat(hex"220020", witnessScriptHash);
+
+        vm.expectRevert("Output's public key hash must have 20 bytes");
         harness.extractPubKeyHash(_output(0, script));
     }
 }
