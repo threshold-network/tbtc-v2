@@ -4,6 +4,7 @@ pragma solidity 0.8.17;
 
 import {Test} from "forge-std/Test.sol";
 import {stdError} from "forge-std/StdError.sol";
+
 import {BitcoinTx} from "../contracts/bridge/BitcoinTx.sol";
 import {BridgeState} from "../contracts/bridge/BridgeState.sol";
 
@@ -239,6 +240,26 @@ contract BitcoinScriptTest is Test {
         } else {
             vm.expectRevert("Output's public key hash must have 20 bytes");
         }
+        harness.extractPubKeyHash(_output(0, script));
+    }
+
+    /// @dev Deterministic pin for the boundary the two fuzz tests above only
+    ///      hit probabilistically (offset 0 is a 1-in-6 or 1-in-3 draw, times
+    ///      a 1-in-255 mask, so well under half of any single CI run):
+    ///      a script whose length-prefix byte is exactly 0xff makes BTCUtils'
+    ///      `_scriptLen + 1` (checked uint8 arithmetic) overflow to a Panic
+    ///      instead of the clean require revert. This runs unconditionally on
+    ///      every invocation rather than depending on the fuzzer landing on
+    ///      it. The mechanism is shared by P2PKH and P2WPKH -- the overflow
+    ///      happens on the very first byte read, before any branch on script
+    ///      type -- so one deterministic case covers both.
+    function test_scriptLengthPrefix0xffPanics() public {
+        bytes memory script = bytes.concat(
+            harness.makeP2PKHScript(bytes20(uint160(1)))
+        );
+        script[0] = 0xff;
+
+        vm.expectRevert(stdError.arithmeticError);
         harness.extractPubKeyHash(_output(0, script));
     }
 }

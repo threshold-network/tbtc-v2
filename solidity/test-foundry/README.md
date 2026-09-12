@@ -1,10 +1,12 @@
 # Foundry tests
 
-`BitcoinScript.t.sol` contains ten fuzz tests for the Bridge's P2PKH and
-P2WPKH output script helpers. They cover round trips, distinct key hashes,
-script framing, unsupported lengths, rejecting P2SH- and P2WSH-tagged
-outputs, and rejecting single-byte-corrupted framing. Existing TypeScript
-suites and deployment scripts continue to use Hardhat.
+`BitcoinScript.t.sol` contains ten fuzz tests and one deterministic
+regression test for the Bridge's P2PKH and P2WPKH output script helpers.
+They cover round trips, distinct key hashes, script framing, unsupported
+lengths, rejecting P2SH- and P2WSH-tagged outputs, rejecting single-byte-
+corrupted framing, and a length-prefix arithmetic boundary the fuzzer only
+reaches by chance. Existing TypeScript suites and deployment scripts
+continue to use Hardhat.
 
 ## Run locally
 
