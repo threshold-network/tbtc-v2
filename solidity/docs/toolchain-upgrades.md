@@ -106,3 +106,26 @@ records the warning baseline for the migration without disabling those checks.
 The increase from 321 to 322 is the inherited parity checker's explicit
 JSON evidence boundary (`Json`), added in the updated #1067 prerequisite.
 The lint-policy fixes add no source warnings.
+
+Solhint 6 uses the same explicit rule policy previously supplied by the
+`solhint-config-keep` git dependency, with this repository's constructor
+visibility override. The obsolete `event-name-camelcase` rule is renamed to
+`event-name-capwords`. The migration has zero errors and 55 warnings, capped in
+both Solhint commands. Solhint 3 reported 48 warnings against the same source;
+the newer rule implementations and corrected event-name rule account for the
+increase. The baseline is 45 ordering, five function-name, three event-name and
+two state-count warnings. These warnings remain visible and should be removed
+with focused follow-ups. CLI update checks are disabled so lint does not depend
+on an external version check.
+
+Prettier 3 loads the Solidity 2.x and shell 0.19.x plugins explicitly. The
+configuration retains `semi: false`, Solidity's four-space indentation, and
+`trailingComma: "es5"` so upgrading does not silently adopt Prettier 3's new
+trailing-comma default. The formatting-only commit is separate from the
+dependency and configuration changes. Existing generated and deployment
+artifacts remain excluded, as does
+`contracts/cross-chain/wormhole/L1BTCDepositorNttWithExecutor.sol`: its
+deployment record is reconstructed from on-chain state, so the source must stay
+byte-frozen to remain verifiable. Formatting Solidity source changes its compiler
+metadata hash even when the parsed code is unchanged; this does not regenerate
+or replace historical deployment records.

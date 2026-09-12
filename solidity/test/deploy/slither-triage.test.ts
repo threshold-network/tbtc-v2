@@ -18,5 +18,17 @@ describe("Slither triage provenance", () => {
         ).to.equal(expected)
       })
     })
+    it(`${finding.check} references only reviewed source files`, () => {
+      const referencedPaths = (
+        finding.description.match(/contracts\/[^\s#)]+\.sol/g) || []
+      ).filter((value, index, all) => all.indexOf(value) === index)
+      const sourcesKeys = Object.keys(finding.review.sources)
+      expect(
+        sourcesKeys,
+        `Missing source files for ${finding.check}: ${referencedPaths
+          .filter((p) => !sourcesKeys.includes(p))
+          .join(", ")}`
+      ).to.include.members(referencedPaths)
+    })
   })
 })

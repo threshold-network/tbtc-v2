@@ -6,11 +6,9 @@ import "../bridge/Heartbeat.sol";
 
 /// @dev This is a contract implemented to test Heartbeat library directly.
 contract HeartbeatStub {
-    function isValidHeartbeatMessage(bytes calldata message)
-        public
-        pure
-        returns (bool)
-    {
+    function isValidHeartbeatMessage(
+        bytes calldata message
+    ) public pure returns (bool) {
         return Heartbeat.isValidHeartbeatMessage(message);
     }
 }

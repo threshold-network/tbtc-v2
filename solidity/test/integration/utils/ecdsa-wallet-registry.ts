@@ -86,9 +86,7 @@ export async function updateWalletRegistryDkgResultChallengePeriodLength(
   const { deployments, ethers, helpers } = hre
 
   const walletRegistryGovernance = (await ethers.getContractAt(
-    (
-      await deployments.getArtifact("WalletRegistryGovernance")
-    ).abi,
+    (await deployments.getArtifact("WalletRegistryGovernance")).abi,
     await walletRegistry.governance()
   )) as unknown as WalletRegistryGovernance
 
@@ -122,15 +120,13 @@ async function selectGroup(
 
   return new Operators(
     ...(await Promise.all(
-      identifiers.map(
-        async (identifier, i): Promise<Operator> => ({
-          id: identifier,
-          signer: await ethers.getSigner(addresses[i]),
-          stakingProvider: await walletRegistry.operatorToStakingProvider(
-            addresses[i]
-          ),
-        })
-      )
+      identifiers.map(async (identifier, i): Promise<Operator> => ({
+        id: identifier,
+        signer: await ethers.getSigner(addresses[i]),
+        stakingProvider: await walletRegistry.operatorToStakingProvider(
+          addresses[i]
+        ),
+      }))
     ))
   )
 }

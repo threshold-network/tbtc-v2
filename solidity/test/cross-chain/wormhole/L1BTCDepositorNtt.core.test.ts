@@ -74,9 +74,8 @@ describe("L1BTCDepositorNtt Core Functions", () => {
     nttManager.quoteDeliveryPrice.returns = (value: unknown): void => {}
     nttManager.quoteDeliveryPrice.reset = (): void => {}
 
-    const reimbursementPool = await createMock<ReimbursementPool>(
-      "ReimbursementPool"
-    )
+    const reimbursementPool =
+      await createMock<ReimbursementPool>("ReimbursementPool")
 
     const deployment = await helpers.upgrades.deployProxy(
       // Hacky workaround allowing to deploy proxy contract any number of times

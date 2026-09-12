@@ -52,19 +52,16 @@ describe("L1BTCDepositorWormholeV2Base", () => {
     const wormhole = await createMock<IWormhole>("IWormhole")
     await wormhole.chainId.returns(l1ChainId)
 
-    const wormholeRelayer = await createMock<IWormholeRelayer>(
-      "IWormholeRelayer"
-    )
+    const wormholeRelayer =
+      await createMock<IWormholeRelayer>("IWormholeRelayer")
     const wormholeTokenBridge = await createMock<IWormholeTokenBridge>(
       "IWormholeTokenBridge"
     )
-    const l2WormholeGateway = await createMock<IWormholeGateway>(
-      "IWormholeGateway"
-    )
+    const l2WormholeGateway =
+      await createMock<IWormholeGateway>("IWormholeGateway")
     const l2BitcoinDepositor = "0xeE6F5f69860f310114185677D017576aed0dEC83"
-    const reimbursementPool = await createMock<ReimbursementPool>(
-      "ReimbursementPool"
-    )
+    const reimbursementPool =
+      await createMock<ReimbursementPool>("ReimbursementPool")
 
     const deployment = await helpers.upgrades.deployProxy(
       `L1BTCDepositorWormholeV2Base_${randomBytes(8).toString("hex")}`,

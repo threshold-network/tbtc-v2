@@ -66,9 +66,8 @@ async function bridgeFixture(): Promise<{
 
   const tbtc: TBTC = await helpers.contracts.getContract("TBTC")
 
-  const vendingMachine: VendingMachine = await helpers.contracts.getContract(
-    "VendingMachine"
-  )
+  const vendingMachine: VendingMachine =
+    await helpers.contracts.getContract("VendingMachine")
 
   const tbtcVault: TBTCVault = await helpers.contracts.getContract("TBTCVault")
 
@@ -76,13 +75,11 @@ async function bridgeFixture(): Promise<{
 
   const t: TestERC20 = await helpers.contracts.getContract<TestERC20>("T")
 
-  const rebateStaking: RebateStaking = await helpers.contracts.getContract(
-    "RebateStaking"
-  )
+  const rebateStaking: RebateStaking =
+    await helpers.contracts.getContract("RebateStaking")
 
-  const bridge: Bridge & BridgeStub = await helpers.contracts.getContract(
-    "Bridge"
-  )
+  const bridge: Bridge & BridgeStub =
+    await helpers.contracts.getContract("Bridge")
 
   const bridgeGovernance: BridgeGovernance =
     await helpers.contracts.getContract("BridgeGovernance")
@@ -100,9 +97,8 @@ async function bridgeFixture(): Promise<{
   const reimbursementPool: ReimbursementPool =
     await helpers.contracts.getContract("ReimbursementPool")
 
-  const maintainerProxy: MaintainerProxy = await helpers.contracts.getContract(
-    "MaintainerProxy"
-  )
+  const maintainerProxy: MaintainerProxy =
+    await helpers.contracts.getContract("MaintainerProxy")
 
   const relay = await createMock<IRelay>("IRelay", {
     address: await (await bridge.contractReferences()).relay,

@@ -17,10 +17,10 @@ contract TestL1BTCDepositor is AbstractL1BTCDepositor {
 
     event TbtcTransferred(uint256 amount, bytes32 destinationChainReceiver);
 
-    function initialize(address _tbtcBridge, address _tbtcVault)
-        external
-        initializer
-    {
+    function initialize(
+        address _tbtcBridge,
+        address _tbtcVault
+    ) external initializer {
         __AbstractL1BTCDepositor_initialize(_tbtcBridge, _tbtcVault);
         __Ownable_init();
     }
@@ -29,10 +29,10 @@ contract TestL1BTCDepositor is AbstractL1BTCDepositor {
         trackedDepositKey = depositKey;
     }
 
-    function _transferTbtc(uint256 amount, bytes32 destinationChainReceiver)
-        internal
-        override
-    {
+    function _transferTbtc(
+        uint256 amount,
+        bytes32 destinationChainReceiver
+    ) internal override {
         reimbursementClearedBeforeTransfer =
             gasReimbursements[trackedDepositKey].receiver == address(0);
 

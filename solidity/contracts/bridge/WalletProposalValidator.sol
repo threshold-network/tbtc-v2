@@ -356,10 +356,10 @@ contract WalletProposalValidator {
     ///      - The sweep tx fee must be grater than zero,
     ///      - The maximum per-deposit sweep tx fee must be lesser than or equal
     ///        the maximum fee allowed by the Bridge (`Bridge.depositTxMaxFee`).
-    function validateSweepTxFee(uint256 sweepTxFee, uint256 depositsCount)
-        internal
-        view
-    {
+    function validateSweepTxFee(
+        uint256 sweepTxFee,
+        uint256 depositsCount
+    ) internal view {
         require(sweepTxFee > 0, "Proposed transaction fee cannot be zero");
 
         // Compute the indivisible remainder that remains after dividing the
@@ -367,8 +367,8 @@ contract WalletProposalValidator {
         uint256 depositTxFeeRemainder = sweepTxFee % depositsCount;
         // Compute the transaction fee per deposit by dividing the sweep
         // transaction fee (reduced by the remainder) by the number of deposits.
-        uint256 depositTxFee = (sweepTxFee - depositTxFeeRemainder) /
-            depositsCount;
+        uint256 depositTxFee =
+            (sweepTxFee - depositTxFeeRemainder) / depositsCount;
 
         (, , uint64 depositTxMaxFee, ) = bridge.depositParameters();
 
@@ -538,11 +538,9 @@ contract WalletProposalValidator {
     ///        elapsed since their creation time,
     ///      - Each request must have the timeout safety margin preserved,
     ///      - Each request must be unique.
-    function validateRedemptionProposal(RedemptionProposal calldata proposal)
-        external
-        view
-        returns (bool)
-    {
+    function validateRedemptionProposal(
+        RedemptionProposal calldata proposal
+    ) external view returns (bool) {
         Wallets.Wallet memory wallet = bridge.wallets(
             proposal.walletPubKeyHash
         );
@@ -585,12 +583,13 @@ contract WalletProposalValidator {
 
         // Compute the indivisible remainder that remains after dividing the
         // redemption transaction fee over all requests evenly.
-        uint256 redemptionTxFeeRemainder = proposal.redemptionTxFee %
-            requestsCount;
+        uint256 redemptionTxFeeRemainder =
+            proposal.redemptionTxFee % requestsCount;
         // Compute the transaction fee per request by dividing the redemption
         // transaction fee (reduced by the remainder) by the number of requests.
-        uint256 redemptionTxFeePerRequest = (proposal.redemptionTxFee -
-            redemptionTxFeeRemainder) / requestsCount;
+        uint256 redemptionTxFeePerRequest =
+            (proposal.redemptionTxFee - redemptionTxFeeRemainder) /
+                requestsCount;
 
         address redemptionWatchtower = bridge.getRedemptionWatchtower();
 
@@ -648,8 +647,8 @@ contract WalletProposalValidator {
             );
 
             // Calculate the timeout the given request times out at.
-            uint32 requestTimeout = redemptionRequest.requestedAt +
-                redemptionTimeout;
+            uint32 requestTimeout =
+                redemptionRequest.requestedAt + redemptionTimeout;
             // Make sure we are far enough from the moment the request times out.
             require(
                 /* solhint-disable-next-line not-rely-on-time */
@@ -885,11 +884,9 @@ contract WalletProposalValidator {
     /// @return True if the proposal is valid. Reverts otherwise.
     /// @dev Requirements:
     ///      - The message to sign is a valid heartbeat message.
-    function validateHeartbeatProposal(HeartbeatProposal calldata proposal)
-        external
-        view
-        returns (bool)
-    {
+    function validateHeartbeatProposal(
+        HeartbeatProposal calldata proposal
+    ) external view returns (bool) {
         require(
             Heartbeat.isValidHeartbeatMessage(proposal.message),
             "Not a valid heartbeat message"

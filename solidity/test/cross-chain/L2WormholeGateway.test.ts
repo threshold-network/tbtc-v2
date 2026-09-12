@@ -53,9 +53,8 @@ describe("L2WormholeGateway", () => {
     // Stub contract is used instead of a smock because of the token transfer
     // that needs to happen in completeTransferWithPayload function.
     //
-    const WormholeBridgeStub = await ethers.getContractFactory(
-      "WormholeBridgeStub"
-    )
+    const WormholeBridgeStub =
+      await ethers.getContractFactory("WormholeBridgeStub")
     const wormholeBridgeStub = await WormholeBridgeStub.deploy(
       wormholeTbtc.target
     )
