@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SOLIDITY_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 PROVENANCE_MANIFEST="$SCRIPT_DIR/deploy-patches-provenance.json"
 HAVE_JQ=1
-command -v jq >/dev/null 2>&1 || HAVE_JQ=0
+command -v jq > /dev/null 2>&1 || HAVE_JQ=0
 
 apply_one() {
   local PATCH_SRC="$1"
