@@ -1,7 +1,32 @@
 import type { HardhatRuntimeEnvironment } from "hardhat/types"
 import type { DeployFunction } from "hardhat-deploy/types"
 
+// Ethereum-mainnet side of the BOB CCIP route, verified against live
+// BOB-mainnet state on 2026-09-01 (BurnFromMintTokenPoolUpgradeable proxy on
+// BOB).
+//
+// Provenance: this script previously held the matching Sepolia-testnet record
+// -- Ethereum Sepolia's chain selector (16015286601757825753) with the sepolia
+// pool and the sepolia tBTC that
+// deploy_l1/00_deploy_lock_release_token_pool.ts still lists as
+// TBTC_ADDRESS.sepolia. Those values were a coherent testnet configuration,
+// not stray wrong addresses; the testnet record was converted to the mainnet
+// record here because the mainnet route is what this deprecation has to
+// document. Exported so test/DeprecatedBobCcipDeployScripts.test.ts pins them.
+export const ETHEREUM_CHAIN_SELECTOR = "5009297550715157269"
+export const ETHEREUM_POOL = "0x03E342731c08FDDc34cFb43E91cB3a7e424ee0F6"
+export const ETHEREUM_TBTC = "0x18084fbA666a33d37592fA2633fD49a74DD93a88"
+
 const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
+  // The constants above describe the BOB-mainnet pool's remote (Ethereum
+  // mainnet) side, so applying them anywhere else would write a mainnet route
+  // into an unrelated deployment.
+  if (hre.network.name !== "bobMainnet") {
+    throw new Error(
+      `This script configures the BOB mainnet side of the BOB CCIP route; refusing to run on network "${hre.network.name}" (expected "bobMainnet")`
+    )
+  }
+
   const { ethers, getNamedAccounts, deployments } = hre
   const { deployer } = await getNamedAccounts()
 
@@ -18,10 +43,6 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     tokenPoolDeployment.address,
     await ethers.getSigner(deployer)
   )
-
-  const ETHEREUM_CHAIN_SELECTOR = "16015286601757825753"
-  const ETHEREUM_POOL = "0x5b1D134fc62395AA3148128454C1a65B213334CD"
-  const ETHEREUM_TBTC = "0x517f2982701695D4E52f1ECFBEf3ba31Df470161"
 
   const encodedEthereumPool = ethers.utils.defaultAbiCoder.encode(
     ["address"],
@@ -141,5 +162,8 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 }
 
 func.tags = ["ConfigureTokenPoolChains"]
+// BOB CCIP support is deprecated. Keep this script for historical reference
+// without configuring new BOB CCIP routes.
+func.skip = async () => true
 
 export default func
