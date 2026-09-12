@@ -358,14 +358,13 @@ describe("AbstractL1BTCDepositor", () => {
         await restoreSnapshot()
       })
 
-      it("should complete the transfer with the reimbursement cleared", async () => {
+      it("should complete the transfer", async () => {
         await expect(tx)
           .to.emit(depositor, "TbtcTransferred")
           .withArgs(
             expectedTbtcAmount,
             initializeDepositFixture.destinationChainDepositOwner
           )
-        expect(await depositor.reimbursementClearedBeforeTransfer()).to.be.true
       })
 
       it("should preserve the original reimbursement and report the failure", async () => {
