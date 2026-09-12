@@ -114,9 +114,9 @@ This package requires Node ^22.13.0 or >=24.0.0, matching its own
 `engines` declaration in package.json - a narrower floor than ESLint 10
 itself imposes, chosen for this repo's CI/runtime policy.
 
-The existing warning debt stays visible with a ceiling of 322 in both ESLint
+The existing warning debt stays visible with a ceiling of 324 in both ESLint
 commands: 263 console uses, 31 unnamed functions, 19 unused variables, six
-explicit `any` types and three non-null assertions. Reduce the ceiling when
+explicit `any` types and five non-null assertions. Reduce the ceiling when
 fixing these warnings; do not increase it to accommodate new warnings. This
 records the warning baseline for the migration without disabling those checks.
 The increase from the originally recorded 308 pre-existing warnings (issue #1077)
@@ -133,4 +133,7 @@ re-measured.
 
 The increase from 321 to 322 is the inherited parity checker's explicit
 JSON evidence boundary (`Json`), added in the updated #1067 prerequisite.
-The lint-policy fixes add no source warnings.
+The increase from 322 to 324 is two more non-null assertions the same
+parity checker gained after this branch was rebased onto a later `dev`.
+Neither increase, nor the earlier 308->321 delta, comes from this PR's own
+lint-policy fixes.
