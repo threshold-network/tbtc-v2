@@ -17,7 +17,7 @@ and deployment migration work. This pilot can run alongside that work.
 ## What this adds
 
 `test-foundry/BitcoinScript.t.sol` exercises the existing `BitcoinTx` script
-builders and parser through a small harness. Eight fuzz tests check:
+builders and parser through a small harness. Ten fuzz tests check:
 
 - P2PKH and P2WPKH scripts round-trip to the original key hash.
 - Distinct key hashes produce distinct scripts for both formats.
@@ -28,6 +28,10 @@ builders and parser through a small harness. Eight fuzz tests check:
 - A P2WSH-tagged output (the `0x00 0x20` witness program prefix, a 32-byte
   hash) is rejected the same way, on the 20-byte length check rather than
   the script-length gate.
+- Corrupting any single framing byte (opcodes/length bytes, not the key
+  hash payload) of an otherwise-valid P2PKH or P2WPKH script is rejected --
+  this is the one property the round-trip tests cannot exercise, since they
+  only ever feed scripts the builders themselves produced.
 
 Generated inputs complement the existing fixed-vector tests. The default
 profile runs 256 cases per test; CI runs 1,000. A failing run reports a seed

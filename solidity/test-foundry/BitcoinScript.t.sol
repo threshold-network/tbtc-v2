@@ -3,7 +3,7 @@
 pragma solidity 0.8.17;
 
 import {Test} from "forge-std/Test.sol";
-
+import {stdError} from "forge-std/StdError.sol";
 import {BitcoinTx} from "../contracts/bridge/BitcoinTx.sol";
 import {BridgeState} from "../contracts/bridge/BridgeState.sol";
 
@@ -172,6 +172,73 @@ contract BitcoinScriptTest is Test {
         bytes memory script = bytes.concat(hex"220020", witnessScriptHash);
 
         vm.expectRevert("Output's public key hash must have 20 bytes");
+        harness.extractPubKeyHash(_output(0, script));
+    }
+
+    /// @dev Corrupting any single FRAMING byte of an otherwise-valid P2PKH
+    ///      script (the fixed opcode/length bytes at offsets 0,1,2,3,24,25 --
+    ///      not the 20-byte hash payload) must be rejected. This is the one
+    ///      thing the round-trip tests above cannot exercise: they only ever
+    ///      feed scripts this same builder produced, so a regression that
+    ///      weakens the underlying byte-extraction helper's own malformed-
+    ///      script checks (tag match, push-length byte, suffix bytes) would
+    ///      pass every test above undetected. Corrupting a payload byte
+    ///      (offsets 4-23) instead is not tested here: that just yields a
+    ///      different, equally valid hash, already covered by the round-trip
+    ///      tests' full-range `pubKeyHash` fuzzing.
+    function testFuzz_corruptedP2pkhFramingByteRejects(
+        bytes20 pubKeyHash,
+        uint8 xorMask,
+        uint8 positionSeed
+    ) public {
+        vm.assume(xorMask != 0);
+        uint8[6] memory framingOffsets = [uint8(0), 1, 2, 3, 24, 25];
+        uint8 offset = framingOffsets[positionSeed % 6];
+
+        bytes memory script = bytes.concat(harness.makeP2PKHScript(pubKeyHash));
+        uint8 mutated = uint8(script[offset]) ^ xorMask;
+        script[offset] = bytes1(mutated);
+
+        // Offset 0 feeds BTCUtils' `_scriptLen + 1` checked-uint8 addition;
+        // landing on exactly 0xff there overflows to a Panic instead of the
+        // clean revert below -- pin that boundary explicitly rather than
+        // assuming it away, since it is a real behavior for any caller
+        // whose output happens to start with that byte. Every other framing
+        // offset only ever feeds byte-equality checks (tag, push-length,
+        // suffix), never arithmetic, so this boundary is unique to offset 0.
+        if (offset == 0 && mutated == 0xff) {
+            vm.expectRevert(stdError.arithmeticError);
+        } else {
+            vm.expectRevert("Output's public key hash must have 20 bytes");
+        }
+        harness.extractPubKeyHash(_output(0, script));
+    }
+
+    /// @dev Same property for P2WPKH: corrupting any of its three framing
+    ///      bytes (offsets 0,1,2) must be rejected.
+    function testFuzz_corruptedP2wpkhFramingByteRejects(
+        bytes20 pubKeyHash,
+        uint8 xorMask,
+        uint8 positionSeed
+    ) public {
+        vm.assume(xorMask != 0);
+        uint8[3] memory framingOffsets = [uint8(0), 1, 2];
+        uint8 offset = framingOffsets[positionSeed % 3];
+
+        bytes memory script = bytes.concat(
+            harness.makeP2WPKHScript(pubKeyHash)
+        );
+        uint8 mutated = uint8(script[offset]) ^ xorMask;
+        script[offset] = bytes1(mutated);
+
+        // Same checked-uint8 `_scriptLen + 1` boundary as the P2PKH version
+        // above, at offset 0; pinned rather than assumed away for the same
+        // reason.
+        if (offset == 0 && mutated == 0xff) {
+            vm.expectRevert(stdError.arithmeticError);
+        } else {
+            vm.expectRevert("Output's public key hash must have 20 bytes");
+        }
         harness.extractPubKeyHash(_output(0, script));
     }
 }
