@@ -489,7 +489,7 @@ copies without complaint.
   the rebase. Removed `slither.db.json`, `docs/slither-triage.md` and
   `test/deploy/slither-triage.test.ts` in favor of `dev`'s already-landed
   inline annotations. `dev`'s own Solidity CI run went from failure (at this
-  branch's merge base, `5b656854`) to success once `2f7bad49` landed, and
+  branch's merge base, `5b655854`) to success once `2f7bad49` landed, and
   `contracts/**/*.sol` is byte-identical between this branch and `dev` after
   this rebase, so Slither sees the same source either way.
 

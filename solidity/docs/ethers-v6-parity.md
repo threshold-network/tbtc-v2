@@ -156,6 +156,14 @@ scripts remain unsuitable for live governance. The consumer search found no
 GitHub-indexed external deployment-script consumer, but executing the
 published v6 scripts requires compatible ethers v6 tooling.
 
+## Retention
+
+This compatibility gate is scoped to this PR's ethers-v6 migration only; it is not intended as permanent infrastructure.
+Once this PR has landed and stabilized, either delete `scripts/pr1067-parity*.{ts,json}`, `scripts/compare-pr1067-parity.ts`,
+and `test/scripts/compare-pr1067-parity.test.ts` in a follow-up cleanup PR (keeping this document as the permanent historical record),
+or -- if a reusable deployment-parity harness is wanted for future migrations -- file a tracked issue to de-pin the hardcoded
+baseline revision/ethers version/lockfile hashes into policy/CLI arguments first.
+
 Future proxy/admin choices are tracked in
 [#1130](https://github.com/threshold-network/tbtc-v2/issues/1130);
 [#1075](https://github.com/threshold-network/tbtc-v2/issues/1075) tracks the
