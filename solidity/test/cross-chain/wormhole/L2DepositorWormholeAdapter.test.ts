@@ -199,7 +199,7 @@ describe("L2BTCDepositorWormhole", () => {
       expect(
         requireValue(
           l2BtcDepositor.interface.parseLog(receipt.logs[0]),
-          "ABI fragment"
+          "DepositInitialized log"
         ).args
       ).to.be.eql([
         [

@@ -45,7 +45,7 @@ const expectRevertWithCustomError = async (
 ) => {
   const { selector } = requireValue(
     contract.interface.getError(`${errorName}()`),
-    "ABI fragment"
+    `${errorName}() ABI fragment`
   )
   try {
     await promise
