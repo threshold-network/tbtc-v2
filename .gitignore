@@ -22,8 +22,3 @@ venv/
 target/*
 /build/
 .DS_Store
-
-# Foundry dependencies, artifacts, and cache
-solidity/lib/
-solidity/forge-artifacts/
-solidity/cache_forge/
