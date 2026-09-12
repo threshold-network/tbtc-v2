@@ -74,9 +74,14 @@ Future tests importing an overridden contract need to account for that
 profile selection. Hardhat remains the source of deployment artifacts;
 compiler-setting parity does not guarantee identical metadata or artifacts.
 
-The `WalletRegistry` compilation restriction currently has no effect in
-Foundry's build: only its interface (`api/IWalletRegistry.sol`) is imported,
-and the concrete contract is outside the compilation graph today.
+The `WalletRegistry` compilation restriction has no effect in the CI
+`contracts-foundry` job: only its interface (`api/IWalletRegistry.sol`) is
+imported there, and the concrete contract is outside the compilation graph,
+since that job never runs a Hardhat compile before Foundry's steps. The
+concrete contract _is_ pulled into the graph on a checkout where
+`contracts/hardhat-dependency-compiler/` already exists from a prior local
+Hardhat compile (see `foundry.toml`'s remappings comment) - the restriction
+is live in that environment only.
 
 Foundry's source resolution also needs explicit context-scoped remappings
 wherever a dependency pins a different `@openzeppelin/contracts(-upgradeable)`
