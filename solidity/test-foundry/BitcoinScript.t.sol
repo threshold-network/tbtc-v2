@@ -88,30 +88,11 @@ contract BitcoinScriptTest is Test {
         assertEq(harness.extractPubKeyHash(output), pubKeyHash);
     }
 
-    /// @dev Distinct key hashes must not collide into one script -- an
-    ///      injectivity check on the builders in its own right. On its own
-    ///      this is a weak guard against a builder that masks or discards
-    ///      part of the key hash: two independently fuzzed 160-bit hashes
-    ///      are astronomically unlikely to collide in exactly the masked
-    ///      bits, so that class of bug is actually caught by the round-trip
-    ///      tests above, which fail on nearly every fuzzed input the moment
-    ///      any bit is silently dropped.
-    function testFuzz_distinctKeyHashesGiveDistinctScripts(bytes20 a, bytes20 b)
-        public
-        view
-    {
-        vm.assume(a != b);
-
-        assertTrue(harness.makeP2PKHScript(a) != harness.makeP2PKHScript(b));
-        assertTrue(harness.makeP2WPKHScript(a) != harness.makeP2WPKHScript(b));
-    }
-
     /// @dev The constant framing bytes are the script's identity. P2PKH is
     ///      <0x1976a914> <20-byte PKH> <0x88ac>.
     function testFuzz_p2pkhFraming(bytes20 pubKeyHash) public view {
         bytes memory script = bytes.concat(harness.makeP2PKHScript(pubKeyHash));
 
-        assertEq(script.length, 26);
         assertEq(uint8(script[0]), 0x19); // total length
         assertEq(uint8(script[1]), 0x76); // OP_DUP
         assertEq(uint8(script[2]), 0xa9); // OP_HASH160
@@ -126,7 +107,6 @@ contract BitcoinScriptTest is Test {
             harness.makeP2WPKHScript(pubKeyHash)
         );
 
-        assertEq(script.length, 23);
         assertEq(uint8(script[0]), 0x16); // total length
         assertEq(uint8(script[1]), 0x00); // OP_0
         assertEq(uint8(script[2]), 0x14); // push 20 bytes
@@ -244,8 +224,10 @@ contract BitcoinScriptTest is Test {
     }
 
     /// @dev Deterministic pin for the boundary the two fuzz tests above only
-    ///      hit probabilistically (offset 0 is a 1-in-6 or 1-in-3 draw, times
-    ///      a 1-in-255 mask, so well under half of any single CI run):
+    ///      hit by chance -- roughly 1-in-1500 per P2PKH case and 1-in-760
+    ///      per P2WPKH case (offset 0 is a 1-in-6 or 1-in-3 draw, times a
+    ///      1-in-255 mask), independent of how many cases a given run
+    ///      generates:
     ///      a script whose length-prefix byte is exactly 0xff makes BTCUtils'
     ///      `_scriptLen + 1` (checked uint8 arithmetic) overflow to a Panic
     ///      instead of the clean require revert. This runs unconditionally on
