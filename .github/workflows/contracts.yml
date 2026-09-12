@@ -111,6 +111,54 @@ jobs:
         if: github.ref != 'refs/heads/dapp-development' && github.head_ref != 'dapp-development'
         run: yarn test:integration
 
+  contracts-foundry:
+    needs: contracts-detect-changes
+    if: |
+      github.event_name != 'pull_request'
+        || needs.contracts-detect-changes.outputs.path-filter == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: ./solidity
+    env:
+      FOUNDRY_PROFILE: ci
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.11.1"
+
+      - name: Enable Corepack
+        run: |
+          corepack enable
+          corepack prepare yarn@4.12.0 --activate
+
+      - name: Configure HTTPS for legacy git dependencies
+        run: git config --global url."https://".insteadOf git://
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Verify Foundry/Hardhat compiler parity
+        run: yarn check:foundry-hardhat-parity
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1
+        with:
+          version: v1.5.1
+          cache: false
+
+      - name: Install pinned forge-std
+        run: yarn foundry:install
+
+      - name: Run Foundry fuzz tests
+        run: yarn test:foundry
+
   contracts-deployment-dry-run:
     needs: contracts-detect-changes
     if: |
@@ -426,5 +474,11 @@ jobs:
       - name: Install dependencies
         run: yarn install
 
+      # `crytic-compile` picks a framework by sniffing for config files and
+      # ranks Foundry above Hardhat, so the presence of `foundry.toml` alone
+      # makes it try to shell out to `forge`, which is not installed here.
+      # Hardhat is the build of record for this repo; say so explicitly.
       - name: Run Slither
-        run: slither --hardhat-artifacts-directory build .
+        run: |
+          slither --compile-force-framework hardhat \
+            --hardhat-artifacts-directory build .

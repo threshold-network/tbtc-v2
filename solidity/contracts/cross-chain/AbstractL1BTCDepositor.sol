@@ -518,16 +518,14 @@ abstract contract AbstractL1BTCDepositor is
                 /* solhint-enable avoid-low-level-calls */
 
                 if (!success) {
-                    // This write and the event below happen after the
-                    // external `reimbursementPool` call above. That call is
-                    // gas-bounded (2_000_000) and its failure path only
-                    // re-stores the same deferred reimbursement so it can be
-                    // retried later; no funds move here and no further
-                    // interaction depends on this state, so the reentrancy
-                    // is benign by the same reasoning as the rest of this
-                    // function (see checks-effects-interactions note above).
+                    // The failed pool call rolls back all of its callbacks.
+                    // This deposit is already Finalized, and its record was
+                    // cleared before external calls, so restoring it cannot
+                    // enable a second finalization or reimbursement attempt.
                     // slither-disable-next-line reentrancy-no-eth
                     gasReimbursements[depositKey] = reimbursement;
+                    // The event describes the reverted pool call; no nested
+                    // event from that call survives to be reordered with it.
                     // slither-disable-next-line reentrancy-events
                     emit DeferredReimbursementFailed(
                         depositKey,

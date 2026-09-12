@@ -1,14 +1,16 @@
 import {
   toBigInt,
   ContractTransactionResponse,
-  Contract,
   ContractTransactionReceipt,
 } from "ethers"
 import { ethers, getUnnamedAccounts, helpers } from "hardhat"
 import { expect } from "chai"
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import { requireValue } from "../../helpers/require-value"
-import type { GasBurningReceiver } from "../../typechain"
+import type {
+  GasBurningReceiver,
+  ReentrantRefundReceiver,
+} from "../../typechain"
 import { loadFixture } from "../helpers/fixture"
 import {
   IBridge,
@@ -404,6 +406,132 @@ describe("AbstractL1BTCDepositor", () => {
             relayerBalanceAfter - relayerBalanceBefore + ethers.toBigInt(txCost)
 
           expect(netReimbursement).to.be.gt(0)
+        })
+      }
+    )
+
+    context(
+      "when the deferred initialization receiver reenters finalizeDeposit",
+      () => {
+        const gasPrice = ethers.parseUnits("1", "gwei")
+
+        let realReimbursementPool: ReimbursementPool
+        let reentrantReceiver: ReentrantRefundReceiver
+        let deferredReimbursementGasSpent: bigint
+        let tx: ContractTransactionResponse
+
+        before(async () => {
+          await createSnapshot()
+
+          const [funder] = await ethers.getSigners()
+
+          realReimbursementPool = (await (
+            await ethers.getContractFactory("ReimbursementPool")
+          ).deploy(10000, gasPrice)) as ReimbursementPool
+          await realReimbursementPool.authorize(depositor.target)
+          await funder.sendTransaction({
+            to: realReimbursementPool.target,
+            value: ethers.parseEther("1"),
+          })
+
+          // Reenters `finalizeDeposit` for the same deposit key from its
+          // `receive` function, i.e. as soon as it is paid its deferred
+          // reimbursement.
+          reentrantReceiver = (await (
+            await ethers.getContractFactory("ReentrantRefundReceiver")
+          ).deploy(
+            initializeDepositFixture.depositKey
+          )) as ReentrantRefundReceiver
+
+          await depositor
+            .connect(governance)
+            .updateReimbursementPool(realReimbursementPool.target)
+          await depositor
+            .connect(governance)
+            .updateReimbursementAuthorization(reentrantReceiver.target, true)
+
+          await reentrantReceiver.callInitializeDeposit(
+            depositor.target,
+            initializeDepositFixture.fundingTx,
+            initializeDepositFixture.reveal,
+            initializeDepositFixture.destinationChainDepositOwner
+          )
+
+          const deferredReimbursement = await depositor.gasReimbursements(
+            initializeDepositFixture.depositKey
+          )
+          expect(deferredReimbursement.receiver).to.equal(
+            reentrantReceiver.target
+          )
+          expect(deferredReimbursement.gasSpent).to.be.gt(0)
+          deferredReimbursementGasSpent = deferredReimbursement.gasSpent
+
+          await allowFinalization()
+
+          // `relayer` is deliberately left unauthorized for reimbursements
+          // here, so this call only exercises the deferred-reimbursement
+          // leg (the one that pays `reentrantReceiver`).
+          //
+          // This outer call is expected to succeed, not revert.
+          // `finalizeDeposit` flips `deposits[depositKey]` to `Finalized`
+          // before making any external call (checks-effects-interactions),
+          // so by the time `ReimbursementPool.refund` forwards ETH to
+          // `reentrantReceiver` and its `receive()` reenters
+          // `finalizeDeposit`, that reentrant call hits the "Wrong deposit
+          // state" guard and reverts. `ReimbursementPool.refund` sends that
+          // ETH with a raw `receiver.call{value: ...}("")` whose success it
+          // only checks (emitting `SendingEtherFailed` on failure) without
+          // ever `require`-ing it, and `refund` itself still returns
+          // normally. The depositor's own low-level call into `refund`
+          // therefore also reports success, so this outer transaction does
+          // not revert.
+          tx = await depositor
+            .connect(relayer)
+            .finalizeDeposit(initializeDepositFixture.depositKey, {
+              gasPrice,
+            })
+        })
+
+        after(async () => {
+          await resetFakes()
+
+          await restoreSnapshot()
+        })
+
+        it("should not credit the reentrant receiver with any ETH", async () => {
+          // If `finalizeDeposit` ever regressed on checks-effects-
+          // interactions (e.g. by flipping `deposits[depositKey]` to
+          // `Finalized` after paying out the reimbursement instead of
+          // before), the reentrant `finalizeDeposit` call would succeed
+          // instead of reverting, and this balance would be non-zero.
+          expect(
+            await ethers.provider.getBalance(reentrantReceiver.target)
+          ).to.equal(0)
+        })
+
+        it("should have actually attempted and rejected the reentrant payout", async () => {
+          // The balance-zero assertion above is also satisfiable if the
+          // deferred refund were never attempted at all (e.g. an
+          // unauthorized pool, or a zero gasSpent/wrong receiver record).
+          // Assert `SendingEtherFailed` was emitted with the exact expected
+          // refund amount too, proving the pool genuinely tried to pay
+          // `reentrantReceiver` and observed the send fail - the specific,
+          // causal signal that the reentrant call reverted, not just an
+          // absence of payment for some unrelated reason.
+          //
+          // `finalizeDeposit` was called above with an explicit `gasPrice`
+          // equal to the pool's own `maxGasPrice`, so `refund`'s
+          // `tx.gasprice < maxGasPrice ? tx.gasprice : maxGasPrice` always
+          // resolves to that same known value - no need to read it back
+          // from the mined tx (which can be unreliable for `.gasPrice` on
+          // networks that default to EIP-1559 type-2 transactions).
+          const staticGas = await realReimbursementPool.staticGas()
+          const refundAmount =
+            (deferredReimbursementGasSpent + staticGas) * gasPrice
+
+          await expect(tx)
+            .to.emit(realReimbursementPool, "SendingEtherFailed")
+            .withArgs(refundAmount, reentrantReceiver.target)
         })
       }
     )
