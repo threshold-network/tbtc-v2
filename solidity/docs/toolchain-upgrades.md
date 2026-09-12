@@ -110,7 +110,9 @@ are errors, including the obsolete `no-extra-semi` suppressions removed in this
 migration. `npm run test:lint-policy` checks actual cyclic and acyclic TypeScript
 modules, JavaScript correctness violations and accepted deployment overrides.
 It runs as part of `lint:eslint`, including the existing formatting CI job.
-This package requires Node ^22.13.0 or >=24.0.0, matching its own `engines` declaration in package.json — a narrower floor than ESLint 10 itself imposes, chosen for this repo's CI/runtime policy.
+This package requires Node ^22.13.0 or >=24.0.0, matching its own
+`engines` declaration in package.json - a narrower floor than ESLint 10
+itself imposes, chosen for this repo's CI/runtime policy.
 
 The existing warning debt stays visible with a ceiling of 322 in both ESLint
 commands: 263 console uses, 31 unnamed functions, 19 unused variables, six
@@ -125,8 +127,8 @@ overrides were for `**/*.test.ts`, `**/*.spec.ts`, and `deploy-patches/**/*.js`;
 with ESLint 7's bare `eslint .` invocation and no other file-type configuration,
 `deploy/`, `scripts/`, `tasks/`, `helpers/`, and `hardhat.config.ts` were not
 linted at all before this PR. This is the most plausible explanation for the
-308→321 delta predating this PR's own +1 warning, not a confirmed
-reconciliation — the exact historical count on the base commit was not
+308->321 delta predating this PR's own +1 warning, not a confirmed
+reconciliation - the exact historical count on the base commit was not
 re-measured.
 
 The increase from 321 to 322 is the inherited parity checker's explicit
