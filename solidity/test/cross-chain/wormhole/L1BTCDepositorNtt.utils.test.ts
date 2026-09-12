@@ -1,8 +1,10 @@
+// Bigint bitwise operators encode and extract the chain ID and address fields.
+/* eslint-disable no-bitwise */
 import { ethers, getUnnamedAccounts, helpers } from "hardhat"
 import { randomBytes } from "crypto"
 import { expect } from "chai"
-import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
-import { BigNumber, ContractTransaction } from "ethers"
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
+import { ContractTransactionResponse } from "ethers"
 import { loadFixture } from "../../helpers/fixture"
 import {
   IBridge,
@@ -24,15 +26,15 @@ const WORMHOLE_CHAIN_BASE = 30
 // Mock NTT Manager interface
 interface INttManager {
   transfer(
-    amount: BigNumber,
+    amount: bigint,
     recipientChain: number,
     recipient: string
-  ): Promise<ContractTransaction>
+  ): Promise<ContractTransactionResponse>
 
   quoteDeliveryPrice(
     recipientChain: number,
     transceiverInstructions: string
-  ): Promise<{ priceQuotes: BigNumber[]; totalPrice: BigNumber }>
+  ): Promise<{ priceQuotes: bigint[]; totalPrice: bigint }>
 }
 
 describe("L1BTCDepositorNtt Utilities and Edge Cases", () => {
@@ -50,7 +52,7 @@ describe("L1BTCDepositorNtt Utilities and Edge Cases", () => {
     const tbtcVault = await createMock<ITBTCVault>("ITBTCVault", {
       address: tbtcVaultAddress,
     })
-    await tbtcVault.tbtcToken.returns(tbtcToken.address)
+    await tbtcVault.tbtcToken.returns(tbtcToken.target)
 
     const nttManager = await createMock(
       "contracts/cross-chain/wormhole/L1BTCDepositorNtt.sol:INttManager"
@@ -77,7 +79,7 @@ describe("L1BTCDepositorNtt Utilities and Edge Cases", () => {
         },
       }
     )
-    const l1BtcDepositorNtt = deployment[0] as L1BTCDepositorNtt
+    const l1BtcDepositorNtt = deployment[0] as unknown as L1BTCDepositorNtt
 
     await l1BtcDepositorNtt
       .connect(deployer)
@@ -96,9 +98,9 @@ describe("L1BTCDepositorNtt Utilities and Edge Cases", () => {
     }
   }
 
-  let governance: SignerWithAddress
-  let relayer: SignerWithAddress
-  let user: SignerWithAddress
+  let governance: HardhatEthersSigner
+  let relayer: HardhatEthersSigner
+  let user: HardhatEthersSigner
   let bridge: Mock<IBridge>
   let tbtcToken: TestERC20
   let tbtcVault: Mock<ITBTCVault>
@@ -138,20 +140,17 @@ describe("L1BTCDepositorNtt Utilities and Edge Cases", () => {
       // Chain ID goes in first 2 bytes, address in remaining 30 bytes
 
       // Encode: [2 bytes: Chain ID][30 bytes: Address]
-      const encoded = BigNumber.from(testChainId)
-        .shl(240)
-        .or(BigNumber.from(testRecipient))
+      const encoded = (BigInt(testChainId) << 240n) | BigInt(testRecipient)
 
       // Decode chain ID (first 2 bytes)
-      const decodedChainId = encoded.shr(240).toNumber()
+      const decodedChainId = ethers.toNumber(encoded >> 240n)
 
       // Decode recipient (mask out first 2 bytes)
-      const mask = BigNumber.from(
+      const mask = BigInt(
         "0x0000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
       )
-      const decodedRecipient = `0x${encoded
-        .and(mask)
-        .toHexString()
+      const decodedRecipient = `0x${ethers
+        .toBeHex(encoded & mask)
         .slice(2)
         .padStart(40, "0")}`
 
@@ -165,17 +164,14 @@ describe("L1BTCDepositorNtt Utilities and Edge Cases", () => {
       const maxChainId = 65535 // 2^16 - 1
       const maxAddress = "0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
 
-      const encoded = BigNumber.from(maxChainId)
-        .shl(240)
-        .or(BigNumber.from(maxAddress))
+      const encoded = (BigInt(maxChainId) << 240n) | BigInt(maxAddress)
 
-      const decodedChainId = encoded.shr(240).toNumber()
-      const mask = BigNumber.from(
+      const decodedChainId = ethers.toNumber(encoded >> 240n)
+      const mask = BigInt(
         "0x0000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
       )
-      const decodedRecipient = `0x${encoded
-        .and(mask)
-        .toHexString()
+      const decodedRecipient = `0x${ethers
+        .toBeHex(encoded & mask)
         .slice(2)
         .padStart(40, "0")}`
 
@@ -187,17 +183,14 @@ describe("L1BTCDepositorNtt Utilities and Edge Cases", () => {
       const zeroChainId = 0
       const zeroAddress = "0x0000000000000000000000000000000000000000"
 
-      const encoded = BigNumber.from(zeroChainId)
-        .shl(240)
-        .or(BigNumber.from(zeroAddress))
+      const encoded = (BigInt(zeroChainId) << 240n) | BigInt(zeroAddress)
 
-      const decodedChainId = encoded.shr(240).toNumber()
-      const mask = BigNumber.from(
+      const decodedChainId = ethers.toNumber(encoded >> 240n)
+      const mask = BigInt(
         "0x0000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
       )
-      const decodedRecipient = `0x${encoded
-        .and(mask)
-        .toHexString()
+      const decodedRecipient = `0x${ethers
+        .toBeHex(encoded & mask)
         .slice(2)
         .padStart(40, "0")}`
 
@@ -223,20 +216,17 @@ describe("L1BTCDepositorNtt Utilities and Edge Cases", () => {
 
       testCases.forEach(({ chainId, recipient }, index) => {
         // Encode the receiver
-        const encoded = BigNumber.from(chainId)
-          .shl(240)
-          .or(BigNumber.from(recipient))
+        const encoded = (BigInt(chainId) << 240n) | BigInt(recipient)
 
         // Extract chain ID (first 2 bytes)
-        const extractedChainId = encoded.shr(240).toNumber()
+        const extractedChainId = ethers.toNumber(encoded >> 240n)
 
         // Extract recipient (remove first 2 bytes)
-        const mask = BigNumber.from(
+        const mask = BigInt(
           "0x0000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
         )
-        const extractedRecipient = `0x${encoded
-          .and(mask)
-          .toHexString()
+        const extractedRecipient = `0x${ethers
+          .toBeHex(encoded & mask)
           .slice(2)
           .padStart(40, "0")}`
 
@@ -254,10 +244,10 @@ describe("L1BTCDepositorNtt Utilities and Edge Cases", () => {
       // When chain ID is 0, the contract should fall back to default chain
       // This tests the logic: if (chainId == 0 || !supportedChains[chainId])
 
-      const zeroChainReceiver = BigNumber.from(0)
-        .shl(240)
-        .or(BigNumber.from("0x23b82a7108F9CEb34C3CDC44268be21D151d4124"))
-      const extractedChainId = zeroChainReceiver.shr(240).toNumber()
+      const zeroChainReceiver =
+        (BigInt(0) << 240n) |
+        BigInt("0x23b82a7108F9CEb34C3CDC44268be21D151d4124")
+      const extractedChainId = ethers.toNumber(zeroChainReceiver >> 240n)
 
       expect(extractedChainId).to.equal(0)
 
@@ -271,49 +261,46 @@ describe("L1BTCDepositorNtt Utilities and Edge Cases", () => {
     it("should calculate correct delivery pricing structure", async () => {
       // Test the quoteFinalizeDeposit logic structure
       const mockPriceQuotes = [
-        BigNumber.from(20000), // Wormhole transceiver
-        BigNumber.from(30000), // Axelar transceiver (if configured)
+        BigInt(20000), // Wormhole transceiver
+        BigInt(30000), // Axelar transceiver (if configured)
       ]
-      const mockTotalPrice = BigNumber.from(50000)
+      const mockTotalPrice = BigInt(50000)
 
       // The contract should return the totalPrice from NTT Manager
-      expect(mockTotalPrice.gt(0)).to.be.true
+      expect(mockTotalPrice > 0n).to.be.true
       expect(mockPriceQuotes.length).to.be.greaterThanOrEqual(1)
 
       // Verify individual quotes sum to total (NTT framework handles this)
       const calculatedTotal = mockPriceQuotes.reduce(
-        (sum, quote) => sum.add(quote),
-        BigNumber.from(0)
+        (sum, quote) => sum + quote,
+        BigInt(0)
       )
       expect(calculatedTotal).to.equal(mockTotalPrice)
     })
 
     it("should validate transfer parameters structure", async () => {
       // Test the _transferTbtc logic validation
-      const amount = ethers.utils.parseEther("1") // 1 tBTC
+      const amount = ethers.parseEther("1") // 1 tBTC
       const chainId = WORMHOLE_CHAIN_DESTINATION
       const recipient = "0x23b82a7108F9CEb34C3CDC44268be21D151d4124"
 
       // Encode receiver
-      const encodedReceiver = BigNumber.from(chainId)
-        .shl(240)
-        .or(BigNumber.from(recipient))
+      const encodedReceiver = (BigInt(chainId) << 240n) | BigInt(recipient)
 
       // Extract destination chain
-      const destinationChain = encodedReceiver.shr(240).toNumber()
+      const destinationChain = ethers.toNumber(encodedReceiver >> 240n)
 
       // Extract actual recipient
-      const mask = BigNumber.from(
+      const mask = BigInt(
         "0x0000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
       )
-      const actualRecipient = `0x${encodedReceiver
-        .and(mask)
-        .toHexString()
+      const actualRecipient = `0x${ethers
+        .toBeHex(encodedReceiver & mask)
         .slice(2)
         .padStart(40, "0")}`
 
       // Validate the logic
-      expect(amount.gt(0)).to.be.true // Amount validation
+      expect(amount > 0n).to.be.true // Amount validation
       expect(destinationChain).to.equal(chainId) // Chain extraction
       expect(actualRecipient.toLowerCase()).to.equal(recipient.toLowerCase()) // Recipient extraction
 
@@ -392,14 +379,14 @@ describe("L1BTCDepositorNtt Utilities and Edge Cases", () => {
       const zeroAddress = "0x0000000000000000000000000000000000000000"
 
       expect(validAddress).to.not.equal(zeroAddress) // Valid
-      expect(zeroAddress).to.equal(ethers.constants.AddressZero) // Would trigger zero address check
+      expect(zeroAddress).to.equal(ethers.ZeroAddress) // Would trigger zero address check
 
       // Amount validation
-      const validAmount = ethers.utils.parseEther("1")
-      const zeroAmount = BigNumber.from(0)
+      const validAmount = ethers.parseEther("1")
+      const zeroAmount = BigInt(0)
 
-      expect(validAmount.gt(0)).to.be.true // Valid
-      expect(zeroAmount.eq(0)).to.be.true // Would trigger "Amount must be greater than 0"
+      expect(validAmount > 0n).to.be.true // Valid
+      expect(zeroAmount === 0n).to.be.true // Would trigger "Amount must be greater than 0"
     })
 
     it("should handle edge cases in encoding/decoding", async () => {
@@ -407,14 +394,14 @@ describe("L1BTCDepositorNtt Utilities and Edge Cases", () => {
 
       // Maximum values
       const maxChainId = 65535
-      const maxUint160 = BigNumber.from(2).pow(160).sub(1)
+      const maxUint160 = BigInt(2) ** 160n - 1n
 
       expect(maxChainId).to.be.lessThanOrEqual(65535)
-      expect(maxUint160.lt(BigNumber.from(2).pow(160))).to.be.true
+      expect(maxUint160 < BigInt(2) ** 160n).to.be.true
 
       // Bit operations
-      const testValue = BigNumber.from(maxChainId).shl(240)
-      const extractedChainId = testValue.shr(240).toNumber()
+      const testValue = BigInt(maxChainId) << 240n
+      const extractedChainId = ethers.toNumber(testValue >> 240n)
 
       expect(extractedChainId).to.equal(maxChainId)
     })
@@ -428,9 +415,9 @@ describe("L1BTCDepositorNtt Utilities and Edge Cases", () => {
             l1BtcDepositorNtt
               .connect(relayer)
               .retrieveTokens(
-                tbtcToken.address,
+                tbtcToken.target,
                 user.address,
-                ethers.utils.parseEther("1")
+                ethers.parseEther("1")
               )
           ).to.be.revertedWith("Ownable: caller is not the owner")
         })
@@ -440,19 +427,19 @@ describe("L1BTCDepositorNtt Utilities and Edge Cases", () => {
         it("should transfer tokens to recipient", async () => {
           // Mint tokens to contract first
           await tbtcToken.mint(
-            l1BtcDepositorNtt.address,
-            ethers.utils.parseEther("10")
+            l1BtcDepositorNtt.target,
+            ethers.parseEther("10")
           )
 
           const initialBalance = await tbtcToken.balanceOf(user.address)
-          const transferAmount = ethers.utils.parseEther("1")
+          const transferAmount = ethers.parseEther("1")
 
           await l1BtcDepositorNtt
             .connect(governance)
-            .retrieveTokens(tbtcToken.address, user.address, transferAmount)
+            .retrieveTokens(tbtcToken.target, user.address, transferAmount)
 
           const finalBalance = await tbtcToken.balanceOf(user.address)
-          expect(finalBalance.sub(initialBalance)).to.equal(transferAmount)
+          expect(finalBalance - initialBalance).to.equal(transferAmount)
         })
       })
     })
@@ -532,10 +519,8 @@ describe("L1BTCDepositorNtt Utilities and Edge Cases", () => {
         const testAddress = "0x23b82a7108F9CEb34C3CDC44268be21D151d4124"
 
         // Test encoding/decoding
-        const encoded = BigNumber.from(chainId)
-          .shl(240)
-          .or(BigNumber.from(testAddress))
-        const decodedChainId = encoded.shr(240).toNumber()
+        const encoded = (BigInt(chainId) << 240n) | BigInt(testAddress)
+        const decodedChainId = ethers.toNumber(encoded >> 240n)
 
         expect(decodedChainId).to.equal(chainId)
       }
@@ -545,15 +530,12 @@ describe("L1BTCDepositorNtt Utilities and Edge Cases", () => {
       const chainId = WORMHOLE_CHAIN_DESTINATION
       const addressWithZeros = "0x0000000000000000000000000000000000000123"
 
-      const encoded = BigNumber.from(chainId)
-        .shl(240)
-        .or(BigNumber.from(addressWithZeros))
-      const mask = BigNumber.from(
+      const encoded = (BigInt(chainId) << 240n) | BigInt(addressWithZeros)
+      const mask = BigInt(
         "0x0000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
       )
-      const decodedAddress = `0x${encoded
-        .and(mask)
-        .toHexString()
+      const decodedAddress = `0x${ethers
+        .toBeHex(encoded & mask)
         .slice(2)
         .padStart(40, "0")}`
 
@@ -566,15 +548,12 @@ describe("L1BTCDepositorNtt Utilities and Edge Cases", () => {
       const chainId = WORMHOLE_CHAIN_DESTINATION
       const addressWithFs = "0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
 
-      const encoded = BigNumber.from(chainId)
-        .shl(240)
-        .or(BigNumber.from(addressWithFs))
-      const mask = BigNumber.from(
+      const encoded = (BigInt(chainId) << 240n) | BigInt(addressWithFs)
+      const mask = BigInt(
         "0x0000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
       )
-      const decodedAddress = `0x${encoded
-        .and(mask)
-        .toHexString()
+      const decodedAddress = `0x${ethers
+        .toBeHex(encoded & mask)
         .slice(2)
         .padStart(40, "0")}`
 
@@ -652,15 +631,10 @@ describe("L1BTCDepositorNtt Utilities and Edge Cases", () => {
 
       // Test with receiver that has BASE chain ID encoded
       // BASE chain ID is 30 (0x1e), so we encode it properly as bytes32
-      const baseReceiver = ethers.utils.hexZeroPad(
-        ethers.utils.hexlify(
-          ethers.BigNumber.from(WORMHOLE_CHAIN_BASE)
-            .shl(240)
-            .or(
-              ethers.BigNumber.from(
-                "0x23b82a7108F9CEb34C3CDC44268be21D151d4124"
-              )
-            )
+      const baseReceiver = ethers.zeroPadValue(
+        ethers.toBeHex(
+          (BigInt(WORMHOLE_CHAIN_BASE) << 240n) |
+            BigInt("0x23b82a7108F9CEb34C3CDC44268be21D151d4124")
         ),
         32
       )

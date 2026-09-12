@@ -1,6 +1,6 @@
 import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
-import { BigNumber } from "ethers"
+
 import type {
   L1BTCDepositorNttWithExecutor,
   MockTBTCBridge,
@@ -41,7 +41,7 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
       "contracts/test/MockTBTCVault.sol:MockTBTCVault"
     )
     tbtcVault = (await MockTBTCVaultFactory.deploy()) as MockTBTCVault
-    await tbtcVault.setTbtcToken(tbtcToken.address)
+    await tbtcVault.setTbtcToken(tbtcToken.target)
 
     // Deploy proper mock NTT managers
     const MockNttManagerWithExecutorFactory = await ethers.getContractFactory(
@@ -65,21 +65,21 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
       "L1BTCDepositorNttWithExecutor"
     )
     const depositorImpl = await L1BTCDepositorFactory.deploy()
-    await depositorImpl.deployed()
+    await depositorImpl.waitForDeployment()
 
     // Deploy proxy
     const ProxyFactory = await ethers.getContractFactory("ERC1967Proxy")
     const initData = depositorImpl.interface.encodeFunctionData("initialize", [
-      bridge.address,
-      tbtcVault.address,
-      nttManagerWithExecutor.address,
-      underlyingNttManager.address,
+      bridge.target,
+      tbtcVault.target,
+      nttManagerWithExecutor.target,
+      underlyingNttManager.target,
     ])
-    const proxy = await ProxyFactory.deploy(depositorImpl.address, initData)
-    await proxy.deployed()
+    const proxy = await ProxyFactory.deploy(depositorImpl.target, initData)
+    await proxy.waitForDeployment()
 
     depositor = L1BTCDepositorFactory.attach(
-      proxy.address
+      proxy.target
     ) as L1BTCDepositorNttWithExecutor
 
     // Set up supported chains
@@ -152,11 +152,11 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
       // Test zero fee
       const zeroFeeArgs = {
         dbps: 0,
-        payee: ethers.constants.AddressZero,
+        payee: ethers.ZeroAddress,
       }
 
       const executorArgs = {
-        value: ethers.utils.parseEther("0.01"),
+        value: ethers.parseEther("0.01"),
         refundAddress: user.address,
         signedQuote: `0x${"1".repeat(128)}`,
         instructions: `0x${"2".repeat(64)}`,
@@ -178,7 +178,7 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
         1000,
         user.address,
         0,
-        ethers.constants.AddressZero
+        ethers.ZeroAddress
       )
 
       const highFeeArgs = {
@@ -202,7 +202,7 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
         10000,
         user.address,
         0,
-        ethers.constants.AddressZero
+        ethers.ZeroAddress
       )
 
       const maxFeeArgs = {
@@ -225,7 +225,7 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
       const [, , user, feeRecipient] = await ethers.getSigners()
 
       const executorArgs = {
-        value: ethers.utils.parseEther("0.01"),
+        value: ethers.parseEther("0.01"),
         refundAddress: user.address,
         signedQuote: `0x${"1".repeat(128)}`,
         instructions: `0x${"2".repeat(64)}`,
@@ -237,7 +237,7 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
         100,
         user.address,
         0,
-        ethers.constants.AddressZero
+        ethers.ZeroAddress
       )
 
       const feeArgs1 = {
@@ -259,7 +259,7 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
         100,
         feeRecipient.address,
         0,
-        ethers.constants.AddressZero
+        ethers.ZeroAddress
       )
 
       const feeArgs2 = {
@@ -287,7 +287,7 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
       // eslint-disable-next-line no-plusplus
       for (let i = 0; i < 5; i++) {
         const executorArgs = {
-          value: ethers.utils.parseEther(`${0.01 + i * 0.01}`),
+          value: ethers.parseEther(`${0.01 + i * 0.01}`),
           refundAddress: user.address,
           signedQuote: `0x${"1".repeat(128)}`,
           instructions: `0x${"2".repeat(64)}`,
@@ -307,7 +307,7 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
         expect(isSet).to.be.true
         // eslint-disable-next-line no-await-in-loop
         expect(await depositor.connect(user).getStoredExecutorValue()).to.equal(
-          ethers.utils.parseEther(`${0.01 + i * 0.01}`)
+          ethers.parseEther(`${0.01 + i * 0.01}`)
         )
       }
     })
@@ -317,7 +317,7 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
 
       // Set parameters
       const executorArgs = {
-        value: ethers.utils.parseEther("0.01"),
+        value: ethers.parseEther("0.01"),
         refundAddress: user.address,
         signedQuote: `0x${"1".repeat(128)}`,
         instructions: `0x${"2".repeat(64)}`,

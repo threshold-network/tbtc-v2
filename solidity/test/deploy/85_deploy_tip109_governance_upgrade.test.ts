@@ -99,15 +99,15 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
       ethers: {
         ...ethers,
         provider: {
-          getStorageAt: async () => paddedAdmin,
+          getStorage: async () => paddedAdmin,
         },
-        utils: ethers.utils,
-        constants: ethers.constants,
+        utils: ethers,
+        constants: ethers,
       },
       deployments: {
         deploy: async (name: string, opts: any) => {
           deployCalls.push({ name, options: opts })
-          const address = deployAddressMap[name] || ethers.constants.AddressZero
+          const address = deployAddressMap[name] || ethers.ZeroAddress
           return { address, newlyDeployed: true }
         },
         get: async (name: string) => {
@@ -281,7 +281,7 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
 
         expectedLibKeys.forEach((key) => {
           expect(libraries).to.have.property(key)
-          expect(libraries[key]).to.not.equal(ethers.constants.AddressZero)
+          expect(libraries[key]).to.not.equal(ethers.ZeroAddress)
         })
 
         // Verify correct address mapping (not swapped)
@@ -332,28 +332,20 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
         await func(hre)
 
         const depositArtifact = await deployments.get("Deposit")
-        expect(depositArtifact.address).to.not.equal(
-          ethers.constants.AddressZero
-        )
+        expect(depositArtifact.address).to.not.equal(ethers.ZeroAddress)
 
         const redemptionArtifact = await deployments.get("Redemption")
-        expect(redemptionArtifact.address).to.not.equal(
-          ethers.constants.AddressZero
-        )
+        expect(redemptionArtifact.address).to.not.equal(ethers.ZeroAddress)
 
         const bridgeImplArtifact = await deployments.get(
           "BridgeTIP109Implementation"
         )
-        expect(bridgeImplArtifact.address).to.not.equal(
-          ethers.constants.AddressZero
-        )
+        expect(bridgeImplArtifact.address).to.not.equal(ethers.ZeroAddress)
 
         const rebateImplArtifact = await deployments.get(
           "RebateStakingTIP109Implementation"
         )
-        expect(rebateImplArtifact.address).to.not.equal(
-          ethers.constants.AddressZero
-        )
+        expect(rebateImplArtifact.address).to.not.equal(ethers.ZeroAddress)
       })
 
       it("should log all deployed addresses to console", async () => {
@@ -403,9 +395,9 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
       "function beginDepositTreasuryFeeDivisorUpdate(uint64 _newDepositTreasuryFeeDivisor)",
     ]
 
-    const proxyAdminIface = new ethers.utils.Interface(proxyAdminABI)
-    const bridgeIface = new ethers.utils.Interface(bridgeABI)
-    const bridgeGovIface = new ethers.utils.Interface(bridgeGovABI)
+    const proxyAdminIface = new ethers.Interface(proxyAdminABI)
+    const bridgeIface = new ethers.Interface(bridgeABI)
+    const bridgeGovIface = new ethers.Interface(bridgeGovABI)
 
     // Calldata-specific test addresses (implementation addresses distinct
     // from deployment phase to test with non-trivial checksummed values).
@@ -468,9 +460,7 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
         )
 
         // The repair target must be address(0) per D-7
-        expect(innerDecoded.newRebateStaking).to.equal(
-          ethers.constants.AddressZero
-        )
+        expect(innerDecoded.newRebateStaking).to.equal(ethers.ZeroAddress)
       })
     })
 
@@ -491,7 +481,8 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
 
         // The selector must match setRebateStaking(address), which is a
         // direct onlyOwner call on BridgeGovernance
-        const expectedSelector = bridgeGovIface.getSighash("setRebateStaking")
+        const expectedSelector =
+          bridgeGovIface.getFunction("setRebateStaking").selector
         expect(calldata.slice(0, 10)).to.equal(expectedSelector)
       })
     })
@@ -747,7 +738,7 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
 
       requiredKeys.forEach((key) => {
         expect(dc).to.have.property(key)
-        expect(dc[key]).to.not.equal(ethers.constants.AddressZero)
+        expect(dc[key]).to.not.equal(ethers.ZeroAddress)
       })
     })
 

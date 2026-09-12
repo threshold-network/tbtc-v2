@@ -1,10 +1,10 @@
+import { toNumber, Contract, ContractTransactionResponse } from "ethers"
 /* eslint-disable no-underscore-dangle */
 /* eslint-disable @typescript-eslint/no-unused-expressions */
 
 import { ethers, getUnnamedAccounts, helpers } from "hardhat"
-import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import { expect } from "chai"
-import { BigNumber, Contract, ContractTransaction } from "ethers"
 import { createMock } from "../helpers/mock"
 import type { Mock } from "../helpers/mock"
 import type {
@@ -16,6 +16,7 @@ import type {
   IRedemptionWatchtower,
   IWalletRegistry,
   RebateStaking,
+  TestERC20,
 } from "../../typechain"
 import { walletState } from "../fixtures"
 import bridgeFixture from "../fixtures/bridge"
@@ -38,7 +39,7 @@ function encodeRedemptionData(
   utxo: { txHash: string; txOutputIndex: number; txOutputValue: number },
   outputScript: string
 ): string {
-  return ethers.utils.defaultAbiCoder.encode(
+  return ethers.AbiCoder.defaultAbiCoder().encode(
     ["address", "bytes20", "bytes32", "uint32", "uint64", "bytes"],
     [
       redeemer,
@@ -59,18 +60,18 @@ async function setupWallet(
   bridge: Bridge & BridgeStub,
   pubKeyHash: string,
   utxo: { txHash: string; txOutputIndex: number; txOutputValue: number },
-  ecdsaWalletID: string = ethers.constants.HashZero
+  ecdsaWalletID: string = ethers.ZeroHash
 ): Promise<void> {
   await bridge.setWallet(pubKeyHash, {
     ecdsaWalletID,
-    mainUtxoHash: ethers.constants.HashZero,
+    mainUtxoHash: ethers.ZeroHash,
     pendingRedemptionsValue: 0,
     createdAt: await lastBlockTime(),
     movingFundsRequestedAt: 0,
     closingStartedAt: 0,
     pendingMovedFundsSweepRequestsCount: 0,
     state: walletState.Live,
-    movingFundsTargetWalletsCommitmentHash: ethers.constants.HashZero,
+    movingFundsTargetWalletsCommitmentHash: ethers.ZeroHash,
   })
   await bridge.setWalletMainUtxo(pubKeyHash, utxo)
 }
@@ -79,26 +80,26 @@ async function setupWallet(
  * Mints T tokens for an account, approves, and stakes them in RebateStaking.
  */
 async function stakeTokens(
-  t: Contract,
+  t: TestERC20,
   rebateStaking: RebateStaking,
-  minter: SignerWithAddress,
-  staker: SignerWithAddress,
-  amount: BigNumber = stakeAmount
+  minter: HardhatEthersSigner,
+  staker: HardhatEthersSigner,
+  amount: bigint = stakeAmount
 ): Promise<void> {
   await t.connect(minter).mint(staker.address, amount)
-  await t.connect(staker).approve(rebateStaking.address, amount)
+  await t.connect(staker).approve(rebateStaking.target, amount)
   await rebateStaking.connect(staker).stake(amount)
 }
 
 describe("Bridge - Vault-Path Redemption Rebate", () => {
-  let governance: SignerWithAddress
-  let thirdParty: SignerWithAddress
-  let deployer: SignerWithAddress
+  let governance: HardhatEthersSigner
+  let thirdParty: HardhatEthersSigner
+  let deployer: HardhatEthersSigner
 
   let bank: Bank & BankStub
   let bridge: Bridge & BridgeStub
   let bridgeGovernance: BridgeGovernance
-  let t: Contract
+  let t: TestERC20
   let rebateStaking: RebateStaking
   let walletRegistry: Mock<IWalletRegistry>
 
@@ -125,7 +126,7 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
     await bridgeGovernance
       .connect(governance)
       .beginMovingFundsDustThresholdUpdate(20000)
-    await increaseTime(await bridgeGovernance.governanceDelays(0))
+    await increaseTime(toNumber(await bridgeGovernance.governanceDelays(0)))
     await bridgeGovernance
       .connect(governance)
       .finalizeMovingFundsDustThresholdUpdate()
@@ -133,30 +134,32 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
     await bridgeGovernance
       .connect(governance)
       .beginRedemptionTxMaxFeeUpdate(10000)
-    await increaseTime(await bridgeGovernance.governanceDelays(0))
+    await increaseTime(toNumber(await bridgeGovernance.governanceDelays(0)))
     await bridgeGovernance
       .connect(governance)
       .finalizeRedemptionTxMaxFeeUpdate()
 
     await bridgeGovernance
       .connect(governance)
-      .setRebateStaking(rebateStaking.address)
+      .setRebateStaking(rebateStaking.target)
 
-    redemptionTimeout = (await bridge.redemptionParameters()).redemptionTimeout
+    redemptionTimeout = toNumber(
+      (await bridge.redemptionParameters()).redemptionTimeout
+    )
   })
 
   describe("receiveBalanceApproval with rebate staking", () => {
     const walletPubKeyHash = "0x8db50eb52063ea9d98b3eac91489a90f738986f6"
     // Requested amount is 1901000 satoshi.
-    const requestedAmount = BigNumber.from(1901000)
+    const requestedAmount = BigInt(1901000)
     // Treasury fee is requestedAmount / redemptionTreasuryFeeDivisor
     // where the divisor is 2000 initially: 1901000 / 2000 = 950.5
     // Solidity truncates to 950.
     const treasuryFee = 950
 
-    let balanceOwner: SignerWithAddress
+    let balanceOwner: HardhatEthersSigner
     let redeemerAddress: string
-    let redeemerSigner: SignerWithAddress
+    let redeemerSigner: HardhatEthersSigner
 
     const redeemerOutputScript =
       "0x160014f4eedc8f40d4b8e30771f792b065ebec0abaddef"
@@ -183,12 +186,12 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
       // Get a signer for the redeemer address so we can stake T tokens.
       redeemerSigner = await impersonateAccount(redeemerAddress, {
         from: deployer,
-        value: 10,
+        value: 10n,
       })
 
       // Give the balance owner enough Bank balance for all vault-path
       // redemptions in this describe block.
-      await bank.setBalance(balanceOwner.address, requestedAmount.mul(6))
+      await bank.setBalance(balanceOwner.address, requestedAmount * 6n)
 
       // Set up the wallet as Live with a main UTXO and a non-zero
       // ecdsaWalletID (required for timeout scenario slashing).
@@ -196,7 +199,7 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
         bridge,
         walletPubKeyHash,
         mainUtxo,
-        ethers.utils.keccak256("0x01")
+        ethers.keccak256("0x01")
       )
       await bridge.setActiveWallet(walletPubKeyHash)
 
@@ -212,7 +215,7 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
     context(
       "when redeemer is staked but has not authorized balanceOwner",
       () => {
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -230,7 +233,7 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
           // redemption must proceed with no rebate applied.
           tx = await bank
             .connect(balanceOwner)
-            .approveBalanceAndCall(bridge.address, requestedAmount, data)
+            .approveBalanceAndCall(bridge.target, requestedAmount, data)
         })
 
         after(async () => {
@@ -273,7 +276,7 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
     )
 
     context("when redeemer is staked and has authorized balanceOwner", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
       // Use a different output script to avoid collision with the prior
       // context (the redemption key depends on the output script).
       const authorizedOutputScript =
@@ -296,7 +299,7 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
 
         tx = await bank
           .connect(balanceOwner)
-          .approveBalanceAndCall(bridge.address, requestedAmount, data)
+          .approveBalanceAndCall(bridge.target, requestedAmount, data)
       })
 
       after(async () => {
@@ -325,14 +328,14 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
           redeemerAddress
         )
         const rebateCap = await rebateStaking.getRebateCap(redeemerAddress)
-        expect(availableRebate.lt(rebateCap)).to.be.true
+        expect(availableRebate < rebateCap).to.be.true
       })
     })
 
     context("when authorized vault-path redemption times out", () => {
-      let tx: ContractTransaction
-      let initialRedeemerBalance: BigNumber
-      let availableRebateBeforeTimeout: BigNumber
+      let tx: ContractTransactionResponse
+      let initialRedeemerBalance: bigint
+      let availableRebateBeforeTimeout: bigint
 
       const walletMembersIDs = [1, 2, 3, 4, 5]
       // Use a different output script for this scenario.
@@ -356,7 +359,7 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
 
         await bank
           .connect(balanceOwner)
-          .approveBalanceAndCall(bridge.address, requestedAmount, data)
+          .approveBalanceAndCall(bridge.target, requestedAmount, data)
 
         availableRebateBeforeTimeout = await rebateStaking.getAvailableRebate(
           redeemerAddress
@@ -386,22 +389,22 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
       it("should restore available rebate for the redeemer", async () => {
         const availableRebateAfterTimeout =
           await rebateStaking.getAvailableRebate(redeemerAddress)
-        expect(availableRebateAfterTimeout.gt(availableRebateBeforeTimeout)).to
-          .be.true
+        expect(availableRebateAfterTimeout > availableRebateBeforeTimeout).to.be
+          .true
       })
 
       it("should return the requested amount to the redeemer", async () => {
         const currentRedeemerBalance = await bank.balanceOf(redeemerAddress)
         expect(currentRedeemerBalance).to.be.equal(
-          initialRedeemerBalance.add(requestedAmount)
+          initialRedeemerBalance + requestedAmount
         )
       })
     })
 
     context("when unauthorized vault-path redemption times out", () => {
-      let tx: ContractTransaction
-      let initialRedeemerBalance: BigNumber
-      let rebateCapBeforeTimeout: BigNumber
+      let tx: ContractTransactionResponse
+      let initialRedeemerBalance: bigint
+      let rebateCapBeforeTimeout: bigint
 
       const walletMembersIDs = [1, 2, 3, 4, 5]
       // Different output script for collision avoidance.
@@ -421,7 +424,7 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
 
         await bank
           .connect(balanceOwner)
-          .approveBalanceAndCall(bridge.address, requestedAmount, data)
+          .approveBalanceAndCall(bridge.target, requestedAmount, data)
 
         rebateCapBeforeTimeout = await rebateStaking.getRebateCap(
           redeemerAddress
@@ -454,7 +457,7 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
       it("should refund the redeemer the requested amount", async () => {
         const currentRedeemerBalance = await bank.balanceOf(redeemerAddress)
         expect(currentRedeemerBalance).to.be.equal(
-          initialRedeemerBalance.add(requestedAmount)
+          initialRedeemerBalance + requestedAmount
         )
       })
 
@@ -467,7 +470,7 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
     })
 
     context("when redeemer has no stake", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
       // Use a different output script to avoid collision with scenario 1.
       const nonStakedOutputScript =
         "0x160014a1b2c3d4e5f607182939495a6b7c8d9e0f1a2b3c"
@@ -492,7 +495,7 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
         // means the redemption still succeeds without a rebate.
         tx = await bank
           .connect(balanceOwner)
-          .approveBalanceAndCall(bridge.address, requestedAmount, data)
+          .approveBalanceAndCall(bridge.target, requestedAmount, data)
       })
 
       after(async () => {
@@ -519,7 +522,7 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
     })
 
     context("when balanceOwner equals redeemer (direct path)", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
       const directOutputScript =
         "0x160014b1c2d3e4f5a6071829304a5b6c7d8e9f0a1b2c3d"
 
@@ -542,7 +545,7 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
         await bank.setBalance(redeemerAddress, requestedAmount)
         await bank
           .connect(redeemerSigner)
-          .approveBalance(bridge.address, requestedAmount)
+          .approveBalance(bridge.target, requestedAmount)
 
         tx = await bridge
           .connect(redeemerSigner)
@@ -575,13 +578,13 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
     })
 
     context("when two stakers both authorize the same balanceOwner", () => {
-      let firstTx: ContractTransaction
-      let secondTx: ContractTransaction
+      let firstTx: ContractTransactionResponse
+      let secondTx: ContractTransactionResponse
 
       let firstStakerAddress: string
       let secondStakerAddress: string
-      let firstStakerSigner: SignerWithAddress
-      let secondStakerSigner: SignerWithAddress
+      let firstStakerSigner: HardhatEthersSigner
+      let secondStakerSigner: HardhatEthersSigner
 
       const firstOutputScript =
         "0x160014d5e6f7a8b9c0091929304a5b6c7d8e9f0a1b2c3d"
@@ -609,11 +612,11 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
 
         firstStakerSigner = await impersonateAccount(firstStakerAddress, {
           from: deployer,
-          value: 10,
+          value: 10n,
         })
         secondStakerSigner = await impersonateAccount(secondStakerAddress, {
           from: deployer,
-          value: 10,
+          value: 10n,
         })
 
         await stakeTokens(t, rebateStaking, deployer, firstStakerSigner)
@@ -638,7 +641,7 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
         firstTx = await bank
           .connect(balanceOwner)
           .approveBalanceAndCall(
-            bridge.address,
+            bridge.target,
             requestedAmount,
             encodeRedemptionData(
               firstStakerAddress,
@@ -651,7 +654,7 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
         secondTx = await bank
           .connect(balanceOwner)
           .approveBalanceAndCall(
-            bridge.address,
+            bridge.target,
             requestedAmount,
             encodeRedemptionData(
               secondStakerAddress,
@@ -687,17 +690,17 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
           secondStakerAddress
         )
         const secondCap = await rebateStaking.getRebateCap(secondStakerAddress)
-        expect(firstAvailable.lt(firstCap)).to.be.true
-        expect(secondAvailable.lt(secondCap)).to.be.true
+        expect(firstAvailable < firstCap).to.be.true
+        expect(secondAvailable < secondCap).to.be.true
       })
     })
 
     context("when attacker spoofs an unrelated staker via Bank", () => {
-      let tx: ContractTransaction
-      let victimRebateCapBefore: BigNumber
+      let tx: ContractTransactionResponse
+      let victimRebateCapBefore: bigint
 
-      let attacker: SignerWithAddress
-      let victimSigner: SignerWithAddress
+      let attacker: HardhatEthersSigner
+      let victimSigner: HardhatEthersSigner
       let victimAddress: string
 
       const spoofOutputScript =
@@ -721,7 +724,7 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
 
         victimSigner = await impersonateAccount(victimAddress, {
           from: deployer,
-          value: 10,
+          value: 10n,
         })
 
         await stakeTokens(t, rebateStaking, deployer, victimSigner)
@@ -740,7 +743,7 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
         )
         tx = await bank
           .connect(attacker)
-          .approveBalanceAndCall(bridge.address, requestedAmount, data)
+          .approveBalanceAndCall(bridge.target, requestedAmount, data)
       })
 
       after(async () => {
@@ -776,11 +779,11 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
         const accounts = await getUnnamedAccounts()
         const formerStaker = await impersonateAccount(accounts[17], {
           from: deployer,
-          value: 10,
+          value: 10n,
         })
         const victim = await impersonateAccount(accounts[18], {
           from: deployer,
-          value: 10,
+          value: 10n,
         })
         const attacker = thirdParty
 
@@ -790,7 +793,7 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
           .setRebateAuthorization(attacker.address, true)
 
         await rebateStaking.connect(formerStaker).startUnstaking(stakeAmount)
-        await increaseTime(await rebateStaking.unstakingPeriod())
+        await increaseTime(toNumber(await rebateStaking.unstakingPeriod()))
         await rebateStaking
           .connect(formerStaker)
           .finalizeUnstaking(formerStaker.address)
@@ -821,7 +824,7 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
         const tx = await bank
           .connect(attacker)
           .approveBalanceAndCall(
-            bridge.address,
+            bridge.target,
             requestedAmount,
             encodeRedemptionData(
               formerStaker.address,
@@ -855,11 +858,11 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
         const accounts = await getUnnamedAccounts()
         const oldStaker = await impersonateAccount(accounts[19], {
           from: deployer,
-          value: 10,
+          value: 10n,
         })
         const newStaker = await impersonateAccount(accounts[20], {
           from: deployer,
-          value: 10,
+          value: 10n,
         })
         const attacker = thirdParty
 
@@ -919,7 +922,7 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
         const tx = await bank
           .connect(attacker)
           .approveBalanceAndCall(
-            bridge.address,
+            bridge.target,
             requestedAmount,
             encodeRedemptionData(
               oldStaker.address,
@@ -952,11 +955,11 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
         const accounts = await getUnnamedAccounts()
         const formerStaker = await impersonateAccount(accounts[21], {
           from: deployer,
-          value: 10,
+          value: 10n,
         })
         const victim = await impersonateAccount(accounts[22], {
           from: deployer,
-          value: 10,
+          value: 10n,
         })
         const attacker = thirdParty
 
@@ -965,7 +968,7 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
           .connect(formerStaker)
           .setRebateAuthorization(attacker.address, true)
         await rebateStaking.connect(formerStaker).startUnstaking(stakeAmount)
-        await increaseTime(await rebateStaking.unstakingPeriod())
+        await increaseTime(toNumber(await rebateStaking.unstakingPeriod()))
         await rebateStaking
           .connect(formerStaker)
           .finalizeUnstaking(formerStaker.address)
@@ -996,7 +999,7 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
         const tx = await bank
           .connect(attacker)
           .approveBalanceAndCall(
-            bridge.address,
+            bridge.target,
             requestedAmount,
             encodeRedemptionData(
               formerStaker.address,
@@ -1027,11 +1030,11 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
         const accounts = await getUnnamedAccounts()
         const staker = await impersonateAccount(accounts[23], {
           from: deployer,
-          value: 10,
+          value: 10n,
         })
         const delegatee = await impersonateAccount(accounts[24], {
           from: deployer,
-          value: 10,
+          value: 10n,
         })
 
         await stakeTokens(t, rebateStaking, deployer, staker)
@@ -1057,7 +1060,7 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
         await bank.setBalance(delegatee.address, requestedAmount)
         await bank
           .connect(delegatee)
-          .approveBalance(bridge.address, requestedAmount)
+          .approveBalance(bridge.target, requestedAmount)
 
         const tx = await bridge
           .connect(delegatee)
@@ -1068,12 +1071,11 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
           .withArgs(staker.address, treasuryFee)
 
         expect(await rebateStaking.getRebateLength(staker.address)).to.equal(
-          stakerRebatesBefore.add(1)
+          stakerRebatesBefore + 1n
         )
         expect(
-          (await rebateStaking.getAvailableRebate(staker.address)).lt(
+          (await rebateStaking.getAvailableRebate(staker.address)) <
             stakerAvailableBefore
-          )
         ).to.be.true
 
         const request = await bridge.pendingRedemptions(
@@ -1088,7 +1090,7 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
 
   describe("notifyRedemptionVeto with rebate staking", () => {
     const vetoWalletPubKeyHash = "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
-    const vetoRequestedAmount = BigNumber.from(1901000)
+    const vetoRequestedAmount = BigInt(1901000)
 
     const vetoMainUtxo = {
       txHash:
@@ -1104,9 +1106,9 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
       "0x160014eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee02"
 
     let vetoRedeemerAddress: string
-    let vetoRedeemerSigner: SignerWithAddress
+    let vetoRedeemerSigner: HardhatEthersSigner
     let watchtower: Mock<IRedemptionWatchtower>
-    let watchtowerSigner: SignerWithAddress
+    let watchtowerSigner: HardhatEthersSigner
 
     before(async () => {
       await createSnapshot()
@@ -1117,7 +1119,7 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
 
       vetoRedeemerSigner = await impersonateAccount(vetoRedeemerAddress, {
         from: deployer,
-        value: 10,
+        value: 10n,
       })
 
       // Set up the wallet as Live with a non-zero ecdsaWalletID.
@@ -1125,12 +1127,12 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
         bridge,
         vetoWalletPubKeyHash,
         vetoMainUtxo,
-        ethers.utils.keccak256("0x03")
+        ethers.keccak256("0x03")
       )
       await bridge.setActiveWallet(vetoWalletPubKeyHash)
 
       // Fund the balance owner for vault-path redemptions.
-      await bank.setBalance(thirdParty.address, vetoRequestedAmount.mul(3))
+      await bank.setBalance(thirdParty.address, vetoRequestedAmount * 3n)
 
       // Stake T tokens for the redeemer so rebate accounting is active.
       await stakeTokens(t, rebateStaking, deployer, vetoRedeemerSigner)
@@ -1143,7 +1145,7 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
 
       watchtowerSigner = await impersonateAccount(watchtower.address, {
         from: governance,
-        value: 10,
+        value: 10n,
       })
 
       await bridgeGovernance
@@ -1159,8 +1161,8 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
     context(
       "when watchtower vetoes a rebate-eligible authorized vault redemption",
       () => {
-        let tx: ContractTransaction
-        let requestedAt: BigNumber
+        let tx: ContractTransactionResponse
+        let requestedAt: bigint
 
         before(async () => {
           await createSnapshot()
@@ -1179,14 +1181,14 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
 
           await bank
             .connect(thirdParty)
-            .approveBalanceAndCall(bridge.address, vetoRequestedAmount, data)
+            .approveBalanceAndCall(bridge.target, vetoRequestedAmount, data)
 
           const redemptionKey = buildRedemptionKey(
             vetoWalletPubKeyHash,
             vetoAuthorizedOutputScript
           )
           const pending = await bridge.pendingRedemptions(redemptionKey)
-          requestedAt = BigNumber.from(pending.requestedAt)
+          requestedAt = BigInt(pending.requestedAt)
 
           tx = await bridge
             .connect(watchtowerSigner)
@@ -1218,7 +1220,7 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
         it("should transfer the full requested amount to the watchtower", async () => {
           await expect(tx)
             .to.emit(bank, "BalanceTransferred")
-            .withArgs(bridge.address, watchtower.address, vetoRequestedAmount)
+            .withArgs(bridge.target, watchtower.address, vetoRequestedAmount)
         })
       }
     )
@@ -1226,7 +1228,7 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
     context(
       "when watchtower vetoes a vault redemption with no rebate applied",
       () => {
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -1242,7 +1244,7 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
 
           await bank
             .connect(thirdParty)
-            .approveBalanceAndCall(bridge.address, vetoRequestedAmount, data)
+            .approveBalanceAndCall(bridge.target, vetoRequestedAmount, data)
 
           tx = await bridge
             .connect(watchtowerSigner)
@@ -1272,7 +1274,7 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
         it("should transfer the full requested amount to the watchtower", async () => {
           await expect(tx)
             .to.emit(bank, "BalanceTransferred")
-            .withArgs(bridge.address, watchtower.address, vetoRequestedAmount)
+            .withArgs(bridge.target, watchtower.address, vetoRequestedAmount)
         })
       }
     )
@@ -1283,10 +1285,10 @@ function buildRedemptionKey(
   walletPubKeyHash: string,
   redeemerOutputScript: string
 ): string {
-  return ethers.utils.solidityKeccak256(
+  return ethers.solidityPackedKeccak256(
     ["bytes32", "bytes20"],
     [
-      ethers.utils.solidityKeccak256(["bytes"], [redeemerOutputScript]),
+      ethers.solidityPackedKeccak256(["bytes"], [redeemerOutputScript]),
       walletPubKeyHash,
     ]
   )

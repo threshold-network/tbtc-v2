@@ -1,7 +1,7 @@
 import { ethers, helpers, upgrades } from "hardhat"
 import { expect } from "chai"
 
-import type { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
+import type { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import type {
   BridgeGovernance,
   RebateStaking,
@@ -11,12 +11,12 @@ import type {
 
 import bridgeFixture from "../fixtures/bridge"
 
-const { AddressZero } = ethers.constants
+const { ZeroAddress: AddressZero } = ethers
 
 describe("Bridge - Rebate staking recovery upgrade", () => {
-  let deployer: SignerWithAddress
-  let governance: SignerWithAddress
-  let esdm: SignerWithAddress
+  let deployer: HardhatEthersSigner
+  let governance: HardhatEthersSigner
+  let esdm: HardhatEthersSigner
 
   let bridge: Bridge & BridgeStub
   let bridgeGovernance: BridgeGovernance
@@ -32,18 +32,18 @@ describe("Bridge - Rebate staking recovery upgrade", () => {
   it("repairs rebate staking during an upgrade", async () => {
     await bridgeGovernance
       .connect(governance)
-      .setRebateStaking(rebateStaking.address)
+      .setRebateStaking(rebateStaking.target)
 
-    expect(await bridge.getRebateStaking()).to.equal(rebateStaking.address)
+    expect(await bridge.getRebateStaking()).to.equal(rebateStaking.target)
 
     const bridgeLibraries = {
-      Deposit: (await helpers.contracts.getContract("Deposit")).address,
+      Deposit: (await helpers.contracts.getContract("Deposit")).target,
       DepositSweep: (await helpers.contracts.getContract("DepositSweep"))
-        .address,
-      Redemption: (await helpers.contracts.getContract("Redemption")).address,
-      Wallets: (await helpers.contracts.getContract("Wallets")).address,
-      Fraud: (await helpers.contracts.getContract("Fraud")).address,
-      MovingFunds: (await helpers.contracts.getContract("MovingFunds")).address,
+        .target,
+      Redemption: (await helpers.contracts.getContract("Redemption")).target,
+      Wallets: (await helpers.contracts.getContract("Wallets")).target,
+      Fraud: (await helpers.contracts.getContract("Fraud")).target,
+      MovingFunds: (await helpers.contracts.getContract("MovingFunds")).target,
     }
 
     const bridgeFactory = await ethers.getContractFactory("BridgeStub", {
@@ -52,14 +52,17 @@ describe("Bridge - Rebate staking recovery upgrade", () => {
     })
 
     const newImplementation = await bridgeFactory.deploy()
-    await newImplementation.deployed()
+    await newImplementation.waitForDeployment()
 
-    const proxyAdmin = await upgrades.admin.getInstance()
+    const proxyAdmin = await ethers.getContractAt(
+      "ProxyAdmin",
+      await (await upgrades.admin.getInstance()).getAddress()
+    )
     const proxyAdminWithUpgrade = await ethers.getContractAt(
       [
         "function upgradeAndCall(address proxy, address implementation, bytes data)",
       ],
-      proxyAdmin.address,
+      proxyAdmin.target,
       esdm
     )
 
@@ -70,13 +73,13 @@ describe("Bridge - Rebate staking recovery upgrade", () => {
 
     await expect(
       proxyAdminWithUpgrade.upgradeAndCall(
-        bridge.address,
-        newImplementation.address,
+        bridge.target,
+        newImplementation.target,
         upgradeData
       )
     )
       .to.emit(bridge, "RebateStakingRepaired")
-      .withArgs(rebateStaking.address, AddressZero)
+      .withArgs(rebateStaking.target, AddressZero)
 
     expect(await bridge.getRebateStaking()).to.equal(AddressZero)
   })

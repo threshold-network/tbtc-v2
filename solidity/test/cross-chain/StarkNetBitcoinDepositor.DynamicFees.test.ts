@@ -1,5 +1,5 @@
 import { helpers, ethers } from "hardhat"
-import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import { expect } from "chai"
 import { randomBytes } from "crypto"
 
@@ -12,8 +12,8 @@ import type {
 } from "../../typechain"
 
 describe("StarkNetBitcoinDepositor - Dynamic Fee Estimation", () => {
-  let deployer: SignerWithAddress
-  let depositorAccount: SignerWithAddress
+  let deployer: HardhatEthersSigner
+  let depositorAccount: HardhatEthersSigner
   let starkNetDepositor: StarkNetBitcoinDepositor
   let bridge: MockBridgeForStarkNet
   let tbtcVault: MockTBTCVault
@@ -22,7 +22,7 @@ describe("StarkNetBitcoinDepositor - Dynamic Fee Estimation", () => {
 
   const l2TokenAddress =
     "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-  const INITIAL_MESSAGE_FEE = ethers.utils.parseEther("0.002")
+  const INITIAL_MESSAGE_FEE = ethers.parseEther("0.002")
 
   beforeEach(async () => {
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
@@ -41,7 +41,7 @@ describe("StarkNetBitcoinDepositor - Dynamic Fee Estimation", () => {
       "contracts/test/MockTBTCVault.sol:MockTBTCVault"
     )
     tbtcVault = (await MockTBTCVault.deploy()) as MockTBTCVault
-    await tbtcVault.setTbtcToken(tbtcToken.address)
+    await tbtcVault.setTbtcToken(tbtcToken.target)
 
     const MockStarkGateBridge = await ethers.getContractFactory(
       "MockStarkGateBridge"
@@ -54,9 +54,9 @@ describe("StarkNetBitcoinDepositor - Dynamic Fee Estimation", () => {
       {
         contractName: "StarkNetBitcoinDepositor",
         initializerArgs: [
-          bridge.address,
-          tbtcVault.address,
-          starkGateBridge.address,
+          bridge.target,
+          tbtcVault.target,
+          starkGateBridge.target,
         ],
         factoryOpts: { signer: deployer },
         proxyOpts: {
@@ -64,7 +64,7 @@ describe("StarkNetBitcoinDepositor - Dynamic Fee Estimation", () => {
         },
       }
     )
-    starkNetDepositor = deployment[0] as StarkNetBitcoinDepositor
+    starkNetDepositor = deployment[0] as unknown as StarkNetBitcoinDepositor
   })
 
   describe("Dynamic Fee Implementation", () => {
@@ -78,7 +78,7 @@ describe("StarkNetBitcoinDepositor - Dynamic Fee Estimation", () => {
         const dynamicFee = await starkNetDepositor.estimateFee()
 
         // MockStarkGateBridge returns 0.01 ether
-        const expectedFee = ethers.utils.parseEther("0.01")
+        const expectedFee = ethers.parseEther("0.01")
         expect(dynamicFee).to.equal(expectedFee)
       })
     })

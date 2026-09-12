@@ -1,7 +1,7 @@
+import { toNumber, toBigInt, BigNumberish, BytesLike } from "ethers"
 import crypto from "crypto"
 import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
-import { BigNumber, BigNumberish, BytesLike } from "ethers"
 import type {
   Bridge,
   IRedemptionWatchtower,
@@ -14,7 +14,7 @@ import type { Mock } from "../helpers/mock"
 
 const { lastBlockTime, increaseTime } = helpers.time
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
-const { AddressZero, HashZero } = ethers.constants
+const { ZeroAddress: AddressZero, ZeroHash: HashZero } = ethers
 
 const day = 86400
 const depositLocktime = 30 * day
@@ -190,9 +190,9 @@ describe("WalletProposalValidator", () => {
                   await walletProposalValidator.DEPOSIT_SWEEP_MAX_SIZE()
 
                 // Pick more deposits than allowed.
-                const depositsKeys = new Array(maxSize + 1).fill(
-                  createTestDeposit(walletPubKeyHash, vault).key
-                )
+                const depositsKeys = new Array(
+                  ethers.toNumber(maxSize) + 1
+                ).fill(createTestDeposit(walletPubKeyHash, vault).key)
 
                 await expect(
                   walletProposalValidator.validateDepositSweepProposal(
@@ -822,16 +822,17 @@ describe("WalletProposalValidator", () => {
                                   const safetyMarginViolatedAt =
                                     await lastBlockTime()
                                   const depositRefundableAt =
-                                    safetyMarginViolatedAt +
+                                    toBigInt(safetyMarginViolatedAt) +
                                     (await walletProposalValidator.DEPOSIT_REFUND_SAFETY_MARGIN())
                                   const depositRevealedAt =
-                                    depositRefundableAt - depositLocktime
+                                    depositRefundableAt -
+                                    toBigInt(depositLocktime)
 
                                   depositTwo = createTestDeposit(
                                     walletPubKeyHash,
                                     vault,
                                     false,
-                                    depositRevealedAt
+                                    toNumber(depositRevealedAt)
                                   )
 
                                   await bridge.deposits
@@ -1422,7 +1423,9 @@ describe("WalletProposalValidator", () => {
                   await walletProposalValidator.REDEMPTION_MAX_SIZE()
 
                 // Pick more redemption requests than allowed.
-                const redeemersOutputScripts = new Array(maxSize + 1).fill(
+                const redeemersOutputScripts = new Array(
+                  ethers.toNumber(maxSize) + 1
+                ).fill(
                   createTestRedemptionRequest(walletPubKeyHash).key
                     .redeemerOutputScript
                 )
@@ -1744,15 +1747,16 @@ describe("WalletProposalValidator", () => {
                           // moment than allowed by the refund safety margin.
                           const safetyMarginViolatedAt = await lastBlockTime()
                           const requestTimedOutAt =
-                            safetyMarginViolatedAt +
+                            toBigInt(safetyMarginViolatedAt) +
                             (await walletProposalValidator.REDEMPTION_REQUEST_TIMEOUT_SAFETY_MARGIN())
                           const requestCreatedAt =
-                            requestTimedOutAt - bridgeRedemptionTimeout
+                            requestTimedOutAt -
+                            toBigInt(bridgeRedemptionTimeout)
 
                           requestTwo = createTestRedemptionRequest(
                             walletPubKeyHash,
                             0,
-                            requestCreatedAt
+                            toNumber(requestCreatedAt)
                           )
 
                           await bridge.pendingRedemptions
@@ -2862,7 +2866,7 @@ const depositKey = (
   fundingTxHash: BytesLike,
   fundingOutputIndex: BigNumberish
 ) =>
-  ethers.utils.solidityKeccak256(
+  ethers.solidityPackedKeccak256(
     ["bytes32", "uint32"],
     [fundingTxHash, fundingOutputIndex]
   )
@@ -2886,7 +2890,7 @@ const createTestDeposit = (
   const refundableAt = resolvedRevealedAt + depositLocktime
 
   const refundLocktime = `0x${Buffer.from(
-    BigNumber.from(refundableAt).toHexString().substring(2),
+    ethers.toBeHex(BigInt(refundableAt)).substring(2),
     "hex"
   )
     .reverse()
@@ -2927,12 +2931,10 @@ const createTestDeposit = (
 
   let depositScriptHash
   if (witness) {
-    depositScriptHash = `220020${ethers.utils
-      .sha256(depositScript)
-      .substring(2)}`
+    depositScriptHash = `220020${ethers.sha256(depositScript).substring(2)}`
   } else {
-    const sha256Hash = ethers.utils.sha256(depositScript)
-    const ripemd160Hash = ethers.utils.ripemd160(sha256Hash).substring(2)
+    const sha256Hash = ethers.sha256(depositScript)
+    const ripemd160Hash = ethers.ripemd160(sha256Hash).substring(2)
     depositScriptHash = `17a914${ripemd160Hash}87`
   }
 
@@ -2946,8 +2948,8 @@ const createTestDeposit = (
     locktime: "0x00000000",
   }
 
-  const fundingTxHash = ethers.utils.sha256(
-    ethers.utils.sha256(
+  const fundingTxHash = ethers.sha256(
+    ethers.sha256(
       `0x${fundingTx.version.substring(2)}` +
         `${fundingTx.inputVector.substring(2)}` +
         `${fundingTx.outputVector.substring(2)}` +
@@ -2967,7 +2969,7 @@ const createTestDeposit = (
       vault,
       treasuryFee: 0, // not relevant
       sweptAt: 0, // important to pass the validation
-      extraData: extraData ?? ethers.constants.HashZero,
+      extraData: extraData ?? ethers.ZeroHash,
     },
     extraInfo: {
       fundingTx,
@@ -2983,12 +2985,12 @@ const redemptionKey = (
   walletPubKeyHash: BytesLike,
   redeemerOutputScript: BytesLike
 ) => {
-  const scriptHash = ethers.utils.solidityKeccak256(
+  const scriptHash = ethers.solidityPackedKeccak256(
     ["bytes"],
     [redeemerOutputScript]
   )
 
-  return ethers.utils.solidityKeccak256(
+  return ethers.solidityPackedKeccak256(
     ["bytes32", "bytes20"],
     [scriptHash, walletPubKeyHash]
   )
@@ -3031,7 +3033,7 @@ const movedFundsSweepRequestKey = (
   movingFundsTxHash: BytesLike,
   movingFundsTxOutputIndex: number
 ) =>
-  ethers.utils.solidityKeccak256(
+  ethers.solidityPackedKeccak256(
     ["bytes32", "uint32"],
     [movingFundsTxHash, movingFundsTxOutputIndex]
   )
@@ -3040,10 +3042,10 @@ const buildRedemptionKey = (
   walletPubKeyHash: BytesLike,
   redeemerOutputScript: BytesLike
 ): string =>
-  ethers.utils.solidityKeccak256(
+  ethers.solidityPackedKeccak256(
     ["bytes32", "bytes20"],
     [
-      ethers.utils.solidityKeccak256(["bytes"], [redeemerOutputScript]),
+      ethers.solidityPackedKeccak256(["bytes"], [redeemerOutputScript]),
       walletPubKeyHash,
     ]
   )

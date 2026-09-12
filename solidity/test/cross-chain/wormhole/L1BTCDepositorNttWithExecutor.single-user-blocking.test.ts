@@ -1,7 +1,8 @@
+import { EventLog } from "ethers"
 import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
-import { BigNumber } from "ethers"
-import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
+
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import type {
   L1BTCDepositorNttWithExecutor,
   MockTBTCBridge,
@@ -22,8 +23,8 @@ describe("L1BTCDepositorNttWithExecutor - Single User Blocking", () => {
   let tbtcToken: TestERC20
   let nttManagerWithExecutor: MockNttManagerWithExecutor
   let underlyingNttManager: TestERC20
-  let owner: SignerWithAddress
-  let user1: SignerWithAddress
+  let owner: HardhatEthersSigner
+  let user1: HardhatEthersSigner
 
   before(async () => {
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
@@ -40,7 +41,7 @@ describe("L1BTCDepositorNttWithExecutor - Single User Blocking", () => {
       "contracts/test/MockTBTCVault.sol:MockTBTCVault"
     )
     tbtcVault = (await MockTBTCVaultFactory.deploy()) as MockTBTCVault
-    await tbtcVault.setTbtcToken(tbtcToken.address)
+    await tbtcVault.setTbtcToken(tbtcToken.target)
 
     // Deploy proper mock NTT managers
     const MockNttManagerWithExecutorFactory = await ethers.getContractFactory(
@@ -66,14 +67,16 @@ describe("L1BTCDepositorNttWithExecutor - Single User Blocking", () => {
     // Deploy proxy
     const ProxyFactory = await ethers.getContractFactory("ERC1967Proxy")
     const initData = depositorImpl.interface.encodeFunctionData("initialize", [
-      bridge.address,
-      tbtcVault.address,
-      nttManagerWithExecutor.address,
-      underlyingNttManager.address,
+      bridge.target,
+      tbtcVault.target,
+      nttManagerWithExecutor.target,
+      underlyingNttManager.target,
     ])
-    const proxy = await ProxyFactory.deploy(depositorImpl.address, initData)
+    const proxy = await ProxyFactory.deploy(depositorImpl.target, initData)
 
-    depositor = L1BTCDepositorFactory.attach(proxy.address)
+    depositor = L1BTCDepositorFactory.attach(
+      proxy.target
+    ) as L1BTCDepositorNttWithExecutor
 
     // Set up basic configuration
     await depositor.setSupportedChain(WORMHOLE_CHAIN_DESTINATION, true)
@@ -84,7 +87,7 @@ describe("L1BTCDepositorNttWithExecutor - Single User Blocking", () => {
       100,
       owner.address,
       0,
-      ethers.constants.AddressZero
+      ethers.ZeroAddress
     )
   })
 
@@ -99,9 +102,9 @@ describe("L1BTCDepositorNttWithExecutor - Single User Blocking", () => {
   describe("Single User Workflow Blocking", () => {
     it("should allow user to set parameters initially", async () => {
       const executorArgs = {
-        value: ethers.utils.parseEther("0.01"),
+        value: ethers.parseEther("0.01"),
         refundAddress: user1.address,
-        signedQuote: ethers.utils.formatBytes32String("quote1"),
+        signedQuote: ethers.encodeBytes32String("quote1"),
         instructions: "0x",
       }
 
@@ -126,21 +129,21 @@ describe("L1BTCDepositorNttWithExecutor - Single User Blocking", () => {
         .connect(user1)
         .areExecutorParametersSet()
       expect(isSet).to.be.true
-      expect(nonce).to.not.equal(ethers.constants.HashZero)
+      expect(nonce).to.not.equal(ethers.ZeroHash)
     })
 
     it("should allow user to refresh parameters when first workflow is active", async () => {
       const executorArgs1 = {
-        value: ethers.utils.parseEther("0.01"),
+        value: ethers.parseEther("0.01"),
         refundAddress: user1.address,
-        signedQuote: ethers.utils.formatBytes32String("quote1"),
+        signedQuote: ethers.encodeBytes32String("quote1"),
         instructions: "0x",
       }
 
       const executorArgs2 = {
-        value: ethers.utils.parseEther("0.02"),
+        value: ethers.parseEther("0.02"),
         refundAddress: user1.address,
-        signedQuote: ethers.utils.formatBytes32String("quote2"),
+        signedQuote: ethers.encodeBytes32String("quote2"),
         instructions: "0x",
       }
 
@@ -158,9 +161,9 @@ describe("L1BTCDepositorNttWithExecutor - Single User Blocking", () => {
           WORMHOLE_CHAIN_DESTINATION
         )
       const receipt1 = await tx1.wait()
-      const event1 = receipt1.events?.find(
-        (e) => e.event === "ExecutorParametersSet"
-      )
+      const event1 = receipt1.logs
+        .filter((log): log is EventLog => log instanceof EventLog)
+        ?.find((e) => e.eventName === "ExecutorParametersSet")
       const initialNonce = event1?.args?.nonce
 
       // Second call should refresh parameters (not block)
@@ -172,17 +175,15 @@ describe("L1BTCDepositorNttWithExecutor - Single User Blocking", () => {
           WORMHOLE_CHAIN_DESTINATION
         )
       const receipt2 = await tx2.wait()
-      const event2 = receipt2.events?.find(
-        (e) => e.event === "ExecutorParametersRefreshed"
-      )
+      const event2 = receipt2.logs
+        .filter((log): log is EventLog => log instanceof EventLog)
+        ?.find((e) => e.eventName === "ExecutorParametersRefreshed")
 
       // Should emit ExecutorParametersRefreshed event
       expect(event2).to.not.be.undefined
       expect(event2?.args?.sender).to.equal(user1.address)
       expect(event2?.args?.nonce).to.equal(initialNonce) // Same nonce
-      expect(event2?.args?.executorValue).to.equal(
-        ethers.utils.parseEther("0.02")
-      )
+      expect(event2?.args?.executorValue).to.equal(ethers.parseEther("0.02"))
 
       // Parameters should still be set
       const [isSet] = await depositor.connect(user1).areExecutorParametersSet()
@@ -192,21 +193,21 @@ describe("L1BTCDepositorNttWithExecutor - Single User Blocking", () => {
       const storedValue = await depositor
         .connect(user1)
         .getStoredExecutorValue()
-      expect(storedValue).to.equal(ethers.utils.parseEther("0.02"))
+      expect(storedValue).to.equal(ethers.parseEther("0.02"))
     })
 
     it("should allow user to start new workflow after clearing previous one", async () => {
       const executorArgs1 = {
-        value: ethers.utils.parseEther("0.01"),
+        value: ethers.parseEther("0.01"),
         refundAddress: user1.address,
-        signedQuote: ethers.utils.formatBytes32String("quote1"),
+        signedQuote: ethers.encodeBytes32String("quote1"),
         instructions: "0x",
       }
 
       const executorArgs2 = {
-        value: ethers.utils.parseEther("0.02"),
+        value: ethers.parseEther("0.02"),
         refundAddress: user1.address,
-        signedQuote: ethers.utils.formatBytes32String("quote2"),
+        signedQuote: ethers.encodeBytes32String("quote2"),
         instructions: "0x",
       }
 
@@ -243,21 +244,21 @@ describe("L1BTCDepositorNttWithExecutor - Single User Blocking", () => {
         .connect(user1)
         .areExecutorParametersSet()
       expect(isSet).to.be.true
-      expect(nonce).to.not.equal(ethers.constants.HashZero)
+      expect(nonce).to.not.equal(ethers.ZeroHash)
     })
 
     it("should allow user to start new workflow after expiration", async () => {
       const executorArgs1 = {
-        value: ethers.utils.parseEther("0.01"),
+        value: ethers.parseEther("0.01"),
         refundAddress: user1.address,
-        signedQuote: ethers.utils.formatBytes32String("quote1"),
+        signedQuote: ethers.encodeBytes32String("quote1"),
         instructions: "0x",
       }
 
       const executorArgs2 = {
-        value: ethers.utils.parseEther("0.02"),
+        value: ethers.parseEther("0.02"),
         refundAddress: user1.address,
-        signedQuote: ethers.utils.formatBytes32String("quote2"),
+        signedQuote: ethers.encodeBytes32String("quote2"),
         instructions: "0x",
       }
 
@@ -295,30 +296,30 @@ describe("L1BTCDepositorNttWithExecutor - Single User Blocking", () => {
         .connect(user1)
         .areExecutorParametersSet()
       expect(isSet).to.be.true
-      expect(nonce).to.not.equal(ethers.constants.HashZero)
+      expect(nonce).to.not.equal(ethers.ZeroHash)
     })
 
     it("should allow multiple users to work in parallel", async () => {
       const [, , user2, user3] = await ethers.getSigners()
 
       const executorArgs1 = {
-        value: ethers.utils.parseEther("0.01"),
+        value: ethers.parseEther("0.01"),
         refundAddress: user1.address,
-        signedQuote: ethers.utils.formatBytes32String("quote1"),
+        signedQuote: ethers.encodeBytes32String("quote1"),
         instructions: "0x",
       }
 
       const executorArgs2 = {
-        value: ethers.utils.parseEther("0.02"),
+        value: ethers.parseEther("0.02"),
         refundAddress: user2.address,
-        signedQuote: ethers.utils.formatBytes32String("quote2"),
+        signedQuote: ethers.encodeBytes32String("quote2"),
         instructions: "0x",
       }
 
       const executorArgs3 = {
-        value: ethers.utils.parseEther("0.03"),
+        value: ethers.parseEther("0.03"),
         refundAddress: user3.address,
-        signedQuote: ethers.utils.formatBytes32String("quote3"),
+        signedQuote: ethers.encodeBytes32String("quote3"),
         instructions: "0x",
       }
 
@@ -381,16 +382,16 @@ describe("L1BTCDepositorNttWithExecutor - Single User Blocking", () => {
 
     it("should emit ExecutorParametersRefreshed event when refreshing parameters", async () => {
       const executorArgs1 = {
-        value: ethers.utils.parseEther("0.01"),
+        value: ethers.parseEther("0.01"),
         refundAddress: user1.address,
-        signedQuote: ethers.utils.formatBytes32String("quote1"),
+        signedQuote: ethers.encodeBytes32String("quote1"),
         instructions: "0x",
       }
 
       const executorArgs2 = {
-        value: ethers.utils.parseEther("0.02"),
+        value: ethers.parseEther("0.02"),
         refundAddress: user1.address,
-        signedQuote: ethers.utils.formatBytes32String("quote2"),
+        signedQuote: ethers.encodeBytes32String("quote2"),
         instructions: "0x",
       }
 
@@ -408,9 +409,9 @@ describe("L1BTCDepositorNttWithExecutor - Single User Blocking", () => {
           WORMHOLE_CHAIN_DESTINATION
         )
       const receipt1 = await tx1.wait()
-      const event1 = receipt1.events?.find(
-        (e) => e.event === "ExecutorParametersSet"
-      )
+      const event1 = receipt1.logs
+        .filter((log): log is EventLog => log instanceof EventLog)
+        ?.find((e) => e.eventName === "ExecutorParametersSet")
       const initialNonce = event1?.args?.nonce
 
       // Try to set second parameters - should refresh with ExecutorParametersRefreshed event
@@ -422,18 +423,16 @@ describe("L1BTCDepositorNttWithExecutor - Single User Blocking", () => {
           WORMHOLE_CHAIN_DESTINATION
         )
       const receipt2 = await tx2.wait()
-      const event2 = receipt2.events?.find(
-        (e) => e.event === "ExecutorParametersRefreshed"
-      )
+      const event2 = receipt2.logs
+        .filter((log): log is EventLog => log instanceof EventLog)
+        ?.find((e) => e.eventName === "ExecutorParametersRefreshed")
 
       // Should emit ExecutorParametersRefreshed event with correct parameters
       expect(event2).to.not.be.undefined
       expect(event2?.args?.sender).to.equal(user1.address)
       expect(event2?.args?.nonce).to.equal(initialNonce)
       expect(event2?.args?.signedQuoteLength).to.equal(32) // formatBytes32String creates 32 bytes
-      expect(event2?.args?.executorValue).to.equal(
-        ethers.utils.parseEther("0.02")
-      )
+      expect(event2?.args?.executorValue).to.equal(ethers.parseEther("0.02"))
     })
   })
 })

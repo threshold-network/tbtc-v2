@@ -1,15 +1,17 @@
+import { toNumber } from "ethers"
 /* eslint-disable no-await-in-loop */
 /* eslint-disable @typescript-eslint/no-extra-semi */
 import hre, { ethers, helpers } from "hardhat"
 import { expect } from "chai"
 
 import type {
-  ContractTransaction,
+  ContractTransactionResponse,
   Contract,
   BigNumberish,
   BytesLike,
 } from "ethers"
-import type { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
+import type { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
+import type { TokenStaking } from "../../typechain/external/TokenStaking"
 import type { Mock } from "../helpers/mock"
 
 import type {
@@ -39,7 +41,9 @@ import {
 } from "../data/fraud"
 import { walletState, constants } from "../fixtures"
 import { SingleP2SHDeposit, NO_MAIN_UTXO } from "../data/deposit-sweep"
-import { UTXOStruct } from "../../typechain/Bridge"
+import type { BitcoinTx as BitcoinTxTypes } from "../../typechain/contracts/bridge/Bridge"
+
+type UTXOStruct = BitcoinTxTypes.UTXOStruct
 
 const { increaseTime } = helpers.time
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
@@ -53,14 +57,14 @@ describeFn("Integration Test - Slashing", async () => {
   let bridge: Bridge
   let bridgeGovernance: BridgeGovernance
   let tbtcVault: TBTCVault
-  let staking: Contract
+  let staking: TokenStaking
   let walletRegistry: WalletRegistry
   let randomBeacon: Mock<IRandomBeacon>
   let relay: Mock<IRelay>
-  let deployer: SignerWithAddress
-  let governance: SignerWithAddress
-  let spvMaintainer: SignerWithAddress
-  let thirdParty: SignerWithAddress
+  let deployer: HardhatEthersSigner
+  let governance: HardhatEthersSigner
+  let spvMaintainer: HardhatEthersSigner
+  let thirdParty: HardhatEthersSigner
 
   const dkgResultChallengePeriodLength = 10
 
@@ -119,7 +123,7 @@ describeFn("Integration Test - Slashing", async () => {
 
       before("create a wallet", async () => {
         expect(await bridge.activeWalletPubKeyHash()).to.be.equal(
-          ethers.constants.AddressZero
+          ethers.ZeroAddress
         )
 
         const requestNewWalletTx = await bridge.requestNewWallet(NO_MAIN_UTXO)
@@ -135,7 +139,7 @@ describeFn("Integration Test - Slashing", async () => {
 
       describe("when a fraud is reported", async () => {
         const fraudulentBtcTx = nonWitnessSignSingleInputTx
-        let notifyFraudChallengeDefeatTimeoutTx: ContractTransaction
+        let notifyFraudChallengeDefeatTimeoutTx: ContractTransactionResponse
 
         before(async () => {
           const { fraudChallengeDepositAmount, fraudChallengeDefeatTimeout } =
@@ -152,7 +156,7 @@ describeFn("Integration Test - Slashing", async () => {
               }
             )
 
-          await increaseTime(fraudChallengeDefeatTimeout)
+          await increaseTime(toNumber(fraudChallengeDefeatTimeout))
 
           notifyFraudChallengeDefeatTimeoutTx = await bridge
             .connect(thirdParty)
@@ -239,7 +243,7 @@ describeFn("Integration Test - Slashing", async () => {
         ))
 
         const { fundingTx, depositor, reveal } = SingleP2SHDeposit.deposits[0]
-        reveal.vault = tbtcVault.address
+        reveal.vault = await tbtcVault.getAddress()
 
         // We use a deposit funding bitcoin transaction with a very low amount,
         // so we need to update the dust and redemption thresholds to be below it.
@@ -254,7 +258,7 @@ describeFn("Integration Test - Slashing", async () => {
 
         const depositorSigner = await impersonateAccount(depositor, {
           from: governance,
-          value: 10,
+          value: 10n,
         })
 
         // Reveal and sweep the deposit to set up a positive Bank balance for
@@ -274,7 +278,7 @@ describeFn("Integration Test - Slashing", async () => {
             SingleP2SHDeposit.sweepTx,
             SingleP2SHDeposit.sweepProof,
             SingleP2SHDeposit.mainUtxo,
-            tbtcVault.address
+            tbtcVault.target
           )
 
         const newMainUtxo: UTXOStruct = {
@@ -286,7 +290,7 @@ describeFn("Integration Test - Slashing", async () => {
         // Request redemption
         const redeemer = await helpers.account.impersonateAccount(
           deposit.depositor,
-          { from: deployer, value: 10 }
+          { from: deployer, value: 10n }
         )
         const redemptionAmount = 3_000 * constants.satoshiMultiplier
         redeemerOutputScript =
@@ -295,9 +299,9 @@ describeFn("Integration Test - Slashing", async () => {
         await tbtc
           .connect(redeemer)
           .approveAndCall(
-            tbtcVault.address,
+            tbtcVault.target,
             redemptionAmount,
-            ethers.utils.defaultAbiCoder.encode(
+            ethers.AbiCoder.defaultAbiCoder().encode(
               ["address", "bytes20", "bytes32", "uint32", "uint64", "bytes"],
               [
                 redeemer.address,
@@ -317,12 +321,12 @@ describeFn("Integration Test - Slashing", async () => {
       })
 
       describe("when a redemption timeout is reported", async () => {
-        let notifyRedemptionTimeoutTx: ContractTransaction
+        let notifyRedemptionTimeoutTx: ContractTransactionResponse
 
         before(async () => {
           const { redemptionTimeout } = await bridge.redemptionParameters()
 
-          await helpers.time.increaseTime(redemptionTimeout + 1)
+          await helpers.time.increaseTime(toNumber(redemptionTimeout + 1n))
 
           notifyRedemptionTimeoutTx = await bridge
             .connect(thirdParty)
@@ -405,7 +409,7 @@ describeFn("Integration Test - Slashing", async () => {
         ))
 
         const { fundingTx, depositor, reveal } = SingleP2SHDeposit.deposits[0]
-        reveal.vault = tbtcVault.address
+        reveal.vault = await tbtcVault.getAddress()
 
         // We use a deposit funding bitcoin transaction with a very low amount,
         // so we need to update the dust threshold to be below it.
@@ -415,7 +419,7 @@ describeFn("Integration Test - Slashing", async () => {
 
         const depositorSigner = await impersonateAccount(depositor, {
           from: governance,
-          value: 10,
+          value: 10n,
         })
 
         // Reveal and sweep the deposit to set up a main UTXO for the wallet,
@@ -436,7 +440,7 @@ describeFn("Integration Test - Slashing", async () => {
             SingleP2SHDeposit.sweepTx,
             SingleP2SHDeposit.sweepProof,
             SingleP2SHDeposit.mainUtxo,
-            tbtcVault.address
+            tbtcVault.target
           )
 
         // Switch the wallet to moving funds state by reporting wallet members
@@ -462,7 +466,7 @@ describeFn("Integration Test - Slashing", async () => {
       })
 
       describe("when moving funds timeout is reported", async () => {
-        let notifyMovingFundsTimeoutTx: ContractTransaction
+        let notifyMovingFundsTimeoutTx: ContractTransactionResponse
 
         before(async () => {
           expect(
@@ -473,7 +477,7 @@ describeFn("Integration Test - Slashing", async () => {
 
           const { movingFundsTimeout } = await bridge.movingFundsParameters()
 
-          await helpers.time.increaseTime(movingFundsTimeout + 1)
+          await helpers.time.increaseTime(toNumber(movingFundsTimeout + 1n))
 
           notifyMovingFundsTimeoutTx = await bridge
             .connect(thirdParty)

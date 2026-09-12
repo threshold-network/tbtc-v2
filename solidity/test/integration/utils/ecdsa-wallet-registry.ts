@@ -1,18 +1,22 @@
+import { toNumber } from "ethers"
 // TODO: Utils in this file are pulled from @keep-network/ecdsa test utils.
 // We should consider exposing them in @keep-network/ecdsa for an external usage.
 
 /* eslint-disable no-await-in-loop */
 
-import type { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
+import type { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import type {
-  ContractTransaction,
+  ContractTransactionResponse,
   BytesLike,
   BigNumberish,
   Signer,
 } from "ethers"
 import { HardhatRuntimeEnvironment } from "hardhat/types"
+import type { WalletRegistryGovernance } from "../../../typechain/external/WalletRegistryGovernance"
 import type { WalletRegistry, SortitionPool } from "../../../typechain"
-import type { ClaimStruct } from "../../../typechain/EcdsaInactivity"
+import type { EcdsaInactivity as EcdsaInactivityTypes } from "../../../typechain/@keep-network/ecdsa/contracts/libraries/EcdsaInactivity"
+
+type ClaimStruct = EcdsaInactivityTypes.ClaimStruct
 
 // default Hardhat's networks blockchain, see https://hardhat.org/config/
 export const hardhatNetworkId = 31337
@@ -33,7 +37,7 @@ export async function registerOperator(
     await operator.getAddress()
   )
 
-  return operatorID
+  return Number(operatorID)
 }
 
 export async function performEcdsaDkg(
@@ -42,7 +46,7 @@ export async function performEcdsaDkg(
   groupPublicKey: BytesLike,
   startBlock: number
 ): Promise<{
-  approveDkgResultTx: ContractTransaction
+  approveDkgResultTx: ContractTransactionResponse
   walletMembers: Operators
 }> {
   const { helpers } = hre
@@ -61,9 +65,7 @@ export async function performEcdsaDkg(
 
   await helpers.time.mineBlocksTo(
     dkgResultSubmissionTx.blockNumber +
-      (
-        await walletRegistry.dkgParameters()
-      ).resultChallengePeriodLength.toNumber()
+      Number((await walletRegistry.dkgParameters()).resultChallengePeriodLength)
   )
 
   const approveDkgResultTx = await walletRegistry
@@ -81,19 +83,19 @@ export async function updateWalletRegistryDkgResultChallengePeriodLength(
 ): Promise<void> {
   const { deployments, ethers, helpers } = hre
 
-  const walletRegistryGovernance = await ethers.getContractAt(
+  const walletRegistryGovernance = (await ethers.getContractAt(
     (
       await deployments.getArtifact("WalletRegistryGovernance")
     ).abi,
     await walletRegistry.governance()
-  )
+  )) as unknown as WalletRegistryGovernance
 
   await walletRegistryGovernance
     .connect(governance)
     .beginDkgResultChallengePeriodLengthUpdate(dkgResultChallengePeriodLength)
 
   await helpers.time.increaseTime(
-    await walletRegistryGovernance.governanceDelay()
+    toNumber(await walletRegistryGovernance.governanceDelay())
   )
 
   await walletRegistryGovernance
@@ -110,9 +112,9 @@ async function selectGroup(
   const sortitionPool = (await ethers.getContractAt(
     "SortitionPool",
     await walletRegistry.sortitionPool()
-  )) as SortitionPool
+  )) as unknown as SortitionPool
 
-  const identifiers: number[] = await walletRegistry.selectGroup()
+  const identifiers = (await walletRegistry.selectGroup()).map(ethers.toNumber)
 
   const addresses = await sortitionPool.getIDOperators(identifiers)
 
@@ -142,8 +144,8 @@ export async function produceOperatorInactivityClaim(
   numberOfSignatures: number
 ): Promise<ClaimStruct> {
   const { ethers } = hre
-  const messageHash = ethers.utils.keccak256(
-    ethers.utils.defaultAbiCoder.encode(
+  const messageHash = ethers.keccak256(
+    ethers.AbiCoder.defaultAbiCoder().encode(
       ["uint256", "uint256", "bytes", "uint8[]", "bool"],
       [
         hardhatNetworkId,
@@ -168,7 +170,7 @@ export async function produceOperatorInactivityClaim(
     signingMembersIndices.push(signerIndex)
 
     const signature = await signers[i].signer.signMessage(
-      ethers.utils.arrayify(messageHash)
+      ethers.getBytes(messageHash)
     )
 
     signatures.push(signature)
@@ -178,7 +180,7 @@ export async function produceOperatorInactivityClaim(
     walletID,
     inactiveMembersIndices,
     heartbeatFailed,
-    signatures: ethers.utils.hexConcat(signatures),
+    signatures: ethers.concat(signatures),
     signingMembersIndices,
   }
 }
@@ -195,7 +197,7 @@ interface DkgResult {
 
 type Operator = {
   id: number
-  signer: SignerWithAddress
+  signer: HardhatEthersSigner
   stakingProvider: string
 }
 
@@ -204,7 +206,7 @@ export class Operators extends Array<Operator> {
     return this.map((operator) => operator.id)
   }
 
-  getSigners(): SignerWithAddress[] {
+  getSigners(): HardhatEthersSigner[] {
     return this.map((operator) => operator.signer)
   }
 }
@@ -220,8 +222,8 @@ async function signAndSubmitDkgResult(
 ): Promise<{
   signers: Operators
   dkgResult: DkgResult
-  submitter: SignerWithAddress
-  submitDkgResultTx: ContractTransaction
+  submitter: HardhatEthersSigner
+  submitDkgResultTx: ContractTransactionResponse
 }> {
   const signers = await selectGroup(hre, walletRegistry)
 
@@ -266,8 +268,8 @@ async function signDkgResult(
 
   const numberOfSignatures: number = signers.length / 2 + 1
 
-  const resultHash = ethers.utils.keccak256(
-    ethers.utils.defaultAbiCoder.encode(
+  const resultHash = ethers.keccak256(
+    ethers.AbiCoder.defaultAbiCoder().encode(
       ["uint256", "bytes", "uint8[]", "uint256"],
       [hardhatNetworkId, groupPublicKey, misbehavedMembersIndices, startBlock]
     )
@@ -290,13 +292,13 @@ async function signDkgResult(
     signingMembersIndices.push(signerIndex)
 
     const signature = await ethersSigner.signMessage(
-      ethers.utils.arrayify(resultHash)
+      ethers.getBytes(resultHash)
     )
 
     signatures.push(signature)
   }
 
-  const signaturesBytes: string = ethers.utils.hexConcat(signatures)
+  const signaturesBytes: string = ethers.concat(signatures)
 
   const dkgResult: DkgResult = {
     submitterMemberIndex: submitterIndex,
@@ -326,12 +328,12 @@ function hashDKGMembers(
       }
     }
 
-    return ethers.utils.keccak256(
-      ethers.utils.defaultAbiCoder.encode(["uint32[]"], [activeDkgMembers])
+    return ethers.keccak256(
+      ethers.AbiCoder.defaultAbiCoder().encode(["uint32[]"], [activeDkgMembers])
     )
   }
 
-  return ethers.utils.keccak256(
-    ethers.utils.defaultAbiCoder.encode(["uint32[]"], [members])
+  return ethers.keccak256(
+    ethers.AbiCoder.defaultAbiCoder().encode(["uint32[]"], [members])
   )
 }

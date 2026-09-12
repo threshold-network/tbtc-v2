@@ -3,7 +3,7 @@ import path from "path"
 import https from "https"
 import { HardhatRuntimeEnvironment } from "hardhat/types"
 import { DeployFunction, DeployOptions } from "hardhat-deploy/types"
-import { utils, constants } from "ethers"
+import { ethers as utils, ethers as constants } from "ethers"
 
 // EIP-1967 transparent proxy admin storage slot. Defined by the standard
 // at https://eips.ethereum.org/EIPS/eip-1967#admin-address and used to
@@ -87,7 +87,7 @@ export function encodeBridgeUpgradeAndCall(
 ): string {
   const initData = bridgeInterface.encodeFunctionData(
     "initializeV5_RepairRebateStaking",
-    [constants.AddressZero]
+    [constants.ZeroAddress]
   )
   return proxyAdminInterface.encodeFunctionData("upgradeAndCall", [
     bridgeProxy,
@@ -389,11 +389,11 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   // admin storage slot. Reading it on-chain avoids hardcoding.
   console.log("\n--- Discovering ProxyAdmin ---")
   const Bridge = await get("Bridge")
-  const adminData = await ethers.provider.getStorageAt(
+  const adminData = await ethers.provider.getStorage(
     Bridge.address,
     EIP_1967_ADMIN_SLOT
   )
-  const proxyAdminAddress = ethers.utils.getAddress(`0x${adminData.slice(26)}`)
+  const proxyAdminAddress = ethers.getAddress(`0x${adminData.slice(26)}`)
   console.log(`  ProxyAdmin discovered: ${proxyAdminAddress}`)
 
   if (proxyAdminAddress.toLowerCase() !== KNOWN_PROXY_ADMIN.toLowerCase()) {

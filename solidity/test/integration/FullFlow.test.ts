@@ -2,8 +2,8 @@
 /* eslint-disable @typescript-eslint/no-extra-semi */
 import hre, { ethers, helpers } from "hardhat"
 import type { BigNumberish } from "ethers"
-import { utils } from "ethers"
-import type { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
+import { ethers as utils } from "ethers"
+import type { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import { expect } from "chai"
 import type { Mock } from "../helpers/mock"
 import type {
@@ -21,7 +21,7 @@ import {
   updateWalletRegistryDkgResultChallengePeriodLength,
 } from "./utils/ecdsa-wallet-registry"
 import { produceRelayEntry } from "./utils/fake-random-beacon"
-import { UTXOStruct } from "../../typechain/Bridge"
+import type { BitcoinTx as BitcoinTxTypes } from "../../typechain/contracts/bridge/Bridge"
 import {
   walletPublicKey,
   walletPubKeyHash,
@@ -31,6 +31,8 @@ import {
 } from "./data/integration"
 import { fixture } from "./utils/fixture"
 import { constants } from "../fixtures"
+
+type UTXOStruct = BitcoinTxTypes.UTXOStruct
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 const { increaseTime } = helpers.time
@@ -48,9 +50,9 @@ describeFn("Integration Test - Full flow", async () => {
   let walletRegistry: WalletRegistry
   let randomBeacon: Mock<IRandomBeacon>
   let relay: Mock<IRelay>
-  let deployer: SignerWithAddress
-  let governance: SignerWithAddress
-  let spvMaintainer: SignerWithAddress
+  let deployer: HardhatEthersSigner
+  let governance: HardhatEthersSigner
+  let spvMaintainer: HardhatEthersSigner
 
   const dkgResultChallengePeriodLength = 10
 
@@ -119,7 +121,7 @@ describeFn("Integration Test - Full flow", async () => {
 
       describe("when a deposit is revealed", async () => {
         before(async () => {
-          revealDepositData.reveal.vault = tbtcVault.address
+          revealDepositData.reveal.vault = await tbtcVault.getAddress()
 
           // We use a deposit funding bitcoin transaction with a very low amount,
           // so we need to update the dust and redemption thresholds to be below it.
@@ -135,7 +137,7 @@ describeFn("Integration Test - Full flow", async () => {
             revealDepositData.depositor,
             {
               from: governance,
-              value: 10,
+              value: 10n,
             }
           )
 
@@ -151,7 +153,7 @@ describeFn("Integration Test - Full flow", async () => {
           // Deposit key is keccak256(fundingTxHash | fundingOutputIndex).
           // Use the deposit transaction hash as little endian and the transaction
           // output index.
-          const depositKey = ethers.utils.solidityKeccak256(
+          const depositKey = ethers.solidityPackedKeccak256(
             ["bytes32", "uint32"],
             [
               "0x6fc25b8ebd5fcfdf6de60c39dbaa46cfb0d0e792c671edac4112cabb11fb72c8",
@@ -181,7 +183,7 @@ describeFn("Integration Test - Full flow", async () => {
               depositSweepData.sweepTx,
               depositSweepData.sweepProof,
               depositSweepData.mainUtxo,
-              tbtcVault.address
+              tbtcVault.target
             )
         })
 
@@ -196,11 +198,11 @@ describeFn("Integration Test - Full flow", async () => {
         it("should increase the balance of vault in the bank", async () => {
           // Expect the vault balance in the bank to be:
           // deposited amount - tx fee - treasury fee = 100000 - 1600 - 50
-          expect(await bank.balanceOf(tbtcVault.address)).to.be.equal(98350)
+          expect(await bank.balanceOf(tbtcVault.target)).to.be.equal(98350)
         })
 
         it("should update the main UTXO of the wallet", async () => {
-          const expectedMainUtxo = ethers.utils.solidityKeccak256(
+          const expectedMainUtxo = ethers.solidityPackedKeccak256(
             ["bytes32", "uint32", "uint64"],
             [depositSweepData.sweepTx.hash, 0, 98400]
           )
@@ -220,7 +222,7 @@ describeFn("Integration Test - Full flow", async () => {
           // Request redemption
           const redeemer = await helpers.account.impersonateAccount(
             revealDepositData.depositor,
-            { from: deployer, value: 10 }
+            { from: deployer, value: 10n }
           )
 
           const newMainUtxo: UTXOStruct = {
@@ -233,9 +235,9 @@ describeFn("Integration Test - Full flow", async () => {
           await tbtc
             .connect(redeemer)
             .approveAndCall(
-              tbtcVault.address,
+              tbtcVault.target,
               redemptionAmount,
-              ethers.utils.defaultAbiCoder.encode(
+              ethers.AbiCoder.defaultAbiCoder().encode(
                 ["address", "bytes20", "bytes32", "uint32", "uint64", "bytes"],
                 [
                   redeemer.address,
@@ -250,10 +252,10 @@ describeFn("Integration Test - Full flow", async () => {
         })
 
         it("should create a pending redemption request", async () => {
-          const redemptionKey = utils.solidityKeccak256(
+          const redemptionKey = utils.solidityPackedKeccak256(
             ["bytes32", "bytes20"],
             [
-              utils.solidityKeccak256(["bytes"], [redeemerOutputScript]),
+              utils.solidityPackedKeccak256(["bytes"], [redeemerOutputScript]),
               walletPubKeyHash,
             ]
           )
@@ -280,7 +282,7 @@ describeFn("Integration Test - Full flow", async () => {
         })
 
         it("should increase the balance of bridge in the bank", async () => {
-          const bridgeBalance = await bank.balanceOf(bridge.address)
+          const bridgeBalance = await bank.balanceOf(bridge.target)
           // The expected value should be equal to the redemption's requested
           // amount
           expect(bridgeBalance).to.be.equal(50000)
@@ -314,12 +316,12 @@ describeFn("Integration Test - Full flow", async () => {
         })
 
         it("should zero the balance of bridge in the bank", async () => {
-          const bridgeBalance = await bank.balanceOf(bridge.address)
+          const bridgeBalance = await bank.balanceOf(bridge.target)
           expect(bridgeBalance).to.be.equal(0)
         })
 
         it("should update the main UTXO of the wallet", async () => {
-          const expectedMainUtxo = ethers.utils.solidityKeccak256(
+          const expectedMainUtxo = ethers.solidityPackedKeccak256(
             ["bytes32", "uint32", "uint64"],
             [redemptionData.redemptionTx.hash, 1, 48425]
           )

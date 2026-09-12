@@ -7,10 +7,16 @@
 /* eslint-disable no-underscore-dangle */
 import { ethers, artifacts } from "hardhat"
 import { expect } from "chai"
-import { BigNumber } from "ethers"
 
-import type { BigNumberish, Contract, Signer } from "ethers"
-import type { FunctionFragment, Interface, ParamType } from "ethers/lib/utils"
+import type {
+  BaseContract,
+  BigNumberish,
+  Contract,
+  Signer,
+  FunctionFragment,
+  Interface,
+  ParamType,
+} from "ethers"
 
 /**
  * Programmable contract mock, replacing `@defi-wonderland/smock`.
@@ -66,7 +72,7 @@ export interface MockCall {
   /** Decoded arguments, in declaration order. */
   args: unknown[]
   /** `msg.value` the call carried, as smock's `getCall(n).value` did. */
-  value: BigNumber
+  value: bigint
 }
 
 /** Configuration and inspection handle for one function of a mock. */
@@ -95,7 +101,14 @@ export interface MockedFunction {
 }
 
 export type Mock<T> = {
-  [K in keyof T]: T[K] extends (...args: never[]) => unknown
+  // typechain v6 types a contract method as `TypedContractMethod<A, R, S>` --
+  // an interface with a call signature plus `staticCall`, `send` and friends --
+  // rather than a bare function, so matching only on the function shape leaves
+  // every method without the configuration surface. Match the typechain shape
+  // first, then fall back to a plain function for hand-written interfaces.
+  [K in keyof T]: T[K] extends { staticCall: (...args: never[]) => unknown }
+    ? T[K] & MockedFunction
+    : T[K] extends (...args: never[]) => unknown
     ? T[K] & MockedFunction
     : T[K]
 } & {
@@ -103,7 +116,7 @@ export type Mock<T> = {
   /** Signer that sends from the mock's own address, as smock's `fake.wallet` did. */
   wallet: Signer
   /** Underlying deployed `MockContract`, for anything this helper does not wrap. */
-  mockContract: Contract
+  mockContract: BaseContract
   /**
    * The mocked interface bound to `signer`, as smock's `FakeContract.connect`
    * was. smock's fake extended `ethers.Contract` and inherited this; the proxy
@@ -123,12 +136,24 @@ export type Mock<T> = {
   setRecording(enabled: boolean): Promise<void>
 }
 
+/**
+ * The function fragments of an interface.
+ *
+ * ethers v6 dropped `Interface.functions` and `getSighash`; fragments are now
+ * a flat list carrying their own `selector`.
+ */
+function functionFragments(iface: Interface): FunctionFragment[] {
+  return iface.fragments.filter(
+    (fragment): fragment is FunctionFragment => fragment.type === "function"
+  )
+}
+
 /** Selectors of `MockContract`'s own administrative entry points. */
 function adminSelectors(mockInterface: Interface): Set<string> {
   return new Set(
-    Object.keys(mockInterface.functions)
-      .filter((signature) => signature.startsWith("__mock__"))
-      .map((signature) => mockInterface.getSighash(signature))
+    functionFragments(mockInterface)
+      .filter((fragment) => fragment.name.startsWith("__mock__"))
+      .map((fragment) => fragment.selector)
   )
 }
 
@@ -164,11 +189,12 @@ function assertNoSelectorCollision(
 ): void {
   const reserved = adminSelectors(mockInterface)
 
-  Object.entries(target.functions).forEach(([signature, fragment]) => {
-    const selector = target.getSighash(signature)
+  functionFragments(target).forEach((fragment) => {
+    const { selector } = fragment
     if (reserved.has(selector)) {
       throw new Error(
-        `${targetName}.${signature} has selector ${selector}, which collides ` +
+        `${targetName}.${fragment.format()} has selector ${selector}, ` +
+          "which collides " +
           "with a MockContract administrative function. This mock cannot " +
           "represent that interface."
       )
@@ -186,7 +212,7 @@ function assertNoSelectorCollision(
 function fragmentsByName(target: Interface): Map<string, FunctionFragment[]> {
   const byName = new Map<string, FunctionFragment[]>()
 
-  Object.values(target.functions).forEach((fragment) => {
+  functionFragments(target).forEach((fragment) => {
     const existing = byName.get(fragment.name)
     if (existing) {
       existing.push(fragment)
@@ -240,7 +266,7 @@ function zeroValueFor(type: ParamType): unknown {
   }
 
   if (type.baseType === "address") {
-    return ethers.constants.AddressZero
+    return ethers.ZeroAddress
   }
 
   if (type.baseType === "bool") {
@@ -296,9 +322,9 @@ function encodeReturn(fragment: FunctionFragment, value: unknown): string {
     return "0x"
   }
 
-  return ethers.utils.defaultAbiCoder.encode(
-    fragment.outputs,
-    toPositional(fragment.outputs, value)
+  return ethers.AbiCoder.defaultAbiCoder().encode(
+    fragment.outputs as unknown as ParamType[],
+    toPositional(fragment.outputs as unknown as ParamType[], value)
   )
 }
 
@@ -308,8 +334,8 @@ function encodeRevert(reason?: string): string {
   }
 
   return (
-    ethers.utils.id("Error(string)").slice(0, 10) +
-    ethers.utils.defaultAbiCoder.encode(["string"], [reason]).slice(2)
+    ethers.id("Error(string)").slice(0, 10) +
+    ethers.AbiCoder.defaultAbiCoder().encode(["string"], [reason]).slice(2)
   )
 }
 
@@ -328,13 +354,13 @@ export async function createMock<T>(
   options: { address?: string } = {}
 ): Promise<Mock<T>> {
   const targetArtifact = await artifacts.readArtifact(target)
-  const targetInterface = new ethers.utils.Interface(targetArtifact.abi)
+  const targetInterface = new ethers.Interface(targetArtifact.abi)
 
   const mockFactory = await ethers.getContractFactory("MockContract")
   // Deploying is a transaction too, and a mock is routinely created inside a
   // `before` hook after the test has already captured a baseline timestamp.
   let mockContract = await withoutAdvancingTime(() => mockFactory.deploy())
-  await mockContract.deployed()
+  await mockContract.waitForDeployment()
 
   assertNoSelectorCollision(targetInterface, mockContract.interface, target)
 
@@ -344,20 +370,18 @@ export async function createMock<T>(
     // configuration below — the base returns, the non-recording flags, and
     // later every `returns`/`whenCalledWith` — is storage. Configuring first
     // and relocating afterwards left a pinned mock with none of it.
-    const code = await ethers.provider.getCode(mockContract.address)
+    const code = await ethers.provider.getCode(await mockContract.getAddress())
     await ethers.provider.send("hardhat_setCode", [options.address, code])
-    mockContract = mockContract.attach(options.address)
+    mockContract = mockContract.attach(options.address) as typeof mockContract
   }
   // Install the response of last resort for every function, so an unstubbed
   // one answers with a correctly sized zero instead of reverting the caller.
-  const baseFragments = Object.values(targetInterface.functions)
-  const baseSelectors = baseFragments.map((fragment) =>
-    targetInterface.getSighash(fragment)
-  )
+  const baseFragments = functionFragments(targetInterface)
+  const baseSelectors = baseFragments.map((fragment) => fragment.selector)
   const baseReturns = baseFragments.map((fragment) =>
     fragment.outputs === null || fragment.outputs.length === 0
       ? "0x"
-      : ethers.utils.defaultAbiCoder.encode(
+      : ethers.AbiCoder.defaultAbiCoder().encode(
           fragment.outputs,
           fragment.outputs.map((output) => zeroValueFor(output))
         )
@@ -376,27 +400,30 @@ export async function createMock<T>(
         fragment.stateMutability === "view" ||
         fragment.stateMutability === "pure"
     )
-    .map((fragment) => targetInterface.getSighash(fragment))
+    .map((fragment) => fragment.selector)
   if (nonRecordingSelectors.length > 0) {
     await withoutAdvancingTime(() =>
       mockContract.__mock__setNonRecordingSelectors(nonRecordingSelectors)
     )
   }
 
-  await ethers.provider.send("hardhat_impersonateAccount", [
-    mockContract.address,
-  ])
+  // ethers v6 has no synchronous `.address`. Resolved once here, after any
+  // relocation above, and reused -- the handle exposes it synchronously
+  // because ~600 call sites read `mock.address`.
+  const mockAddress = await mockContract.getAddress()
+
+  await ethers.provider.send("hardhat_impersonateAccount", [mockAddress])
   await ethers.provider.send("hardhat_setBalance", [
-    mockContract.address,
+    mockAddress,
     "0x21e19e0c9bab2400000", // 10_000 ETH, so the mock can pay for its own sends
   ])
-  const wallet = await ethers.getSigner(mockContract.address)
+  const wallet = await ethers.getSigner(mockAddress)
 
   const byName = fragmentsByName(targetInterface)
 
   function buildFunction(name: string): MockedFunction {
     const fragment = resolveFragment(byName.get(name) ?? [], name, target)
-    const selector = targetInterface.getSighash(fragment)
+    const { selector } = fragment
     const readOnly =
       fragment.stateMutability === "view" || fragment.stateMutability === "pure"
 
@@ -441,7 +468,7 @@ export async function createMock<T>(
       )
     }
 
-    const decodeCall = (callData: string, value: BigNumber): MockCall => ({
+    const decodeCall = (callData: string, value: bigint): MockCall => ({
       args: Array.from(
         targetInterface.decodeFunctionData(fragment, callData)
       ) as unknown[],
@@ -495,7 +522,7 @@ export async function createMock<T>(
           mockContract.__mock__callForSelectorAt(selector, index),
           mockContract.__mock__callValueForSelectorAt(selector, index),
         ])
-        return decodeCall(callData as string, value as BigNumber)
+        return decodeCall(callData as string, value as bigint)
       },
 
       async getCalls(): Promise<MockCall[]> {
@@ -512,7 +539,7 @@ export async function createMock<T>(
             mockContract.__mock__callForSelectorAt(selector, i),
             mockContract.__mock__callValueForSelectorAt(selector, i),
           ])
-          calls.push(decodeCall(callData as string, value as BigNumber))
+          calls.push(decodeCall(callData as string, value as bigint))
         }
 
         return calls
@@ -522,21 +549,17 @@ export async function createMock<T>(
 
   const functions = new Map<string, MockedFunction>()
   const readContract = new ethers.Contract(
-    mockContract.address,
+    mockAddress,
     targetArtifact.abi,
     ethers.provider
   )
 
   const handle = {
-    address: mockContract.address,
+    address: mockAddress,
     wallet,
     mockContract,
     connect(signer: Signer): Contract {
-      return new ethers.Contract(
-        mockContract.address,
-        targetArtifact.abi,
-        signer
-      )
+      return new ethers.Contract(mockAddress, targetArtifact.abi, signer)
     },
     async reset(): Promise<void> {
       await withoutAdvancingTime(() => mockContract.__mock__reset())
@@ -621,8 +644,8 @@ export async function expectCalledTwice(fn: MockedFunction): Promise<void> {
  * Puts one recorded or expected argument into a comparable form.
  *
  * The two sides never arrive in the same representation. ethers decodes an ABI
- * integer to a `BigNumber` above 48 bits and to a plain `number` at or below
- * it, so a `uint256` argument reaches this as a `BigNumber` while the
+ * integer to a `bigint` above 48 bits and to a plain `number` at or below
+ * it, so a `uint256` argument reaches this as a `bigint` while the
  * `uint32` getter the test compared it against yields a `number`; and a struct
  * or dynamic array puts both one level down, where the previous top-level-only
  * check never looked. smock compared `BigNumberish` values numerically at any
@@ -635,9 +658,6 @@ export async function expectCalledTwice(fn: MockedFunction): Promise<void> {
  * real mismatch.
  */
 function normalizeForComparison(value: unknown): unknown {
-  if (BigNumber.isBigNumber(value)) {
-    return { numeric: value.toString() }
-  }
   if (typeof value === "number" || typeof value === "bigint") {
     return { numeric: value.toString() }
   }
