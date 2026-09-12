@@ -1,4 +1,7 @@
-/** Ethers v6 copy of solidity-contracts' published timelock deployment. */
+/**
+ * Patched copy of @threshold-network/solidity-contracts@1.3.0-dev.11/export/deploy/30_deploy_tokenholder_timelock.js
+ * Ethers v6 copy of solidity-contracts' published timelock deployment.
+ */
 const func = async function (hre) {
   const { getNamedAccounts, deployments, ethers } = hre
   const { deployer } = await getNamedAccounts()

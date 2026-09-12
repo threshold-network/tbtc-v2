@@ -1,4 +1,7 @@
-/** Ethers v6 confirmation handling for random-beacon 2.1.0-dev.18. */
+/**
+ * Patched copy of @keep-network/random-beacon@2.1.0-dev.18/export/deploy/07_deploy_random_beacon_governance.js
+ * Ethers v6 confirmation handling for random-beacon 2.1.0-dev.18.
+ */
 const waitForConfirmations = require("../helpers/wait-for-confirmations")
 
 const func = async (hre) => {
