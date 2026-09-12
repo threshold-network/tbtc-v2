@@ -42,6 +42,18 @@ optimizer_runs = 1000
 # compile under Foundry against the top-level 4.8.1 OpenZeppelin instead of their own
 # pinned versions - a real, accepted divergence from Hardhat's Node-resolution, unlike
 # the ecdsa/random-beacon cases below, which fully honor each package's own pin.
+#
+# Caveat: the WalletRegistry.sol collision described above, and the
+# compilation_restrictions entry for it below, are both reproducible only when
+# contracts/hardhat-dependency-compiler/ is present locally - a directory
+# hardhat.config.ts's dependencyCompiler block (keep: true) generates on a Hardhat
+# compile, gitignored via .gitignore's /contracts/hardhat-dependency-compiler/ entry
+# and never committed. That generated copy of @keep-network/ecdsa/contracts/
+# WalletRegistry.sol sits under src = "contracts" above and imports the real
+# WalletRegistry.sol, which is what pulls it into Foundry's compile graph. The CI
+# contracts-foundry job (.github/workflows/contracts.yml) never runs a Hardhat compile
+# before Foundry's steps, so that directory is absent there, and neither the collision
+# nor the compilation_restrictions override below is live in that environment.
 remappings = [
     "node_modules/@keep-network/ecdsa/:@openzeppelin/contracts/=node_modules/@keep-network/ecdsa/node_modules/@openzeppelin/contracts/",
     "node_modules/@keep-network/ecdsa/:@openzeppelin/contracts-upgradeable/=node_modules/@keep-network/ecdsa/node_modules/@openzeppelin/contracts-upgradeable/",
