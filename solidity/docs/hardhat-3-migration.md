@@ -416,9 +416,10 @@ unrelated contract's library offsets can otherwise reject a valid contract.
 The patch retains malformed-input validation and covers source and compiled code.
 The two Slither reports on failed deferred-refund recovery were triaged
 individually in `slither.db.json`, with a source-hash-guarded test requiring
-re-review if the reviewed Solidity source changed. `dev` independently landed
-its own fix for the same two findings first; the 2026-09-12 rebase below
-removed this branch's now-redundant triage database in favor of `dev`'s fix.
+re-review if the reviewed Solidity source changed. `dev` landed its own,
+independent fix for the same two findings three days later; the 2026-09-12
+rebase below removed this branch's now-redundant triage database in favor of
+`dev`'s fix.
 
 The existing-governance preflight converts hardhat-deploy's ethers v5 `BigNumber`
 delay through its decimal string before ethers v6 `toBigInt`. Its tests use the
