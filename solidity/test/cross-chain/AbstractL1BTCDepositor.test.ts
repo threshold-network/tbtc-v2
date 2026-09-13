@@ -716,9 +716,7 @@ describe("AbstractL1BTCDepositor", () => {
           expect(await depositor.deposits(depositKey)).to.equal(2) // Finalized
 
           const gasReimbursement = await depositor.gasReimbursements(depositKey)
-          expect(gasReimbursement.receiver).to.equal(
-            ZeroAddress
-          )
+          expect(gasReimbursement.receiver).to.equal(ZeroAddress)
           expect(gasReimbursement.gasSpent).to.equal(0)
 
           expect(
