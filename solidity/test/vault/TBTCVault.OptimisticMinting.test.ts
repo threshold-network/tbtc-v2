@@ -1725,7 +1725,7 @@ describe("TBTCVault - OptimisticMinting", () => {
       // Testing multiple-deposits scenarios with mocked bridge is way easier.
       // This function prepares a fixture separate from the main test setup's
       // fixture, just for testing multiple-deposits scenarios.
-      const prepareFixture = async function (): Promise<Fixture> {
+      const prepareFixture = async function prepareFixture(): Promise<Fixture> {
         const mockBank = await createMock<Bank>("Bank")
         const mockBridge = await createMock<Bridge>("Bridge")
 

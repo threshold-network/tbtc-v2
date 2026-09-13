@@ -2,6 +2,7 @@ import { expect } from "chai"
 import {
   getUnlinkedBytecode,
   getVersion,
+  unlinkBytecode,
   ValidationRunData,
 } from "@openzeppelin/upgrades-core"
 
@@ -39,8 +40,17 @@ describe("upgrades-core library matching", () => {
     const bytecode = `0x${"60".repeat(40)}a164736f6c6343000811000a`
 
     expect(getUnlinkedBytecode(validation, bytecode)).to.equal(bytecode)
+    expect(() =>
+      getVersion(
+        unlinkBytecode(
+          bytecode,
+          validation.LibraryLinkedContract.linkReferences
+        )
+      )
+    ).to.throw("Bytecode is not a valid hex string")
   })
 
+  // Only test 1 discriminates patched-vs-unpatched behavior; tests 2-3 are general sanity/non-regression checks.
   it("restores library placeholders when the full bytecode hash matches", () => {
     const linkedBytecode = `0x${prefix}${libraryAddress}${suffix}`
 

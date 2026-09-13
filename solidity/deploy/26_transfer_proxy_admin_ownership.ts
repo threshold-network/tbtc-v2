@@ -1,10 +1,9 @@
-import { ethers } from "hardhat"
 import type { HardhatRuntimeEnvironment } from "hardhat/types"
 import type { DeployFunction } from "hardhat-deploy/types"
 import type { ProxyAdmin } from "../typechain"
 
 const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
-  const { helpers, upgrades, deployments } = hre
+  const { ethers, helpers, upgrades, deployments } = hre
   const { esdm, deployer } = await helpers.signers.getNamedSigners()
   const { log } = deployments
 

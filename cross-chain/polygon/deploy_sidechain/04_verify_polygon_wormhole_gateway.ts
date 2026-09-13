@@ -12,12 +12,6 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   // Contracts can be verified on Polygonscan in a similar way as we
   // do it on L1 Etherscan
   if (hre.network.tags.polygonscan) {
-    if (hre.network.name === "mumbai") {
-      // Polygonscan might not include the recently added proxy transaction right
-      // after deployment. We need to wait some time so that transaction is
-      // visible on Polygonscan.
-      await new Promise((resolve) => setTimeout(resolve, 10000)) // 10sec
-    }
     // We use `verify` instead of `verify:verify` as the `verify` task is defined
     // in "@openzeppelin/hardhat-upgrades" to verify the proxy’s implementation
     // contract, the proxy itself and any proxy-related contracts, as well as

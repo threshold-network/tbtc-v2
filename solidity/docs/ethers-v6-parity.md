@@ -10,10 +10,20 @@ hardhat-deploy 0.11.15). The candidate uses ethers 6.17.0 and hardhat-deploy 1.0
 The [reviewed policy](../scripts/pr1067-parity-policy.json) pins both lockfiles,
 package/config hashes, three compiler overrides, 25 affected local deployment
 records, and the exact before/after hashes of 19 compiled deployment scripts.
-Updating that policy requires reviewing the new differences. The CI follow-up
-patches upgrades-core 1.46.0 bytecode matching and updates the package/lockfile
-hashes. All 85 exported artifacts and 61 compiled deployment scripts retain
-their previous bytes; the two parity exceptions are unchanged.
+Updating that policy requires reviewing the new differences. The upgrades-core
+1.46.0 matching patch updates the package/lockfile hashes. The governance
+preflight fix converts hardhat-deploy's v5 `BigNumber` delay through a decimal
+string and updates the reviewed hash for compiled script 14. The two parity
+exceptions are unchanged; local deployment parity does not exercise this
+existing-governance branch, so its tests use the reader's real v5 return type.
+
+Six random-beacon external deployment scripts also use checked-in replacements
+for explorer-tagged confirmation waits. Postinstall copies these scripts and
+their shared helper into the dependency: `getTransaction(hash)` followed by
+`transaction.wait(2, 300000)` replaces the unsupported provider-level wait.
+This branch is tested separately with mocked deployment/verification effects;
+local parity does not enable the explorer tag. A local-provider test also checks
+the one-confirmation timeout and successful receipt after two confirmations.
 
 ## The two exceptions
 
@@ -72,6 +82,18 @@ that file or a checkout `.env`. Do not change your home configuration for this
 check. Effective Hardhat settings and an account-settings hash are recorded
 without exporting account secrets.
 
+This reproduce procedure succeeds only against #1067's immutable revision
+(`5b65585459f461b52f685588a80d6c1057da5bad` as the baseline, its own head as
+the candidate) or an equivalent revision that changes none of
+`pr1067-parity.config.ts`, `package.json`, `yarn.lock`, or the export
+compiler target. Branches stacked on top of #1067 that raise
+`tsconfig.export.json`'s target (e.g. to ES2020) or update `@types/*`
+versions change the pinned candidate hashes this checker enforces; running
+the candidate side of this procedure from such a branch's HEAD does not
+reproduce the #1067 result and is expected to fail for reasons unrelated to
+compatibility. See [toolchain-upgrades.md](toolchain-upgrades.md) for the
+specific pins affected.
+
 From a checkout of the candidate revision:
 
 ```sh
@@ -99,6 +121,16 @@ cd "$parity_root/candidate/solidity"
 
 The raw comparison has expected exit status **1** for this migration:
 
+The printed "Byte parity" summary verdict covers `export.json`,
+`export/artifacts/`, and `deployments/` only. `export/deploy/` (the 19
+compiled deploy scripts) is deliberately excluded from that summary: those
+files are expected to differ under this and any future ethers-version
+migration, so folding them into the same PASS/FAIL verdict would pin it to
+FAIL permanently and the flag would stop carrying information. The full
+per-group breakdown, including `export/deploy/`, is still printed in the raw
+JSON report above the summary line; only the summary is scoped to the other
+three groups.
+
 ```sh
 yarn ts-node scripts/compare-pr1067-parity.ts \
   "$parity_root/dev-snapshot" "$parity_root/candidate-snapshot" --raw
@@ -113,7 +145,7 @@ yarn ts-node scripts/compare-pr1067-parity.ts \
 PARITY_BASELINE="$parity_root/dev-snapshot" \
   PARITY_CANDIDATE="$parity_root/candidate-snapshot" \
   yarn hardhat test --network hardhat --no-compile \
-  scripts/compare-pr1067-parity.test.ts
+  test/scripts/compare-pr1067-parity.test.ts
 ```
 
 The mutation tests use real snapshots and leave them intact. Changes to ABI,
@@ -135,6 +167,14 @@ operations need their own applicable fork/dry-run validation; deprecated
 scripts remain unsuitable for live governance. The consumer search found no
 GitHub-indexed external deployment-script consumer, but executing the
 published v6 scripts requires compatible ethers v6 tooling.
+
+## Retention
+
+This compatibility gate is scoped to this PR's ethers-v6 migration only; it is not intended as permanent infrastructure.
+Once this PR has landed and stabilized, either delete `scripts/pr1067-parity*.{ts,json}`, `scripts/compare-pr1067-parity.ts`,
+and `test/scripts/compare-pr1067-parity.test.ts` in a follow-up cleanup PR (keeping this document as the permanent historical record),
+or -- if a reusable deployment-parity harness is wanted for future migrations -- file a tracked issue to de-pin the hardcoded
+baseline revision/ethers version/lockfile hashes into policy/CLI arguments first.
 
 Future proxy/admin choices are tracked in
 [#1130](https://github.com/threshold-network/tbtc-v2/issues/1130);

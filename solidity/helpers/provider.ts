@@ -8,9 +8,22 @@ interface RpcProvider {
 
 const normalizedProviders = new WeakSet<RpcProvider>()
 
-function normalizeResult(method: string, result: unknown): unknown {
+// Single-transaction RPC methods that return a transaction object directly
+// at the top level of the result.
+const TRANSACTION_METHODS: Record<string, true> = {
+  eth_getTransactionByHash: true,
+  eth_getTransactionReceipt: true,
+}
+
+// Full-block RPC methods that, when called with the "include transactions"
+// flag, embed an array of transaction objects under `result.transactions`.
+const BLOCK_METHODS: Record<string, true> = {
+  eth_getBlockByHash: true,
+  eth_getBlockByNumber: true,
+}
+
+function normalizeContractCreationTransaction(result: unknown): unknown {
   if (
-    method === "eth_getTransactionByHash" &&
     result !== null &&
     typeof result === "object" &&
     "to" in result &&
@@ -21,7 +34,38 @@ function normalizeResult(method: string, result: unknown): unknown {
   return result
 }
 
+function normalizeResult(method: string, result: unknown): unknown {
+  if (TRANSACTION_METHODS[method]) {
+    return normalizeContractCreationTransaction(result)
+  }
+  if (
+    BLOCK_METHODS[method] &&
+    result !== null &&
+    typeof result === "object" &&
+    "transactions" in result &&
+    Array.isArray(result.transactions)
+  ) {
+    return {
+      ...result,
+      transactions: result.transactions.map(
+        normalizeContractCreationTransaction
+      ),
+    }
+  }
+  return result
+}
+
 /**
+ * Some RPC providers return an empty-string `to` field for contract-creation
+ * transactions instead of omitting it or returning `null`. Ethers v5's
+ * formatters tolerated this, but ethers v6's formatters reject an empty
+ * string as an invalid address, causing `getTransaction`,
+ * `getTransactionReceipt`, and full-transaction block reads to throw. This
+ * normalizes an empty-string `to` field to `null` before ethers parses the
+ * RPC response, covering eth_getTransactionByHash, eth_getTransactionReceipt,
+ * and transactions embedded in eth_getBlockByHash/eth_getBlockByNumber
+ * responses.
+ *
  * Apply to hre.network.provider so both ethers v6's send calls and
  * hardhat-deploy's ethers v5 EIP-1193 requests use the same workaround.
  */

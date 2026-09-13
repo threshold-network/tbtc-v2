@@ -10,6 +10,11 @@
 /typechain/
 /export.json
 
+# Foundry dependencies, artifacts, and cache
+/lib/
+/forge-artifacts/
+/cache_forge/
+
 # Contract artifacts
 /artifacts/
 /deployments/*

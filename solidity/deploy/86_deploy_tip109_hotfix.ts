@@ -87,7 +87,9 @@ async function etherscanVerifyV2(
   })
 }
 
-const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
+const func: DeployFunction = async function deployTip109Hotfix(
+  hre: HardhatRuntimeEnvironment
+) {
   const { deployments, getNamedAccounts, artifacts } = hre
   const { deploy, get, save } = deployments
   const { deployer } = await getNamedAccounts()

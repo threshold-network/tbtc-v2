@@ -21,7 +21,9 @@ import path from "path"
 import { requireValue } from "../helpers/require-value"
 import type { RebateStaking } from "../typechain"
 
-const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
+const func: DeployFunction = async function deployRebateAndPrepareTxsDeprecated(
+  hre: HardhatRuntimeEnvironment
+) {
   if (hre.network.name !== "hardhat") {
     throw new Error(
       "DEPRECATED: This script is replaced by 85_deploy_tip109_governance_upgrade.ts"

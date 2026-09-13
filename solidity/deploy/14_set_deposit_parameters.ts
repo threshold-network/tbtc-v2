@@ -137,8 +137,9 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
       return
     }
 
+    // hardhat-deploy decodes uint256 values as ethers v5 BigNumber objects.
     const governanceDelay = toBigInt(
-      await read("BridgeGovernance", "governanceDelays", 0)
+      (await read("BridgeGovernance", "governanceDelays", 0)).toString()
     )
     const bridgeGovernanceContract = await ethers.getContractAt(
       "BridgeGovernance",

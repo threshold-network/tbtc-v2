@@ -22,6 +22,7 @@ artifacts-testnet
 /typechain/
 /typechain-types/
 /export.json
+/gasReporterOutput.json
 /deployments/*
 !/deployments/sepolia/
 !/deployments/mainnet/

@@ -47,6 +47,10 @@ module.exports = [
     },
     plugins: {
       "@typescript-eslint": tsPlugin,
+      // Registered under the legacy "import" alias so existing repo-wide
+      // inline eslint-disable comments (e.g. "import/prefer-default-export")
+      // keep resolving; only settings below use the plugin's own hardcoded
+      // "import-x/*" namespace, which is unaffected by this alias.
       import: importPlugin,
       "no-only-tests": noOnlyTests,
     },

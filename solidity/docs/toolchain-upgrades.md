@@ -41,6 +41,21 @@ immutable #1067 revision to reproduce that historical result. This change
 does not revise the checked-in policy, regenerate evidence or claim compatibility
 for the additional TypeScript/export changes.
 
+Raising the export target to ES2020 additionally invalidates the checked-in
+policy on its own, independent of the capture-config-hash rejection above:
+the emit (and therefore the pinned candidate hash) of all 19
+`compiledDeployScripts` entries in `pr1067-parity-policy.json` changes; the
+~42 unpinned `export/deploy/*.js` modules the checker also compares now
+differ from the es5 baseline; and this package's `package.json`/`yarn.lock`
+hashes, also pinned by the policy, change from the `@types/mocha`/
+`@types/chai` bumps above. No fresh capture taken from this branch can
+satisfy `compare-pr1067-parity.ts`. No `for…of` loop in `deploy/` or
+`tasks/` iterates a non-array iterable -- the one semantic risk
+`downlevelIteration` removal could have introduced -- so dropping it while
+raising the target is semantics-preserving for this package's actual code;
+that source-level reasoning is offered in place of a full before/after
+emit capture, which this repository's current tooling cannot produce.
+
 The stack incorporates [#1127](https://github.com/threshold-network/tbtc-v2/pull/1127)
 to include its deployment validation patch and regression coverage.
 
@@ -95,17 +110,33 @@ are errors, including the obsolete `no-extra-semi` suppressions removed in this
 migration. `npm run test:lint-policy` checks actual cyclic and acyclic TypeScript
 modules, JavaScript correctness violations and accepted deployment overrides.
 It runs as part of `lint:eslint`, including the existing formatting CI job.
-Node 22.13+ or Node 24+ is required by ESLint 10.
+This package requires Node ^22.13.0 or >=24.0.0, matching its own
+`engines` declaration in package.json - a narrower floor than ESLint 10
+itself imposes, chosen for this repo's CI/runtime policy.
 
-The existing warning debt stays visible with a ceiling of 322 in both ESLint
+The existing warning debt stays visible with a ceiling of 324 in both ESLint
 commands: 263 console uses, 31 unnamed functions, 19 unused variables, six
-explicit `any` types and three non-null assertions. Reduce the ceiling when
+explicit `any` types and five non-null assertions. Reduce the ceiling when
 fixing these warnings; do not increase it to accommodate new warnings. This
 records the warning baseline for the migration without disabling those checks.
+The increase from the originally recorded 308 pre-existing warnings (issue #1077)
+to the 321 baseline reported here most likely reflects this PR's flat-config
+`files: ["**/*.{ts,js,cjs}"]` (in `eslint.config.cjs`) linting a substantially
+larger file surface than the old `.eslintrc`. That config's only file-type
+overrides were for `**/*.test.ts`, `**/*.spec.ts`, and `deploy-patches/**/*.js`;
+with ESLint 7's bare `eslint .` invocation and no other file-type configuration,
+`deploy/`, `scripts/`, `tasks/`, `helpers/`, and `hardhat.config.ts` were not
+linted at all before this PR. This is the most plausible explanation for the
+308->321 delta predating this PR's own +1 warning, not a confirmed
+reconciliation - the exact historical count on the base commit was not
+re-measured.
 
 The increase from 321 to 322 is the inherited parity checker's explicit
 JSON evidence boundary (`Json`), added in the updated #1067 prerequisite.
-The lint-policy fixes add no source warnings.
+The increase from 322 to 324 is two more non-null assertions the same
+parity checker gained after this branch was rebased onto a later `dev`.
+Neither increase, nor the earlier 308->321 delta, comes from this PR's own
+lint-policy fixes.
 
 Solhint 6 uses the same explicit rule policy previously supplied by the
 `solhint-config-keep` git dependency, with this repository's constructor
