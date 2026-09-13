@@ -49,7 +49,7 @@
   },
   "devDependencies": {
     "@defi-wonderland/smock": "2.4.1",
-    "@keep-network/hardhat-helpers": "^0.6.0-pre.20",
+    "@keep-network/hardhat-helpers": "github:threshold-network/hardhat-helpers#v0.6.0-pre.21",
     "@keep-network/hardhat-local-networks-config": "github:threshold-network/hardhat-local-networks-config#b8423e102710be537a874b002cf9052ffc2bd93e",
     "@nomiclabs/hardhat-ethers": "^2.0.6",
     "@nomiclabs/hardhat-etherscan": "^3.1.0",
