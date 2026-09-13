@@ -291,10 +291,9 @@ contract MaintainerProxy is Ownable, Reimbursable {
     /// @notice Wraps `Bridge.requestNewWallet` call and reimburses the
     ///         caller's transaction cost.
     /// @dev See `Bridge.requestNewWallet` function documentation.
-    function requestNewWallet(BitcoinTx.UTXO calldata activeWalletMainUtxo)
-        external
-        onlyWalletMaintainer
-    {
+    function requestNewWallet(
+        BitcoinTx.UTXO calldata activeWalletMainUtxo
+    ) external onlyWalletMaintainer {
         uint256 gasStart = gasleft();
 
         bridge.requestNewWallet(activeWalletMainUtxo);
@@ -325,10 +324,9 @@ contract MaintainerProxy is Ownable, Reimbursable {
     /// @notice Wraps `Bridge.notifyWalletClosingPeriodElapsed` call and reimburses
     ///         the caller's transaction cost.
     /// @dev See `Bridge.notifyWalletClosingPeriodElapsed` function documentation.
-    function notifyWalletClosingPeriodElapsed(bytes20 walletPubKeyHash)
-        external
-        onlyWalletMaintainer
-    {
+    function notifyWalletClosingPeriodElapsed(
+        bytes20 walletPubKeyHash
+    ) external onlyWalletMaintainer {
         uint256 gasStart = gasleft();
 
         bridge.notifyWalletClosingPeriodElapsed(walletPubKeyHash);
@@ -410,10 +408,9 @@ contract MaintainerProxy is Ownable, Reimbursable {
     ///         new 'walletMaintainers' list: [0x1, 0x2, 0x5, 0x4]
     ///         new 'isWalletMaintainer' map: [0x1 -> 1, 0x2 -> 2, 0x4 -> 4, 0x5 -> 3]
     /// @param maintainerToUnauthorize Maintainer to unauthorize.
-    function unauthorizeWalletMaintainer(address maintainerToUnauthorize)
-        external
-        onlyOwner
-    {
+    function unauthorizeWalletMaintainer(
+        address maintainerToUnauthorize
+    ) external onlyOwner {
         uint256 maintainerIdToUnauthorize = isWalletMaintainer[
             maintainerToUnauthorize
         ];
@@ -424,9 +421,8 @@ contract MaintainerProxy is Ownable, Reimbursable {
             walletMaintainers.length - 1
         ];
 
-        walletMaintainers[
-            maintainerIdToUnauthorize - 1
-        ] = lastMaintainerAddress;
+        walletMaintainers[maintainerIdToUnauthorize - 1] =
+            lastMaintainerAddress;
         walletMaintainers.pop();
 
         isWalletMaintainer[lastMaintainerAddress] = maintainerIdToUnauthorize;
@@ -449,10 +445,9 @@ contract MaintainerProxy is Ownable, Reimbursable {
     ///         new 'spvMaintainers' list: [0x1, 0x2, 0x5, 0x4]
     ///         new 'isSpvMaintainer' map: [0x1 -> 1, 0x2 -> 2, 0x4 -> 4, 0x5 -> 3]
     /// @param maintainerToUnauthorize Maintainer to unauthorize.
-    function unauthorizeSpvMaintainer(address maintainerToUnauthorize)
-        external
-        onlyOwner
-    {
+    function unauthorizeSpvMaintainer(
+        address maintainerToUnauthorize
+    ) external onlyOwner {
         uint256 maintainerIdToUnauthorize = isSpvMaintainer[
             maintainerToUnauthorize
         ];
@@ -525,13 +520,17 @@ contract MaintainerProxy is Ownable, Reimbursable {
         submitRedemptionProofGasOffset = newSubmitRedemptionProofGasOffset;
         resetMovingFundsTimeoutGasOffset = newResetMovingFundsTimeoutGasOffset;
         submitMovingFundsProofGasOffset = newSubmitMovingFundsProofGasOffset;
-        notifyMovingFundsBelowDustGasOffset = newNotifyMovingFundsBelowDustGasOffset;
-        submitMovedFundsSweepProofGasOffset = newSubmitMovedFundsSweepProofGasOffset;
+        notifyMovingFundsBelowDustGasOffset =
+            newNotifyMovingFundsBelowDustGasOffset;
+        submitMovedFundsSweepProofGasOffset =
+            newSubmitMovedFundsSweepProofGasOffset;
         requestNewWalletGasOffset = newRequestNewWalletGasOffset;
         notifyWalletCloseableGasOffset = newNotifyWalletCloseableGasOffset;
-        notifyWalletClosingPeriodElapsedGasOffset = newNotifyWalletClosingPeriodElapsedGasOffset;
+        notifyWalletClosingPeriodElapsedGasOffset =
+            newNotifyWalletClosingPeriodElapsedGasOffset;
         defeatFraudChallengeGasOffset = newDefeatFraudChallengeGasOffset;
-        defeatFraudChallengeWithHeartbeatGasOffset = newDefeatFraudChallengeWithHeartbeatGasOffset;
+        defeatFraudChallengeWithHeartbeatGasOffset =
+            newDefeatFraudChallengeWithHeartbeatGasOffset;
 
         emit GasOffsetParametersUpdated(
             submitDepositSweepProofGasOffset,

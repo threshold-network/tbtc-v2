@@ -334,11 +334,9 @@ contract StarkNetBitcoinDepositorTest is Test, TestSetup, GasReporter {
         );
     }
 
-    function _generateDepositKey(uint256 depositKey)
-        internal
-        pure
-        returns (bytes32)
-    {
+    function _generateDepositKey(
+        uint256 depositKey
+    ) internal pure returns (bytes32) {
         return bytes32(depositKey);
     }
 
@@ -357,11 +355,9 @@ contract StarkNetBitcoinDepositorTest is Test, TestSetup, GasReporter {
         );
     }
 
-    function _isWithinGasLimit(string memory operation)
-        internal
-        view
-        returns (bool)
-    {
+    function _isWithinGasLimit(
+        string memory operation
+    ) internal view returns (bool) {
         return isWithinGasLimit(operation);
     }
 }

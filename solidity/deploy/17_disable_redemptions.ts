@@ -12,15 +12,15 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
   // extremely high. The redemption dust threshold value is determined by the
   // redemptionDustThreshold governance parameter. This parameter is uint64.
   // The maximum value for the uint64 is 2^64-1 = 18446744073709551615.
-  const redemptionDustThreshold = ethers.BigNumber.from("18446744073709551615")
+  const redemptionDustThreshold = ethers.toBigInt("18446744073709551615")
 
   // To emphasize the fact that redemptions are disabled, we set:
   // - redemptionTimeout to uint32 max value (2^32-1 = 4294967295),
   // - redemptionTimeoutSlashingAmount to zero,
   // - redemptionTimeoutNotifierRewardMultiplier to zero.
-  const redemptionTimeout = ethers.BigNumber.from("4294967295")
-  const redemptionTimeoutSlashingAmount = ethers.BigNumber.from("0")
-  const redemptionTimeoutNotifierRewardMultiplier = ethers.BigNumber.from("0")
+  const redemptionTimeout = ethers.toBigInt("4294967295")
+  const redemptionTimeoutSlashingAmount = ethers.toBigInt("0")
+  const redemptionTimeoutNotifierRewardMultiplier = ethers.toBigInt("0")
 
   // Fetch the current values of other redemption parameters to keep them unchanged.
   const redemptionParameters = await read("Bridge", "redemptionParameters")

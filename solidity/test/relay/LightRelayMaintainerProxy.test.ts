@@ -1,10 +1,7 @@
-/* eslint-disable no-underscore-dangle */
-/* eslint-disable @typescript-eslint/no-unused-expressions */
-
 import { ethers, deployments, helpers } from "hardhat"
-import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import { expect } from "chai"
-import { ContractTransaction, BigNumber } from "ethers"
+import { ContractTransactionResponse } from "ethers"
 import type {
   LightRelay,
   LightRelayMaintainerProxy,
@@ -18,7 +15,7 @@ const { provider } = ethers
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 
-const ZERO_ADDRESS = ethers.constants.AddressZero
+const ZERO_ADDRESS = ethers.ZeroAddress
 
 const fixture = async () => {
   await deployments.fixture()
@@ -32,9 +29,8 @@ const fixture = async () => {
   const lightRelayMaintainerProxy: LightRelayMaintainerProxy =
     await helpers.contracts.getContract("LightRelayMaintainerProxy")
 
-  const lightRelay: LightRelay = await helpers.contracts.getContract(
-    "LightRelay"
-  )
+  const lightRelay: LightRelay =
+    await helpers.contracts.getContract("LightRelay")
 
   await lightRelay.connect(deployer).setAuthorizationStatus(true)
 
@@ -50,16 +46,15 @@ const fixture = async () => {
 }
 
 describe("LightRelayMaintainerProxy", () => {
-  let deployer: SignerWithAddress
-  let governance: SignerWithAddress
-  let maintainer: SignerWithAddress
-  let thirdParty: SignerWithAddress
+  let deployer: HardhatEthersSigner
+  let governance: HardhatEthersSigner
+  let maintainer: HardhatEthersSigner
+  let thirdParty: HardhatEthersSigner
   let reimbursementPool: ReimbursementPool
   let lightRelayMaintainerProxy: LightRelayMaintainerProxy
   let lightRelay: LightRelay
 
   before(async () => {
-    // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({
       deployer,
       governance,
@@ -71,8 +66,8 @@ describe("LightRelayMaintainerProxy", () => {
     } = await loadFixture(fixture))
 
     await deployer.sendTransaction({
-      to: reimbursementPool.address,
-      value: ethers.utils.parseEther("100"),
+      to: reimbursementPool.target,
+      value: ethers.parseEther("100"),
     })
   })
 
@@ -112,7 +107,7 @@ describe("LightRelayMaintainerProxy", () => {
       })
 
       context("when the maintainer is not authorized yet", () => {
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -172,7 +167,7 @@ describe("LightRelayMaintainerProxy", () => {
       })
 
       context("when the maintainer is authorized", () => {
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -229,7 +224,7 @@ describe("LightRelayMaintainerProxy", () => {
       })
 
       context("when called with a non-zero address", () => {
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -270,7 +265,7 @@ describe("LightRelayMaintainerProxy", () => {
     })
 
     context("when called by the owner", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -311,7 +306,7 @@ describe("LightRelayMaintainerProxy", () => {
     })
 
     context("when called by the owner", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -372,8 +367,8 @@ describe("LightRelayMaintainerProxy", () => {
         const retargetHeaders = concatenateHexStrings(headerHex.slice(85, 105))
         const genesisProofLength = 10
 
-        let initialMaintainerBalance: BigNumber
-        let tx: ContractTransaction
+        let initialMaintainerBalance: bigint
+        let tx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -412,11 +407,11 @@ describe("LightRelayMaintainerProxy", () => {
           const postMaintainerBalance = await provider.getBalance(
             maintainer.address
           )
-          const diff = postMaintainerBalance.sub(initialMaintainerBalance)
+          const diff = postMaintainerBalance - initialMaintainerBalance
 
           expect(diff).to.be.gt(0)
           expect(diff).to.be.lt(
-            ethers.utils.parseUnits("1000000", "gwei") // 0,001 ETH
+            ethers.parseUnits("1000000", "gwei") // 0,001 ETH
           )
         })
       })
@@ -427,8 +422,8 @@ describe("LightRelayMaintainerProxy", () => {
         const retargetHeaders = concatenateHexStrings(headerHex.slice(75, 115))
         const genesisProofLength = 20
 
-        let initialMaintainerBalance: BigNumber
-        let tx: ContractTransaction
+        let initialMaintainerBalance: bigint
+        let tx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -464,11 +459,11 @@ describe("LightRelayMaintainerProxy", () => {
           const postMaintainerBalance = await provider.getBalance(
             maintainer.address
           )
-          const diff = postMaintainerBalance.sub(initialMaintainerBalance)
+          const diff = postMaintainerBalance - initialMaintainerBalance
 
           expect(diff).to.be.gt(0)
           expect(diff).to.be.lt(
-            ethers.utils.parseUnits("1000000", "gwei") // 0,001 ETH
+            ethers.parseUnits("1000000", "gwei") // 0,001 ETH
           )
         })
       })
@@ -479,8 +474,8 @@ describe("LightRelayMaintainerProxy", () => {
         const retargetHeaders = concatenateHexStrings(headerHex.slice(45, 145))
         const genesisProofLength = 50
 
-        let initialMaintainerBalance: BigNumber
-        let tx: ContractTransaction
+        let initialMaintainerBalance: bigint
+        let tx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -520,11 +515,11 @@ describe("LightRelayMaintainerProxy", () => {
           const postMaintainerBalance = await provider.getBalance(
             maintainer.address
           )
-          const diff = postMaintainerBalance.sub(initialMaintainerBalance)
+          const diff = postMaintainerBalance - initialMaintainerBalance
 
           expect(diff).to.be.gt(0)
           expect(diff).to.be.lt(
-            ethers.utils.parseUnits("1000000", "gwei") // 0,001 ETH
+            ethers.parseUnits("1000000", "gwei") // 0,001 ETH
           )
         })
       })

@@ -35,7 +35,6 @@
     }
   },
   "scripts": {
-    "postinstall": "node scripts/postinstall.js",
     "check:mainnet-deposit-parameters": "ts-node --files ./scripts/check-mainnet-deposit-parameters.ts",
     "refund": "ts-node --files ./scripts/refund.ts",
     "format": "yarn run lint && prettier --check .",
@@ -50,9 +49,7 @@
   },
   "files": [
     "dist/",
-    "src/",
-    "patches/",
-    "scripts/postinstall.js"
+    "src/"
   ],
   "dependencies": {
     "@bitcoinerlab/secp256k1": "^1.0.5",
@@ -66,16 +63,14 @@
     "bitcoinjs-lib": "^6.1.5",
     "bufio": "^1.0.6",
     "ecpair": "^2.1.0",
-    "electrum-client-js": "git+https://github.com/keep-network/electrum-client-js.git#v0.2.0",
+    "electrum-client-js": "git+https://github.com/threshold-network/electrum-client-js.git#v0.2.1",
     "p-timeout": "^4.1.0",
-    "patch-package": "8.0.0",
     "starknet": "^6.24.1",
     "url-parse": "^1.5.10",
     "viem": "^2.21.0",
     "wif": "2.0.6"
   },
   "devDependencies": {
-    "@keep-network/prettier-config-keep": "github:keep-network/prettier-config-keep",
     "@types/chai": "^4.2.21",
     "@types/chai-as-promised": "^7.1.4",
     "@types/mocha": "^8.2.3",
@@ -88,7 +83,10 @@
     "chai-as-promised": "^7.1.1",
     "commander": "^9.4.0",
     "eslint": "^7.30.0",
-    "eslint-config-keep": "github:keep-network/eslint-config-keep",
+    "eslint-config-google": "0.13.0",
+    "eslint-config-prettier": "6.15.0",
+    "eslint-plugin-no-only-tests": "2.6.0",
+    "eslint-plugin-prettier": "3.4.1",
     "ethers": "^5.5.2",
     "mocha": "^9.0.2",
     "prettier": "^2.8.8",

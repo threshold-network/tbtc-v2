@@ -38,7 +38,9 @@ import { DeployFunction } from "hardhat-deploy/types"
  *   # For Mainnet (production - requires Timelock):
  *   # See consensus document for Timelock-based deployment
  */
-const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
+const func: DeployFunction = async function upgradeBridgeV2VaultFix(
+  hre: HardhatRuntimeEnvironment
+) {
   const { ethers, helpers, deployments, getNamedAccounts } = hre
   const { get, log } = deployments
   const { deployer } = await getNamedAccounts()
@@ -106,7 +108,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   log("\nUpgrade completed!")
   log("  New implementation deployed")
   log(`  Bridge proxy: ${proxyDeployment.address}`)
-  log(`  Bridge instance: ${bridge.address}`)
+  log(`  Bridge instance: ${bridge.target}`)
 
   // Verify on Etherscan if on mainnet
   if (hre.network.tags.etherscan) {
@@ -122,7 +124,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     log("\nVerifying on Tenderly...")
     await hre.tenderly.verify({
       name: "Bridge",
-      address: bridge.address,
+      address: await bridge.getAddress(),
     })
   }
 

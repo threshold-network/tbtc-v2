@@ -7,12 +7,6 @@ import { LocalNetworksConfig } from "@keep-network/hardhat-local-networks-config
 
 const config: LocalNetworksConfig = {
   networks: {
-    ropsten: {
-      url: "url not set",
-      from: "address not set",
-      accounts: ["private key not set"],
-      tags: ["tenderly"],
-    },
     mainnet: {
       url: "url not set",
       from: "address not set",

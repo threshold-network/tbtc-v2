@@ -1,8 +1,8 @@
 import { ethers, getUnnamedAccounts, helpers } from "hardhat"
 import { randomBytes } from "crypto"
 import { expect } from "chai"
-import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
-import { BigNumber, ContractTransaction } from "ethers"
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
+import { ContractTransactionResponse } from "ethers"
 import { loadFixture } from "../../helpers/fixture"
 import {
   IBridge,
@@ -24,9 +24,9 @@ const WORMHOLE_CHAIN_DESTINATION = 32
 const WORMHOLE_CHAIN_BASE = 30
 
 describe("L1BTCDepositorNtt NTT Integration", () => {
-  let governance: SignerWithAddress
-  let relayer: SignerWithAddress
-  let user: SignerWithAddress
+  let governance: HardhatEthersSigner
+  let relayer: HardhatEthersSigner
+  let user: HardhatEthersSigner
   let bridge: Mock<IBridge>
   let tbtcToken: TestERC20
   let tbtcVault: Mock<ITBTCVault>
@@ -63,8 +63,8 @@ describe("L1BTCDepositorNtt NTT Integration", () => {
       async quoteDeliveryPrice(
         recipientChain: number,
         transceiverInstructions?: string
-      ): Promise<[unknown[], BigNumber]> {
-        return [[], BigNumber.from(50000)]
+      ): Promise<[unknown[], bigint]> {
+        return [[], BigInt(50000)]
       },
     } as unknown as FakeNttManager
     // Add mock methods to the functions
@@ -94,7 +94,7 @@ describe("L1BTCDepositorNtt NTT Integration", () => {
         },
       }
     )
-    const l1BtcDepositorNtt = deployment[0] as L1BTCDepositorNtt
+    const l1BtcDepositorNtt = deployment[0] as unknown as L1BTCDepositorNtt
     await l1BtcDepositorNtt.connect(deployer).transferOwnership(gov.address)
 
     return {
@@ -261,14 +261,14 @@ describe("L1BTCDepositorNtt NTT Integration", () => {
               await expect(
                 l1BtcDepositorNtt
                   .connect(governance)
-                  .updateNttManager(ethers.constants.AddressZero)
+                  .updateNttManager(ethers.ZeroAddress)
               ).to.be.revertedWith("NTT Manager address cannot be zero")
             })
           })
 
           context("when new NTT Manager is valid", () => {
             let newNttManager: FakeNttManager
-            let tx: ContractTransaction
+            let tx: ContractTransactionResponse
 
             before(async () => {
               newNttManager = {
@@ -276,8 +276,8 @@ describe("L1BTCDepositorNtt NTT Integration", () => {
                 async transfer(): Promise<number> {
                   return 123
                 },
-                async quoteDeliveryPrice(): Promise<[unknown[], BigNumber]> {
-                  return [[], BigNumber.from(50000)]
+                async quoteDeliveryPrice(): Promise<[unknown[], bigint]> {
+                  return [[], BigInt(50000)]
                 },
               } as unknown as FakeNttManager
               newNttManager.transfer.returns = (): void => {}
