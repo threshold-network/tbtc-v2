@@ -14,27 +14,21 @@ import {BridgeState} from "../contracts/bridge/BridgeState.sol";
 contract BitcoinScriptHarness {
     BridgeState.Storage internal state;
 
-    function makeP2PKHScript(bytes20 pubKeyHash)
-        external
-        pure
-        returns (bytes26)
-    {
+    function makeP2PKHScript(
+        bytes20 pubKeyHash
+    ) external pure returns (bytes26) {
         return BitcoinTx.makeP2PKHScript(pubKeyHash);
     }
 
-    function makeP2WPKHScript(bytes20 pubKeyHash)
-        external
-        pure
-        returns (bytes23)
-    {
+    function makeP2WPKHScript(
+        bytes20 pubKeyHash
+    ) external pure returns (bytes23) {
         return BitcoinTx.makeP2WPKHScript(pubKeyHash);
     }
 
-    function extractPubKeyHash(bytes memory output)
-        external
-        view
-        returns (bytes20)
-    {
+    function extractPubKeyHash(
+        bytes memory output
+    ) external view returns (bytes20) {
         return BitcoinTx.extractPubKeyHash(state, output);
     }
 }
@@ -60,11 +54,10 @@ contract BitcoinScriptTest is Test {
     }
 
     /// @dev An output is an 8-byte value followed by the script.
-    function _output(uint64 value, bytes memory script)
-        private
-        pure
-        returns (bytes memory)
-    {
+    function _output(
+        uint64 value,
+        bytes memory script
+    ) private pure returns (bytes memory) {
         return bytes.concat(bytes8(value), script);
     }
 
@@ -77,9 +70,10 @@ contract BitcoinScriptTest is Test {
         assertEq(harness.extractPubKeyHash(output), pubKeyHash);
     }
 
-    function testFuzz_p2wpkhRoundTrips(bytes20 pubKeyHash, uint64 value)
-        public
-    {
+    function testFuzz_p2wpkhRoundTrips(
+        bytes20 pubKeyHash,
+        uint64 value
+    ) public {
         bytes memory output = _output(
             value,
             bytes.concat(harness.makeP2WPKHScript(pubKeyHash))

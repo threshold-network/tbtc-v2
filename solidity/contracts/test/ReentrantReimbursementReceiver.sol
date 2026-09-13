@@ -23,6 +23,7 @@ contract ReentrantReimbursementReceiver {
     bool public attackSucceeded;
     bytes public lastRevertData;
 
+    // solhint-disable-next-line no-complex-fallback
     receive() external payable {
         if (address(depositor) == address(0)) {
             return;

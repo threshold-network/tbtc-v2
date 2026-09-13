@@ -15,6 +15,7 @@ import "../integrator/IBridge.sol";
 ///         reentrant call.
 contract ReentrantRefundReceiver {
     AbstractL1BTCDepositor public depositor;
+    // solhint-disable-next-line ordering
     uint256 public immutable depositKey;
 
     constructor(uint256 _depositKey) {

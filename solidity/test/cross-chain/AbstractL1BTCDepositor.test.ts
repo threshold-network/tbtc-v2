@@ -664,9 +664,8 @@ describe("AbstractL1BTCDepositor", () => {
 
           depositKey = initializeDepositFixture.depositKey
 
-          const deferredReimbursement = await depositor.gasReimbursements(
-            depositKey
-          )
+          const deferredReimbursement =
+            await depositor.gasReimbursements(depositKey)
           expect(deferredReimbursement.receiver).to.equal(
             reentrantReceiver.target
           )
