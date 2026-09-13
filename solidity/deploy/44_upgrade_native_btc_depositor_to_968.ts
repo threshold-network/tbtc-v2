@@ -39,7 +39,9 @@ const NATIVE_PROXY_ADMIN = "0x92FcBD0b9D22bd2659c09A9aCD6E645F228b9A21"
 // test, which invokes `func` without a live chain.
 const CURRENT_IMPLEMENTATION = "0xc3ae0007dd495d3dbe8ad046623c0f9ae5610924"
 
-const func: DeployFunction = async function upgradeNativeBTCDepositorTo968(hre: HardhatRuntimeEnvironment) {
+const func: DeployFunction = async function upgradeNativeBTCDepositorTo968(
+  hre: HardhatRuntimeEnvironment
+) {
   const { ethers, helpers, deployments, upgrades, artifacts, run } = hre
 
   normalizeContractCreationTransactions(hre.network.provider)
@@ -71,14 +73,14 @@ const func: DeployFunction = async function upgradeNativeBTCDepositorTo968(hre: 
   const manifestPath = path.join(
     hre.config.paths.root,
     ".openzeppelin",
-    "mainnet.json",
+    "mainnet.json"
   )
   const implKeysBeforeImport = new Set<string>(
     fs.existsSync(manifestPath)
       ? Object.keys(
-          JSON.parse(fs.readFileSync(manifestPath, "utf8")).impls ?? {},
+          JSON.parse(fs.readFileSync(manifestPath, "utf8")).impls ?? {}
         )
-      : [],
+      : []
   )
 
   await upgrades.forceImport(NATIVE_PROXY, implementationContractFactory, {
@@ -107,7 +109,7 @@ const func: DeployFunction = async function upgradeNativeBTCDepositorTo968(hre: 
     implementationContractFactory,
     {
       kind: "transparent",
-    },
+    }
   )) as string
 
   // Self-protecting guard: refuse to emit a no-op. If the version-slot re-keying
@@ -122,12 +124,12 @@ const func: DeployFunction = async function upgradeNativeBTCDepositorTo968(hre: 
     throw new Error(
       "Refusing to emit a no-op upgrade: prepareUpgrade returned the current " +
         `implementation ${newImplementationAddress}. The forceImport ` +
-        "version-slot collision was not cleared — #968 bytecode was not deployed.",
+        "version-slot collision was not cleared — #968 bytecode was not deployed."
     )
   }
 
   deployments.log(
-    `new implementation contract deployed at: ${newImplementationAddress}`,
+    `new implementation contract deployed at: ${newImplementationAddress}`
   )
 
   // Resolve the ProxyAdmin EXPLICITLY from the known on-chain admin address.
@@ -137,7 +139,7 @@ const func: DeployFunction = async function upgradeNativeBTCDepositorTo968(hre: 
   // the wrong contract.
   const proxyAdmin = await ethers.getContractAt(
     "ProxyAdmin",
-    NATIVE_PROXY_ADMIN,
+    NATIVE_PROXY_ADMIN
   )
   const proxyAdminOwner: string = await proxyAdmin.owner()
 
@@ -147,7 +149,7 @@ const func: DeployFunction = async function upgradeNativeBTCDepositorTo968(hre: 
   // even with empty data.
   const upgradeTxData: string = proxyAdmin.interface.encodeFunctionData(
     "upgrade",
-    [NATIVE_PROXY, newImplementationAddress],
+    [NATIVE_PROXY, newImplementationAddress]
   )
 
   // Emit the governance calldata; never broadcast the upgrade. The Council Safe
@@ -157,7 +159,7 @@ const func: DeployFunction = async function upgradeNativeBTCDepositorTo968(hre: 
     `proxy admin owner ${proxyAdminOwner} is required to upgrade proxy implementation with transaction:\n` +
       `\t\tfrom: ${proxyAdminOwner}\n` +
       `\t\tto: ${proxyAdmin.target}\n` +
-      `\t\tdata: ${upgradeTxData}`,
+      `\t\tdata: ${upgradeTxData}`
   )
 
   // Persist the governance calldata to a tracked JSON file alongside the
@@ -184,7 +186,7 @@ const func: DeployFunction = async function upgradeNativeBTCDepositorTo968(hre: 
   }
   fs.writeFileSync(
     calldataPath,
-    `${JSON.stringify(calldataPayload, null, 2)}\n`,
+    `${JSON.stringify(calldataPayload, null, 2)}\n`
   )
   deployments.log(`governance calldata written to ${calldataPath}`)
 

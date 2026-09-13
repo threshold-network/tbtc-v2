@@ -2,7 +2,7 @@ import { HardhatRuntimeEnvironment } from "hardhat/types"
 import { DeployFunction } from "hardhat-deploy/types"
 
 const func: DeployFunction = async function runDeployment(
-  hre: HardhatRuntimeEnvironment,
+  hre: HardhatRuntimeEnvironment
 ) {
   const { deployments, getNamedAccounts, helpers } = hre
   const { deploy } = deployments
@@ -16,7 +16,7 @@ const func: DeployFunction = async function runDeployment(
       from: deployer,
       log: true,
       waitConfirmations: 1,
-    },
+    }
   )
 
   // 60 seconds for Sepolia. 48 hours otherwise.

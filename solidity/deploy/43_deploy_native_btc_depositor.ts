@@ -2,7 +2,7 @@ import { HardhatRuntimeEnvironment } from "hardhat/types"
 import { DeployFunction } from "hardhat-deploy/types"
 
 const func: DeployFunction = async function deployNativeBTCDepositor(
-  hre: HardhatRuntimeEnvironment,
+  hre: HardhatRuntimeEnvironment
 ) {
   const { ethers, helpers, deployments, getNamedAccounts } = hre
   const { deployer } = await getNamedAccounts()
@@ -19,7 +19,7 @@ const func: DeployFunction = async function deployNativeBTCDepositor(
       proxyOpts: {
         kind: "transparent",
       },
-    },
+    }
   )
 
   if (hre.network.tags.etherscan) {
@@ -36,7 +36,7 @@ const func: DeployFunction = async function deployNativeBTCDepositor(
     await hre.tenderly.verify({
       name: "NativeBTCDepositor",
       address: await hre.upgrades.erc1967.getImplementationAddress(
-        proxyDeployment.address,
+        proxyDeployment.address
       ),
     })
   }

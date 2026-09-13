@@ -1,22 +1,25 @@
 import { HardhatRuntimeEnvironment } from "hardhat/types"
 import { DeployFunction } from "hardhat-deploy/types"
 
-const func: DeployFunction = async function authorizeLightRelayMaintainerProxyInLightRelay(hre: HardhatRuntimeEnvironment) {
-  const { getNamedAccounts, deployments } = hre
-  const { execute } = deployments
-  const { deployer } = await getNamedAccounts()
+const func: DeployFunction =
+  async function authorizeLightRelayMaintainerProxyInLightRelay(
+    hre: HardhatRuntimeEnvironment
+  ) {
+    const { getNamedAccounts, deployments } = hre
+    const { execute } = deployments
+    const { deployer } = await getNamedAccounts()
 
-  const LightRelayMaintainerProxy = await deployments.get(
-    "LightRelayMaintainerProxy",
-  )
+    const LightRelayMaintainerProxy = await deployments.get(
+      "LightRelayMaintainerProxy"
+    )
 
-  await execute(
-    "LightRelay",
-    { from: deployer, log: true, waitConfirmations: 1 },
-    "authorize",
-    LightRelayMaintainerProxy.address,
-  )
-}
+    await execute(
+      "LightRelay",
+      { from: deployer, log: true, waitConfirmations: 1 },
+      "authorize",
+      LightRelayMaintainerProxy.address
+    )
+  }
 
 export default func
 

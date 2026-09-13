@@ -10,14 +10,16 @@ import { DeployFunction } from "hardhat-deploy/types"
  * - Height: 0 (epoch boundary)
  * - genesisProofLength: 4 for testnet
  */
-const func: DeployFunction = async function genesisLightRelaySepolia(hre: HardhatRuntimeEnvironment) {
+const func: DeployFunction = async function genesisLightRelaySepolia(
+  hre: HardhatRuntimeEnvironment
+) {
   const { deployments } = hre
   const { execute, read } = deployments
 
   const alreadyReady = (await read("LightRelay", "ready")) as boolean
   if (alreadyReady) {
     deployments.log(
-      "LightRelay genesis already performed (ready=true); skipping genesis()",
+      "LightRelay genesis already performed (ready=true); skipping genesis()"
     )
     return
   }
@@ -40,7 +42,7 @@ const func: DeployFunction = async function genesisLightRelaySepolia(hre: Hardha
     "genesis",
     genesisHeader,
     genesisHeight,
-    genesisProofLength,
+    genesisProofLength
   )
 }
 

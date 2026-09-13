@@ -1,7 +1,9 @@
 import { HardhatRuntimeEnvironment } from "hardhat/types"
 import { DeployFunction } from "hardhat-deploy/types"
 
-const func: DeployFunction = async function authorizeBridgeInReimbursementPool(hre: HardhatRuntimeEnvironment) {
+const func: DeployFunction = async function authorizeBridgeInReimbursementPool(
+  hre: HardhatRuntimeEnvironment
+) {
   const { getNamedAccounts, deployments } = hre
   const { execute } = deployments
   const { governance } = await getNamedAccounts()
@@ -12,7 +14,7 @@ const func: DeployFunction = async function authorizeBridgeInReimbursementPool(h
     "ReimbursementPool",
     { from: governance, log: true, waitConfirmations: 1 },
     "authorize",
-    Bridge.address,
+    Bridge.address
   )
 }
 

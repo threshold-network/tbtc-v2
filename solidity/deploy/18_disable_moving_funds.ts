@@ -44,7 +44,7 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
     walletClosureMinBtcBalance,
     walletMaxAge,
     walletParameters.walletMaxBtcTransfer,
-    walletParameters.walletClosingPeriod,
+    walletParameters.walletClosingPeriod
   )
 
   // To emphasize the fact that moving funds is disabled, we set:
@@ -78,7 +78,7 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
     movingFundsParameters.movedFundsSweepTxMaxTotalFee,
     movedFundsSweepTimeout,
     movedFundsSweepTimeoutSlashingAmount,
-    movedFundsSweepTimeoutNotifierRewardMultiplier,
+    movedFundsSweepTimeoutNotifierRewardMultiplier
   )
 }
 

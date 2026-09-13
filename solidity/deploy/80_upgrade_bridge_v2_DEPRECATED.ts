@@ -17,7 +17,9 @@ import { DeployFunction } from "hardhat-deploy/types"
 import fs from "fs"
 import path from "path"
 
-const func: DeployFunction = async function upgradeBridgeV2Deprecated(hre: HardhatRuntimeEnvironment) {
+const func: DeployFunction = async function upgradeBridgeV2Deprecated(
+  hre: HardhatRuntimeEnvironment
+) {
   const { ethers, deployments, getNamedAccounts } = hre
   const { get } = deployments
   const { deployer, treasury } = await getNamedAccounts()
@@ -73,7 +75,7 @@ const func: DeployFunction = async function upgradeBridgeV2Deprecated(hre: Hardh
         waitConfirmations: 1,
         skipIfAlreadyDeployed: false,
         libraries: bridgeLibraries,
-      },
+      }
     )
     return implementationDeployment.address
   }
@@ -81,13 +83,13 @@ const func: DeployFunction = async function upgradeBridgeV2Deprecated(hre: Hardh
   let isProxyRegistered = false
   const ozNetworkFile = path.join(
     __dirname,
-    `../.openzeppelin/${hre.network.name}.json`,
+    `../.openzeppelin/${hre.network.name}.json`
   )
   if (fs.existsSync(ozNetworkFile)) {
     const ozData = JSON.parse(fs.readFileSync(ozNetworkFile, "utf8"))
     isProxyRegistered = (ozData.proxies || []).some(
       (proxy: { address?: string }) =>
-        proxy.address?.toLowerCase() === Bridge.address.toLowerCase(),
+        proxy.address?.toLowerCase() === Bridge.address.toLowerCase()
     )
   }
   if (!isProxyRegistered) {
@@ -102,7 +104,7 @@ const func: DeployFunction = async function upgradeBridgeV2Deprecated(hre: Hardh
   const proxyAdminAddress = ethers.getAddress(`0x${adminData.slice(26)}`)
   const proxyAdmin = await ethers.getContractAt(
     ["function owner() view returns (address)"],
-    proxyAdminAddress,
+    proxyAdminAddress
   )
   const proxyAdminOwner = await proxyAdmin.owner()
   const deployerSigner = await ethers.getSigner(deployer)
@@ -127,11 +129,11 @@ const func: DeployFunction = async function upgradeBridgeV2Deprecated(hre: Hardh
 
   const proxyAdminWithUpgrade = await ethers.getContractAt(
     ["function upgrade(address proxy, address implementation)"],
-    proxyAdminAddress,
+    proxyAdminAddress
   )
   const upgradeTx = await proxyAdminWithUpgrade.upgrade(
     Bridge.address,
-    implementationAddress,
+    implementationAddress
   )
   await upgradeTx.wait(1)
   console.log("ProxyAdmin owner:", proxyAdminOwner)

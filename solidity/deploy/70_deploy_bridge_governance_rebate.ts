@@ -1,7 +1,9 @@
 import { HardhatRuntimeEnvironment } from "hardhat/types"
 import { DeployFunction } from "hardhat-deploy/types"
 
-const func: DeployFunction = async function deployBridgeGovernanceRebate(hre: HardhatRuntimeEnvironment) {
+const func: DeployFunction = async function deployBridgeGovernanceRebate(
+  hre: HardhatRuntimeEnvironment
+) {
   const { deployments, getNamedAccounts, helpers } = hre
   const { deploy } = deployments
   const { deployer } = await getNamedAccounts()
@@ -13,7 +15,7 @@ const func: DeployFunction = async function deployBridgeGovernanceRebate(hre: Ha
 
   if (!bridgeAddress) {
     throw new Error(
-      "Bridge deployment not found. Set BRIDGE_ADDRESS or ensure deployments/mainnet contains Bridge.json.",
+      "Bridge deployment not found. Set BRIDGE_ADDRESS or ensure deployments/mainnet contains Bridge.json."
     )
   }
 
@@ -23,7 +25,7 @@ const func: DeployFunction = async function deployBridgeGovernanceRebate(hre: Ha
       from: deployer,
       log: true,
       waitConfirmations: 1,
-    },
+    }
   )
 
   const GOVERNANCE_DELAY = hre.network.name === "sepolia" ? 60 : 172800

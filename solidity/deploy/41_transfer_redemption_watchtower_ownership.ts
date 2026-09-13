@@ -1,16 +1,19 @@
 import { HardhatRuntimeEnvironment } from "hardhat/types"
 import { DeployFunction } from "hardhat-deploy/types"
 
-const func: DeployFunction = async function transferRedemptionWatchtowerOwnership(hre: HardhatRuntimeEnvironment) {
-  const { getNamedAccounts, helpers } = hre
-  const { deployer, governance } = await getNamedAccounts()
+const func: DeployFunction =
+  async function transferRedemptionWatchtowerOwnership(
+    hre: HardhatRuntimeEnvironment
+  ) {
+    const { getNamedAccounts, helpers } = hre
+    const { deployer, governance } = await getNamedAccounts()
 
-  await helpers.ownable.transferOwnership(
-    "RedemptionWatchtower",
-    governance,
-    deployer,
-  )
-}
+    await helpers.ownable.transferOwnership(
+      "RedemptionWatchtower",
+      governance,
+      deployer
+    )
+  }
 
 export default func
 

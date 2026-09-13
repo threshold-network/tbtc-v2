@@ -38,7 +38,9 @@ import { DeployFunction } from "hardhat-deploy/types"
  *   # For Mainnet (production - requires Timelock):
  *   # See consensus document for Timelock-based deployment
  */
-const func: DeployFunction = async function upgradeBridgeV2VaultFix(hre: HardhatRuntimeEnvironment) {
+const func: DeployFunction = async function upgradeBridgeV2VaultFix(
+  hre: HardhatRuntimeEnvironment
+) {
   const { ethers, helpers, deployments, getNamedAccounts } = hre
   const { get, log } = deployments
   const { deployer } = await getNamedAccounts()
@@ -100,7 +102,7 @@ const func: DeployFunction = async function upgradeBridgeV2VaultFix(hre: Hardhat
           args: [],
         },
       },
-    },
+    }
   )
 
   log("\nUpgrade completed!")

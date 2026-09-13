@@ -1,7 +1,9 @@
 import { HardhatRuntimeEnvironment } from "hardhat/types"
 import { DeployFunction } from "hardhat-deploy/types"
 
-const func: DeployFunction = async function transferTbtcOwnership(hre: HardhatRuntimeEnvironment) {
+const func: DeployFunction = async function transferTbtcOwnership(
+  hre: HardhatRuntimeEnvironment
+) {
   const { getNamedAccounts, deployments, helpers } = hre
   const { deployer } = await getNamedAccounts()
 

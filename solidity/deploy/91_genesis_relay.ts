@@ -1,7 +1,9 @@
 import { HardhatRuntimeEnvironment } from "hardhat/types"
 import { DeployFunction } from "hardhat-deploy/types"
 
-const func: DeployFunction = async function genesisLightRelay(hre: HardhatRuntimeEnvironment) {
+const func: DeployFunction = async function genesisLightRelay(
+  hre: HardhatRuntimeEnvironment
+) {
   const { getNamedAccounts, deployments } = hre
   const { execute } = deployments
   const { deployer } = await getNamedAccounts()
@@ -21,7 +23,7 @@ const func: DeployFunction = async function genesisLightRelay(hre: HardhatRuntim
     "genesis",
     genesisHeader,
     genesisHeight,
-    genesisProofLength,
+    genesisProofLength
   )
 }
 

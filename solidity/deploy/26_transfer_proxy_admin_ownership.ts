@@ -14,7 +14,7 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
 
   const proxyAdmin = (await ethers.getContractAt(
     "ProxyAdmin",
-    await (await upgrades.admin.getInstance()).getAddress(),
+    await (await upgrades.admin.getInstance()).getAddress()
   )) as unknown as ProxyAdmin
 
   const currentOwner = await proxyAdmin.owner()

@@ -2,7 +2,7 @@ import { HardhatRuntimeEnvironment } from "hardhat/types"
 import { DeployFunction, DeployOptions } from "hardhat-deploy/types"
 
 const func: DeployFunction = async function deployBridge(
-  hre: HardhatRuntimeEnvironment,
+  hre: HardhatRuntimeEnvironment
 ) {
   const { ethers, helpers, deployments, getNamedAccounts } = hre
   const { deploy } = deployments
@@ -72,7 +72,7 @@ const func: DeployFunction = async function deployBridge(
         // See: https://docs.openzeppelin.com/upgrades-plugins/1.x/faq#why-cant-i-use-external-libraries
         unsafeAllow: ["external-library-linking"],
       },
-    },
+    }
   )
 
   if (hre.network.tags.etherscan) {

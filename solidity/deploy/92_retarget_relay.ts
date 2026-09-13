@@ -1,7 +1,9 @@
 import { HardhatRuntimeEnvironment } from "hardhat/types"
 import { DeployFunction } from "hardhat-deploy/types"
 
-const func: DeployFunction = async function retargetLightRelay(hre: HardhatRuntimeEnvironment) {
+const func: DeployFunction = async function retargetLightRelay(
+  hre: HardhatRuntimeEnvironment
+) {
   const { getNamedAccounts, deployments } = hre
   const { execute } = deployments
   const { deployer } = await getNamedAccounts()
@@ -105,7 +107,7 @@ const func: DeployFunction = async function retargetLightRelay(hre: HardhatRunti
     "LightRelay",
     { from: deployer, log: true, waitConfirmations: 1 },
     "retarget",
-    headers,
+    headers
   )
 }
 

@@ -2,7 +2,7 @@ import { HardhatRuntimeEnvironment } from "hardhat/types"
 import { DeployFunction } from "hardhat-deploy/types"
 
 const func: DeployFunction = async function transferVendingMachineRoles(
-  hre: HardhatRuntimeEnvironment,
+  hre: HardhatRuntimeEnvironment
 ) {
   const { getNamedAccounts, helpers, deployments } = hre
   const { execute, log } = deployments
@@ -10,31 +10,31 @@ const func: DeployFunction = async function transferVendingMachineRoles(
     await getNamedAccounts()
 
   log(
-    `transferring vendingMachineUpgradeInitiator role to ${keepTechnicalWalletTeam}`,
+    `transferring vendingMachineUpgradeInitiator role to ${keepTechnicalWalletTeam}`
   )
 
   await execute(
     "VendingMachine",
     { from: deployer, log: true, waitConfirmations: 1 },
     "transferVendingMachineUpgradeInitiatorRole",
-    keepTechnicalWalletTeam,
+    keepTechnicalWalletTeam
   )
 
   log(
-    `transferring unmintFeeUpdateInitiator role to ${keepTechnicalWalletTeam}`,
+    `transferring unmintFeeUpdateInitiator role to ${keepTechnicalWalletTeam}`
   )
 
   await execute(
     "VendingMachine",
     { from: deployer, log: true, waitConfirmations: 1 },
     "transferUnmintFeeUpdateInitiatorRole",
-    keepTechnicalWalletTeam,
+    keepTechnicalWalletTeam
   )
 
   await helpers.ownable.transferOwnership(
     "VendingMachine",
     keepCommunityMultiSig,
-    deployer,
+    deployer
   )
 }
 
