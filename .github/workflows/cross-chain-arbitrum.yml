@@ -63,9 +63,7 @@ jobs:
       # L1BTCDepositorWormholeV2 artifact into this package's build directory.
       - name: Build solidity package
         working-directory: ./solidity
-        run: |
-          corepack prepare yarn@4.12.0 --activate
-          yarn install && yarn build
+        run: yarn install && yarn build
 
       - name: Build contracts
         run: yarn build
@@ -103,9 +101,7 @@ jobs:
 
       - name: Build solidity package
         working-directory: ./solidity
-        run: |
-          corepack prepare yarn@4.12.0 --activate
-          yarn install && yarn build
+        run: yarn install && yarn build
 
       - name: Deploy contracts
         run: yarn deploy
@@ -140,9 +136,7 @@ jobs:
 
       - name: Build solidity package
         working-directory: ./solidity
-        run: |
-          corepack prepare yarn@4.12.0 --activate
-          yarn install && yarn build
+        run: yarn install && yarn build
 
       - name: Build
         run: yarn build
