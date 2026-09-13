@@ -3,7 +3,8 @@ import * as path from "path"
 
 import type { Artifact, HardhatRuntimeEnvironment } from "hardhat/types"
 import type { DeployFunction } from "hardhat-deploy/types"
-import { Contract, ContractFactory, providers } from "ethers"
+import { Contract, ContractFactory } from "ethers"
+import normalizeContractCreationTransactions from "../helpers/provider"
 
 // The implementation compiled for the swap. NativeBTCDepositor inherits the
 // patched AbstractL1BTCDepositor base, so its bytecode carries the best-effort
@@ -41,16 +42,7 @@ const CURRENT_IMPLEMENTATION = "0xc3ae0007dd495d3dbe8ad046623c0f9ae5610924"
 const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const { ethers, helpers, deployments, upgrades, artifacts, run } = hre
 
-  // Patch ethers.js v5 Formatter to handle an empty-string `to` field returned
-  // by some RPC providers for contract-creation transactions. Without this
-  // patch, `prepareUpgrade` fails with "invalid address" after the
-  // implementation has already been deployed on-chain. Same pattern used in the
-  // cross-chain Wormhole upgrade scripts and the TIP-109 hotfix deployment.
-  const originalFormat = providers.Formatter.prototype.transactionResponse
-  providers.Formatter.prototype.transactionResponse = function (tx: any): any {
-    const patched = tx.to === "" ? { ...tx, to: null } : tx
-    return originalFormat.call(this, patched)
-  }
+  normalizeContractCreationTransactions(hre.network.provider)
 
   const { deployer } = await helpers.signers.getNamedSigners()
 
@@ -143,7 +135,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   // rail it returns the plugin's manifest-wide default ProxyAdmin rather than
   // the proxy's real administrator, which would target the emitted calldata at
   // the wrong contract.
-  const proxyAdmin: Contract = await ethers.getContractAt(
+  const proxyAdmin = await ethers.getContractAt(
     "ProxyAdmin",
     NATIVE_PROXY_ADMIN
   )
@@ -164,7 +156,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   deployments.log(
     `proxy admin owner ${proxyAdminOwner} is required to upgrade proxy implementation with transaction:\n` +
       `\t\tfrom: ${proxyAdminOwner}\n` +
-      `\t\tto: ${proxyAdmin.address}\n` +
+      `\t\tto: ${proxyAdmin.target}\n` +
       `\t\tdata: ${upgradeTxData}`
   )
 
@@ -182,11 +174,11 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     contract: CONTRACT_NAME,
     proxy: NATIVE_PROXY,
     newImpl: newImplementationAddress,
-    proxyAdmin: proxyAdmin.address,
+    proxyAdmin: proxyAdmin.target,
     proxyAdminOwner,
     upgradeTx: {
       from: proxyAdminOwner,
-      to: proxyAdmin.address,
+      to: proxyAdmin.target,
       data: upgradeTxData,
     },
   }

@@ -76,9 +76,10 @@ jobs:
           node-version: "22.23.1"
           cache-dependency-path: yearn/yarn.lock
 
-      # Below step is a workaround. Eslint executed in `yearn` directory
-      # finds `.prettierrc.js` config in the root directory and fails if
-      # referenced `@keep-network/prettier-config-keep` module is missing.
+      # Below step is a workaround. Eslint executed in `yearn` resolves the root
+      # `.prettierrc.js`, whose `plugins: ["prettier-plugin-sh"]` must be resolvable
+      # from the root install (config/prettier-base.js is repo-local, no install
+      # needed).
       - name: Install dependencies in the root directory
         run: |
           cd ..

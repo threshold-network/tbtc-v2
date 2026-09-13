@@ -26,7 +26,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const { deployer } = await getNamedAccounts()
 
   const repairTarget =
-    process.env.REBATE_STAKING_REPAIR_TARGET ?? ethers.constants.AddressZero
+    process.env.REBATE_STAKING_REPAIR_TARGET ?? ethers.ZeroAddress
 
   const artifactPath = path.resolve(
     __dirname,
@@ -108,13 +108,16 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     }
   )
 
-  const proxyAdmin = await upgrades.admin.getInstance()
+  const proxyAdmin = await ethers.getContractAt(
+    "ProxyAdmin",
+    await (await upgrades.admin.getInstance()).getAddress()
+  )
   const proxyAdminWithUpgrade = await ethers.getContractAt(
     [
       "function owner() view returns (address)",
       "function upgradeAndCall(address proxy, address implementation, bytes data)",
     ],
-    proxyAdmin.address,
+    proxyAdmin.target,
     deployerSigner
   )
   const proxyAdminOwner = await proxyAdminWithUpgrade.owner()
@@ -131,7 +134,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     [repairTarget]
   )
 
-  log(`ProxyAdmin: ${proxyAdmin.address}`)
+  log(`ProxyAdmin: ${proxyAdmin.target}`)
   log(`New implementation: ${implementationDeployment.address}`)
 
   const upgradeTx = await proxyAdminWithUpgrade.upgradeAndCall(

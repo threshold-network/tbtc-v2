@@ -1,16 +1,26 @@
+import { toNumber, toBigInt, BigNumberish, BytesLike } from "ethers"
+import { task, types } from "hardhat/config"
+import type { HardhatRuntimeEnvironment } from "hardhat/types"
+import type { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
+import { requireValue } from "../helpers/require-value"
+import type {
+  TestERC20,
+  Bridge,
+  SortitionPool,
+  WalletRegistry,
+} from "../typechain"
+import type { WalletRegistryGovernance } from "../typechain/external/WalletRegistryGovernance"
+import type { RandomBeaconGovernance } from "../typechain/external/RandomBeaconGovernance"
+import type { RandomBeacon } from "../typechain/external/RandomBeacon"
+import type { TokenStaking } from "../typechain/external/TokenStaking"
 /* eslint-disable no-console */
 /* eslint-disable no-await-in-loop */
 
-import { task, types } from "hardhat/config"
-import type { HardhatRuntimeEnvironment } from "hardhat/types"
-import { BigNumberish, BytesLike } from "ethers"
-import type { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { authorizeApplication, stake } from "../test/integration/utils/staking"
 import {
   performEcdsaDkg,
   registerOperator,
 } from "../test/integration/utils/ecdsa-wallet-registry"
-import type { Bridge, SortitionPool, WalletRegistry } from "../typechain"
 import {
   offchainDkgTime,
   dkgResultChallengePeriodLength,
@@ -25,7 +35,7 @@ import {
 } from "../test/integration/utils/random-beacon"
 
 export type OperatorID = number
-export type Operator = { id: OperatorID; signer: SignerWithAddress }
+export type Operator = { id: OperatorID; signer: HardhatEthersSigner }
 
 task(
   "test-utils:register-operators",
@@ -90,14 +100,18 @@ async function registerOperators(
   const ecdsaSortitionPool = await helpers.contracts.getContract<SortitionPool>(
     "EcdsaSortitionPool"
   )
-  const t = await helpers.contracts.getContract("T")
-  const staking = await helpers.contracts.getContract("TokenStaking")
+  const t = await helpers.contracts.getContract<TestERC20>("T")
+  const staking = await helpers.contracts.getContract<TokenStaking>(
+    "TokenStaking"
+  )
 
   if (await ecdsaSortitionPool.isChaosnetActive()) {
     await ecdsaSortitionPool.connect(chaosnetOwner).deactivateChaosnet()
   }
 
-  const randomBeacon = await helpers.contracts.getContract("RandomBeacon")
+  const randomBeacon = await helpers.contracts.getContract<RandomBeacon>(
+    "RandomBeacon"
+  )
   const beaconSortitionPool =
     await helpers.contracts.getContract<SortitionPool>("BeaconSortitionPool")
 
@@ -139,14 +153,14 @@ async function registerOperators(
     )
     await authorizeApplication(
       staking,
-      walletRegistry.address,
+      walletRegistry.target,
       authorizer,
       stakingProvider.address,
       stakeAmount
     )
     await authorizeApplication(
       staking,
-      randomBeacon.address,
+      randomBeacon.target,
       authorizer,
       stakingProvider.address,
       stakeAmount
@@ -178,13 +192,17 @@ async function createWallet(
   const walletRegistry = await helpers.contracts.getContract<WalletRegistry>(
     "WalletRegistry"
   )
-  const walletRegistryGovernance = await helpers.contracts.getContract(
-    "WalletRegistryGovernance"
+  const walletRegistryGovernance =
+    await helpers.contracts.getContract<WalletRegistryGovernance>(
+      "WalletRegistryGovernance"
+    )
+  const randomBeacon = await helpers.contracts.getContract<RandomBeacon>(
+    "RandomBeacon"
   )
-  const randomBeacon = await helpers.contracts.getContract("RandomBeacon")
-  const randomBeaconGovernance = await helpers.contracts.getContract(
-    "RandomBeaconGovernance"
-  )
+  const randomBeaconGovernance =
+    await helpers.contracts.getContract<RandomBeaconGovernance>(
+      "RandomBeaconGovernance"
+    )
 
   await updateDkgResultChallengePeriodLength(
     hre,
@@ -193,7 +211,10 @@ async function createWallet(
   )
 
   const genesisTx = await randomBeacon.genesis()
-  const genesisBlock = genesisTx.blockNumber
+  const genesisBlock = requireValue(
+    await genesisTx.wait(),
+    "Genesis receipt"
+  ).blockNumber
   const genesisSeed = await getGenesisSeed(hre, genesisBlock)
 
   await helpers.time.mineBlocksTo(genesisBlock + offchainDkgTime + 1)
@@ -225,7 +246,7 @@ async function createWallet(
   await randomBeacon.connect(submitter).approveDkgResult(dkgResult)
 
   const requestNewWalletTx = await bridge.requestNewWallet({
-    txHash: ethers.constants.HashZero,
+    txHash: ethers.ZeroHash,
     txOutputIndex: 0,
     txOutputValue: 0,
   })
@@ -239,13 +260,14 @@ async function createWallet(
   // eslint-disable-next-line no-underscore-dangle
   await walletRegistry
     .connect(governance)
-    .__beaconCallback(ethers.utils.randomBytes(32), 0)
+    .__beaconCallback(ethers.toBigInt(ethers.randomBytes(32)), 0)
 
   await performEcdsaDkg(
     hre,
     walletRegistry,
     walletPublicKey,
-    requestNewWalletTx.blockNumber
+    requireValue(await requestNewWalletTx.wait(), "Wallet creation receipt")
+      .blockNumber
   )
 
   console.log(`Created wallet with public key ${walletPublicKey}`)

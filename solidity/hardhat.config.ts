@@ -6,15 +6,20 @@ import "./tasks"
 
 import "@keep-network/hardhat-helpers"
 import "@keep-network/hardhat-local-networks-config"
-import "@nomiclabs/hardhat-waffle"
-import "@nomiclabs/hardhat-etherscan"
+import "@nomicfoundation/hardhat-ethers"
+import "@nomicfoundation/hardhat-chai-matchers"
+import "@nomicfoundation/hardhat-verify"
 import "hardhat-gas-reporter"
 import "hardhat-contract-sizer"
 import "hardhat-deploy"
-import "@tenderly/hardhat-tenderly"
+import { setup as setupTenderly } from "@tenderly/hardhat-tenderly"
 import "@typechain/hardhat"
+import "./tasks/typechain-external"
 import "hardhat-dependency-compiler"
 import "solidity-docgen"
+
+// Preserve explicit verification in deploy scripts; do not wrap ethers transactions.
+setupTenderly({ automaticVerifications: false })
 
 // Load .env from tbtc-v2/ (parent of solidity/) so CHAIN_API_URL etc. are available
 loadEnv({ path: path.join(__dirname, "..", ".env") })
@@ -103,14 +108,17 @@ const config: HardhatUserConfig = {
       // mock does not move the clock.
       allowBlocksWithSameTimestamp: true,
       blockGasLimit: 30_000_000,
+      // Keep the per-transaction gas estimation used by the ethers v5 signer.
+      gas: "auto",
       forking: {
         // forking is enabled only if FORKING_URL env is provided
         enabled: !!process.env.FORKING_URL,
         // URL should point to a node with archival data (Alchemy recommended)
         url: process.env.FORKING_URL || "",
         // latest block is taken if FORKING_BLOCK env is not provided
-        blockNumber:
-          process.env.FORKING_BLOCK && parseInt(process.env.FORKING_BLOCK, 10),
+        blockNumber: process.env.FORKING_BLOCK
+          ? parseInt(process.env.FORKING_BLOCK, 10)
+          : undefined,
       },
       accounts: {
         // Number of accounts that should be predefined on the testing environment.
@@ -187,9 +195,6 @@ const config: HardhatUserConfig = {
     contracts:
       process.env.USE_EXTERNAL_DEPLOY === "true"
         ? [
-            {
-              artifacts: "node_modules/@keep-network/tbtc/artifacts",
-            },
             {
               artifacts:
                 "node_modules/@threshold-network/solidity-contracts/export/artifacts",
@@ -296,9 +301,8 @@ const config: HardhatUserConfig = {
     keep: true,
   },
   etherscan: {
-    apiKey: {
-      mainnet: process.env.ETHERSCAN_API_KEY,
-    },
+    // A single Etherscan key selects the V2 API for every supported chain.
+    apiKey: process.env.ETHERSCAN_API_KEY || "",
   },
   contractSizer: {
     alphaSort: true,

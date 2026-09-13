@@ -32,7 +32,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   if (hre.network.tags.tenderly) {
     await hre.tenderly.verify({
       name: "RedemptionWatchtower",
-      address: redemptionWatchtower.address,
+      address: await redemptionWatchtower.getAddress(),
     })
   }
 }

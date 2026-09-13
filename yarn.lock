@@ -2,9 +2,6 @@
 # yarn lockfile v1
 
 
-"@keep-network/prettier-config-keep@github:keep-network/prettier-config-keep":
-  version "0.0.1"
-  resolved "https://codeload.github.com/keep-network/prettier-config-keep/tar.gz/d6ec02e80dd76edfba073ca58ef99aee39002c2c"
 
 "@solidity-parser/parser@^0.13.2":
   version "0.13.2"

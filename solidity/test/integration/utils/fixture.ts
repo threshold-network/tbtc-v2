@@ -1,8 +1,10 @@
 /* eslint-disable no-await-in-loop */
 
-import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import { Contract } from "ethers"
 import hre, { deployments, ethers, helpers } from "hardhat"
+import type { TokenStaking } from "../../../typechain/external/TokenStaking"
+import type { TestERC20 } from "../../../typechain"
 import {
   TBTC,
   Bridge,
@@ -11,8 +13,8 @@ import {
   IRandomBeacon,
   WalletRegistry,
   BridgeGovernance,
+  Bank,
 } from "../../../typechain"
-import { Bank } from "../../../typechain/Bank"
 import { registerOperator } from "./ecdsa-wallet-registry"
 import { fakeRandomBeacon } from "./fake-random-beacon"
 import { authorizeApplication, stake } from "./staking"
@@ -30,16 +32,16 @@ const stakeAmount = to1e18(40_000)
 // eslint-disable-next-line import/prefer-default-export
 export const fixture = deployments.createFixture(
   async (): Promise<{
-    deployer: SignerWithAddress
-    governance: SignerWithAddress
-    spvMaintainer: SignerWithAddress
+    deployer: HardhatEthersSigner
+    governance: HardhatEthersSigner
+    spvMaintainer: HardhatEthersSigner
     tbtc: TBTC
     bridge: Bridge
     bridgeGovernance: BridgeGovernance
     bank: Bank
     tbtcVault: TBTCVault
     walletRegistry: WalletRegistry
-    staking: Contract
+    staking: TokenStaking
     randomBeacon: Mock<IRandomBeacon>
     relay: Mock<IRelay>
   }> => {
@@ -58,10 +60,12 @@ export const fixture = deployments.createFixture(
     const walletRegistry = await helpers.contracts.getContract<WalletRegistry>(
       "WalletRegistry"
     )
-    const t = await helpers.contracts.getContract("T")
-    const staking = await helpers.contracts.getContract("TokenStaking")
+    const t = await helpers.contracts.getContract<TestERC20>("T")
+    const staking = await helpers.contracts.getContract<TokenStaking>(
+      "TokenStaking"
+    )
 
-    await tbtc.connect(deployer).transferOwnership(tbtcVault.address)
+    await tbtc.connect(deployer).transferOwnership(tbtcVault.target)
 
     // TODO: INTEGRATE WITH THE REAL BEACON
     const randomBeacon = await fakeRandomBeacon(walletRegistry)
@@ -89,12 +93,13 @@ export const fixture = deployments.createFixture(
     }
 
     for (let i = 0; i < numberOfOperators; i++) {
-      const owner: SignerWithAddress = signers[i]
-      const stakingProvider: SignerWithAddress =
+      const owner: HardhatEthersSigner = signers[i]
+      const stakingProvider: HardhatEthersSigner =
         signers[1 * numberOfOperators + i]
-      const operator: SignerWithAddress = signers[2 * numberOfOperators + i]
-      const beneficiary: SignerWithAddress = signers[3 * numberOfOperators + i]
-      const authorizer: SignerWithAddress = signers[4 * numberOfOperators + i]
+      const operator: HardhatEthersSigner = signers[2 * numberOfOperators + i]
+      const beneficiary: HardhatEthersSigner =
+        signers[3 * numberOfOperators + i]
+      const authorizer: HardhatEthersSigner = signers[4 * numberOfOperators + i]
 
       await stake(
         hre,
@@ -108,7 +113,7 @@ export const fixture = deployments.createFixture(
       )
       await authorizeApplication(
         staking,
-        walletRegistry.address,
+        walletRegistry.target,
         authorizer,
         stakingProvider.address,
         stakeAmount

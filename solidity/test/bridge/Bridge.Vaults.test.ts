@@ -1,20 +1,19 @@
 import { expect } from "chai"
-import { ContractTransaction } from "ethers"
+import { ContractTransactionResponse } from "ethers"
 import { helpers } from "hardhat"
-import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import bridgeFixture from "../fixtures/bridge"
 import type { Bridge, BridgeStub, BridgeGovernance } from "../../typechain"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 
 describe("Bridge - Vaults", () => {
-  let governance: SignerWithAddress
-  let thirdParty: SignerWithAddress
+  let governance: HardhatEthersSigner
+  let thirdParty: HardhatEthersSigner
   let bridge: Bridge & BridgeStub
   let bridgeGovernance: BridgeGovernance
 
   before(async () => {
-    // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({ governance, thirdParty, bridge, bridgeGovernance } =
       await bridgeFixture())
   })
@@ -23,7 +22,6 @@ describe("Bridge - Vaults", () => {
     const vault = "0x2553E09f832c9f5C656808bb7A24793818877732"
 
     it("should not trust a vault by default", async () => {
-      // eslint-disable-next-line @typescript-eslint/no-unused-expressions
       expect(await bridge.isVaultTrusted(vault)).to.be.false
     })
   })
@@ -46,7 +44,7 @@ describe("Bridge - Vaults", () => {
     })
 
     describe("when called by the governance", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       describe("when setting vault status as trusted", () => {
         before(async () => {
@@ -61,7 +59,6 @@ describe("Bridge - Vaults", () => {
         })
 
         it("should correctly update vault status", async () => {
-          // eslint-disable-next-line @typescript-eslint/no-unused-expressions
           expect(await bridge.isVaultTrusted(vault)).to.be.true
         })
 
@@ -86,7 +83,6 @@ describe("Bridge - Vaults", () => {
         })
 
         it("should correctly update vault status", async () => {
-          // eslint-disable-next-line @typescript-eslint/no-unused-expressions
           expect(await bridge.isVaultTrusted(vault)).to.be.false
         })
 

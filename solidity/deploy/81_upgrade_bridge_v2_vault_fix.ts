@@ -106,7 +106,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   log("\nUpgrade completed!")
   log("  New implementation deployed")
   log(`  Bridge proxy: ${proxyDeployment.address}`)
-  log(`  Bridge instance: ${bridge.address}`)
+  log(`  Bridge instance: ${bridge.target}`)
 
   // Verify on Etherscan if on mainnet
   if (hre.network.tags.etherscan) {
@@ -122,7 +122,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     log("\nVerifying on Tenderly...")
     await hre.tenderly.verify({
       name: "Bridge",
-      address: bridge.address,
+      address: await bridge.getAddress(),
     })
   }
 

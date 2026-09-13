@@ -43,7 +43,7 @@ describe("UpgradeNativeBTCDepositorTo968 verification", () => {
     // The explicitly-resolved ProxyAdmin must surface the REAL on-chain admin
     // address and owner so the emitted calldata targets governance correctly.
     const proxyAdminInstance = {
-      address: NATIVE_PROXY_ADMIN,
+      target: NATIVE_PROXY_ADMIN,
       owner: async () => PROXY_ADMIN_OWNER,
       interface: {
         encodeFunctionData: (fragment: string, values: unknown[]) => {
@@ -105,9 +105,12 @@ describe("UpgradeNativeBTCDepositorTo968 verification", () => {
     }
 
     const hre = {
-      ethers: { getContractFactory, getContractAt },
+      ethers: {
+        getContractFactory,
+        getContractAt,
+      },
       helpers: { signers: { getNamedSigners } },
-      network: { name: networkName },
+      network: { name: networkName, provider: { send: async () => null } },
       config: { paths: { root: tmpRoot } },
       deployments: {
         get: getDeployment,
