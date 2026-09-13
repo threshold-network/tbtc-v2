@@ -38,7 +38,7 @@ describe("UpgradeNativeBTCDepositorTo968 verification", () => {
 
     const getNamedSigners = async () => ({ deployer: {} as unknown })
 
-    const getContractFactory = async () => ({} as unknown)
+    const getContractFactory = async () => ({}) as unknown
 
     // The explicitly-resolved ProxyAdmin must surface the REAL on-chain admin
     // address and owner so the emitted calldata targets governance correctly.
@@ -99,7 +99,7 @@ describe("UpgradeNativeBTCDepositorTo968 verification", () => {
     }
 
     const saveDeployment = async () => undefined
-    const readArtifactSync = () => ({ abi: [] } as unknown)
+    const readArtifactSync = () => ({ abi: [] }) as unknown
     const run = async (taskName: string, args: unknown) => {
       verifyCalls.push({ taskName, args })
     }

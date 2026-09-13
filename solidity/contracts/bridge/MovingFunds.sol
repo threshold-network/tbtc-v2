@@ -533,8 +533,8 @@ library MovingFunds {
         uint256 outputsTotalValueRemainder = outputsTotalValue % outputsCount;
         // Compute the minimum allowed output value by dividing the outputs
         // total value (reduced by the remainder) by the number of outputs.
-        uint256 minOutputValue = (outputsTotalValue -
-            outputsTotalValueRemainder) / outputsCount;
+        uint256 minOutputValue =
+            (outputsTotalValue - outputsTotalValueRemainder) / outputsCount;
         // Maximum possible value is the minimum value with the remainder included.
         uint256 maxOutputValue = minOutputValue + outputsTotalValueRemainder;
 

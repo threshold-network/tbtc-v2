@@ -41,7 +41,7 @@ const expectRevertWithCustomError = async (
       error?: { data?: string | { data?: string }; message?: string }
     } | null
     const rawData = err?.error?.data ?? err?.data
-    const data = typeof rawData === "string" ? rawData : rawData?.data ?? ""
+    const data = typeof rawData === "string" ? rawData : (rawData?.data ?? "")
     const message = (err?.error?.message ?? err?.message ?? "").toString()
     const fullErrorStr = `${data} ${message}`
 

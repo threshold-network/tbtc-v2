@@ -47,9 +47,8 @@ describe("NativeBTCDepositor", () => {
     // Attach the tbtcToken mock to the tbtcVault mock.
     await tbtcVault.tbtcToken.returns(tbtcToken.target)
 
-    const reimbursementPool = await createMock<ReimbursementPool>(
-      "ReimbursementPool"
-    )
+    const reimbursementPool =
+      await createMock<ReimbursementPool>("ReimbursementPool")
 
     const deployment = await helpers.upgrades.deployProxy(
       // Hacky workaround allowing to deploy proxy contract any number of times

@@ -100,9 +100,8 @@ const func: DeployFunction = async function deployRebateAndPrepareTxsDeprecated(
       "✓ Using existing RebateStaking at:",
       existingRebateStaking.address
     )
-    rebateStaking = await helpers.contracts.getContract<RebateStaking>(
-      "RebateStaking"
-    )
+    rebateStaking =
+      await helpers.contracts.getContract<RebateStaking>("RebateStaking")
     rebateProxyDeployment = existingRebateStaking
   } catch (error) {
     // Deploy if doesn't exist

@@ -219,10 +219,11 @@ work is the types, and it takes four changes to fix, not one.
 **TypeScript 4.6 could not parse viem's declarations at the time.** The package was pinned at
 `^4.5.4` (the toolchain is pinned to TypeScript `^6.0.3` today, so this specific blocker is retired). viem and `abitype` require `>=5.0.4` and `ox` requires `>=5.4.0`;
 all three use syntax 4.6 rejected outright:
-| `tsc` invocation | before | after adding the plugin |
+
+| `tsc` invocation          | before | after adding the plugin |
 | ------------------------- | ------ | ----------------------- |
-| `-p tsconfig.json` | 40 | **4167** |
-| `-p tsconfig.export.json` | 1 | **4167** |
+| `-p tsconfig.json`        | 40     | **4167**                |
+| `-p tsconfig.export.json` | 1      | **4167**                |
 
 The second matters more than the first: `tsconfig.export.json` excludes
 `./test` but still compiles `hardhat.config.ts`, and it is what `yarn prepack`
@@ -291,10 +292,11 @@ it did not — listing the bump as a viem-only cost. Measured while doing the
 migration: typechain v6 types a contract method as `TypedContractMethod`, and on
 the previously pinned TypeScript 4.6 a conditional type could not resolve against it, so the
 mock helper's whole configuration surface stayed invisible.
-| | errors | `reset` / `returns` / `whenCalledWith` |
+
+|                  | errors | `reset` / `returns` / `whenCalledWith` |
 | ---------------- | ------ | -------------------------------------- |
-| TypeScript 4.6.2 | 2741 | 343 / 228 / 174 |
-| TypeScript 5.9.3 | 1910 | 0 / 0 / 0 |
+| TypeScript 4.6.2 | 2741   | 343 / 228 / 174                        |
+| TypeScript 5.9.3 | 1910   | 0 / 0 / 0                              |
 
 So TypeScript 5 is a shared prerequisite of both paths rather than a
 differentiator. What still separates them is `strict` — viem's contract types

@@ -54,16 +54,13 @@ export const fixture = deployments.createFixture(
     const bridgeGovernance =
       await helpers.contracts.getContract<BridgeGovernance>("BridgeGovernance")
     const bank = await helpers.contracts.getContract<Bank>("Bank")
-    const tbtcVault: TBTCVault = await helpers.contracts.getContract(
-      "TBTCVault"
-    )
-    const walletRegistry = await helpers.contracts.getContract<WalletRegistry>(
-      "WalletRegistry"
-    )
+    const tbtcVault: TBTCVault =
+      await helpers.contracts.getContract("TBTCVault")
+    const walletRegistry =
+      await helpers.contracts.getContract<WalletRegistry>("WalletRegistry")
     const t = await helpers.contracts.getContract<TestERC20>("T")
-    const staking = await helpers.contracts.getContract<TokenStaking>(
-      "TokenStaking"
-    )
+    const staking =
+      await helpers.contracts.getContract<TokenStaking>("TokenStaking")
 
     await tbtc.connect(deployer).transferOwnership(tbtcVault.target)
 

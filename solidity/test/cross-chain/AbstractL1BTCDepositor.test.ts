@@ -106,9 +106,8 @@ describe("AbstractL1BTCDepositor", () => {
     // Attach the tbtcToken mock to the tbtcVault mock.
     await tbtcVault.tbtcToken.returns(tbtcToken.target)
 
-    const reimbursementPool = await createMock<ReimbursementPool>(
-      "ReimbursementPool"
-    )
+    const reimbursementPool =
+      await createMock<ReimbursementPool>("ReimbursementPool")
 
     const depositor = (await (
       await ethers.getContractFactory("TestL1BTCDepositor", deployer)
@@ -665,9 +664,8 @@ describe("AbstractL1BTCDepositor", () => {
 
           depositKey = initializeDepositFixture.depositKey
 
-          const deferredReimbursement = await depositor.gasReimbursements(
-            depositKey
-          )
+          const deferredReimbursement =
+            await depositor.gasReimbursements(depositKey)
           expect(deferredReimbursement.receiver).to.equal(
             reentrantReceiver.target
           )

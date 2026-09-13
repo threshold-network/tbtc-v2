@@ -49,9 +49,8 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
     )
     nttManagerWithExecutor = await MockNttManagerWithExecutorFactory.deploy()
 
-    const MockNttManagerFactory = await ethers.getContractFactory(
-      "MockNttManager"
-    )
+    const MockNttManagerFactory =
+      await ethers.getContractFactory("MockNttManager")
     underlyingNttManager = await MockNttManagerFactory.deploy()
 
     await nttManagerWithExecutor.setSupportedChain(

@@ -52,9 +52,8 @@ describe("L1BTCDepositorNttWithExecutor - hardening", () => {
     )
     nttManagerWithExecutor = await MockNttManagerWithExecutorFactory.deploy()
 
-    const MockNttManagerFactory = await ethers.getContractFactory(
-      "MockNttManager"
-    )
+    const MockNttManagerFactory =
+      await ethers.getContractFactory("MockNttManager")
     underlyingNttManager = await MockNttManagerFactory.deploy()
 
     const TestDepositorFactory = await ethers.getContractFactory(

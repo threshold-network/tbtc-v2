@@ -2030,9 +2030,8 @@ describe("Bridge - Deposit", () => {
                           })
 
                           it("should update main UTXO for the given wallet", async () => {
-                            const { mainUtxoHash } = await bridge.wallets(
-                              walletPubKeyHash
-                            )
+                            const { mainUtxoHash } =
+                              await bridge.wallets(walletPubKeyHash)
 
                             // Amount can be checked by opening the sweep tx in a Bitcoin
                             // testnet explorer. In this case, the sum of inputs is
@@ -2118,9 +2117,8 @@ describe("Bridge - Deposit", () => {
                           })
 
                           it("should update main UTXO for the given wallet", async () => {
-                            const { mainUtxoHash } = await bridge.wallets(
-                              walletPubKeyHash
-                            )
+                            const { mainUtxoHash } =
+                              await bridge.wallets(walletPubKeyHash)
 
                             // Amount can be checked by opening the sweep tx in a Bitcoin
                             // testnet explorer. In this case, the sum of inputs is
@@ -2223,9 +2221,8 @@ describe("Bridge - Deposit", () => {
                           })
 
                           it("should update main UTXO for the given wallet", async () => {
-                            const { mainUtxoHash } = await bridge.wallets(
-                              walletPubKeyHash
-                            )
+                            const { mainUtxoHash } =
+                              await bridge.wallets(walletPubKeyHash)
 
                             // Amount can be checked by opening the sweep tx in a Bitcoin
                             // testnet explorer. In this case, the sum of inputs is
@@ -2413,9 +2410,8 @@ describe("Bridge - Deposit", () => {
                           })
 
                           it("should update main UTXO for the given wallet", async () => {
-                            const { mainUtxoHash } = await bridge.wallets(
-                              walletPubKeyHash
-                            )
+                            const { mainUtxoHash } =
+                              await bridge.wallets(walletPubKeyHash)
 
                             // Amount can be checked by opening the sweep tx in a Bitcoin
                             // testnet explorer. In this case, the sum of inputs is
@@ -2709,9 +2705,8 @@ describe("Bridge - Deposit", () => {
                           })
 
                           it("should update main UTXO for the given wallet", async () => {
-                            const { mainUtxoHash } = await bridge.wallets(
-                              walletPubKeyHash
-                            )
+                            const { mainUtxoHash } =
+                              await bridge.wallets(walletPubKeyHash)
 
                             // Amount can be checked by opening the sweep tx in a Bitcoin
                             // testnet explorer. In this case, the sum of inputs is
@@ -2880,9 +2875,8 @@ describe("Bridge - Deposit", () => {
                           })
 
                           it("should update main UTXO for the given wallet", async () => {
-                            const { mainUtxoHash } = await bridge.wallets(
-                              walletPubKeyHash
-                            )
+                            const { mainUtxoHash } =
+                              await bridge.wallets(walletPubKeyHash)
 
                             // Amount can be checked by opening the sweep tx in a Bitcoin
                             // testnet explorer. In this case, the sum of inputs is
@@ -3074,9 +3068,8 @@ describe("Bridge - Deposit", () => {
                           })
 
                           it("should update main UTXO for the given wallet", async () => {
-                            const { mainUtxoHash } = await bridge.wallets(
-                              walletPubKeyHash
-                            )
+                            const { mainUtxoHash } =
+                              await bridge.wallets(walletPubKeyHash)
 
                             // Amount can be checked by opening the sweep tx in a Bitcoin
                             // testnet explorer. In this case, the sum of inputs is
@@ -3284,9 +3277,8 @@ describe("Bridge - Deposit", () => {
                           })
 
                           it("should update main UTXO for the given wallet", async () => {
-                            const { mainUtxoHash } = await bridge.wallets(
-                              walletPubKeyHash
-                            )
+                            const { mainUtxoHash } =
+                              await bridge.wallets(walletPubKeyHash)
 
                             // Amount can be checked by opening the sweep tx in a Bitcoin
                             // testnet explorer. In this case, the sum of inputs is

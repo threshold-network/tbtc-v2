@@ -94,24 +94,20 @@ async function registerOperators(
 
   const { chaosnetOwner } = await helpers.signers.getNamedSigners()
 
-  const walletRegistry = await helpers.contracts.getContract<WalletRegistry>(
-    "WalletRegistry"
-  )
-  const ecdsaSortitionPool = await helpers.contracts.getContract<SortitionPool>(
-    "EcdsaSortitionPool"
-  )
+  const walletRegistry =
+    await helpers.contracts.getContract<WalletRegistry>("WalletRegistry")
+  const ecdsaSortitionPool =
+    await helpers.contracts.getContract<SortitionPool>("EcdsaSortitionPool")
   const t = await helpers.contracts.getContract<TestERC20>("T")
-  const staking = await helpers.contracts.getContract<TokenStaking>(
-    "TokenStaking"
-  )
+  const staking =
+    await helpers.contracts.getContract<TokenStaking>("TokenStaking")
 
   if (await ecdsaSortitionPool.isChaosnetActive()) {
     await ecdsaSortitionPool.connect(chaosnetOwner).deactivateChaosnet()
   }
 
-  const randomBeacon = await helpers.contracts.getContract<RandomBeacon>(
-    "RandomBeacon"
-  )
+  const randomBeacon =
+    await helpers.contracts.getContract<RandomBeacon>("RandomBeacon")
   const beaconSortitionPool =
     await helpers.contracts.getContract<SortitionPool>("BeaconSortitionPool")
 
@@ -189,16 +185,14 @@ async function createWallet(
   const { governance } = await helpers.signers.getNamedSigners()
 
   const bridge = await helpers.contracts.getContract<Bridge>("Bridge")
-  const walletRegistry = await helpers.contracts.getContract<WalletRegistry>(
-    "WalletRegistry"
-  )
+  const walletRegistry =
+    await helpers.contracts.getContract<WalletRegistry>("WalletRegistry")
   const walletRegistryGovernance =
     await helpers.contracts.getContract<WalletRegistryGovernance>(
       "WalletRegistryGovernance"
     )
-  const randomBeacon = await helpers.contracts.getContract<RandomBeacon>(
-    "RandomBeacon"
-  )
+  const randomBeacon =
+    await helpers.contracts.getContract<RandomBeacon>("RandomBeacon")
   const randomBeaconGovernance =
     await helpers.contracts.getContract<RandomBeaconGovernance>(
       "RandomBeaconGovernance"

@@ -261,9 +261,8 @@ describeFn("Integration Test - Full flow", async () => {
               walletPubKeyHash,
             ]
           )
-          const pendingRedemption = await bridge.pendingRedemptions(
-            redemptionKey
-          )
+          const pendingRedemption =
+            await bridge.pendingRedemptions(redemptionKey)
 
           expect(pendingRedemption.requestedAt).to.be.greaterThan(0)
           expect(pendingRedemption.redeemer).to.be.equal(
@@ -275,9 +274,8 @@ describeFn("Integration Test - Full flow", async () => {
         })
 
         it("should increase the pending redemptions value of the wallet", async () => {
-          const { pendingRedemptionsValue } = await bridge.wallets(
-            walletPubKeyHash
-          )
+          const { pendingRedemptionsValue } =
+            await bridge.wallets(walletPubKeyHash)
           // The expected wallet's pending redemptions value is equal to
           // the redemption amount - treasury fee = 50000 - 25 = 49975
           expect(pendingRedemptionsValue).to.be.equal(49975)
@@ -311,9 +309,8 @@ describeFn("Integration Test - Full flow", async () => {
         })
 
         it("should zero the pending redemptions value of the wallet", async () => {
-          const { pendingRedemptionsValue } = await bridge.wallets(
-            walletPubKeyHash
-          )
+          const { pendingRedemptionsValue } =
+            await bridge.wallets(walletPubKeyHash)
           expect(pendingRedemptionsValue).to.be.equal(0)
         })
 

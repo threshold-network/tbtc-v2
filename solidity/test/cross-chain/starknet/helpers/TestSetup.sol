@@ -26,8 +26,9 @@ contract TestSetup is Test {
     // Test constants
     uint256 public constant INITIAL_FEE = 0.01 ether;
     uint256 public constant TEST_AMOUNT = 1 ether;
-    bytes32 public constant TEST_L2_RECIPIENT =
-        bytes32(uint256(0x0123456789abcdef));
+    bytes32 public constant TEST_L2_RECIPIENT = bytes32(
+        uint256(0x0123456789abcdef)
+    );
 
     // Test data structures
     IBridgeTypes.BitcoinTxInfo public defaultFundingTx;
@@ -138,11 +139,9 @@ contract TestSetup is Test {
         return users;
     }
 
-    function generateTestFundingTx(uint256 seed)
-        public
-        pure
-        returns (IBridgeTypes.BitcoinTxInfo memory)
-    {
+    function generateTestFundingTx(
+        uint256 seed
+    ) public pure returns (IBridgeTypes.BitcoinTxInfo memory) {
         return
             IBridgeTypes.BitcoinTxInfo({
                 version: bytes4(uint32(seed)),
@@ -152,11 +151,10 @@ contract TestSetup is Test {
             });
     }
 
-    function generateTestReveal(address vault, uint256 seed)
-        public
-        pure
-        returns (IBridgeTypes.DepositRevealInfo memory)
-    {
+    function generateTestReveal(
+        address vault,
+        uint256 seed
+    ) public pure returns (IBridgeTypes.DepositRevealInfo memory) {
         return
             IBridgeTypes.DepositRevealInfo({
                 fundingOutputIndex: uint32(seed),
@@ -183,10 +181,9 @@ contract TestSetup is Test {
         string operation;
     }
 
-    function startGasMeasurement(string memory operation)
-        public
-        returns (GasMeasurement memory)
-    {
+    function startGasMeasurement(
+        string memory operation
+    ) public returns (GasMeasurement memory) {
         return
             GasMeasurement({
                 gasStart: gasleft(),
@@ -195,11 +192,9 @@ contract TestSetup is Test {
             });
     }
 
-    function endGasMeasurement(GasMeasurement memory measurement)
-        public
-        view
-        returns (uint256 gasUsed)
-    {
+    function endGasMeasurement(
+        GasMeasurement memory measurement
+    ) public view returns (uint256 gasUsed) {
         gasUsed = measurement.gasStart - gasleft();
         return gasUsed;
     }

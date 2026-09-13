@@ -57,9 +57,8 @@ describe("L1BTCDepositorNtt Utilities and Edge Cases", () => {
     const nttManager = await createMock(
       "contracts/cross-chain/wormhole/L1BTCDepositorNtt.sol:INttManager"
     )
-    const reimbursementPool = await createMock<ReimbursementPool>(
-      "ReimbursementPool"
-    )
+    const reimbursementPool =
+      await createMock<ReimbursementPool>("ReimbursementPool")
 
     const deployment = await helpers.upgrades.deployProxy(
       // Hacky workaround allowing to deploy proxy contract any number of times
@@ -639,9 +638,8 @@ describe("L1BTCDepositorNtt Utilities and Edge Cases", () => {
       )
 
       // Test the encoding/decoding utility functions
-      const decodedChainId = await l1BtcDepositorNtt.decodeDestinationReceiver(
-        baseReceiver
-      )
+      const decodedChainId =
+        await l1BtcDepositorNtt.decodeDestinationReceiver(baseReceiver)
       expect(decodedChainId.chainId).to.equal(WORMHOLE_CHAIN_BASE)
 
       // The default chain should still be the sample destination

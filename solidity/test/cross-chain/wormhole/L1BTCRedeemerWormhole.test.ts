@@ -56,7 +56,7 @@ const expectRevertWithCustomError = async (
       error?: { data?: string | { data?: string }; message?: string }
     } | null
     const rawData = err?.error?.data ?? err?.data
-    const data = typeof rawData === "string" ? rawData : rawData?.data ?? ""
+    const data = typeof rawData === "string" ? rawData : (rawData?.data ?? "")
     const message = (err?.error?.message ?? err?.message ?? "").toString()
     const fullErrorStr = `${data} ${message}`
 
@@ -144,16 +144,14 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
     // Stub contract is used instead of a smock because of the token transfer
     // that needs to happen in completeTransferWithPayload function.
     //
-    const WormholeBridgeStubFactory = await ethers.getContractFactory(
-      "WormholeBridgeStub"
-    )
+    const WormholeBridgeStubFactory =
+      await ethers.getContractFactory("WormholeBridgeStub")
     const _wormholeBridgeStub = await WormholeBridgeStubFactory.deploy(
       _wormholeTbtc.target
     )
     await _wormholeBridgeStub.waitForDeployment()
-    const MockTBTCBridgeFactory = await ethers.getContractFactory(
-      "MockTBTCBridge"
-    )
+    const MockTBTCBridgeFactory =
+      await ethers.getContractFactory("MockTBTCBridge")
     const _bridge = (await MockTBTCBridgeFactory.deploy()) as MockTBTCBridge
     await _bridge.waitForDeployment()
 
@@ -178,9 +176,8 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
     const _wormholeTokenBridge = await createMock<IWormholeTokenBridge>(
       "IWormholeTokenBridge"
     )
-    const _reimbursementPool = await createMock<ReimbursementPool>(
-      "ReimbursementPool"
-    )
+    const _reimbursementPool =
+      await createMock<ReimbursementPool>("ReimbursementPool")
 
     // Deploy MockL1BTCRedeemerWormhole
     const l1BtcRedeemerWormholeDeployment = await helpers.upgrades.deployProxy(
@@ -1980,9 +1977,8 @@ describe("L1BTCRedeemerWormhole (using real contract)", () => {
     await _tbtcToken.waitForDeployment()
     await _tbtcVault.getFunction("setTbtcToken")(_tbtcToken.target)
 
-    const MockTBTCBridgeFactory = await ethers.getContractFactory(
-      "MockTBTCBridge"
-    )
+    const MockTBTCBridgeFactory =
+      await ethers.getContractFactory("MockTBTCBridge")
     const _bridge = (await MockTBTCBridgeFactory.deploy()) as MockTBTCBridge
     await _bridge.waitForDeployment()
 

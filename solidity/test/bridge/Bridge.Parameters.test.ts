@@ -478,9 +478,7 @@ describe("Bridge - Parameters", () => {
             await bridgeGovernance
               .connect(governance)
               .beginRedemptionDustThresholdUpdate(
-                (
-                  await bridge.movingFundsParameters()
-                ).movingFundsDustThreshold
+                (await bridge.movingFundsParameters()).movingFundsDustThreshold
               )
 
             await helpers.time.increaseTime(constants.governanceDelay)
@@ -1157,9 +1155,7 @@ describe("Bridge - Parameters", () => {
             await bridgeGovernance
               .connect(governance)
               .beginMovingFundsDustThresholdUpdate(
-                (
-                  await bridge.redemptionParameters()
-                ).redemptionDustThreshold
+                (await bridge.redemptionParameters()).redemptionDustThreshold
               )
 
             await helpers.time.increaseTime(constants.governanceDelay)

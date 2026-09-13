@@ -83,9 +83,8 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
     nttManagerWithExecutor = await MockNttManagerWithExecutorFactory.deploy()
 
     // Deploy mock NTT manager for underlying manager
-    const MockNttManagerFactory = await ethers.getContractFactory(
-      "MockNttManager"
-    )
+    const MockNttManagerFactory =
+      await ethers.getContractFactory("MockNttManager")
     underlyingNttManager = await MockNttManagerFactory.deploy()
 
     // Set up mock NTT manager to support our test chains

@@ -113,8 +113,8 @@ export type Mock<T> = {
   [K in keyof T]: T[K] extends { staticCall: (...args: never[]) => unknown }
     ? T[K] & MockedFunction
     : T[K] extends (...args: never[]) => unknown
-    ? T[K] & MockedFunction
-    : T[K]
+      ? T[K] & MockedFunction
+      : T[K]
 } & {
   address: string
   /** Signer that sends from the mock's own address, as smock's `fake.wallet` did. */

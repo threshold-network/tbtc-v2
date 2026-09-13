@@ -191,9 +191,7 @@ describe("StarkNetBitcoinDepositor", () => {
         .withArgs(
           fixture.expectedDepositKey,
           l2DepositOwner,
-          (
-            await ethers.getSigners()
-          )[0].address
+          (await ethers.getSigners())[0].address
         )
 
       await expect(tx)
