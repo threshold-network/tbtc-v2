@@ -20,7 +20,7 @@ import { DeployFunction } from "hardhat-deploy/types"
 import fs from "fs"
 import path from "path"
 
-const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
+const func: DeployFunction = async function upgradeBridgeRepairRebateStakingDeprecated(hre: HardhatRuntimeEnvironment) {
   const { ethers, deployments, getNamedAccounts, upgrades } = hre
   const { get, log } = deployments
   const { deployer } = await getNamedAccounts()

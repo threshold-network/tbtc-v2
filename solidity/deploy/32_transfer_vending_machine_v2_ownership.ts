@@ -1,7 +1,7 @@
 import { HardhatRuntimeEnvironment } from "hardhat/types"
 import { DeployFunction } from "hardhat-deploy/types"
 
-const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
+const func: DeployFunction = async function transferVendingMachineV2Ownership(hre: HardhatRuntimeEnvironment) {
   const { getNamedAccounts, helpers } = hre
   const { deployer, v1Redeemer } = await getNamedAccounts()
 

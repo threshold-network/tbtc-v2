@@ -1,7 +1,7 @@
 import { HardhatRuntimeEnvironment } from "hardhat/types"
 import { DeployFunction } from "hardhat-deploy/types"
 
-const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
+const func: DeployFunction = async function deployRedemptionWatchtower(hre: HardhatRuntimeEnvironment) {
   const { deployments, ethers, helpers, getNamedAccounts } = hre
   const { deployer } = await getNamedAccounts()
 

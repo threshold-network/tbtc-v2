@@ -3,7 +3,7 @@ import { DeployFunction } from "hardhat-deploy/types"
 import fs from "fs"
 import path from "path"
 
-const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
+const func: DeployFunction = async function verifyRebateDeployment(hre: HardhatRuntimeEnvironment) {
   if (hre.network.name !== "hardhat") {
     throw new Error(
       "DEPRECATED: This script is replaced by 85_deploy_tip109_governance_upgrade.ts",

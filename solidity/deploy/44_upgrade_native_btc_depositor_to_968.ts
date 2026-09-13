@@ -39,7 +39,7 @@ const NATIVE_PROXY_ADMIN = "0x92FcBD0b9D22bd2659c09A9aCD6E645F228b9A21"
 // test, which invokes `func` without a live chain.
 const CURRENT_IMPLEMENTATION = "0xc3ae0007dd495d3dbe8ad046623c0f9ae5610924"
 
-const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
+const func: DeployFunction = async function upgradeNativeBTCDepositorTo968(hre: HardhatRuntimeEnvironment) {
   const { ethers, helpers, deployments, upgrades, artifacts, run } = hre
 
   normalizeContractCreationTransactions(hre.network.provider)

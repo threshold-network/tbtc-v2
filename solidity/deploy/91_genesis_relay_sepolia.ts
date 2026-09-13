@@ -10,7 +10,7 @@ import { DeployFunction } from "hardhat-deploy/types"
  * - Height: 0 (epoch boundary)
  * - genesisProofLength: 4 for testnet
  */
-const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
+const func: DeployFunction = async function genesisLightRelaySepolia(hre: HardhatRuntimeEnvironment) {
   const { deployments } = hre
   const { execute, read } = deployments
 
