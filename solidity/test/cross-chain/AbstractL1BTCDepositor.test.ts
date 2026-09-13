@@ -2,6 +2,9 @@ import {
   toBigInt,
   ContractTransactionResponse,
   ContractTransactionReceipt,
+  Contract,
+  AbiCoder,
+  ZeroAddress,
 } from "ethers"
 import { ethers, getUnnamedAccounts, helpers } from "hardhat"
 import { expect } from "chai"
@@ -10,6 +13,7 @@ import { requireValue } from "../../helpers/require-value"
 import type {
   GasBurningReceiver,
   ReentrantRefundReceiver,
+  ReentrantReimbursementReceiver,
 } from "../../typechain"
 import { loadFixture } from "../helpers/fixture"
 import {
@@ -610,6 +614,117 @@ describe("AbstractL1BTCDepositor", () => {
         ).to.be.revertedWith("Wrong deposit state")
       })
     })
+
+    context(
+      "when the deferred reimbursement receiver attempts reentrancy",
+      () => {
+        const gasPrice = ethers.parseUnits("1", "gwei")
+
+        let realReimbursementPool: ReimbursementPool
+        let reentrantReceiver: ReentrantReimbursementReceiver
+        let depositKey: string
+        let tx: ContractTransactionResponse
+        let receipt: ContractTransactionReceipt
+
+        before(async () => {
+          await createSnapshot()
+
+          const [funder] = await ethers.getSigners()
+
+          realReimbursementPool = (await (
+            await ethers.getContractFactory("ReimbursementPool")
+          ).deploy(10000, gasPrice)) as ReimbursementPool
+          await realReimbursementPool.authorize(depositor.target)
+          await funder.sendTransaction({
+            to: realReimbursementPool.target,
+            value: ethers.parseEther("1"),
+          })
+
+          // Reenters `finalizeDeposit` for the same deposit from its
+          // `receive` function, once it is paid its deferred refund.
+          reentrantReceiver = await (
+            await ethers.getContractFactory("ReentrantReimbursementReceiver")
+          ).deploy()
+
+          await depositor
+            .connect(governance)
+            .updateReimbursementPool(realReimbursementPool.target)
+          await depositor
+            .connect(governance)
+            .updateReimbursementAuthorization(relayer.address, true)
+          await depositor
+            .connect(governance)
+            .updateReimbursementAuthorization(reentrantReceiver.target, true)
+
+          await reentrantReceiver.callInitializeDeposit(
+            depositor.target,
+            initializeDepositFixture.fundingTx,
+            initializeDepositFixture.reveal,
+            initializeDepositFixture.destinationChainDepositOwner
+          )
+
+          depositKey = initializeDepositFixture.depositKey
+
+          const deferredReimbursement = await depositor.gasReimbursements(
+            depositKey
+          )
+          expect(deferredReimbursement.receiver).to.equal(
+            reentrantReceiver.target
+          )
+          expect(deferredReimbursement.gasSpent).to.be.gt(0)
+
+          // The reentrant call needs a deposit key to attack; it is only
+          // known once `initializeDeposit` has actually run.
+          await reentrantReceiver.setAttackDepositKey(depositKey)
+
+          await allowFinalization()
+
+          tx = await depositor
+            .connect(relayer)
+            .finalizeDeposit(depositKey, { gasPrice })
+          const receiptResult = await tx.wait()
+          receipt = requireValue(receiptResult, "Transaction receipt")
+        })
+
+        after(async () => {
+          await resetFakes()
+
+          await restoreSnapshot()
+        })
+
+        it("should attempt the reentrant call into finalizeDeposit", async () => {
+          expect(await reentrantReceiver.attackAttempted()).to.be.true
+        })
+
+        it("should reject the reentrant call with the deposit state guard", async () => {
+          expect(await reentrantReceiver.attackSucceeded()).to.be.false
+
+          const revertData: string = await reentrantReceiver.lastRevertData()
+          const revertReason = AbiCoder.defaultAbiCoder().decode(
+            ["string"],
+            `0x${revertData.slice(10)}`
+          )[0]
+          expect(revertReason).to.equal("Wrong deposit state")
+        })
+
+        it("should not revert the outer finalization despite the reentrancy attempt", async () => {
+          expect(receipt.status).to.equal(1)
+          await expect(tx).to.emit(depositor, "DepositFinalized")
+        })
+
+        it("should leave the deposit finalized and the reimbursement paid exactly once", async () => {
+          expect(await depositor.deposits(depositKey)).to.equal(2) // Finalized
+
+          const gasReimbursement = await depositor.gasReimbursements(depositKey)
+          expect(gasReimbursement.receiver).to.equal(ZeroAddress)
+          expect(gasReimbursement.gasSpent).to.equal(0)
+
+          expect(
+            await ethers.provider.getBalance(reentrantReceiver.target)
+          ).to.be.gt(0)
+        })
+      }
+    )
 
     context("when the reimbursement pool is not set", () => {
       before(async () => {

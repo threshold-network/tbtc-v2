@@ -303,7 +303,9 @@ function logVerificationChecks(checks: VerificationCheck[]): void {
   console.log(`\n${"=".repeat(80)}`)
 }
 
-const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
+const func: DeployFunction = async function deployTip109GovernanceUpgrade(
+  hre: HardhatRuntimeEnvironment
+) {
   const { deployments, getNamedAccounts } = hre
   const { deploy, get } = deployments
   const { deployer } = await getNamedAccounts()
