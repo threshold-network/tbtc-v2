@@ -693,12 +693,10 @@ describe("AbstractL1BTCDepositor", () => {
         })
 
         it("should attempt the reentrant call into finalizeDeposit", async () => {
-          // eslint-disable-next-line @typescript-eslint/no-unused-expressions
           expect(await reentrantReceiver.attackAttempted()).to.be.true
         })
 
         it("should reject the reentrant call with the deposit state guard", async () => {
-          // eslint-disable-next-line @typescript-eslint/no-unused-expressions
           expect(await reentrantReceiver.attackSucceeded()).to.be.false
 
           const revertData: string = await reentrantReceiver.lastRevertData()
