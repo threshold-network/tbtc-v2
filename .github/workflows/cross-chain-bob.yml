@@ -1,5 +1,17 @@
 name: Cross-chain BOB
 
+# BOB CCIP support is deprecated (see cross-chain/bob/README.md); the six
+# CCIP pool deploy/configuration scripts (deploy_l1/00-02 and deploy_l2/03-05)
+# are permanently skipped -- test/DeprecatedBobCcipDeployScripts.test.ts is
+# what proves all six skip unconditionally. This workflow is kept running as
+# a deliberate choice: contracts-build-and-test and the deploy_l2 portion of
+# contracts-deployment-dry-run still exercise the frozen contracts on every
+# trigger, and contracts-slither/contracts-format keep static analysis
+# current on code that still holds live user funds on-chain -- but only on
+# push/pull_request, not on the daily cron (both gate on
+# github.event_name == 'push' || path-filter == 'true', which schedule never
+# satisfies). Revisit only once BOB liquidity is fully drained and the CCIP
+# chain config has been removed on-chain.
 on:
   schedule:
     - cron: "0 0 * * *"
