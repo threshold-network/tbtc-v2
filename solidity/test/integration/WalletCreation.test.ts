@@ -1,10 +1,10 @@
-/* eslint-disable @typescript-eslint/no-extra-semi */
-import hre, { ethers, waffle } from "hardhat"
+import hre, { ethers } from "hardhat"
 import { expect } from "chai"
 
-import type { FakeContract } from "@defi-wonderland/smock"
-import type { ContractTransaction } from "ethers"
-import type { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
+import type { ContractTransactionResponse } from "ethers"
+import type { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
+import { requireValue } from "../../helpers/require-value"
+import type { Mock } from "../helpers/mock"
 import type { Bridge, IRandomBeacon, WalletRegistry } from "../../typechain"
 
 import {
@@ -30,8 +30,8 @@ const describeFn =
 describeFn("Integration Test - Wallet Creation", async () => {
   let bridge: Bridge
   let walletRegistry: WalletRegistry
-  let randomBeacon: FakeContract<IRandomBeacon>
-  let governance: SignerWithAddress
+  let randomBeacon: Mock<IRandomBeacon>
+  let governance: HardhatEthersSigner
 
   const dkgResultChallengePeriodLength = 10
 
@@ -41,8 +41,7 @@ describeFn("Integration Test - Wallet Creation", async () => {
   const walletPubKeyHash = ecdsaWalletTestData.pubKeyHash160
 
   before(async () => {
-    ;({ governance, bridge, walletRegistry, randomBeacon } =
-      await waffle.loadFixture(fixture))
+    ;({ governance, bridge, walletRegistry, randomBeacon } = await fixture())
 
     // Update only the parameters that are crucial for this test.
     await updateWalletRegistryDkgResultChallengePeriodLength(
@@ -54,16 +53,26 @@ describeFn("Integration Test - Wallet Creation", async () => {
   })
 
   describe("new wallet creation (happy path)", async () => {
-    let requestNewWalletTx: ContractTransaction
-    let walletRegistrationTx: ContractTransaction
+    let requestNewWalletTx: ContractTransactionResponse
+    let walletRegistrationTx: ContractTransactionResponse
 
     before(async () => {
       expect(await bridge.activeWalletPubKeyHash()).to.be.equal(
-        ethers.constants.AddressZero
+        ethers.ZeroAddress
       )
 
+      // `requestNewWallet` reaches the beacon, and this suite asserts on the
+      // gas it costs. Recording a call SSTOREs its calldata, which smock did
+      // not have to pay for, so leaving it on measures the mock rather than
+      // the Bridge — it is worth ~130k here. Nothing below inspects the
+      // beacon's calls.
+      await randomBeacon.setRecording(false)
+
       requestNewWalletTx = await bridge.requestNewWallet(NO_MAIN_UTXO)
-      const startBlock = requestNewWalletTx.blockNumber
+      const startBlock = requireValue(
+        await requestNewWalletTx.wait(),
+        "Wallet creation receipt"
+      ).blockNumber
 
       await produceRelayEntry(walletRegistry, randomBeacon)
       ;({ approveDkgResultTx: walletRegistrationTx } = await performEcdsaDkg(
@@ -73,11 +82,13 @@ describeFn("Integration Test - Wallet Creation", async () => {
         startBlock
       ))
 
-      await walletRegistrationTx.wait()
+      requireValue(
+        await walletRegistrationTx.wait(),
+        "Wallet registration receipt"
+      )
     })
 
     it("should register a new wallet in the WalletRegistry", async () => {
-      // eslint-disable-next-line @typescript-eslint/no-unused-expressions
       expect(await walletRegistry.isWalletRegistered(walletID)).to.be.true
     })
 
@@ -91,12 +102,14 @@ describeFn("Integration Test - Wallet Creation", async () => {
       expect(storedWallet.state).to.be.equal(walletState.Live)
 
       expect(storedWallet.createdAt).to.be.equal(
-        (
+        requireValue(
           await ethers.provider.getBlock(
-            (
-              await walletRegistrationTx.wait()
+            requireValue(
+              await walletRegistrationTx.wait(),
+              "Wallet registration receipt"
             ).blockNumber
-          )
+          ),
+          "Block"
         ).timestamp
       )
     })
@@ -107,8 +120,14 @@ describeFn("Integration Test - Wallet Creation", async () => {
       )
     })
 
-    it("should consume around 94 000 gas for Bridge.requestNewWallet transaction", async () => {
-      await assertGasUsed(requestNewWalletTx, 94_000)
+    it("should consume around 107 000 gas for Bridge.requestNewWallet transaction", async () => {
+      // Was 94 000 while the beacon was a smock fake, which cost nothing to
+      // call. It is a `MockContract` now, so the dispatch through its fallback
+      // is real work: ~13k with recording already switched off above. The
+      // remaining budget still guards the Bridge against a regression of more
+      // than the usual 1000, it is just measured from a higher floor. In
+      // production the beacon is a real contract and costs more than either.
+      await assertGasUsed(requestNewWalletTx, 107_000)
     })
 
     it("should consume around 341 000 gas for WalletRegistry.approveDkgResult transaction", async () => {

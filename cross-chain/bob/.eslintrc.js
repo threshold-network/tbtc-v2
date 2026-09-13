@@ -1,15 +1,13 @@
+const base = require("../../config/eslint-base")
+
 module.exports = {
-  extends: ["eslint-config-keep"],
-  root: true,
-  parser: "@typescript-eslint/parser",
-  plugins: ["@typescript-eslint"],
+  ...base,
   rules: {
-    "valid-jsdoc": [
+    ...base.rules,
+    "new-cap": [
       "error",
       {
-        prefer: { return: "returns" },
-        requireParamType: false,
-        requireReturnType: false,
+        capIsNewExceptions: ["BN"],
       },
     ],
   },

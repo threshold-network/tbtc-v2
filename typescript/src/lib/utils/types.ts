@@ -1,5 +1,5 @@
 import { BitcoinUtxo } from "../../lib/bitcoin"
-import { BigNumber } from "ethers"
+import { BigNumber } from "@ethersproject/bignumber"
 import { Hex } from "./hex"
 
 export interface RedemptionWallet {

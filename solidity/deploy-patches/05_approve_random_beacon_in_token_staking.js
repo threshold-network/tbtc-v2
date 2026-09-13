@@ -14,9 +14,11 @@ const func = async function (hre) {
 
   const RandomBeacon = await deployments.get("RandomBeacon")
   const TokenStaking = await deployments.get("TokenStaking")
-  const iface = new ethers.utils.Interface(TokenStaking.abi)
+  const iface = new ethers.Interface(TokenStaking.abi)
   try {
-    iface.getFunction("approveApplication")
+    if (!iface.getFunction("approveApplication")) {
+      throw new Error("approveApplication is not present in this ABI")
+    }
   } catch {
     log(
       "TokenStaking does not have approveApplication (Threshold TokenStaking); skipping"

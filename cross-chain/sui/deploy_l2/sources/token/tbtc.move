@@ -39,7 +39,7 @@ module l2_tbtc::TBTC {
     }
 
     /// A certificate proving an address is a minter
-    public struct MinterCap has key, store {
+    public struct MinterCap has key {
         id: UID,
         minter: address,
     }
@@ -145,8 +145,10 @@ module l2_tbtc::TBTC {
 
         vector::remove(&mut state.minters, index);
 
-        // Note: We cannot delete the MinterCap that was previously transferred,
-        // but it will no longer be valid as we've removed the minter from the state
+        // Note: This removes the minter from TokenState bookkeeping but does
+        // not destroy any previously issued MinterCap. Live minting still
+        // requires the TreasuryCap, and governance can stop gateway minting by
+        // pausing the gateway/token path.
 
         event::emit(MinterRemoved { minter });
     }
@@ -238,17 +240,15 @@ module l2_tbtc::TBTC {
     /// ctx - Transaction context
     /// Emits TokensMinted event
     public entry fun mint(
-        _: &MinterCap,
+        minter_cap: &MinterCap,
         treasury_cap: &mut TreasuryCap<TBTC>,
         state: &TokenState,
         amount: u64,
         recipient: address,
         ctx: &mut TxContext,
     ) {
-        // Only check that the contract is not paused
-        // The MinterCap is sufficient authorization
+        assert!(is_minter(state, minter_cap.minter), E_NOT_IN_MINTERS_LIST);
         assert!(!state.paused, E_PAUSED);
-
         let minted_coin = coin::mint(treasury_cap, amount, ctx);
         let minted_amount = coin::value(&minted_coin);
         transfer::public_transfer(minted_coin, recipient);

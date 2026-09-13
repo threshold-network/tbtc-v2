@@ -22,9 +22,9 @@ contract SystemTestRelay is IRelay {
         prevEpochDifficulty = _difficulty;
     }
 
-    function setCurrentEpochDifficultyFromHeaders(bytes memory bitcoinHeaders)
-        external
-    {
+    function setCurrentEpochDifficultyFromHeaders(
+        bytes memory bitcoinHeaders
+    ) external {
         uint256 firstHeaderDiff = bitcoinHeaders
             .extractTarget()
             .calculateDifficulty();
@@ -32,9 +32,9 @@ contract SystemTestRelay is IRelay {
         currentEpochDifficulty = firstHeaderDiff;
     }
 
-    function setPrevEpochDifficultyFromHeaders(bytes memory bitcoinHeaders)
-        external
-    {
+    function setPrevEpochDifficultyFromHeaders(
+        bytes memory bitcoinHeaders
+    ) external {
         uint256 firstHeaderDiff = bitcoinHeaders
             .extractTarget()
             .calculateDifficulty();

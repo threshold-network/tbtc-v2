@@ -14,7 +14,7 @@ import {
 import { EthereumAddress, packRevealDepositParameters } from "../ethereum"
 import { Hex } from "../utils"
 import { BitcoinRawTxVectors } from "../bitcoin"
-import { TransactionReceipt } from "@ethersproject/providers"
+import { TransactionReceipt } from "@ethersproject/abstract-provider"
 
 import ArbitrumL2BitcoinDepositorDeployment from "./artifacts/arbitrumOne/ArbitrumL2BitcoinDepositor.json"
 import ArbitrumSepoliaL2BitcoinDepositorDeployment from "./artifacts/arbitrumSepolia/ArbitrumL2BitcoinDepositor.json"

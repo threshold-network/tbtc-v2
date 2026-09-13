@@ -301,10 +301,9 @@ contract L1BTCDepositorWormholeV2Base is
     ///      - Can be called only by the contract owner,
     ///      - The address must not be set yet,
     ///      - The new address must not be 0x0.
-    function attachL2BitcoinDepositor(address _l2BitcoinDepositor)
-        external
-        onlyOwner
-    {
+    function attachL2BitcoinDepositor(
+        address _l2BitcoinDepositor
+    ) external onlyOwner {
         require(
             l2BitcoinDepositor == address(0),
             "L2 Bitcoin Depositor already set"
@@ -321,10 +320,9 @@ contract L1BTCDepositorWormholeV2Base is
     /// @param _l2FinalizeDepositGasLimit New gas limit.
     /// @dev Requirements:
     ///      - Can be called only by the contract owner.
-    function updateL2FinalizeDepositGasLimit(uint256 _l2FinalizeDepositGasLimit)
-        external
-        onlyOwner
-    {
+    function updateL2FinalizeDepositGasLimit(
+        uint256 _l2FinalizeDepositGasLimit
+    ) external onlyOwner {
         l2FinalizeDepositGasLimit = _l2FinalizeDepositGasLimit;
         emit L2FinalizeDepositGasLimitUpdated(_l2FinalizeDepositGasLimit);
     }
@@ -385,8 +383,8 @@ contract L1BTCDepositorWormholeV2Base is
             address(reimbursementPool) != address(0) &&
             reimbursementAuthorizations[msg.sender]
         ) {
-            uint256 gasSpent = (gasStart - gasleft()) +
-                initializeDepositGasOffset;
+            uint256 gasSpent =
+                (gasStart - gasleft()) + initializeDepositGasOffset;
 
             // Should not happen as long as initializeDepositGasOffset is
             // set to a reasonable value. If it happens, it's better to
@@ -460,26 +458,44 @@ contract L1BTCDepositorWormholeV2Base is
             tbtcAmount
         );
 
+        // Following the checks-effects-interactions pattern, the deferred
+        // gas reimbursement is read and deleted from storage before the
+        // external `_transferTbtc` call. The actual reimbursement payout
+        // happens after that call, as the last step of the deposit
+        // finalization.
+        // slither-disable-next-line uninitialized-local
+        GasReimbursement memory reimbursement;
+        if (address(reimbursementPool) != address(0)) {
+            reimbursement = gasReimbursements[depositKey];
+
+            if (reimbursement.receiver != address(0)) {
+                // slither-disable-next-line reentrancy-benign
+                delete gasReimbursements[depositKey];
+            }
+        }
+
         _transferTbtc(tbtcAmount, destinationChainDepositOwner);
 
         // `ReimbursementPool` calls the untrusted receiver address using a
         // low-level call. Reentrancy risk is mitigated by making sure that
-        // `ReimbursementPool.refund` is a non-reentrant function and executing
-        // reimbursements as the last step of the deposit finalization.
+        // `ReimbursementPool.refund` is a non-reentrant function, by deleting
+        // the deferred reimbursement from storage before the external
+        // `_transferTbtc` call (checks-effects-interactions), and by
+        // executing reimbursements as the last step of the deposit
+        // finalization.
         if (address(reimbursementPool) != address(0)) {
-            GasReimbursement memory reimbursement = gasReimbursements[
-                depositKey
-            ];
-            if (reimbursement.receiver != address(0)) {
-                // slither-disable-next-line reentrancy-benign
-                delete gasReimbursements[depositKey];
-
-                reimbursementPool.refund(
-                    reimbursement.gasSpent,
-                    reimbursement.receiver
-                );
-            }
-
+            // Calculate and pay the finalization reimbursement before calling
+            // the untrusted initialization reimbursement receiver. Otherwise,
+            // gas consumed by that receiver would be reimbursed a second time.
+            //
+            // Two consequences of this order worth knowing:
+            // - The deferred call's own execution cost (previously inside
+            //   the finalizer's gas window) is no longer reimbursed to
+            //   anyone; `finalizeDepositGasOffset` may need retuning to
+            //   account for it.
+            // - If `reimbursementPool`'s balance cannot cover both refunds,
+            //   the finalizer now has first claim on it; the deferred
+            //   receiver absorbs the shortfall instead.
             if (reimbursementAuthorizations[msg.sender]) {
                 uint256 msgValueOffset = _refundToGasSpent(msg.value);
                 reimbursementPool.refund(
@@ -488,6 +504,22 @@ contract L1BTCDepositorWormholeV2Base is
                         finalizeDepositGasOffset,
                     msg.sender
                 );
+            }
+
+            if (reimbursement.receiver != address(0)) {
+                // Best-effort: a deferred receiver that cannot be
+                // reimbursed within the gas stipend must not block this
+                // deposit's finalization for everyone.
+                /* solhint-disable avoid-low-level-calls */
+                // slither-disable-next-line unchecked-lowlevel,low-level-calls
+                address(reimbursementPool).call{gas: 2_000_000}(
+                    abi.encodeWithSelector(
+                        reimbursementPool.refund.selector,
+                        reimbursement.gasSpent,
+                        reimbursement.receiver
+                    )
+                );
+                /* solhint-enable avoid-low-level-calls */
             }
         }
     }
@@ -512,17 +544,14 @@ contract L1BTCDepositorWormholeV2Base is
     ///         on WEI value, such a value must be first converted to gas spent.
     /// @param refund Refund value in WEI.
     /// @return Refund value as gas spent.
-    function _refundToGasSpent(uint256 refund)
-        internal
-        virtual
-        returns (uint256)
-    {
+    function _refundToGasSpent(
+        uint256 refund
+    ) internal virtual returns (uint256) {
         uint256 maxGasPrice = reimbursementPool.maxGasPrice();
         uint256 staticGas = reimbursementPool.staticGas();
 
-        uint256 gasPrice = tx.gasprice < maxGasPrice
-            ? tx.gasprice
-            : maxGasPrice;
+        uint256 gasPrice =
+            tx.gasprice < maxGasPrice ? tx.gasprice : maxGasPrice;
 
         if (gasPrice == 0) {
             return 0;

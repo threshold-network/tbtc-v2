@@ -1,6 +1,7 @@
 import { expect } from "chai"
 import { loadStarkNetCrossChainContracts } from "../../../src/lib/starknet"
 import { L2Chain } from "../../../src/lib/contracts"
+import { createMockProvider } from "./test-helpers"
 
 describe("StarkNet Module Integration", () => {
   describe("SDK exports", () => {
@@ -39,7 +40,10 @@ describe("StarkNet Module Integration", () => {
     it("should support StarkNet in cross-chain contract loading", async () => {
       // Test that we can load StarkNet contracts
       const walletAddress = "0x1234567890abcdef1234567890abcdef12345678"
-      const contracts = await loadStarkNetCrossChainContracts(walletAddress)
+      const contracts = await loadStarkNetCrossChainContracts(
+        walletAddress,
+        createMockProvider()
+      )
 
       expect(contracts).to.have.property("destinationChainBitcoinDepositor")
       expect(contracts).to.have.property("destinationChainTbtcToken")

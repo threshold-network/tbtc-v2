@@ -1,0 +1,15 @@
+{
+  "defaultConfig": {
+    "gasPrice": 10000000000,
+    "tags": ["home-default-tag"],
+    "deploy": ["home-default-deploy"]
+  },
+  "networks": {
+    "sepolia": {
+      "gasPrice": 15000000000,
+      "tags": ["home-sepolia-tag"],
+      "deploy": ["home-sepolia-deploy"],
+      "from": "0xhomefrom"
+    }
+  }
+}

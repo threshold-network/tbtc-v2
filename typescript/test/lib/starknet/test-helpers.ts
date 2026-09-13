@@ -21,6 +21,7 @@ export const STARKNET_ERROR_MESSAGES = {
   INVALID_ADDRESS_FORMAT: "Invalid StarkNet address format",
   ADDRESS_EXCEEDS_FIELD_SIZE:
     "StarkNet address exceeds maximum field element size",
+  ADDRESS_EXCEEDS_FIELD_PRIME: "StarkNet address exceeds field prime range",
 }
 
 /**
@@ -33,7 +34,8 @@ export const TEST_ADDRESSES = {
     "0xabcdef",
     "0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7",
   ],
-  maxFieldElement: "0x" + "f".repeat(63),
+  maxFieldElement:
+    "0x0800000000000011000000000000000000000000000000000000000000000000",
   tooLong: "0x" + "f".repeat(65),
   invalid: [
     "xyz123", // Invalid hex
@@ -119,7 +121,7 @@ export async function testInvalidAddresses(
 export function createMockProvider(): any {
   return {
     // Mock Provider methods
-    getChainId: () => Promise.resolve("SN_MAIN"),
+    getChainId: () => Promise.resolve("SN_SEPOLIA"),
     callContract: () => Promise.resolve({ result: ["0x123"] }),
     getBalance: () => Promise.resolve({ balance: 1000n }),
 
@@ -141,7 +143,7 @@ export function createMockStarkNetProvider(): any {
   const sinon = require("sinon")
   return {
     // Mock Provider methods as stubs
-    getChainId: sinon.stub().resolves("SN_MAIN"),
+    getChainId: sinon.stub().resolves("SN_SEPOLIA"),
     callContract: sinon.stub().resolves({ result: ["0x123"] }),
     getBalance: sinon.stub().resolves({ balance: 1000n }),
     getTransactionReceipt: sinon.stub().resolves({ status: "ACCEPTED" }),

@@ -3,7 +3,8 @@ import path from "path"
 import https from "https"
 import { HardhatRuntimeEnvironment } from "hardhat/types"
 import { DeployFunction, DeployOptions } from "hardhat-deploy/types"
-import { providers, utils } from "ethers"
+import { ethers as utils } from "ethers"
+import normalizeContractCreationTransactions from "../helpers/provider"
 
 import {
   EIP_1967_ADMIN_SLOT,
@@ -86,21 +87,15 @@ async function etherscanVerifyV2(
   })
 }
 
-const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
+const func: DeployFunction = async function deployTip109Hotfix(
+  hre: HardhatRuntimeEnvironment
+) {
   const { deployments, getNamedAccounts, artifacts } = hre
   const { deploy, get, save } = deployments
   const { deployer } = await getNamedAccounts()
   const { ethers } = hre
 
-  // Patch ethers.js v5 Formatter to handle empty-string `to` field returned
-  // by some RPC providers for contract-creation transactions. Without this
-  // patch, hardhat-deploy fails with "invalid address" on deploy receipts.
-  // Same pattern used in cross-chain Wormhole V2 upgrade scripts.
-  const originalFormat = providers.Formatter.prototype.transactionResponse
-  providers.Formatter.prototype.transactionResponse = function (tx: any): any {
-    const patched = tx.to === "" ? { ...tx, to: null } : tx
-    return originalFormat.call(this, patched)
-  }
+  normalizeContractCreationTransactions(hre.network.provider)
 
   const deployOptions: DeployOptions = {
     from: deployer,
@@ -202,11 +197,11 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 
   // --- Step 7: Discover ProxyAdmin and generate calldata ---
   console.log("\n--- Discovering ProxyAdmin ---")
-  const adminData = await ethers.provider.getStorageAt(
+  const adminData = await ethers.provider.getStorage(
     Bridge.address,
     EIP_1967_ADMIN_SLOT
   )
-  const proxyAdminAddress = ethers.utils.getAddress(`0x${adminData.slice(26)}`)
+  const proxyAdminAddress = ethers.getAddress(`0x${adminData.slice(26)}`)
   console.log(`  ProxyAdmin: ${proxyAdminAddress}`)
 
   if (proxyAdminAddress.toLowerCase() !== KNOWN_PROXY_ADMIN.toLowerCase()) {
@@ -362,7 +357,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
           },
         ]
 
-        // eslint-disable-next-line no-restricted-syntax, no-await-in-loop
+        // eslint-disable-next-line no-restricted-syntax
         for (const contract of contractsToVerify) {
           console.log(`Verifying ${contract.label} at ${contract.address}...`)
           try {
