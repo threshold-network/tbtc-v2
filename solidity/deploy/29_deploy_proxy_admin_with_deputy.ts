@@ -14,14 +14,14 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
       args: [dao, esdm],
       log: true,
       waitConfirmations: 1,
-    }
+    },
   )
 
   const Bridge = await deployments.get("Bridge")
 
   const proxyAdmin = (await ethers.getContractAt(
     "ProxyAdmin",
-    await (await upgrades.admin.getInstance()).getAddress()
+    await (await upgrades.admin.getInstance()).getAddress(),
   )) as unknown as ProxyAdmin
 
   await proxyAdmin

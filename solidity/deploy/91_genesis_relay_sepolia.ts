@@ -17,7 +17,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const alreadyReady = (await read("LightRelay", "ready")) as boolean
   if (alreadyReady) {
     deployments.log(
-      "LightRelay genesis already performed (ready=true); skipping genesis()"
+      "LightRelay genesis already performed (ready=true); skipping genesis()",
     )
     return
   }
@@ -40,7 +40,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     "genesis",
     genesisHeader,
     genesisHeight,
-    genesisProofLength
+    genesisProofLength,
   )
 }
 

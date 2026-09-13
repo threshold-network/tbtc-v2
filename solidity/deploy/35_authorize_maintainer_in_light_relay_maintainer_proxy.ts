@@ -8,14 +8,14 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const { deployer } = await getNamedAccounts()
 
   const relayMaintainerMainnet = ethers.getAddress(
-    "0xCb6Ed7E78d27FDff28127F9CbD61d861F09a2324"
+    "0xCb6Ed7E78d27FDff28127F9CbD61d861F09a2324",
   )
 
   await execute(
     "LightRelayMaintainerProxy",
     { from: deployer, log: true, waitConfirmations: 1 },
     "authorize",
-    relayMaintainerMainnet
+    relayMaintainerMainnet,
   )
 }
 

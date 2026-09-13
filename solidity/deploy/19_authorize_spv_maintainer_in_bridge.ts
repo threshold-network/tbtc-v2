@@ -2,7 +2,7 @@ import { HardhatRuntimeEnvironment } from "hardhat/types"
 import { DeployFunction } from "hardhat-deploy/types"
 
 const func: DeployFunction = async function runDeployment(
-  hre: HardhatRuntimeEnvironment
+  hre: HardhatRuntimeEnvironment,
 ) {
   const { getNamedAccounts, deployments } = hre
   const { execute } = deployments
@@ -13,7 +13,7 @@ const func: DeployFunction = async function runDeployment(
     { from: deployer, log: true, waitConfirmations: 1 },
     "setSpvMaintainerStatus",
     spvMaintainer,
-    true
+    true,
   )
 }
 

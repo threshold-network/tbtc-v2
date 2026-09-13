@@ -100,7 +100,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
           args: [],
         },
       },
-    }
+    },
   )
 
   log("\nUpgrade completed!")

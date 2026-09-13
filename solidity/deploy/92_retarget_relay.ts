@@ -105,7 +105,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     "LightRelay",
     { from: deployer, log: true, waitConfirmations: 1 },
     "retarget",
-    headers
+    headers,
   )
 }
 

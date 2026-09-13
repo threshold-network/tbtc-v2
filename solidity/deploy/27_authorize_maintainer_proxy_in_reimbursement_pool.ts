@@ -12,7 +12,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     "ReimbursementPool",
     { from: governance, log: true, waitConfirmations: 1 },
     "authorize",
-    MaintainerProxy.address
+    MaintainerProxy.address,
   )
 }
 

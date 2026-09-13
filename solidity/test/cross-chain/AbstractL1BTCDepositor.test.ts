@@ -2,6 +2,9 @@ import {
   toBigInt,
   ContractTransactionResponse,
   ContractTransactionReceipt,
+  Contract,
+  AbiCoder,
+  ZeroAddress,
 } from "ethers"
 import { ethers, getUnnamedAccounts, helpers } from "hardhat"
 import { expect } from "chai"
@@ -10,6 +13,7 @@ import { requireValue } from "../../helpers/require-value"
 import type {
   GasBurningReceiver,
   ReentrantRefundReceiver,
+  ReentrantReimbursementReceiver,
 } from "../../typechain"
 import { loadFixture } from "../helpers/fixture"
 import {
@@ -614,13 +618,13 @@ describe("AbstractL1BTCDepositor", () => {
     context(
       "when the deferred reimbursement receiver attempts reentrancy",
       () => {
-        const gasPrice = ethers.utils.parseUnits("1", "gwei")
+        const gasPrice = ethers.parseUnits("1", "gwei")
 
         let realReimbursementPool: ReimbursementPool
-        let reentrantReceiver: Contract
+        let reentrantReceiver: ReentrantReimbursementReceiver
         let depositKey: string
-        let tx: ContractTransaction
-        let receipt: ContractReceipt
+        let tx: ContractTransactionResponse
+        let receipt: ContractTransactionReceipt
 
         before(async () => {
           await createSnapshot()
@@ -630,10 +634,10 @@ describe("AbstractL1BTCDepositor", () => {
           realReimbursementPool = (await (
             await ethers.getContractFactory("ReimbursementPool")
           ).deploy(10000, gasPrice)) as ReimbursementPool
-          await realReimbursementPool.authorize(depositor.address)
+          await realReimbursementPool.authorize(depositor.target)
           await funder.sendTransaction({
-            to: realReimbursementPool.address,
-            value: ethers.utils.parseEther("1"),
+            to: realReimbursementPool.target,
+            value: ethers.parseEther("1"),
           })
 
           // Reenters `finalizeDeposit` for the same deposit from its
@@ -644,16 +648,16 @@ describe("AbstractL1BTCDepositor", () => {
 
           await depositor
             .connect(governance)
-            .updateReimbursementPool(realReimbursementPool.address)
+            .updateReimbursementPool(realReimbursementPool.target)
           await depositor
             .connect(governance)
             .updateReimbursementAuthorization(relayer.address, true)
           await depositor
             .connect(governance)
-            .updateReimbursementAuthorization(reentrantReceiver.address, true)
+            .updateReimbursementAuthorization(reentrantReceiver.target, true)
 
           await reentrantReceiver.callInitializeDeposit(
-            depositor.address,
+            depositor.target,
             initializeDepositFixture.fundingTx,
             initializeDepositFixture.reveal,
             initializeDepositFixture.destinationChainDepositOwner
@@ -665,7 +669,7 @@ describe("AbstractL1BTCDepositor", () => {
             depositKey
           )
           expect(deferredReimbursement.receiver).to.equal(
-            reentrantReceiver.address
+            reentrantReceiver.target
           )
           expect(deferredReimbursement.gasSpent).to.be.gt(0)
 
@@ -678,7 +682,8 @@ describe("AbstractL1BTCDepositor", () => {
           tx = await depositor
             .connect(relayer)
             .finalizeDeposit(depositKey, { gasPrice })
-          receipt = await tx.wait()
+          const receiptResult = await tx.wait()
+          receipt = requireValue(receiptResult, "Transaction receipt")
         })
 
         after(async () => {
@@ -697,7 +702,7 @@ describe("AbstractL1BTCDepositor", () => {
           expect(await reentrantReceiver.attackSucceeded()).to.be.false
 
           const revertData: string = await reentrantReceiver.lastRevertData()
-          const revertReason = ethers.utils.defaultAbiCoder.decode(
+          const revertReason = AbiCoder.defaultAbiCoder().decode(
             ["string"],
             `0x${revertData.slice(10)}`
           )[0]
@@ -714,12 +719,12 @@ describe("AbstractL1BTCDepositor", () => {
 
           const gasReimbursement = await depositor.gasReimbursements(depositKey)
           expect(gasReimbursement.receiver).to.equal(
-            ethers.constants.AddressZero
+            ZeroAddress
           )
           expect(gasReimbursement.gasSpent).to.equal(0)
 
           expect(
-            await ethers.provider.getBalance(reentrantReceiver.address)
+            await ethers.provider.getBalance(reentrantReceiver.target)
           ).to.be.gt(0)
         })
       }

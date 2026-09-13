@@ -32,7 +32,7 @@ async function queryEventsInChunks(
   contract: BaseContract,
   filter: DeferredTopicFilter,
   fromBlock: number,
-  toBlock: number
+  toBlock: number,
 ): Promise<EventLog[]> {
   const events: EventLog[] = []
   for (
@@ -45,7 +45,7 @@ async function queryEventsInChunks(
     const chunkEvents = await contract.queryFilter(
       filter,
       chunkStart,
-      Math.min(chunkStart + EVENT_QUERY_CHUNK_BLOCKS - 1, toBlock)
+      Math.min(chunkStart + EVENT_QUERY_CHUNK_BLOCKS - 1, toBlock),
     )
     chunkEvents.forEach((event) => {
       if (!("args" in event)) {
@@ -71,7 +71,7 @@ interface DepositRevealAheadPeriodGovernanceActions {
 
 export function buildDepositRevealAheadPeriodGovernanceActions(
   bridgeGovernance: string,
-  governanceDelay: bigint
+  governanceDelay: bigint,
 ): DepositRevealAheadPeriodGovernanceActions {
   return {
     begin: {
@@ -79,7 +79,7 @@ export function buildDepositRevealAheadPeriodGovernanceActions(
       value: "0",
       data: bridgeGovernanceInterface.encodeFunctionData(
         "beginDepositRevealAheadPeriodUpdate",
-        [DEPOSIT_REVEAL_AHEAD_PERIOD]
+        [DEPOSIT_REVEAL_AHEAD_PERIOD],
       ),
       description: `Begin the Bridge deposit reveal-ahead period update to ${(
         DEPOSIT_REVEAL_AHEAD_PERIOD / BigInt(86400)
@@ -89,7 +89,7 @@ export function buildDepositRevealAheadPeriodGovernanceActions(
       to: bridgeGovernance,
       value: "0",
       data: bridgeGovernanceInterface.encodeFunctionData(
-        "finalizeDepositRevealAheadPeriodUpdate"
+        "finalizeDepositRevealAheadPeriodUpdate",
       ),
       executeAfterSeconds: governanceDelay.toString(),
       description: `Finalize the Bridge deposit reveal-ahead period update after the governance delay (${governanceDelay.toString()} seconds after the begin transaction is mined; the delay is re-read on-chain at execution)`,
@@ -126,31 +126,31 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
       bridgeGovernanceDeployment.address.toLowerCase()
   ) {
     const currentDepositRevealAheadPeriod = toBigInt(
-      depositParameters.depositRevealAheadPeriod
+      depositParameters.depositRevealAheadPeriod,
     )
 
     if (currentDepositRevealAheadPeriod === DEPOSIT_REVEAL_AHEAD_PERIOD) {
       log(
         "deposit reveal-ahead period is already finalized at 150 days; " +
-          "no governance transaction is required"
+          "no governance transaction is required",
       )
       return
     }
 
     // hardhat-deploy decodes uint256 values as ethers v5 BigNumber objects.
     const governanceDelay = toBigInt(
-      (await read("BridgeGovernance", "governanceDelays", 0)).toString()
+      (await read("BridgeGovernance", "governanceDelays", 0)).toString(),
     )
     const bridgeGovernanceContract = await ethers.getContractAt(
       "BridgeGovernance",
-      bridgeGovernanceDeployment.address
+      bridgeGovernanceDeployment.address,
     )
     const latestBlock = await ethers.provider.getBlockNumber()
     // Externally-deployed artifacts lack a receipt; FALLBACK_LOOKBACK_BLOCKS is the operative safety net in that case.
     const fromBlock = Math.max(
       bridgeGovernanceDeployment.receipt?.blockNumber ?? 0,
       latestBlock - FALLBACK_LOOKBACK_BLOCKS,
-      0
+      0,
     )
     const filterStarted =
       bridgeGovernanceContract.filters.DepositRevealAheadPeriodUpdateStarted()
@@ -160,13 +160,13 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
       bridgeGovernanceContract,
       filterStarted,
       fromBlock,
-      latestBlock
+      latestBlock,
     )
     const logsUpdated = await queryEventsInChunks(
       bridgeGovernanceContract,
       filterUpdated,
       fromBlock,
-      latestBlock
+      latestBlock,
     )
 
     const lastStarted = logsStarted[logsStarted.length - 1]
@@ -183,19 +183,19 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
       const timestamp = lastStarted.args[1]
       const eta = toBigInt(timestamp) + governanceDelay
       log(
-        `Pending deposit reveal-ahead period update: new value ${newPeriod}, start timestamp ${timestamp}, ETA ${eta}`
+        `Pending deposit reveal-ahead period update: new value ${newPeriod}, start timestamp ${timestamp}, ETA ${eta}`,
       )
       const warning = !(toBigInt(newPeriod) === DEPOSIT_REVEAL_AHEAD_PERIOD)
         ? ` (pending value ${newPeriod.toString()} does not match target ${DEPOSIT_REVEAL_AHEAD_PERIOD.toString()})`
         : ""
       throw new Error(
-        `Deposit reveal-ahead period update is already pending${warning}`
+        `Deposit reveal-ahead period update is already pending${warning}`,
       )
     }
 
     const governanceActions = buildDepositRevealAheadPeriodGovernanceActions(
       bridgeGovernanceDeployment.address,
-      governanceDelay
+      governanceDelay,
     )
 
     log("Bridge governance rollout required before releasing the SDK:")
@@ -204,7 +204,7 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
     throw new Error(
       `Deposit reveal-ahead period is ${currentDepositRevealAheadPeriod.toString()} ` +
         `seconds; governance must finalize ${DEPOSIT_REVEAL_AHEAD_PERIOD.toString()} ` +
-        "seconds before releasing the 180-day SDK locktime"
+        "seconds before releasing the 180-day SDK locktime",
     )
   }
 
@@ -213,7 +213,7 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
     throw new Error("Named account 'deployer' is not configured")
   } else if (bridgeGovernance.toLowerCase() !== deployer.toLowerCase()) {
     throw new Error(
-      `Bridge is governed by unexpected address ${bridgeGovernance}, expected deployer ${deployer}`
+      `Bridge is governed by unexpected address ${bridgeGovernance}, expected deployer ${deployer}`,
     )
   }
 
@@ -225,7 +225,7 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
     depositParameters.depositDustThreshold,
     depositTreasuryFeeDivisor,
     depositParameters.depositTxMaxFee,
-    DEPOSIT_REVEAL_AHEAD_PERIOD
+    DEPOSIT_REVEAL_AHEAD_PERIOD,
   )
 }
 

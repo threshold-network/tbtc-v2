@@ -13,7 +13,7 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
   // fraudChallengeDepositAmount governance parameter. This parameter is uint96.
   // The maximum value for the uint96 is 2^96-1 = 79228162514264337593543950335.
   const fraudChallengeDepositAmount = ethers.toBigInt(
-    "79228162514264337593543950335"
+    "79228162514264337593543950335",
   )
 
   // To emphasize the fact that frauds are disabled, we set:
@@ -31,7 +31,7 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
     fraudChallengeDepositAmount,
     fraudChallengeDefeatTimeout,
     fraudSlashingAmount,
-    fraudNotifierRewardMultiplier
+    fraudNotifierRewardMultiplier,
   )
 }
 

@@ -35,7 +35,7 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
     redemptionParameters.redemptionTxMaxTotalFee,
     redemptionTimeout,
     redemptionTimeoutSlashingAmount,
-    redemptionTimeoutNotifierRewardMultiplier
+    redemptionTimeoutNotifierRewardMultiplier,
   )
 }
 

@@ -7,14 +7,14 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const { governance } = await getNamedAccounts()
 
   const LightRelayMaintainerProxy = await deployments.get(
-    "LightRelayMaintainerProxy"
+    "LightRelayMaintainerProxy",
   )
 
   await execute(
     "ReimbursementPool",
     { from: governance, log: true, waitConfirmations: 1 },
     "authorize",
-    LightRelayMaintainerProxy.address
+    LightRelayMaintainerProxy.address,
   )
 }
 

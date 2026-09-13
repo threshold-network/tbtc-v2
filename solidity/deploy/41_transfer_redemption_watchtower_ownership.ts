@@ -8,7 +8,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   await helpers.ownable.transferOwnership(
     "RedemptionWatchtower",
     governance,
-    deployer
+    deployer,
   )
 }
 

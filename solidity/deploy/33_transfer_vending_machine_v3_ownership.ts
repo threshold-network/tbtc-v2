@@ -8,7 +8,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   await helpers.ownable.transferOwnership(
     "VendingMachineV3",
     governance,
-    deployer
+    deployer,
   )
 }
 

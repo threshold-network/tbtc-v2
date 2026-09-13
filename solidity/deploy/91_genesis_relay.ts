@@ -21,7 +21,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     "genesis",
     genesisHeader,
     genesisHeight,
-    genesisProofLength
+    genesisProofLength,
   )
 }
 

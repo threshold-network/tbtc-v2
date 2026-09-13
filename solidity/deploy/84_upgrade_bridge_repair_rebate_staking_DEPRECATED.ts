@@ -30,7 +30,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 
   const artifactPath = path.resolve(
     __dirname,
-    `../../typescript/src/lib/ethereum/artifacts/${hre.network.name}/Bridge.json`
+    `../../typescript/src/lib/ethereum/artifacts/${hre.network.name}/Bridge.json`,
   )
   const bridgeArtifact = JSON.parse(fs.readFileSync(artifactPath, "utf8")) as {
     address: string
@@ -39,7 +39,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 
   const resolveAddress = async (
     deploymentName: string,
-    fallbackAddress?: string
+    fallbackAddress?: string,
   ): Promise<string> => {
     try {
       const deployment = await get(deploymentName)
@@ -63,17 +63,17 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     Deposit: await resolveAddress("Deposit", bridgeArtifact.libraries?.Deposit),
     DepositSweep: await resolveAddress(
       "DepositSweep",
-      bridgeArtifact.libraries?.DepositSweep
+      bridgeArtifact.libraries?.DepositSweep,
     ),
     Redemption: await resolveAddress(
       "Redemption",
-      bridgeArtifact.libraries?.Redemption
+      bridgeArtifact.libraries?.Redemption,
     ),
     Wallets: await resolveAddress("Wallets", bridgeArtifact.libraries?.Wallets),
     Fraud: await resolveAddress("Fraud", bridgeArtifact.libraries?.Fraud),
     MovingFunds: await resolveAddress(
       "MovingFunds",
-      bridgeArtifact.libraries?.MovingFunds
+      bridgeArtifact.libraries?.MovingFunds,
     ),
   }
 
@@ -105,12 +105,12 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
       waitConfirmations: 1,
       skipIfAlreadyDeployed: false,
       libraries: bridgeLibraries,
-    }
+    },
   )
 
   const proxyAdmin = await ethers.getContractAt(
     "ProxyAdmin",
-    await (await upgrades.admin.getInstance()).getAddress()
+    await (await upgrades.admin.getInstance()).getAddress(),
   )
   const proxyAdminWithUpgrade = await ethers.getContractAt(
     [
@@ -118,20 +118,20 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
       "function upgradeAndCall(address proxy, address implementation, bytes data)",
     ],
     proxyAdmin.target,
-    deployerSigner
+    deployerSigner,
   )
   const proxyAdminOwner = await proxyAdminWithUpgrade.owner()
   const deployerAddress = await deployerSigner.getAddress()
 
   if (proxyAdminOwner.toLowerCase() !== deployerAddress.toLowerCase()) {
     throw new Error(
-      `Deployer ${deployerAddress} is not ProxyAdmin owner ${proxyAdminOwner}`
+      `Deployer ${deployerAddress} is not ProxyAdmin owner ${proxyAdminOwner}`,
     )
   }
 
   const initializationData = bridgeFactory.interface.encodeFunctionData(
     "initializeV5_RepairRebateStaking",
-    [repairTarget]
+    [repairTarget],
   )
 
   log(`ProxyAdmin: ${proxyAdmin.target}`)
@@ -140,7 +140,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const upgradeTx = await proxyAdminWithUpgrade.upgradeAndCall(
     bridgeAddress,
     implementationDeployment.address,
-    initializationData
+    initializationData,
   )
   log(`Upgrade tx: ${upgradeTx.hash}`)
   await upgradeTx.wait(1)

@@ -29,7 +29,7 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
     walletParameters.walletClosureMinBtcBalance,
     walletParameters.walletMaxAge,
     walletParameters.walletMaxBtcTransfer,
-    walletParameters.walletClosingPeriod
+    walletParameters.walletClosingPeriod,
   )
 }
 

@@ -6,7 +6,7 @@ import path from "path"
 const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   if (hre.network.name !== "hardhat") {
     throw new Error(
-      "DEPRECATED: This script is replaced by 85_deploy_tip109_governance_upgrade.ts"
+      "DEPRECATED: This script is replaced by 85_deploy_tip109_governance_upgrade.ts",
     )
   }
 
@@ -19,7 +19,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   // Step 1: Find the most recent deployment summary
   const deploymentsDir = path.join(
     __dirname,
-    `../deployments/${hre.network.name}`
+    `../deployments/${hre.network.name}`,
   )
   const files = fs.readdirSync(deploymentsDir)
   const rebateDeployments = files
@@ -54,10 +54,10 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc"
   const implementationData = await ethers.provider.getStorage(
     Bridge.address,
-    implementationSlot
+    implementationSlot,
   )
   const currentImplementation = ethers.getAddress(
-    `0x${implementationData.slice(26)}`
+    `0x${implementationData.slice(26)}`,
   )
 
   // Check if upgraded to our implementation
@@ -73,7 +73,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     console.log("   Current implementation: ", currentImplementation)
     console.log(
       "   Expected implementation:",
-      summary.deployedContracts.bridgeImplementation
+      summary.deployedContracts.bridgeImplementation,
     )
     console.log("\n   Waiting for ProxyAdmin owner to execute:")
     console.log("   To:  ", summary.requiredActions.proxyAdminOwner.to)
@@ -90,7 +90,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     rebateStakingAddress = await bridgeContract.getRebateStaking()
   } catch (error) {
     console.log(
-      "⚠️  Cannot read RebateStaking from Bridge (upgrade may be pending)"
+      "⚠️  Cannot read RebateStaking from Bridge (upgrade may be pending)",
     )
   }
 
@@ -103,7 +103,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     console.log("⚠️  RebateStaking has NOT been set in Bridge yet")
     console.log(
       "   Expected RebateStaking:",
-      summary.deployedContracts.rebateStaking
+      summary.deployedContracts.rebateStaking,
     )
 
     // Check if there's a pending governance action
@@ -117,7 +117,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     try {
       const bridgeGovernance = await ethers.getContractAt(
         bridgeGovernanceABI,
-        bridgeGovernanceAddress
+        bridgeGovernanceAddress,
       )
 
       const updatesCount: bigint =
@@ -128,7 +128,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
       if (updatesCount > 0) {
         // Check the latest update
         const latestUpdate = await bridgeGovernance.governanceUpdates(
-          updatesCount - BigInt(1)
+          updatesCount - BigInt(1),
         )
         const timelockTimestamp = ethers.toNumber(latestUpdate.timelock)
         const currentTimestamp = Math.floor(Date.now() / 1000)
@@ -142,13 +142,13 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
           console.log(`      Time remaining: ${hours}h ${minutes}m`)
           console.log(
             `      Executable at: ${new Date(
-              timelockTimestamp * 1000
-            ).toISOString()}`
+              timelockTimestamp * 1000,
+            ).toISOString()}`,
           )
         } else {
           console.log("   ✅ Governance action is ready to execute!")
           console.log(
-            "      Call finalizeGovernanceUpdate() on BridgeGovernance"
+            "      Call finalizeGovernanceUpdate() on BridgeGovernance",
           )
         }
       } else {
@@ -162,7 +162,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   } else {
     console.log(
       "⚠️  Unexpected RebateStaking address in Bridge:",
-      rebateStakingAddress
+      rebateStakingAddress,
     )
     console.log("   Expected:", summary.deployedContracts.rebateStaking)
   }
@@ -181,7 +181,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 
     const rebateStaking = await ethers.getContractAt(
       rebateStakingABI,
-      summary.deployedContracts.rebateStaking
+      summary.deployedContracts.rebateStaking,
     )
 
     const bridge = await rebateStaking.bridge()
@@ -193,7 +193,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     console.log("✅ RebateStaking contract is deployed and configured:")
     console.log(
       "   Address:          ",
-      summary.deployedContracts.rebateStaking
+      summary.deployedContracts.rebateStaking,
     )
     console.log("   Bridge:           ", bridge)
     console.log("   Token:            ", token)
@@ -202,19 +202,19 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
       rollingWindow.toString(),
       "seconds (",
       (rollingWindow / BigInt(86400)).toString(),
-      "days)"
+      "days)",
     )
     console.log(
       "   Unstaking period: ",
       unstakingPeriod.toString(),
       "seconds (",
       (unstakingPeriod / BigInt(86400)).toString(),
-      "days)"
+      "days)",
     )
     console.log(
       "   Rebate per token: ",
       rebatePerToken.toString(),
-      "(0.001 BTC per 100,000 T)"
+      "(0.001 BTC per 100,000 T)",
     )
   } catch (error) {
     console.log("❌ Could not verify RebateStaking contract")

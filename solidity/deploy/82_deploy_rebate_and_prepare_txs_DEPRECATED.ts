@@ -24,7 +24,7 @@ import type { RebateStaking } from "../typechain"
 const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   if (hre.network.name !== "hardhat") {
     throw new Error(
-      "DEPRECATED: This script is replaced by 85_deploy_tip109_governance_upgrade.ts"
+      "DEPRECATED: This script is replaced by 85_deploy_tip109_governance_upgrade.ts",
     )
   }
 
@@ -45,7 +45,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     console.log("✓ Using existing Bridge at:", Bridge.address)
     console.log(
       "✓ Using existing BridgeGovernance at:",
-      BridgeGovernance.address
+      BridgeGovernance.address,
     )
   } catch (error) {
     console.log("❌ Error: Missing required mainnet deployments!")
@@ -96,11 +96,10 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     const existingRebateStaking = await deployments.get("RebateStaking")
     console.log(
       "✓ Using existing RebateStaking at:",
-      existingRebateStaking.address
+      existingRebateStaking.address,
     )
-    rebateStaking = await helpers.contracts.getContract<RebateStaking>(
-      "RebateStaking"
-    )
+    rebateStaking =
+      await helpers.contracts.getContract<RebateStaking>("RebateStaking")
     rebateProxyDeployment = existingRebateStaking
   } catch (error) {
     // Deploy if doesn't exist
@@ -125,7 +124,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     rebateProxyDeployment = deployedRebateProxy
     console.log(
       "✓ RebateStaking deployed at:",
-      await rebateStaking.getAddress()
+      await rebateStaking.getAddress(),
     )
   }
 
@@ -179,7 +178,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 
   console.log(
     "✓ Bridge implementation deployed at:",
-    bridgeImplementation.target
+    bridgeImplementation.target,
   )
 
   // Step 5: Find ProxyAdmin address
@@ -192,7 +191,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   try {
     const ozNetworkFile = path.join(
       __dirname,
-      `../.openzeppelin/${hre.network.name}.json`
+      `../.openzeppelin/${hre.network.name}.json`,
     )
 
     if (fs.existsSync(ozNetworkFile)) {
@@ -211,7 +210,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
       "0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103"
     const adminData = await ethers.provider.getStorage(
       Bridge.address,
-      adminSlot
+      adminSlot,
     )
     proxyAdminAddress = ethers.getAddress(`0x${adminData.slice(26)}`)
   }
@@ -246,13 +245,13 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const bridgeInterface = new ethers.Interface(bridgeABI)
   const setRebateStakingCalldata = bridgeInterface.encodeFunctionData(
     "setRebateStaking",
-    [await rebateStaking.getAddress()]
+    [await rebateStaking.getAddress()],
   )
 
   // Prepare governance proposal
   const functionSelector = requireValue(
     bridgeInterface.getFunction("setRebateStaking"),
-    "setRebateStaking ABI fragment"
+    "setRebateStaking ABI fragment",
   ).selector
   const governanceCalldata = bridgeGovernanceInterface.encodeFunctionData(
     "beginGovernanceUpdate",
@@ -261,7 +260,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
       [Bridge.address], // targets
       [0], // values
       [setRebateStakingCalldata], // calldatas
-    ]
+    ],
   )
 
   // Step 7: Save deployment summary
@@ -324,7 +323,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 
   const summaryPath = path.join(
     summaryDir,
-    `rebate-deployment-${Date.now()}.json`
+    `rebate-deployment-${Date.now()}.json`,
   )
   fs.writeFileSync(summaryPath, JSON.stringify(deploymentSummary, null, 2))
 
@@ -395,7 +394,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     } catch (error) {
       console.log(
         "Bridge implementation verification may have failed:",
-        error instanceof Error ? error.message : String(error)
+        error instanceof Error ? error.message : String(error),
       )
     }
   }

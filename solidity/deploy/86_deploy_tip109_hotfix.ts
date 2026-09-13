@@ -33,7 +33,7 @@ async function etherscanVerifyV2(
   contractAddress: string,
   contractName: string,
   compilerVersion: string,
-  solcInputJson: string
+  solcInputJson: string,
 ): Promise<string> {
   const queryString = `chainid=${chainId}`
   const postData = new URLSearchParams({
@@ -72,14 +72,14 @@ async function etherscanVerifyV2(
               resolve(parsed.result)
             } else {
               reject(
-                new Error(parsed.result || parsed.message || "Unknown error")
+                new Error(parsed.result || parsed.message || "Unknown error"),
               )
             }
           } catch {
             reject(new Error(`Invalid response: ${data.substring(0, 200)}`))
           }
         })
-      }
+      },
     )
     req.on("error", reject)
     req.write(postData)
@@ -190,14 +190,14 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     implementation: rebateImpl.address,
   })
   console.log(
-    `  RebateStaking proxy artifact updated (impl → ${rebateImpl.address})`
+    `  RebateStaking proxy artifact updated (impl → ${rebateImpl.address})`,
   )
 
   // --- Step 7: Discover ProxyAdmin and generate calldata ---
   console.log("\n--- Discovering ProxyAdmin ---")
   const adminData = await ethers.provider.getStorage(
     Bridge.address,
-    EIP_1967_ADMIN_SLOT
+    EIP_1967_ADMIN_SLOT,
   )
   const proxyAdminAddress = ethers.getAddress(`0x${adminData.slice(26)}`)
   console.log(`  ProxyAdmin: ${proxyAdminAddress}`)
@@ -210,7 +210,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 
   const rebateUpgradeCalldata = encodeUpgrade(
     RebateStaking.address,
-    rebateImpl.address
+    rebateImpl.address,
   )
   console.log("\n  Timelock Action [0]: RebateStaking upgrade")
   console.log(`    Target: ProxyAdmin (${proxyAdminAddress})`)
@@ -221,7 +221,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 
   const bridgeUpgradeCalldata = encodeUpgrade(
     Bridge.address,
-    bridgeImpl.address
+    bridgeImpl.address,
   )
   console.log("\n  Timelock Action [1]: Bridge upgrade")
   console.log(`    Target: ProxyAdmin (${proxyAdminAddress})`)
@@ -277,7 +277,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   fs.mkdirSync(summaryDir, { recursive: true })
   const summaryPath = path.join(
     summaryDir,
-    `tip109-hotfix-deployment-${Date.now()}.json`
+    `tip109-hotfix-deployment-${Date.now()}.json`,
   )
 
   try {
@@ -308,7 +308,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     const etherscanApiKey = process.env.ETHERSCAN_API_KEY
     if (!etherscanApiKey) {
       console.log(
-        "\nSkipping Etherscan verification: ETHERSCAN_API_KEY not set"
+        "\nSkipping Etherscan verification: ETHERSCAN_API_KEY not set",
       )
     } else {
       console.log("\n--- Verifying contracts on Etherscan (v2 API) ---")
@@ -324,7 +324,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
       // eslint-disable-next-line no-restricted-syntax
       for (const biFile of buildInfoFiles) {
         const bi = JSON.parse(
-          fs.readFileSync(path.join(buildInfoDir, biFile), "utf-8")
+          fs.readFileSync(path.join(buildInfoDir, biFile), "utf-8"),
         )
         if (bi.output?.contracts?.["contracts/bridge/Deposit.sol"]?.Deposit) {
           solcInput = JSON.stringify(bi.input)
@@ -366,7 +366,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
               contract.address,
               contract.name,
               compilerVersion,
-              solcInput
+              solcInput,
             )
             console.log(`  Submitted: GUID=${guid}`)
           } catch (err) {

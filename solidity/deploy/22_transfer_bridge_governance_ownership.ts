@@ -2,7 +2,7 @@ import { HardhatRuntimeEnvironment } from "hardhat/types"
 import { DeployFunction } from "hardhat-deploy/types"
 
 const func: DeployFunction = async function runDeployment(
-  hre: HardhatRuntimeEnvironment
+  hre: HardhatRuntimeEnvironment,
 ) {
   const { getNamedAccounts, helpers } = hre
   const { deployer, governance } = await getNamedAccounts()
@@ -10,7 +10,7 @@ const func: DeployFunction = async function runDeployment(
   await helpers.ownable.transferOwnership(
     "BridgeGovernance",
     governance,
-    deployer
+    deployer,
   )
 }
 

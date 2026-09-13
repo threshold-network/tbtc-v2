@@ -64,7 +64,7 @@ const bridgeGovInterface = new utils.Interface(BRIDGE_GOVERNANCE_ABI)
  */
 export function encodeRebateStakingUpgrade(
   rebateStakingProxy: string,
-  newImpl: string
+  newImpl: string,
 ): string {
   return proxyAdminInterface.encodeFunctionData("upgrade", [
     rebateStakingProxy,
@@ -83,11 +83,11 @@ export function encodeRebateStakingUpgrade(
  */
 export function encodeBridgeUpgradeAndCall(
   bridgeProxy: string,
-  newBridgeImpl: string
+  newBridgeImpl: string,
 ): string {
   const initData = bridgeInterface.encodeFunctionData(
     "initializeV5_RepairRebateStaking",
-    [constants.ZeroAddress]
+    [constants.ZeroAddress],
   )
   return proxyAdminInterface.encodeFunctionData("upgradeAndCall", [
     bridgeProxy,
@@ -116,11 +116,11 @@ export function encodeSetRebateStaking(rebateStakingProxy: string): string {
  * @returns ABI-encoded calldata for the begin update function
  */
 export function encodeBeginDepositTreasuryFeeDivisorUpdate(
-  newDivisor: number
+  newDivisor: number,
 ): string {
   return bridgeGovInterface.encodeFunctionData(
     "beginDepositTreasuryFeeDivisorUpdate",
-    [newDivisor]
+    [newDivisor],
   )
 }
 
@@ -134,7 +134,7 @@ async function etherscanVerifyV2(
   contractAddress: string,
   contractName: string,
   compilerVersion: string,
-  solcInputJson: string
+  solcInputJson: string,
 ): Promise<string> {
   const queryString = `chainid=${chainId}`
   const postData = new URLSearchParams({
@@ -173,14 +173,14 @@ async function etherscanVerifyV2(
               resolve(parsed.result)
             } else {
               reject(
-                new Error(parsed.result || parsed.message || "Unknown error")
+                new Error(parsed.result || parsed.message || "Unknown error"),
               )
             }
           } catch {
             reject(new Error(`Invalid response: ${data.substring(0, 200)}`))
           }
         })
-      }
+      },
     )
     req.on("error", reject)
     req.write(postData)
@@ -201,7 +201,7 @@ function logCalldataAction(
   target: string,
   targetName: string,
   calldata: string,
-  details: Record<string, string>
+  details: Record<string, string>,
 ): void {
   console.log(`\n  ${label}`)
   console.log(`    Target: ${targetName} (${target})`)
@@ -391,7 +391,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const Bridge = await get("Bridge")
   const adminData = await ethers.provider.getStorage(
     Bridge.address,
-    EIP_1967_ADMIN_SLOT
+    EIP_1967_ADMIN_SLOT,
   )
   const proxyAdminAddress = ethers.getAddress(`0x${adminData.slice(26)}`)
   console.log(`  ProxyAdmin discovered: ${proxyAdminAddress}`)
@@ -399,7 +399,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   if (proxyAdminAddress.toLowerCase() !== KNOWN_PROXY_ADMIN.toLowerCase()) {
     console.log(
       `  WARNING: Discovered ProxyAdmin ${proxyAdminAddress} does not match ` +
-        `known address ${KNOWN_PROXY_ADMIN}`
+        `known address ${KNOWN_PROXY_ADMIN}`,
     )
   } else {
     console.log("  ProxyAdmin matches known address")
@@ -430,20 +430,20 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   // timelockActions[0]: RebateStaking upgrade
   const rebateUpgradeCalldata = encodeRebateStakingUpgrade(
     RebateStaking.address,
-    rebateImpl.address
+    rebateImpl.address,
   )
   logCalldataAction(
     "Timelock Action [0]: RebateStaking upgrade",
     proxyAdminAddress,
     "ProxyAdmin",
     rebateUpgradeCalldata,
-    { Proxy: RebateStaking.address, "New impl": rebateImpl.address }
+    { Proxy: RebateStaking.address, "New impl": rebateImpl.address },
   )
 
   // timelockActions[1]: Bridge upgradeAndCall
   const bridgeUpgradeCalldata = encodeBridgeUpgradeAndCall(
     Bridge.address,
-    bridgeImpl.address
+    bridgeImpl.address,
   )
   logCalldataAction(
     "Timelock Action [1]: Bridge upgradeAndCall",
@@ -454,7 +454,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
       Proxy: Bridge.address,
       "New impl": bridgeImpl.address,
       "Inner call": "initializeV5_RepairRebateStaking(address(0))",
-    }
+    },
   )
 
   // Council Safe direct action: setRebateStaking on BridgeGovernance
@@ -464,7 +464,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     BridgeGovernance.address,
     "BridgeGovernance",
     setRebateCalldata,
-    { "RebateStaking proxy": RebateStaking.address }
+    { "RebateStaking proxy": RebateStaking.address },
   )
 
   // Governance-delayed action: beginDepositTreasuryFeeDivisorUpdate
@@ -475,7 +475,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     BridgeGovernance.address,
     "BridgeGovernance",
     feeDivisorCalldata,
-    { "New divisor": "500", "Governance delay": "172800s (48h)" }
+    { "New divisor": "500", "Governance delay": "172800s (48h)" },
   )
 
   console.log(`\n${"=".repeat(80)}`)
@@ -552,7 +552,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   fs.mkdirSync(summaryDir, { recursive: true })
   const summaryPath = path.join(
     summaryDir,
-    `tip109-deployment-${Date.now()}.json`
+    `tip109-deployment-${Date.now()}.json`,
   )
 
   try {
@@ -561,7 +561,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   } catch (error) {
     console.log(
       `WARNING: Failed to write deployment summary to ${summaryPath}: ` +
-        `${(error as Error).message}`
+        `${(error as Error).message}`,
     )
   }
 
@@ -603,7 +603,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     const etherscanApiKey = process.env.ETHERSCAN_API_KEY
     if (!etherscanApiKey) {
       console.log(
-        "\nSkipping Etherscan verification: ETHERSCAN_API_KEY not set"
+        "\nSkipping Etherscan verification: ETHERSCAN_API_KEY not set",
       )
     } else {
       console.log("\n--- Verifying contracts on Etherscan (v2 API) ---")
@@ -623,7 +623,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
       // eslint-disable-next-line no-restricted-syntax
       for (const biFile of buildInfoFiles) {
         const bi = JSON.parse(
-          fs.readFileSync(path.join(buildInfoDir, biFile), "utf-8")
+          fs.readFileSync(path.join(buildInfoDir, biFile), "utf-8"),
         )
         if (bi.output?.contracts?.["contracts/bridge/Deposit.sol"]?.Deposit) {
           solcInput = JSON.stringify(bi.input)
@@ -634,7 +634,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 
       if (!solcInput) {
         console.log(
-          "  Could not find build-info with Deposit compilation. Skipping verification."
+          "  Could not find build-info with Deposit compilation. Skipping verification.",
         )
       } else {
         const networkChainId = parseInt(await hre.getChainId(), 10)
@@ -672,12 +672,12 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
               contract.address,
               contract.name,
               compilerVersion,
-              solcInput
+              solcInput,
             )
             console.log(`  Submitted: GUID=${guid}`)
           } catch (err) {
             console.log(
-              `  Verification submission failed: ${(err as Error).message}`
+              `  Verification submission failed: ${(err as Error).message}`,
             )
           }
         }

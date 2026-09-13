@@ -13,7 +13,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 
   if (!bridgeAddress) {
     throw new Error(
-      "Bridge deployment not found. Set BRIDGE_ADDRESS or ensure deployments/mainnet contains Bridge.json."
+      "Bridge deployment not found. Set BRIDGE_ADDRESS or ensure deployments/mainnet contains Bridge.json.",
     )
   }
 
@@ -23,7 +23,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
       from: deployer,
       log: true,
       waitConfirmations: 1,
-    }
+    },
   )
 
   const GOVERNANCE_DELAY = hre.network.name === "sepolia" ? 60 : 172800
