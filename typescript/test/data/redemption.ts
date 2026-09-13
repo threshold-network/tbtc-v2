@@ -1,4 +1,3 @@
-import { BigNumber, BytesLike } from "ethers"
 import {
   BitcoinAddressConverter,
   BitcoinNetwork,
@@ -45,7 +44,7 @@ export const p2wpkhWalletAddress = "tb1q3k6sadfqv04fmx9naty3fzdfpaecnphkfm3cf3"
 export interface RedemptionTestData {
   mainUtxo: BitcoinUtxo & BitcoinRawTx
   pendingRedemptions: {
-    redemptionKey: BytesLike
+    redemptionKey: string
     pendingRedemption: RedemptionRequest
   }[]
   witness: boolean
@@ -66,7 +65,7 @@ export const singleP2PKHRedemptionWithWitnessChange: RedemptionTestData = {
       "523e4bfb71804e5ed3b76c8933d733339563e560311c1bf835934ee7aae5db20"
     ),
     outputIndex: 1,
-    value: BigNumber.from(1481680),
+    value: 1481680n,
     transactionHex:
       "0100000000010160d264b34e51e6567254bcaf4cc67e1e069483f4249dc50784eae68" +
       "2645fd11d0100000000ffffffff02d84000000000000022002086a303cdd2e2eab1d1" +
@@ -88,9 +87,9 @@ export const singleP2PKHRedemptionWithWitnessChange: RedemptionTestData = {
         redeemerOutputScript: Hex.from(
           "76a9144130879211c54df460e484ddf9aac009cb38ee7488ac"
         ),
-        requestedAmount: BigNumber.from(10000),
-        treasuryFee: BigNumber.from(1000),
-        txMaxFee: BigNumber.from(1600),
+        requestedAmount: 10000n,
+        treasuryFee: 1000n,
+        txMaxFee: 1600n,
         requestedAt: 1650623240,
       },
     },
@@ -124,7 +123,7 @@ export const singleP2WPKHRedemptionWithWitnessChange: RedemptionTestData = {
       "c437f1117db977682334b53a71fbe63a42aab42f6e0976c35b69977f86308c20"
     ),
     outputIndex: 1,
-    value: BigNumber.from(1472680),
+    value: 1472680n,
     transactionHex:
       "0100000000010120dbe5aae74e9335f81b1c3160e563953333d733896cb7d35e4e807" +
       "1fb4b3e520100000000ffffffff02e81c0000000000001976a9144130879211c54df4" +
@@ -146,9 +145,9 @@ export const singleP2WPKHRedemptionWithWitnessChange: RedemptionTestData = {
         redeemerOutputScript: Hex.from(
           "00144130879211c54df460e484ddf9aac009cb38ee74"
         ),
-        requestedAmount: BigNumber.from(15000),
-        treasuryFee: BigNumber.from(1100),
-        txMaxFee: BigNumber.from(1700),
+        requestedAmount: 15000n,
+        treasuryFee: 1100n,
+        txMaxFee: 1700n,
         requestedAt: 1650623240,
       },
     },
@@ -182,7 +181,7 @@ export const singleP2SHRedemptionWithWitnessChange: RedemptionTestData = {
       "925e61dc31396e7f2cbcc8bc9b4009b4f24ba679257762df078b7e9b875ea110"
     ),
     outputIndex: 1,
-    value: BigNumber.from(1458780),
+    value: 1458780n,
     transactionHex:
       "01000000000101208c30867f97695bc376096e2fb4aa423ae6fb713ab534236877b9" +
       "7d11f137c40100000000ffffffff02a82f0000000000001600144130879211c54df4" +
@@ -204,9 +203,9 @@ export const singleP2SHRedemptionWithWitnessChange: RedemptionTestData = {
         redeemerOutputScript: Hex.from(
           "a9143ec459d0f3c29286ae5df5fcc421e2786024277e87"
         ),
-        requestedAmount: BigNumber.from(13000),
-        treasuryFee: BigNumber.from(800),
-        txMaxFee: BigNumber.from(1700),
+        requestedAmount: 13000n,
+        treasuryFee: 800n,
+        txMaxFee: 1700n,
         requestedAt: 1650623240,
       },
     },
@@ -240,7 +239,7 @@ export const singleP2WSHRedemptionWithWitnessChange: RedemptionTestData = {
       "ef25c9c8f4df673def035c0c1880278c90030b3c94a56668109001a591c2c521"
     ),
     outputIndex: 1,
-    value: BigNumber.from(1446580),
+    value: 1446580n,
     transactionHex:
       "0100000000010110a15e879b7e8b07df62772579a64bf2b409409bbcc8bc2c7f6e3" +
       "931dc615e920100000000ffffffff02042900000000000017a9143ec459d0f3c292" +
@@ -262,9 +261,9 @@ export const singleP2WSHRedemptionWithWitnessChange: RedemptionTestData = {
         redeemerOutputScript: Hex.from(
           "002086a303cdd2e2eab1d1679f1a813835dc5a1b65321077cdccaf08f98cbf04ca96"
         ),
-        requestedAmount: BigNumber.from(18000),
-        treasuryFee: BigNumber.from(1000),
-        txMaxFee: BigNumber.from(1400),
+        requestedAmount: 18000n,
+        treasuryFee: 1000n,
+        txMaxFee: 1400n,
         requestedAt: 1650623240,
       },
     },
@@ -298,7 +297,7 @@ export const multipleRedemptionsWithWitnessChange: RedemptionTestData = {
       "3d28bb5bf73379da51bc683f4d0ed31d7b024466c619d80ebd9378077d900be3"
     ),
     outputIndex: 1,
-    value: BigNumber.from(1429580),
+    value: 1429580n,
     transactionHex:
       "0100000000010121c5c291a50190106866a5943c0b03908c2780180c5c03ef3d67d" +
       "ff4c8c925ef0100000000ffffffff02f03c00000000000022002086a303cdd2e2ea" +
@@ -320,9 +319,9 @@ export const multipleRedemptionsWithWitnessChange: RedemptionTestData = {
         redeemerOutputScript: Hex.from(
           "76a9144130879211c54df460e484ddf9aac009cb38ee7488ac"
         ),
-        requestedAmount: BigNumber.from(18000),
-        treasuryFee: BigNumber.from(1000),
-        txMaxFee: BigNumber.from(1100),
+        requestedAmount: 18000n,
+        treasuryFee: 1000n,
+        txMaxFee: 1100n,
         requestedAt: 1650623240,
       },
     },
@@ -337,9 +336,9 @@ export const multipleRedemptionsWithWitnessChange: RedemptionTestData = {
         redeemerOutputScript: Hex.from(
           "00144130879211c54df460e484ddf9aac009cb38ee74"
         ),
-        requestedAmount: BigNumber.from(13000),
-        treasuryFee: BigNumber.from(800),
-        txMaxFee: BigNumber.from(900),
+        requestedAmount: 13000n,
+        treasuryFee: 800n,
+        txMaxFee: 900n,
         requestedAt: 1650623240,
       },
     },
@@ -354,9 +353,9 @@ export const multipleRedemptionsWithWitnessChange: RedemptionTestData = {
         redeemerOutputScript: Hex.from(
           "a9143ec459d0f3c29286ae5df5fcc421e2786024277e87"
         ),
-        requestedAmount: BigNumber.from(12000),
-        treasuryFee: BigNumber.from(1100),
-        txMaxFee: BigNumber.from(1000),
+        requestedAmount: 12000n,
+        treasuryFee: 1100n,
+        txMaxFee: 1000n,
         requestedAt: 1650623240,
       },
     },
@@ -371,9 +370,9 @@ export const multipleRedemptionsWithWitnessChange: RedemptionTestData = {
         redeemerOutputScript: Hex.from(
           "002086a303cdd2e2eab1d1679f1a813835dc5a1b65321077cdccaf08f98cbf04ca96"
         ),
-        requestedAmount: BigNumber.from(15000),
-        treasuryFee: BigNumber.from(700),
-        txMaxFee: BigNumber.from(1400),
+        requestedAmount: 15000n,
+        treasuryFee: 700n,
+        txMaxFee: 1400n,
         requestedAt: 1650623240,
       },
     },
@@ -410,7 +409,7 @@ export const multipleRedemptionsWithoutChange: RedemptionTestData = {
       "7dd38b48cb626580d317871c5b716eaf4a952ceb67ba3aa4ca76e3dc7cdcc65b"
     ),
     outputIndex: 1,
-    value: BigNumber.from(10000),
+    value: 10000n,
     transactionHex:
       "02000000000101c17208c443a3d3d2223884ef11ac83dadb1a3abe4d3474694414c8d" +
       "cd3c697510100000000feffffff0224d38a5b0000000016001414c829f9d1770ebab9" +
@@ -432,9 +431,9 @@ export const multipleRedemptionsWithoutChange: RedemptionTestData = {
         redeemerOutputScript: Hex.from(
           "76a9144130879211c54df460e484ddf9aac009cb38ee7488ac"
         ),
-        requestedAmount: BigNumber.from(6000),
-        treasuryFee: BigNumber.from(0),
-        txMaxFee: BigNumber.from(800),
+        requestedAmount: 6000n,
+        treasuryFee: 0n,
+        txMaxFee: 800n,
         requestedAt: 1650623240,
       },
     },
@@ -449,9 +448,9 @@ export const multipleRedemptionsWithoutChange: RedemptionTestData = {
         redeemerOutputScript: Hex.from(
           "00144bf9ffb7ae0f8b0f5a622b154aca829126f6e769"
         ),
-        requestedAmount: BigNumber.from(4000),
-        treasuryFee: BigNumber.from(0),
-        txMaxFee: BigNumber.from(900),
+        requestedAmount: 4000n,
+        treasuryFee: 0n,
+        txMaxFee: 900n,
         requestedAt: 1650623240,
       },
     },
@@ -485,7 +484,7 @@ export const singleP2SHRedemptionWithNonWitnessChange: RedemptionTestData = {
       "f70ff89fd2b6226183e4b8143cc5f0f457f05dd1dca0c6151ab66f4523d972b7"
     ),
     outputIndex: 4,
-    value: BigNumber.from(1375180),
+    value: 1375180n,
     transactionHex:
       "01000000000101e30b907d077893bd0ed819c66644027b1dd30e4d3f68bc51da7933f" +
       "75bbb283d0100000000ffffffff051c3e0000000000001976a9144130879211c54df4" +
@@ -510,9 +509,9 @@ export const singleP2SHRedemptionWithNonWitnessChange: RedemptionTestData = {
         redeemerOutputScript: Hex.from(
           "a9143ec459d0f3c29286ae5df5fcc421e2786024277e87"
         ),
-        requestedAmount: BigNumber.from(12000),
-        treasuryFee: BigNumber.from(1000),
-        txMaxFee: BigNumber.from(1200),
+        requestedAmount: 12000n,
+        treasuryFee: 1000n,
+        txMaxFee: 1200n,
         requestedAt: 1650623240,
       },
     },
@@ -579,35 +578,35 @@ export const redemptionProof: RedemptionProofTestData = {
       outputs: [
         {
           outputIndex: 0,
-          value: BigNumber.from(15900),
+          value: 15900n,
           scriptPubKey: Hex.from(
             "76a9144130879211c54df460e484ddf9aac009cb38ee7488ac"
           ),
         },
         {
           outputIndex: 1,
-          value: BigNumber.from(11300),
+          value: 11300n,
           scriptPubKey: Hex.from(
             "00144130879211c54df460e484ddf9aac009cb38ee74"
           ),
         },
         {
           outputIndex: 2,
-          value: BigNumber.from(9900),
+          value: 9900n,
           scriptPubKey: Hex.from(
             "a9143ec459d0f3c29286ae5df5fcc421e2786024277e87"
           ),
         },
         {
           outputIndex: 3,
-          value: BigNumber.from(12900),
+          value: 12900n,
           scriptPubKey: Hex.from(
             "002086a303cdd2e2eab1d1679f1a813835dc5a1b65321077cdccaf08f98cbf04ca96"
           ),
         },
         {
           outputIndex: 4,
-          value: BigNumber.from(1375180),
+          value: 1375180n,
           scriptPubKey: Hex.from(
             "00148db50eb52063ea9d98b3eac91489a90f738986f6"
           ),
@@ -761,7 +760,7 @@ export const redemptionProof: RedemptionProofTestData = {
         "3d28bb5bf73379da51bc683f4d0ed31d7b024466c619d80ebd9378077d900be3"
       ),
       outputIndex: 1,
-      value: BigNumber.from(1429580),
+      value: 1429580n,
     },
     walletPublicKey: Hex.from(
       "03989d253b17a6a0f41838b84ff0d20e8898f9d7b1a98f2564da4cc29dcf8581d9"
@@ -777,7 +776,7 @@ interface FindWalletForRedemptionWalletData {
     btcAddress: string
     mainUtxo: BitcoinUtxo
     transactions: BitcoinTx[]
-    pendingRedemptionsValue: BigNumber
+    pendingRedemptionsValue: bigint
   }
   event: {
     blockNumber: number
@@ -810,7 +809,7 @@ export const findWalletForRedemptionData: {
           "0x5b6d040eb06b3de1a819890d55d251112e55c31db4a3f5eb7cfacf519fad7adb"
         ),
         outputIndex: 0,
-        value: BigNumber.from("791613461"),
+        value: 791613461n,
       },
       transactions: [
         {
@@ -821,7 +820,7 @@ export const findWalletForRedemptionData: {
           outputs: [
             {
               outputIndex: 0,
-              value: BigNumber.from("791613461"),
+              value: 791613461n,
               scriptPubKey: BitcoinAddressConverter.addressToOutputScript(
                 "tb1qqwm566yn44rdlhgph8sw8vecta8uutg79afuja",
                 BitcoinNetwork.Testnet
@@ -830,7 +829,7 @@ export const findWalletForRedemptionData: {
           ],
         },
       ],
-      pendingRedemptionsValue: BigNumber.from(0),
+      pendingRedemptionsValue: 0n,
     },
     event: {
       blockNumber: 8367602,
@@ -863,10 +862,10 @@ export const findWalletForRedemptionData: {
           "0x0000000000000000000000000000000000000000000000000000000000000000"
         ),
         outputIndex: 0,
-        value: BigNumber.from("0"),
+        value: 0n,
       },
       transactions: [],
-      pendingRedemptionsValue: BigNumber.from(0),
+      pendingRedemptionsValue: 0n,
     },
     event: {
       blockNumber: 9103428,
@@ -900,10 +899,10 @@ export const findWalletForRedemptionData: {
           "0x0000000000000000000000000000000000000000000000000000000000000000"
         ),
         outputIndex: 0,
-        value: BigNumber.from("0"),
+        value: 0n,
       },
       transactions: [],
-      pendingRedemptionsValue: BigNumber.from(0),
+      pendingRedemptionsValue: 0n,
     },
     event: {
       blockNumber: 9171960,
@@ -936,7 +935,7 @@ export const findWalletForRedemptionData: {
           "0x81c4884a8c2fccbeb57745a5e59f895a9c1bb8fc42eecc82269100a1a46bbb85"
         ),
         outputIndex: 0,
-        value: BigNumber.from("3370000"), // 0.0337 BTC
+        value: 3370000n, // 0.0337 BTC
       },
       transactions: [
         {
@@ -947,7 +946,7 @@ export const findWalletForRedemptionData: {
           outputs: [
             {
               outputIndex: 0,
-              value: BigNumber.from("3370000"), // 0.0337 BTC
+              value: 3370000n, // 0.0337 BTC
               scriptPubKey: BitcoinAddressConverter.addressToOutputScript(
                 "tb1qx2xejtjltdcau5dpks8ucszkhxdg3fj88404lh",
                 BitcoinNetwork.Testnet
@@ -956,7 +955,7 @@ export const findWalletForRedemptionData: {
           ],
         },
       ],
-      pendingRedemptionsValue: BigNumber.from(2370000), // 0.0237 BTC
+      pendingRedemptionsValue: 2370000n, // 0.0237 BTC
     },
     event: {
       blockNumber: 8981644,
@@ -982,9 +981,9 @@ export const findWalletForRedemptionData: {
     redeemerOutputScript: Hex.from(
       "76a9142cd680318747b720d67bf4246eb7403b476adb3488ac"
     ),
-    requestedAmount: BigNumber.from(1000000),
-    treasuryFee: BigNumber.from(20000),
-    txMaxFee: BigNumber.from(20000),
+    requestedAmount: 1000000n,
+    treasuryFee: 20000n,
+    txMaxFee: 20000n,
     requestedAt: 1688724606,
   },
 }

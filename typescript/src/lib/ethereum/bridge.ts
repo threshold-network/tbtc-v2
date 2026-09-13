@@ -1,9 +1,4 @@
-import {
-  Bridge as BridgeTypechain,
-  Deposit as DepositTypechain,
-  Redemption as RedemptionTypechain,
-  Wallets as WalletsTypechain,
-} from "../../../typechain/Bridge"
+import { encodePacked, keccak256, zeroAddress } from "viem"
 import {
   Bridge,
   GetChainEvents,
@@ -21,15 +16,7 @@ import {
   DepositRequest,
   Chains,
 } from "../contracts"
-import {
-  ContractTransaction,
-  Event as EthersEvent,
-} from "@ethersproject/contracts"
-import { BigNumber } from "@ethersproject/bignumber"
-import { defaultAbiCoder } from "@ethersproject/abi"
-import { AddressZero } from "@ethersproject/constants"
-import { keccak256 as solidityKeccak256 } from "@ethersproject/solidity"
-import { backoffRetrier, Hex } from "../utils"
+import { Hex } from "../utils"
 import {
   BitcoinPublicKeyUtils,
   BitcoinHashUtils,
@@ -40,11 +27,11 @@ import {
   BitcoinUtxo,
 } from "../bitcoin"
 import {
-  EthersContractConfig,
-  EthersContractDeployment,
-  EthersContractHandle,
-  EthersEventUtils,
-  EthersTransactionUtils,
+  asDeployment,
+  EvmContractHandleConfig,
+  EvmContractDeployment,
+  EvmContractHandle,
+  EvmEvent,
 } from "./adapter"
 import { EthereumAddress } from "./address"
 import { EthereumWalletRegistry } from "./wallet-registry"
@@ -53,34 +40,67 @@ import MainnetBridgeDeployment from "./artifacts/mainnet/Bridge.json"
 import SepoliaBridgeDeployment from "./artifacts/sepolia/Bridge.json"
 import LocalBridgeDeployment from "@keep-network/tbtc-v2/artifacts/Bridge.json"
 
-type DepositRequestTypechain = DepositTypechain.DepositRequestStructOutput
+/**
+ * Structural type of the on-chain `Redemption.RedemptionRequest` struct as
+ * decoded by viem. Numeric fields are typed `number | bigint` because viem
+ * decodes uints depending on their ABI width - normalize at the parsing site.
+ */
+type RedemptionRequestStruct = {
+  redeemer: string
+  requestedAmount: number | bigint
+  treasuryFee: number | bigint
+  txMaxFee: number | bigint
+  requestedAt: number | bigint
+}
 
-type RedemptionRequestTypechain =
-  RedemptionTypechain.RedemptionRequestStructOutput
+/**
+ * Structural type of the on-chain `Deposit.DepositRequest` struct as decoded
+ * by viem.
+ */
+type DepositRequestStruct = {
+  depositor: string
+  amount: number | bigint
+  vault: string
+  revealedAt: number | bigint
+  sweptAt: number | bigint
+  treasuryFee: number | bigint
+}
+
+/**
+ * Structural type of the on-chain `Wallets.Wallet` struct as decoded by viem.
+ */
+type WalletStruct = {
+  ecdsaWalletID: string
+  mainUtxoHash: string
+  pendingRedemptionsValue: number | bigint
+  createdAt: number | bigint
+  movingFundsRequestedAt: number | bigint
+  closingStartedAt: number | bigint
+  pendingMovedFundsSweepRequestsCount: number | bigint
+  state: number | bigint
+  movingFundsTargetWalletsCommitmentHash: string
+}
 
 /**
  * Implementation of the Ethereum Bridge handle.
  * @see {Bridge} for reference.
  */
-export class EthereumBridge
-  extends EthersContractHandle<BridgeTypechain>
-  implements Bridge
-{
+export class EthereumBridge extends EvmContractHandle implements Bridge {
   constructor(
-    config: EthersContractConfig,
+    config: EvmContractHandleConfig,
     chainId: Chains.Ethereum = Chains.Ethereum.Local
   ) {
-    let deployment: EthersContractDeployment
+    let deployment: EvmContractDeployment
 
     switch (chainId) {
       case Chains.Ethereum.Local:
-        deployment = LocalBridgeDeployment
+        deployment = asDeployment(LocalBridgeDeployment)
         break
       case Chains.Ethereum.Sepolia:
-        deployment = SepoliaBridgeDeployment
+        deployment = asDeployment(SepoliaBridgeDeployment)
         break
       case Chains.Ethereum.Mainnet:
-        deployment = MainnetBridgeDeployment
+        deployment = asDeployment(MainnetBridgeDeployment)
         break
       default:
         throw new Error("Unsupported deployment type")
@@ -94,7 +114,7 @@ export class EthereumBridge
    * @see {Bridge#getChainIdentifier}
    */
   getChainIdentifier(): ChainIdentifier {
-    return EthereumAddress.from(this._instance.address)
+    return this.getAddress()
   }
 
   // eslint-disable-next-line valid-jsdoc
@@ -105,7 +125,7 @@ export class EthereumBridge
     options?: GetChainEvents.Options,
     ...filterArgs: Array<unknown>
   ): Promise<DepositRevealedEvent[]> {
-    const events: EthersEvent[] = await this.getEvents(
+    const events = await this._getEvents(
       "DepositRevealed",
       options,
       ...filterArgs
@@ -113,23 +133,25 @@ export class EthereumBridge
 
     return events.map<DepositRevealedEvent>((event) => {
       return {
-        blockNumber: BigNumber.from(event.blockNumber).toNumber(),
+        blockNumber: event.blockNumber,
         blockHash: Hex.from(event.blockHash),
         transactionHash: Hex.from(event.transactionHash),
-        fundingTxHash: BitcoinTxHash.from(event.args!.fundingTxHash).reverse(),
-        fundingOutputIndex: BigNumber.from(
-          event.args!.fundingOutputIndex
-        ).toNumber(),
-        depositor: EthereumAddress.from(event.args!.depositor),
-        amount: BigNumber.from(event.args!.amount),
-        blindingFactor: Hex.from(event.args!.blindingFactor),
-        walletPublicKeyHash: Hex.from(event.args!.walletPubKeyHash),
-        refundPublicKeyHash: Hex.from(event.args!.refundPubKeyHash),
-        refundLocktime: Hex.from(event.args!.refundLocktime),
+        fundingTxHash: BitcoinTxHash.from(
+          event.args.fundingTxHash as string
+        ).reverse(),
+        fundingOutputIndex: Number(
+          event.args.fundingOutputIndex as number | bigint
+        ),
+        depositor: EthereumAddress.from(event.args.depositor as string),
+        amount: BigInt(event.args.amount as number | bigint),
+        blindingFactor: Hex.from(event.args.blindingFactor as string),
+        walletPublicKeyHash: Hex.from(event.args.walletPubKeyHash as string),
+        refundPublicKeyHash: Hex.from(event.args.refundPubKeyHash as string),
+        refundLocktime: Hex.from(event.args.refundLocktime as string),
         vault:
-          event.args!.vault === AddressZero
+          (event.args.vault as string).toLowerCase() === zeroAddress
             ? undefined
-            : EthereumAddress.from(event.args!.vault),
+            : EthereumAddress.from(event.args.vault as string),
       }
     })
   }
@@ -163,14 +185,11 @@ export class EthereumBridge
       redeemerOutputScript
     )
 
-    const request: RedemptionRequestTypechain =
-      await backoffRetrier<RedemptionRequestTypechain>(
-        this._totalRetryAttempts
-      )(async () => {
-        return await this._instance.pendingRedemptions(redemptionKey, {
-          blockTag: blockNumber ?? "latest",
-        })
-      })
+    const request = await this._read<RedemptionRequestStruct>(
+      "pendingRedemptions",
+      [BigInt(redemptionKey)],
+      { blockNumber }
+    )
 
     return this.parseRedemptionRequest(request, redeemerOutputScript)
   }
@@ -188,12 +207,10 @@ export class EthereumBridge
       redeemerOutputScript
     )
 
-    const request: RedemptionRequestTypechain =
-      await backoffRetrier<RedemptionRequestTypechain>(
-        this._totalRetryAttempts
-      )(async () => {
-        return await this._instance.timedOutRedemptions(redemptionKey)
-      })
+    const request = await this._read<RedemptionRequestStruct>(
+      "timedOutRedemptions",
+      [BigInt(redemptionKey)]
+    )
 
     return this.parseRedemptionRequest(request, redeemerOutputScript)
   }
@@ -214,18 +231,20 @@ export class EthereumBridge
     // Convert the output script to raw bytes buffer.
     const rawRedeemerOutputScript = redeemerOutputScript.toBuffer()
     // Prefix the output script bytes buffer with 0x and its own length.
-    const prefixedRawRedeemerOutputScript = `0x${Buffer.concat([
+    const prefixedRawRedeemerOutputScript: `0x${string}` = `0x${Buffer.concat([
       Buffer.from([rawRedeemerOutputScript.length]),
       rawRedeemerOutputScript,
     ]).toString("hex")}`
     // Build the redemption key by using the 0x-prefixed wallet PKH and
     // prefixed output script.
-    return solidityKeccak256(
-      ["bytes32", "bytes20"],
-      [
-        solidityKeccak256(["bytes"], [prefixedRawRedeemerOutputScript]),
-        `0x${walletPublicKeyHash.toString()}`,
-      ]
+    return keccak256(
+      encodePacked(
+        ["bytes32", "bytes20"],
+        [
+          keccak256(prefixedRawRedeemerOutputScript),
+          `0x${walletPublicKeyHash.toString()}` as `0x${string}`,
+        ]
+      )
     )
   }
 
@@ -238,16 +257,16 @@ export class EthereumBridge
    * @returns Parsed redemption request.
    */
   private parseRedemptionRequest(
-    request: RedemptionRequestTypechain,
+    request: RedemptionRequestStruct,
     redeemerOutputScript: Hex
   ): RedemptionRequest {
     return {
       redeemer: EthereumAddress.from(request.redeemer),
       redeemerOutputScript: redeemerOutputScript,
-      requestedAmount: BigNumber.from(request.requestedAmount),
-      treasuryFee: BigNumber.from(request.treasuryFee),
-      txMaxFee: BigNumber.from(request.txMaxFee),
-      requestedAt: BigNumber.from(request.requestedAt).toNumber(),
+      requestedAmount: BigInt(request.requestedAmount),
+      treasuryFee: BigInt(request.treasuryFee),
+      txMaxFee: BigInt(request.txMaxFee),
+      requestedAt: Number(request.requestedAt),
     }
   }
 
@@ -268,24 +287,14 @@ export class EthereumBridge
       vault
     )
 
-    const tx = await EthersTransactionUtils.sendWithRetry<ContractTransaction>(
-      async () => {
-        if (typeof extraData !== "undefined") {
-          return await this._instance.revealDepositWithExtraData(
-            fundingTx,
-            reveal,
-            extraData
-          )
-        }
+    const [functionName, args] =
+      typeof extraData !== "undefined"
+        ? ["revealDepositWithExtraData", [fundingTx, reveal, extraData]]
+        : ["revealDeposit", [fundingTx, reveal]]
 
-        return await this._instance.revealDeposit(fundingTx, reveal)
-      },
-      this._totalRetryAttempts,
-      undefined,
-      ["Deposit already revealed"]
-    )
-
-    return Hex.from(tx.hash)
+    return this._write(functionName as string, args as unknown[], {
+      nonRetryableErrors: ["Deposit already revealed"],
+    })
   }
 
   // eslint-disable-next-line valid-jsdoc
@@ -321,21 +330,14 @@ export class EthereumBridge
       txOutputValue: mainUtxo.value,
     }
 
-    const vaultParam = vault ? `0x${vault.identifierHex}` : AddressZero
+    const vaultParam = vault ? `0x${vault.identifierHex}` : zeroAddress
 
-    const tx = await EthersTransactionUtils.sendWithRetry<ContractTransaction>(
-      async () => {
-        return await this._instance.submitDepositSweepProof(
-          sweepTxParam,
-          sweepProofParam,
-          mainUtxoParam,
-          vaultParam
-        )
-      },
-      this._totalRetryAttempts
-    )
-
-    return Hex.from(tx.hash)
+    return this._write("submitDepositSweepProof", [
+      sweepTxParam,
+      sweepProofParam,
+      mainUtxoParam,
+      vaultParam,
+    ])
   }
 
   // eslint-disable-next-line valid-jsdoc
@@ -343,13 +345,11 @@ export class EthereumBridge
    * @see {Bridge#txProofDifficultyFactor}
    */
   async txProofDifficultyFactor(): Promise<number> {
-    const txProofDifficultyFactor: BigNumber = await backoffRetrier<BigNumber>(
-      this._totalRetryAttempts
-    )(async () => {
-      return await this._instance.txProofDifficultyFactor()
-    })
+    const txProofDifficultyFactor = await this._read<number | bigint>(
+      "txProofDifficultyFactor"
+    )
 
-    return txProofDifficultyFactor.toNumber()
+    return Number(txProofDifficultyFactor)
   }
 
   // eslint-disable-next-line valid-jsdoc
@@ -360,7 +360,7 @@ export class EthereumBridge
     walletPublicKey: Hex,
     mainUtxo: BitcoinUtxo,
     redeemerOutputScript: Hex,
-    amount: BigNumber
+    amount: bigint
   ): Promise<Hex> {
     const walletPublicKeyHash =
       BitcoinHashUtils.computeHash160(walletPublicKey).toPrefixedString()
@@ -381,19 +381,12 @@ export class EthereumBridge
       rawRedeemerOutputScript,
     ]).toString("hex")}`
 
-    const tx = await EthersTransactionUtils.sendWithRetry<ContractTransaction>(
-      async () => {
-        return await this._instance.requestRedemption(
-          walletPublicKeyHash,
-          mainUtxoParam,
-          prefixedRawRedeemerOutputScript,
-          amount
-        )
-      },
-      this._totalRetryAttempts
-    )
-
-    return Hex.from(tx.hash)
+    return this._write("requestRedemption", [
+      walletPublicKeyHash,
+      mainUtxoParam,
+      prefixedRawRedeemerOutputScript,
+      amount,
+    ])
   }
 
   // eslint-disable-next-line valid-jsdoc
@@ -432,19 +425,12 @@ export class EthereumBridge
     const walletPublicKeyHash =
       BitcoinHashUtils.computeHash160(walletPublicKey).toPrefixedString()
 
-    const tx = await EthersTransactionUtils.sendWithRetry<ContractTransaction>(
-      async () => {
-        return await this._instance.submitRedemptionProof(
-          redemptionTxParam,
-          redemptionProofParam,
-          mainUtxoParam,
-          walletPublicKeyHash
-        )
-      },
-      this._totalRetryAttempts
-    )
-
-    return Hex.from(tx.hash)
+    return this._write("submitRedemptionProof", [
+      redemptionTxParam,
+      redemptionProofParam,
+      mainUtxoParam,
+      walletPublicKeyHash,
+    ])
   }
 
   // eslint-disable-next-line valid-jsdoc
@@ -460,12 +446,9 @@ export class EthereumBridge
       depositOutputIndex
     )
 
-    const deposit: DepositRequestTypechain =
-      await backoffRetrier<DepositRequestTypechain>(this._totalRetryAttempts)(
-        async () => {
-          return await this._instance.deposits(depositKey)
-        }
-      )
+    const deposit = await this._read<DepositRequestStruct>("deposits", [
+      BigInt(depositKey),
+    ])
 
     return this.parseDepositRequest(deposit)
   }
@@ -483,11 +466,13 @@ export class EthereumBridge
   ): string {
     const prefixedReversedDepositTxHash = depositTxHash
       .reverse()
-      .toPrefixedString()
+      .toPrefixedString() as `0x${string}`
 
-    return solidityKeccak256(
-      ["bytes32", "uint32"],
-      [prefixedReversedDepositTxHash, depositOutputIndex]
+    return keccak256(
+      encodePacked(
+        ["bytes32", "uint32"],
+        [prefixedReversedDepositTxHash, depositOutputIndex]
+      )
     )
   }
 
@@ -496,19 +481,17 @@ export class EthereumBridge
    * @param deposit Data of the deposit request.
    * @returns Parsed deposit request.
    */
-  private parseDepositRequest(
-    deposit: DepositRequestTypechain
-  ): DepositRequest {
+  private parseDepositRequest(deposit: DepositRequestStruct): DepositRequest {
     return {
       depositor: EthereumAddress.from(deposit.depositor),
-      amount: BigNumber.from(deposit.amount),
+      amount: BigInt(deposit.amount),
       vault:
-        deposit.vault === AddressZero
+        deposit.vault.toLowerCase() === zeroAddress
           ? undefined
           : EthereumAddress.from(deposit.vault),
-      revealedAt: BigNumber.from(deposit.revealedAt).toNumber(),
-      sweptAt: BigNumber.from(deposit.sweptAt).toNumber(),
-      treasuryFee: BigNumber.from(deposit.treasuryFee),
+      revealedAt: Number(deposit.revealedAt),
+      sweptAt: Number(deposit.sweptAt),
+      treasuryFee: BigInt(deposit.treasuryFee),
     }
   }
 
@@ -517,11 +500,9 @@ export class EthereumBridge
    * @see {Bridge#activeWalletPublicKey}
    */
   async activeWalletPublicKey(): Promise<Hex | undefined> {
-    const activeWalletPublicKeyHash: string = await backoffRetrier<string>(
-      this._totalRetryAttempts
-    )(async () => {
-      return await this._instance.activeWalletPubKeyHash()
-    })
+    const activeWalletPublicKeyHash = await this._read<string>(
+      "activeWalletPubKeyHash"
+    )
 
     if (
       activeWalletPublicKeyHash === "0x0000000000000000000000000000000000000000"
@@ -572,7 +553,7 @@ export class EthereumBridge
     options?: GetChainEvents.Options,
     ...filterArgs: Array<unknown>
   ): Promise<NewWalletRegisteredEvent[]> {
-    const events: EthersEvent[] = await this.getEvents(
+    const events = await this._getEvents(
       "NewWalletRegistered",
       options,
       ...filterArgs
@@ -580,11 +561,11 @@ export class EthereumBridge
 
     return events.map<NewWalletRegisteredEvent>((event) => {
       return {
-        blockNumber: BigNumber.from(event.blockNumber).toNumber(),
+        blockNumber: event.blockNumber,
         blockHash: Hex.from(event.blockHash),
         transactionHash: Hex.from(event.transactionHash),
-        ecdsaWalletID: Hex.from(event.args!.ecdsaWalletID),
-        walletPublicKeyHash: Hex.from(event.args!.walletPubKeyHash),
+        ecdsaWalletID: Hex.from(event.args.ecdsaWalletID as string),
+        walletPublicKeyHash: Hex.from(event.args.walletPubKeyHash as string),
       }
     })
   }
@@ -594,15 +575,17 @@ export class EthereumBridge
    * @see {Bridge#walletRegistry}
    */
   async walletRegistry(): Promise<WalletRegistry> {
-    const { ecdsaWalletRegistry } = await backoffRetrier<{
-      ecdsaWalletRegistry: string
-    }>(this._totalRetryAttempts)(async () => {
-      return await this._instance.contractReferences()
-    })
+    // `contractReferences` returns multiple outputs
+    // (bank, relay, ecdsaWalletRegistry, reimbursementPool) which viem
+    // decodes as a positional array.
+    const contractReferences = await this._read<readonly string[]>(
+      "contractReferences"
+    )
+    const ecdsaWalletRegistry = contractReferences[2]
 
     return new EthereumWalletRegistry({
       address: ecdsaWalletRegistry,
-      signerOrProvider: this._instance.signer || this._instance.provider,
+      signerOrProvider: await this._connection(),
     })
   }
 
@@ -611,13 +594,9 @@ export class EthereumBridge
    * @see {Bridge#wallets}
    */
   async wallets(walletPublicKeyHash: Hex): Promise<Wallet> {
-    const wallet = await backoffRetrier<WalletsTypechain.WalletStructOutput>(
-      this._totalRetryAttempts
-    )(async () => {
-      return await this._instance.wallets(
-        walletPublicKeyHash.toPrefixedString()
-      )
-    })
+    const wallet = await this._read<WalletStruct>("wallets", [
+      walletPublicKeyHash.toPrefixedString(),
+    ])
 
     return this.parseWalletDetails(wallet)
   }
@@ -627,22 +606,21 @@ export class EthereumBridge
    * @param wallet Data of the wallet.
    * @returns Parsed wallet data.
    */
-  private async parseWalletDetails(
-    wallet: WalletsTypechain.WalletStructOutput
-  ): Promise<Wallet> {
+  private async parseWalletDetails(wallet: WalletStruct): Promise<Wallet> {
     const ecdsaWalletID = Hex.from(wallet.ecdsaWalletID)
 
     return {
       ecdsaWalletID,
       walletPublicKey: await this.getWalletCompressedPublicKey(ecdsaWalletID),
       mainUtxoHash: Hex.from(wallet.mainUtxoHash),
-      pendingRedemptionsValue: wallet.pendingRedemptionsValue,
-      createdAt: wallet.createdAt,
-      movingFundsRequestedAt: wallet.movingFundsRequestedAt,
-      closingStartedAt: wallet.closingStartedAt,
-      pendingMovedFundsSweepRequestsCount:
-        wallet.pendingMovedFundsSweepRequestsCount,
-      state: WalletState.parse(wallet.state),
+      pendingRedemptionsValue: BigInt(wallet.pendingRedemptionsValue),
+      createdAt: Number(wallet.createdAt),
+      movingFundsRequestedAt: Number(wallet.movingFundsRequestedAt),
+      closingStartedAt: Number(wallet.closingStartedAt),
+      pendingMovedFundsSweepRequestsCount: Number(
+        wallet.pendingMovedFundsSweepRequestsCount
+      ),
+      state: WalletState.parse(Number(wallet.state)),
       movingFundsTargetWalletsCommitmentHash: Hex.from(
         wallet.movingFundsTargetWalletsCommitmentHash
       ),
@@ -658,13 +636,15 @@ export class EthereumBridge
    */
   buildUtxoHash(utxo: BitcoinUtxo): Hex {
     return Hex.from(
-      solidityKeccak256(
-        ["bytes32", "uint32", "uint64"],
-        [
-          utxo.transactionHash.reverse().toPrefixedString(),
-          utxo.outputIndex,
-          utxo.value,
-        ]
+      keccak256(
+        encodePacked(
+          ["bytes32", "uint32", "uint64"],
+          [
+            utxo.transactionHash.reverse().toPrefixedString() as `0x${string}`,
+            utxo.outputIndex,
+            utxo.value,
+          ]
+        )
       )
     )
   }
@@ -675,12 +655,12 @@ export class EthereumBridge
    * @returns Timeout in seconds.
    */
   async getRedemptionTimeout(blockNumber?: number): Promise<number> {
-    return backoffRetrier<number>(this._totalRetryAttempts)(async () => {
-      const parameters = await this._instance.redemptionParameters({
-        blockTag: blockNumber ?? "latest",
-      })
-      return BigNumber.from(parameters.redemptionTimeout).toNumber()
-    })
+    const parameters = await this._read<readonly (number | bigint)[]>(
+      "redemptionParameters",
+      [],
+      { blockNumber }
+    )
+    return Number(parameters[4])
   }
 
   /**
@@ -702,9 +682,9 @@ export class EthereumBridge
       blockNumber: event.blockNumber,
       blockHash: Hex.from(event.blockHash),
       transactionHash: Hex.from(event.transactionHash),
-      walletPublicKeyHash: Hex.from(event.args!.walletPubKeyHash),
+      walletPublicKeyHash: Hex.from(event.args.walletPubKeyHash as string),
       redemptionTxHash: BitcoinTxHash.from(
-        event.args!.redemptionTxHash
+        event.args.redemptionTxHash as string
       ).reverse(),
     }))
   }
@@ -725,12 +705,12 @@ export class EthereumBridge
       ...filterArgs
     )
     return events.map((event) => {
-      const prefixedScript = Hex.from(event.args!.redeemerOutputScript)
+      const prefixedScript = Hex.from(event.args.redeemerOutputScript as string)
       return {
         blockNumber: event.blockNumber,
         blockHash: Hex.from(event.blockHash),
         transactionHash: Hex.from(event.transactionHash),
-        walletPublicKeyHash: Hex.from(event.args!.walletPubKeyHash),
+        walletPublicKeyHash: Hex.from(event.args.walletPubKeyHash as string),
         redeemerOutputScript: Hex.from(
           prefixedScript
             .toString()
@@ -754,60 +734,33 @@ export class EthereumBridge
       | "RedemptionRequested",
     options?: GetChainEvents.Options,
     ...filterArgs: Array<unknown>
-  ): Promise<EthersEvent[]> {
+  ): Promise<EvmEvent[]> {
     if (filterArgs.length > 1) {
-      // encodeFilterTopics is positional over the full ABI parameter list
-      // (indexed and non-indexed), unlike the typechain filter helpers used
-      // elsewhere in this file, which are positional over indexed params
-      // only. RedemptionRequested's second indexed param (redeemer) is not
-      // at ABI slot 1 (that is the non-indexed redeemerOutputScript), so a
-      // second positional filter argument cannot be forwarded correctly.
-      // Fail loudly instead of silently filtering on the wrong field.
       throw new Error(
         "getRedemptionEvents only supports filtering by the wallet public key hash"
       )
     }
     const walletFilter = filterArgs[0]
     if (Array.isArray(walletFilter) && walletFilter.length === 0) {
-      return Promise.resolve([])
+      return []
     }
-    const filter = {
-      address: this._instance.address,
-      topics: this._instance.interface.encodeFilterTopics(eventName, []),
-    }
-    if (walletFilter != null) {
-      // Ethers v5 left-pads indexed bytes20 filters, but Solidity emits them
-      // right-padded. All three redemption lifecycle events index the wallet
-      // PKH as their first argument. Use the ABI coder for exact-length
-      // validation and canonical right padding, including each alternative
-      // in an OR filter. Null/omitted stays wildcard. The wallet filter is
-      // encoded manually rather than through encodeFilterTopics because that
-      // call cannot hexlify an SDK Hex instance, only raw BytesLike values.
-      const normalizeWallet = (wallet: unknown): string => {
-        if (wallet instanceof Hex) {
-          return wallet.toPrefixedString()
-        }
-        return wallet as string
-      }
-      const walletTopic = (wallet: unknown): string =>
-        defaultAbiCoder.encode(["bytes20"], [normalizeWallet(wallet)])
-      filter.topics[1] = Array.isArray(walletFilter)
-        ? walletFilter.map(walletTopic)
-        : walletTopic(walletFilter)
+    if (walletFilter == null) {
+      return this._getEvents(eventName, options)
     }
 
-    return backoffRetrier<EthersEvent[]>(
-      options?.retries ?? this._totalRetryAttempts
-    )(async () => {
-      return EthersEventUtils.getEvents(
-        this._instance,
-        filter,
-        options?.fromBlock ?? this._deployedAtBlockNumber,
-        options?.toBlock,
-        options?.batchedQueryBlockInterval,
-        options?.logger
-      )
-    })
+    // Preserve the lifecycle API's string/Hex filters and exact bytes20
+    // validation. viem encodes the indexed wallet topics with right padding.
+    const normalizeWallet = (wallet: unknown): string => {
+      const value = wallet instanceof Hex ? wallet.toPrefixedString() : wallet
+      if (typeof value !== "string" || !/^0x[0-9a-fA-F]{40}$/.test(value)) {
+        throw new Error("Wallet public key hash must be exactly 20 bytes")
+      }
+      return value
+    }
+    const wallets = Array.isArray(walletFilter)
+      ? walletFilter.map(normalizeWallet)
+      : normalizeWallet(walletFilter)
+    return this._getEvents(eventName, options, wallets)
   }
 
   // eslint-disable-next-line valid-jsdoc
@@ -818,7 +771,7 @@ export class EthereumBridge
     options?: GetChainEvents.Options,
     ...filterArgs: Array<unknown>
   ): Promise<RedemptionRequestedEvent[]> {
-    const events: EthersEvent[] = await this.getRedemptionEvents(
+    const events = await this.getRedemptionEvents(
       "RedemptionRequested",
       options,
       ...filterArgs
@@ -826,7 +779,7 @@ export class EthereumBridge
 
     return events.map<RedemptionRequestedEvent>((event) => {
       const prefixedRedeemerOutputScript = Hex.from(
-        event.args!.redeemerOutputScript
+        event.args.redeemerOutputScript as string
       )
       const redeemerOutputScript = prefixedRedeemerOutputScript
         .toString()
@@ -836,15 +789,15 @@ export class EthereumBridge
         )
 
       return {
-        blockNumber: BigNumber.from(event.blockNumber).toNumber(),
+        blockNumber: event.blockNumber,
         blockHash: Hex.from(event.blockHash),
         transactionHash: Hex.from(event.transactionHash),
-        walletPublicKeyHash: Hex.from(event.args!.walletPubKeyHash),
-        redeemer: EthereumAddress.from(event.args!.redeemer),
+        walletPublicKeyHash: Hex.from(event.args.walletPubKeyHash as string),
+        redeemer: EthereumAddress.from(event.args.redeemer as string),
         redeemerOutputScript: Hex.from(redeemerOutputScript),
-        requestedAmount: BigNumber.from(event.args!.requestedAmount),
-        treasuryFee: BigNumber.from(event.args!.treasuryFee),
-        txMaxFee: BigNumber.from(event.args!.txMaxFee),
+        requestedAmount: BigInt(event.args.requestedAmount as number | bigint),
+        treasuryFee: BigInt(event.args.treasuryFee as number | bigint),
+        txMaxFee: BigInt(event.args.txMaxFee as number | bigint),
       }
     })
   }
@@ -880,7 +833,7 @@ export function packRevealDepositParameters(
     walletPubKeyHash: deposit.walletPublicKeyHash.toPrefixedString(),
     refundPubKeyHash: deposit.refundPublicKeyHash.toPrefixedString(),
     refundLocktime: deposit.refundLocktime.toPrefixedString(),
-    vault: vault ? `0x${vault.identifierHex}` : AddressZero,
+    vault: vault ? `0x${vault.identifierHex}` : zeroAddress,
   }
 
   const extraData: string | undefined = deposit.extraData?.toPrefixedString()

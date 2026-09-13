@@ -3,7 +3,7 @@ import {
   ChainIdentifier,
   Chains,
 } from "../contracts"
-import { BigNumber } from "@ethersproject/bignumber"
+
 import { SuiAddress } from "./chain-identifier"
 import { SuiClient, SuiCoinBalance, SuiError } from "./types"
 
@@ -39,7 +39,7 @@ export class SuiTBTCToken implements DestinationChainTBTCToken {
   /**
    * @see {DestinationChainTBTCToken#balanceOf}
    */
-  async balanceOf(identifier: ChainIdentifier): Promise<BigNumber> {
+  async balanceOf(identifier: ChainIdentifier): Promise<bigint> {
     try {
       // Query SUI network for coin balance
       const balance = (await this.#client.getBalance({
@@ -49,8 +49,8 @@ export class SuiTBTCToken implements DestinationChainTBTCToken {
 
       // SUI uses 8 decimals, tBTC uses 18
       // Need to scale from 8 to 18 decimals (multiply by 10^10)
-      const balanceInSuiDecimals = BigNumber.from(balance.totalBalance)
-      const scaledBalance = balanceInSuiDecimals.mul(BigNumber.from(10).pow(10))
+      const balanceInSuiDecimals = BigInt(balance.totalBalance)
+      const scaledBalance = balanceInSuiDecimals * 10n ** 10n
 
       return scaledBalance
     } catch (error) {

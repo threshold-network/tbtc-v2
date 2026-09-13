@@ -14,6 +14,31 @@ import {
 
 const axios = require("axios")
 
+/**
+ * Builds a minimal object that is structurally an ethers v5 `Signer`
+ * (branded with `_isSigner` and exposing a synchronous `address`), without
+ * importing ethers. Exercises the SDK's duck-typed ethers v5 compatibility
+ * shim.
+ * @param chainId Chain ID the mock signer reports.
+ * @returns A structural ethers v5 signer object.
+ */
+function makeEthersV5Signer(chainId = 1): any {
+  const address = "0x1234567890123456789012345678901234567890"
+  return {
+    _isSigner: true,
+    address,
+    getAddress: async () => address,
+    getChainId: async () => chainId,
+    sendTransaction: async () => ({ hash: `0x${"00".repeat(32)}` }),
+    call: async () => "0x",
+    provider: {
+      _isProvider: true,
+      getNetwork: async () => ({ chainId }),
+      call: async () => "0x",
+    },
+  }
+}
+
 describe("TBTC - StarkNet Provider Support", () => {
   let tbtc: TBTC
   let mockTBTCContracts: MockTBTCContracts
@@ -57,8 +82,7 @@ describe("TBTC - StarkNet Provider Support", () => {
     })
 
     it("should reject Ethereum signer for StarkNet", async () => {
-      const { Wallet } = await import("ethers")
-      const mockEthereumSigner = Wallet.createRandom()
+      const mockEthereumSigner = makeEthersV5Signer()
 
       await expect(
         tbtc.initializeCrossChain("StarkNet", mockEthereumSigner)

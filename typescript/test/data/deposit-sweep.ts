@@ -11,12 +11,10 @@ import {
   EthereumAddress,
   Hex,
 } from "../../src"
-import { BigNumber } from "ethers"
-
 export const NO_MAIN_UTXO = {
   transactionHash: BitcoinTxHash.from(""),
   outputIndex: 0,
-  value: BigNumber.from(0),
+  value: 0n,
   transactionHex: "",
 }
 
@@ -50,7 +48,7 @@ export const depositSweepWithNoMainUtxoAndWitnessOutput: DepositSweepTestData =
             "74d0e353cdba99a6c17ce2cfeab62a26c09b5eb756eccdcfb83dbc12e67b18bc"
           ),
           outputIndex: 0,
-          value: BigNumber.from(25000),
+          value: 25000n,
           transactionHex:
             "01000000000101d9fdf44eb0874a31a462dc0aedce55c0b5be6d20956b4cdfbe1c16" +
             "761f7c4aa60100000000ffffffff02a86100000000000017a9143ec459d0f3c29286" +
@@ -85,7 +83,7 @@ export const depositSweepWithNoMainUtxoAndWitnessOutput: DepositSweepTestData =
             "5c54ecdf946382fab2236f78423ddc22a757776fb8492671c588667b737e55dc"
           ),
           outputIndex: 0,
-          value: BigNumber.from(12000),
+          value: 12000n,
           transactionHex:
             "01000000000101a0367a0790e3dfc199df34ca9ce5c35591510b6525d2d586916672" +
             "8a5ed554be0100000000ffffffff02e02e00000000000022002086a303cdd2e2eab1" +
@@ -157,7 +155,7 @@ export const depositSweepWithNoMainUtxoAndNonWitnessOutput: DepositSweepTestData
             "4cdd899d7133cd681bdc4e80b3af09d34da1f7450c5b19167aa8a8223c7a8426"
           ),
           outputIndex: 0,
-          value: BigNumber.from(15000),
+          value: 15000n,
           transactionHex:
             "01000000000101dcd1de7b256376f1e05b3c20846868401aee2a85c27990b95886e0d2970a3fc40100000000ffffffff02983a00000000000017a914a9a5f97d5d3c4687a52e90718168270005b369c487f065120000000000160014e257eccafbc07c381642ce6e7e55120fb077fbed02483045022100baccb37cb46a20d79ccd3875162ab8b614a671cc64dc37d3477e24ef5eb61d7102204c68c5a5caff7e5089c1cacaa173fb5aad9529642773501b5e8d88abe7b4fc9c0121039d61d62dcd048d3f8550d22eb90b4af908db60231d117aeede04e7bc11907bfa00000000",
         },
@@ -210,7 +208,7 @@ export const depositSweepWithWitnessMainUtxoAndWitnessOutput: DepositSweepTestDa
             "d4fe2ef9068d039eae2210e893db518280d4757696fe9db8f3c696a94de90aed"
           ),
           outputIndex: 0,
-          value: BigNumber.from(17000),
+          value: 17000n,
           transactionHex:
             "01000000000101e37f552fc23fa0032bfd00c8eef5f5c22bf85fe4c6e735857719ff" +
             "8a4ff66eb80100000000ffffffff02684200000000000017a9143ec459d0f3c29286" +
@@ -246,7 +244,7 @@ export const depositSweepWithWitnessMainUtxoAndWitnessOutput: DepositSweepTestDa
             "b86ef64f8aff19778535e7c6e45ff82bc2f5f5eec800fd2b03a03fc22f557fe3"
           ),
           outputIndex: 0,
-          value: BigNumber.from(10000),
+          value: 10000n,
           transactionHex:
             "01000000000101dc557e737b6688c5712649b86f7757a722dc3d42786f23b2fa8263" +
             "94dfec545c0100000000ffffffff02102700000000000022002086a303cdd2e2eab1" +
@@ -282,7 +280,7 @@ export const depositSweepWithWitnessMainUtxoAndWitnessOutput: DepositSweepTestDa
         "f8eaf242a55ea15e602f9f990e33f67f99dfbe25d1802bbde63cc1caabf99668"
       ),
       outputIndex: 0,
-      value: BigNumber.from(35400),
+      value: 35400n,
       transactionHex:
         "01000000000102bc187be612bc3db8cfcdec56b75e9bc0262ab6eacfe27cc1a699" +
         "bacd53e3d07400000000c948304502210089a89aaf3fec97ac9ffa91cdff59829f" +
@@ -347,7 +345,7 @@ export const depositSweepWithNonWitnessMainUtxoAndWitnessOutput: DepositSweepTes
             "fda2323b4075a0311767ae8db07f4387bb53663a304278cd8c2c7a591f203a17"
           ),
           outputIndex: 0,
-          value: BigNumber.from(19000),
+          value: 19000n,
           transactionHex:
             "010000000001012d4e0b1ef0bf21eed32f6e2f11353b78534dcf21852d506f6f" +
             "53b64bb5c6b4c50100000000ffffffff02384a000000000000220020b1f83e22" +
@@ -383,7 +381,7 @@ export const depositSweepWithNonWitnessMainUtxoAndWitnessOutput: DepositSweepTes
         "c8a2c407309b9434cb73d4788ce4ac895084240eec7bb440e7f76b75be1296e1"
       ),
       outputIndex: 0,
-      value: BigNumber.from(16400),
+      value: 16400n,
       transactionHex:
         "01000000012d4e0b1ef0bf21eed32f6e2f11353b78534dcf21852d506f6f53b64bb" +
         "5c6b4c500000000c84730440220590e998a5c28965fd442e700445a60c494124fdb" +
@@ -483,7 +481,7 @@ export const depositSweepProof: DepositSweepProofTestData = {
       outputs: [
         {
           outputIndex: 0,
-          value: BigNumber.from(39800),
+          value: 39800n,
           scriptPubKey: Hex.from(
             "00148db50eb52063ea9d98b3eac91489a90f738986f6"
           ),

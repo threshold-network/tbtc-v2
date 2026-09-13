@@ -19,6 +19,7 @@ the relayer so the caller can poll the relayer or otherwise recover.
 
 ### Properties
 
+- [cause](StarkNetRelayerDepositConflictError.md#cause)
 - [depositId](StarkNetRelayerDepositConflictError.md#depositid)
 - [depositIdMismatch](StarkNetRelayerDepositConflictError.md#depositidmismatch)
 - [locallyDerivedDepositId](StarkNetRelayerDepositConflictError.md#locallyderiveddepositid)
@@ -61,9 +62,23 @@ Error.constructor
 
 #### Defined in
 
-[src/lib/starknet/starknet-depositor.ts:151](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L151)
+[src/lib/starknet/starknet-depositor.ts:149](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L149)
 
 ## Properties
+
+### cause
+
+• `Optional` **cause**: `unknown`
+
+#### Inherited from
+
+Error.cause
+
+#### Defined in
+
+node_modules/typescript/lib/lib.es2022.error.d.ts:26
+
+___
 
 ### depositId
 
@@ -74,7 +89,7 @@ or undefined if the relayer's reported ID was non-canonical or missing.
 
 #### Defined in
 
-[src/lib/starknet/starknet-depositor.ts:153](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L153)
+[src/lib/starknet/starknet-depositor.ts:151](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L151)
 
 ___
 
@@ -92,7 +107,7 @@ themselves.
 
 #### Defined in
 
-[src/lib/starknet/starknet-depositor.ts:157](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L157)
+[src/lib/starknet/starknet-depositor.ts:155](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L155)
 
 ___
 
@@ -105,7 +120,7 @@ independently derived by the SDK from the funding transaction, if available.
 
 #### Defined in
 
-[src/lib/starknet/starknet-depositor.ts:154](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L154)
+[src/lib/starknet/starknet-depositor.ts:152](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L152)
 
 ___
 
@@ -157,7 +172,7 @@ ___
 
 #### Defined in
 
-[src/lib/starknet/starknet-depositor.ts:155](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L155)
+[src/lib/starknet/starknet-depositor.ts:153](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L153)
 
 ___
 
@@ -184,7 +199,7 @@ relayer reported an unrecognized status.
 
 #### Defined in
 
-[src/lib/starknet/starknet-depositor.ts:156](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L156)
+[src/lib/starknet/starknet-depositor.ts:154](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L154)
 
 ___
 
