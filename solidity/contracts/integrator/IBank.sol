@@ -38,8 +38,10 @@ interface IBank {
     /// @param amount Amount of the allowance to increase.
     function increaseBalanceAllowance(address spender, uint256 amount) external;
 
-    /// @notice Returns the amount of tokens owned by `account`.
-    function balanceAvailable(address account) external view returns (uint256);
+    /// @notice Transfers `amount` tokens from the caller to `recipient`.
+    /// @param recipient Address receiving the balance.
+    /// @param amount Amount of tokens to transfer.
+    function transferBalance(address recipient, uint256 amount) external;
 
     /// @notice Transfers `amount` tokens from `sender` to `recipient` using
     ///         the allowance mechanism.
@@ -52,4 +54,7 @@ interface IBank {
         address recipient,
         uint256 amount
     ) external returns (bool);
+
+    /// @notice Returns the amount of tokens owned by `account`.
+    function balanceAvailable(address account) external view returns (uint256);
 }

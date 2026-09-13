@@ -8,15 +8,6 @@ contract MockBank is IBank {
     mapping(address => uint256) private _balances;
     mapping(address => mapping(address => uint256)) private _allowances;
 
-    function balanceAvailable(address account)
-        external
-        view
-        override
-        returns (uint256)
-    {
-        return _balances[account];
-    }
-
     function increaseBalanceAllowance(address spender, uint256 amount)
         external
         override
@@ -27,6 +18,22 @@ contract MockBank is IBank {
             spender,
             _allowances[msg.sender][spender]
         );
+    }
+
+    function transferBalance(address recipient, uint256 amount)
+        external
+        override
+    {
+        require(recipient != address(0), "MockBank: zero recipient");
+        require(
+            _balances[msg.sender] >= amount,
+            "MockBank: insufficient balance"
+        );
+
+        _balances[msg.sender] -= amount;
+        _balances[recipient] += amount;
+
+        emit TransferBalance(msg.sender, recipient, amount);
     }
 
     function transferBalanceFrom(
@@ -49,6 +56,15 @@ contract MockBank is IBank {
     // Mock-specific functions for testing setup
     function setBalance(address account, uint256 amount) external {
         _balances[account] = amount;
+    }
+
+    function balanceAvailable(address account)
+        external
+        view
+        override
+        returns (uint256)
+    {
+        return _balances[account];
     }
 
     function getAllowance(address owner, address spender)

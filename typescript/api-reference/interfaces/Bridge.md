@@ -13,6 +13,8 @@ Interface for communication with the Bridge on-chain contract.
 - [getDepositRevealedEvents](Bridge.md#getdepositrevealedevents)
 - [getNewWalletRegisteredEvents](Bridge.md#getnewwalletregisteredevents)
 - [getRedemptionRequestedEvents](Bridge.md#getredemptionrequestedevents)
+- [getRedemptionTimedOutEvents](Bridge.md#getredemptiontimedoutevents)
+- [getRedemptionsCompletedEvents](Bridge.md#getredemptionscompletedevents)
 
 ### Methods
 
@@ -20,6 +22,7 @@ Interface for communication with the Bridge on-chain contract.
 - [buildUtxoHash](Bridge.md#buildutxohash)
 - [deposits](Bridge.md#deposits)
 - [getChainIdentifier](Bridge.md#getchainidentifier)
+- [getRedemptionTimeout](Bridge.md#getredemptiontimeout)
 - [pendingRedemptions](Bridge.md#pendingredemptions)
 - [pendingRedemptionsByWalletPKH](Bridge.md#pendingredemptionsbywalletpkh)
 - [requestRedemption](Bridge.md#requestredemption)
@@ -45,7 +48,7 @@ GetEventsFunction
 
 #### Defined in
 
-[lib/contracts/bridge.ts:26](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L26)
+[src/lib/contracts/bridge.ts:26](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L26)
 
 ___
 
@@ -61,7 +64,7 @@ GetEventsFunction
 
 #### Defined in
 
-[lib/contracts/bridge.ts:169](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L169)
+[src/lib/contracts/bridge.ts:171](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L171)
 
 ___
 
@@ -71,13 +74,63 @@ ___
 
 Get emitted RedemptionRequested events.
 
-**`See`**
+**`Param`**
 
-GetEventsFunction
+Optional wallet public key hash filter. The first
+       argument may be a single 20-byte wallet public key hash (as a
+       string or `Hex`), an array of them to match any of the listed
+       wallets, or `null`/omitted to match events from any wallet. An
+       empty array matches no events. No additional filter arguments
+       are supported.
 
 #### Defined in
 
-[lib/contracts/bridge.ts:195](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L195)
+[src/lib/contracts/bridge.ts:202](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L202)
+
+___
+
+### getRedemptionTimedOutEvents
+
+• **getRedemptionTimedOutEvents**: [`Function`](GetChainEvents.Function.md)\<[`RedemptionTimedOutEvent`](../README.md#redemptiontimedoutevent)\>
+
+Get emitted RedemptionTimedOut events. These are recorded only when a
+timeout report is accepted on-chain; expiration of the redemption
+timeout alone does not emit an event.
+
+**`Param`**
+
+Optional wallet public key hash filter. The first
+       argument may be a single 20-byte wallet public key hash (as a
+       string or `Hex`), an array of them to match any of the listed
+       wallets, or `null`/omitted to match events from any wallet. An
+       empty array matches no events. No additional filter arguments
+       are supported.
+
+#### Defined in
+
+[src/lib/contracts/bridge.ts:227](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L227)
+
+___
+
+### getRedemptionsCompletedEvents
+
+• **getRedemptionsCompletedEvents**: [`Function`](GetChainEvents.Function.md)\<[`RedemptionsCompletedEvent`](../README.md#redemptionscompletedevent)\>
+
+Get emitted RedemptionsCompleted events (successful on-chain acceptance
+of a redemption transaction proof).
+
+**`Param`**
+
+Optional wallet public key hash filter. The first
+       argument may be a single 20-byte wallet public key hash (as a
+       string or `Hex`), an array of them to match any of the listed
+       wallets, or `null`/omitted to match events from any wallet. An
+       empty array matches no events. No additional filter arguments
+       are supported.
+
+#### Defined in
+
+[src/lib/contracts/bridge.ts:214](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L214)
 
 ## Methods
 
@@ -97,7 +150,7 @@ Compressed (33 bytes long with 02 or 03 prefix) active wallet's
 
 #### Defined in
 
-[lib/contracts/bridge.ts:163](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L163)
+[src/lib/contracts/bridge.ts:165](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L165)
 
 ___
 
@@ -121,7 +174,7 @@ The hash of the UTXO.
 
 #### Defined in
 
-[lib/contracts/bridge.ts:189](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L189)
+[src/lib/contracts/bridge.ts:191](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L191)
 
 ___
 
@@ -146,7 +199,7 @@ Revealed deposit data.
 
 #### Defined in
 
-[lib/contracts/bridge.ts:68](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L68)
+[src/lib/contracts/bridge.ts:68](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L68)
 
 ___
 
@@ -162,7 +215,31 @@ Gets the chain-specific identifier of this contract.
 
 #### Defined in
 
-[lib/contracts/bridge.ts:20](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L20)
+[src/lib/contracts/bridge.ts:20](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L20)
+
+___
+
+### getRedemptionTimeout
+
+▸ **getRedemptionTimeout**(`blockNumber?`): `Promise`\<`number`\>
+
+Gets the configured redemption timeout in seconds.
+
+#### Parameters
+
+| Name | Type | Description |
+| :------ | :------ | :------ |
+| `blockNumber?` | `number` | Optional block at which to read the configuration. |
+
+#### Returns
+
+`Promise`\<`number`\>
+
+The timeout in seconds.
+
+#### Defined in
+
+[src/lib/contracts/bridge.ts:234](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L234)
 
 ___
 
@@ -187,13 +264,13 @@ Promise with the pending redemption.
 
 #### Defined in
 
-[lib/contracts/bridge.ts:124](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L124)
+[src/lib/contracts/bridge.ts:124](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L124)
 
 ___
 
 ### pendingRedemptionsByWalletPKH
 
-▸ **pendingRedemptionsByWalletPKH**(`walletPublicKeyHash`, `redeemerOutputScript`): `Promise`\<[`RedemptionRequest`](RedemptionRequest.md)\>
+▸ **pendingRedemptionsByWalletPKH**(`walletPublicKeyHash`, `redeemerOutputScript`, `blockNumber?`): `Promise`\<[`RedemptionRequest`](RedemptionRequest.md)\>
 
 Gets a pending redemption from the on-chain contract using the wallet's
 public key hash instead of the plain-text public key.
@@ -204,6 +281,7 @@ public key hash instead of the plain-text public key.
 | :------ | :------ | :------ |
 | `walletPublicKeyHash` | [`Hex`](../classes/Hex.md) | Bitcoin public key hash of the wallet the request is targeted to. Must be 20 bytes long. |
 | `redeemerOutputScript` | [`Hex`](../classes/Hex.md) | The redeemer output script the redeemed funds are supposed to be locked on. Must not be prepended with length. |
+| `blockNumber?` | `number` | Optional block at which to read the pending request. |
 
 #### Returns
 
@@ -213,7 +291,7 @@ Promise with the pending redemption.
 
 #### Defined in
 
-[lib/contracts/bridge.ts:138](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L138)
+[src/lib/contracts/bridge.ts:139](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L139)
 
 ___
 
@@ -240,7 +318,7 @@ Transaction hash of the request redemption transaction.
 
 #### Defined in
 
-[lib/contracts/bridge.ts:84](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L84)
+[src/lib/contracts/bridge.ts:84](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L84)
 
 ___
 
@@ -267,7 +345,7 @@ Transaction hash of the reveal deposit transaction.
 
 #### Defined in
 
-[lib/contracts/bridge.ts:54](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L54)
+[src/lib/contracts/bridge.ts:54](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L54)
 
 ___
 
@@ -294,7 +372,7 @@ Transaction hash of the submit deposit sweep proof transaction.
 
 #### Defined in
 
-[lib/contracts/bridge.ts:37](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L37)
+[src/lib/contracts/bridge.ts:37](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L37)
 
 ___
 
@@ -321,7 +399,7 @@ Transaction hash of the submit redemption proof transaction.
 
 #### Defined in
 
-[lib/contracts/bridge.ts:100](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L100)
+[src/lib/contracts/bridge.ts:100](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L100)
 
 ___
 
@@ -346,7 +424,7 @@ Promise with the pending redemption.
 
 #### Defined in
 
-[lib/contracts/bridge.ts:152](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L152)
+[src/lib/contracts/bridge.ts:154](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L154)
 
 ___
 
@@ -369,7 +447,7 @@ This number signifies how many confirmations a transaction has to
 
 #### Defined in
 
-[lib/contracts/bridge.ts:113](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L113)
+[src/lib/contracts/bridge.ts:113](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L113)
 
 ___
 
@@ -385,7 +463,7 @@ Returns the attached WalletRegistry instance.
 
 #### Defined in
 
-[lib/contracts/bridge.ts:174](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L174)
+[src/lib/contracts/bridge.ts:176](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L176)
 
 ___
 
@@ -409,4 +487,4 @@ Promise with the wallet details.
 
 #### Defined in
 
-[lib/contracts/bridge.ts:182](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L182)
+[src/lib/contracts/bridge.ts:184](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L184)

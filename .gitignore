@@ -2,6 +2,7 @@ node_modules/
 *.DS_Store
 
 dist/
+dist-test/
 
 .vscode/
 .envrc
@@ -9,3 +10,15 @@ dist/
 yarn-error.log
 CLAUDE.md
 .claude/
+agent-docs/
+.ralph/
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+target/*
+/build/
+.DS_Store

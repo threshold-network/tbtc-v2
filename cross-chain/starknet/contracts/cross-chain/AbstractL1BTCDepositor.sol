@@ -15,7 +15,7 @@
 
 pragma solidity 0.8.17;
 
-import "@keep-network/random-beacon/contracts/Reimbursable.sol";
+import "../vendor/random-beacon/Reimbursable.sol";
 import "@openzeppelin/contracts-upgradeable/token/ERC20/IERC20Upgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";

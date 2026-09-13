@@ -1,12 +1,16 @@
+import { EventLog } from "ethers"
 import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
-import { BigNumber } from "ethers"
-import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
+
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
+import { requireValue } from "../../../helpers/require-value"
 import type {
   L1BTCDepositorNttWithExecutor,
   MockTBTCBridge,
   MockTBTCVault,
   TestERC20,
+  MockNttManagerWithExecutor,
+  MockNttManager,
 } from "../../../typechain"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
@@ -20,9 +24,11 @@ describe("L1BTCDepositorNttWithExecutor - Minimal Auto-Nonce Test", () => {
   let bridge: MockTBTCBridge
   let tbtcVault: MockTBTCVault
   let tbtcToken: TestERC20
-  let owner: SignerWithAddress
-  let user1: SignerWithAddress
-  let user2: SignerWithAddress
+  let nttManagerWithExecutor: MockNttManagerWithExecutor
+  let underlyingNttManager: MockNttManager
+  let owner: HardhatEthersSigner
+  let user1: HardhatEthersSigner
+  let user2: HardhatEthersSigner
 
   before(async () => {
     // Deploy mock contracts following working pattern
@@ -36,41 +42,49 @@ describe("L1BTCDepositorNttWithExecutor - Minimal Auto-Nonce Test", () => {
       "contracts/test/MockTBTCVault.sol:MockTBTCVault"
     )
     tbtcVault = (await MockTBTCVaultFactory.deploy()) as MockTBTCVault
-    await tbtcVault.setTbtcToken(tbtcToken.address)
+    await tbtcVault.setTbtcToken(tbtcToken.target)
 
-    // Mock NTT managers with simple objects (following working pattern)
-    const nttManagerWithExecutor = {
-      address: ethers.Wallet.createRandom().address,
-    }
-    const underlyingNttManager = {
-      address: ethers.Wallet.createRandom().address,
-    }
+    // Deploy proper mock NTT managers
+    const MockNttManagerWithExecutorFactory = await ethers.getContractFactory(
+      "MockNttManagerWithExecutor"
+    )
+    nttManagerWithExecutor = await MockNttManagerWithExecutorFactory.deploy()
+
+    const MockNttManagerFactory = await ethers.getContractFactory(
+      "MockNttManager"
+    )
+    underlyingNttManager = await MockNttManagerFactory.deploy()
+
+    await nttManagerWithExecutor.setSupportedChain(
+      WORMHOLE_CHAIN_DESTINATION,
+      true
+    )
+    await nttManagerWithExecutor.setSupportedChain(WORMHOLE_CHAIN_BASE, true)
 
     // Deploy main contract with proxy following working pattern
     const L1BTCDepositorFactory = await ethers.getContractFactory(
       "L1BTCDepositorNttWithExecutor"
     )
     const depositorImpl = await L1BTCDepositorFactory.deploy()
-    await depositorImpl.deployed()
+    await depositorImpl.waitForDeployment()
 
     // Deploy proxy
     const ProxyFactory = await ethers.getContractFactory("ERC1967Proxy")
     const initData = depositorImpl.interface.encodeFunctionData("initialize", [
-      bridge.address,
-      tbtcVault.address,
-      nttManagerWithExecutor.address,
-      underlyingNttManager.address,
+      bridge.target,
+      tbtcVault.target,
+      nttManagerWithExecutor.target,
+      underlyingNttManager.target,
     ])
-    const proxy = await ProxyFactory.deploy(depositorImpl.address, initData)
+    const proxy = await ProxyFactory.deploy(depositorImpl.target, initData)
 
     depositor = L1BTCDepositorFactory.attach(
-      proxy.address
+      proxy.target
     ) as L1BTCDepositorNttWithExecutor
 
     // Set up supported chains
     await depositor.setSupportedChain(WORMHOLE_CHAIN_DESTINATION, true)
     await depositor.setSupportedChain(WORMHOLE_CHAIN_BASE, true)
-    await depositor.setDefaultSupportedChain(WORMHOLE_CHAIN_DESTINATION)
   })
 
   beforeEach(async () => {
@@ -85,46 +99,54 @@ describe("L1BTCDepositorNttWithExecutor - Minimal Auto-Nonce Test", () => {
   describe("Auto-Nonce Basic Functionality", () => {
     it("should allow multiple users to set parameters in parallel", async () => {
       const executorArgs1 = {
-        value: ethers.utils.parseEther("0.01"),
+        value: ethers.parseEther("0.01"),
         refundAddress: user1.address,
-        signedQuote: ethers.utils.formatBytes32String("quote1"),
+        signedQuote: ethers.encodeBytes32String("quote1"),
         instructions: "0x",
       }
 
       const executorArgs2 = {
-        value: ethers.utils.parseEther("0.02"),
+        value: ethers.parseEther("0.02"),
         refundAddress: user2.address,
-        signedQuote: ethers.utils.formatBytes32String("quote2"),
+        signedQuote: ethers.encodeBytes32String("quote2"),
         instructions: "0x",
       }
 
       const feeArgs = {
-        dbps: 100, // 0.1% (100/100000) // 0.1% (100/100000)
-        payee: owner.address,
+        dbps: 0,
+        payee: ethers.ZeroAddress,
       }
 
       // User 1 sets parameters
       const tx1 = await depositor
         .connect(user1)
-        .setExecutorParameters(executorArgs1, feeArgs)
-      const receipt1 = await tx1.wait()
-      const nonce1 = receipt1.events?.find(
-        (e) => e.event === "ExecutorParametersSet"
-      )?.args?.nonce
+        .setExecutorParameters(
+          executorArgs1,
+          feeArgs,
+          WORMHOLE_CHAIN_DESTINATION
+        )
+      const receipt1 = requireValue(await tx1.wait(), "Transaction receipt")
+      const nonce1 = receipt1.logs
+        .filter((log): log is EventLog => log instanceof EventLog)
+        ?.find((e) => e.eventName === "ExecutorParametersSet")?.args?.nonce
 
       // User 2 sets parameters (should not interfere with user 1)
       const tx2 = await depositor
         .connect(user2)
-        .setExecutorParameters(executorArgs2, feeArgs)
-      const receipt2 = await tx2.wait()
-      const nonce2 = receipt2.events?.find(
-        (e) => e.event === "ExecutorParametersSet"
-      )?.args?.nonce
+        .setExecutorParameters(
+          executorArgs2,
+          feeArgs,
+          WORMHOLE_CHAIN_DESTINATION
+        )
+      const receipt2 = requireValue(await tx2.wait(), "Transaction receipt")
+      const nonce2 = receipt2.logs
+        .filter((log): log is EventLog => log instanceof EventLog)
+        ?.find((e) => e.eventName === "ExecutorParametersSet")?.args?.nonce
 
       // Nonces should be different
       expect(nonce1).to.not.equal(nonce2)
-      expect(nonce1).to.not.equal(ethers.constants.HashZero)
-      expect(nonce2).to.not.equal(ethers.constants.HashZero)
+      expect(nonce1).to.not.equal(ethers.ZeroHash)
+      expect(nonce2).to.not.equal(ethers.ZeroHash)
 
       // Both users should have parameters set
       const [user1Set, user1Nonce] = await depositor
@@ -141,22 +163,33 @@ describe("L1BTCDepositorNttWithExecutor - Minimal Auto-Nonce Test", () => {
     })
 
     it("should track nonce sequences per user", async () => {
-      const executorArgs = {
-        value: ethers.utils.parseEther("0.01"),
-        refundAddress: user1.address,
-        signedQuote: ethers.utils.formatBytes32String("quote"),
+      const baseExecutorArgs = {
+        value: ethers.parseEther("0.01"),
+        signedQuote: ethers.encodeBytes32String("quote"),
         instructions: "0x",
+      }
+      const user1ExecutorArgs = {
+        ...baseExecutorArgs,
+        refundAddress: user1.address,
+      }
+      const user2ExecutorArgs = {
+        ...baseExecutorArgs,
+        refundAddress: user2.address,
       }
 
       const feeArgs = {
-        dbps: 100, // 0.1% (100/100000)
-        payee: owner.address,
+        dbps: 0,
+        payee: ethers.ZeroAddress,
       }
 
       // User 1 sets parameters multiple times (clearing between calls)
       await depositor
         .connect(user1)
-        .setExecutorParameters(executorArgs, feeArgs)
+        .setExecutorParameters(
+          user1ExecutorArgs,
+          feeArgs,
+          WORMHOLE_CHAIN_DESTINATION
+        )
 
       // getUserNonceSequence was removed to reduce contract size
       // Nonce tracking is still internal, just not exposed via getter
@@ -165,12 +198,20 @@ describe("L1BTCDepositorNttWithExecutor - Minimal Auto-Nonce Test", () => {
       await depositor.connect(user1).clearExecutorParameters()
       await depositor
         .connect(user1)
-        .setExecutorParameters(executorArgs, feeArgs)
+        .setExecutorParameters(
+          user1ExecutorArgs,
+          feeArgs,
+          WORMHOLE_CHAIN_DESTINATION
+        )
 
       // User 2's sequence should be independent
       await depositor
         .connect(user2)
-        .setExecutorParameters(executorArgs, feeArgs)
+        .setExecutorParameters(
+          user2ExecutorArgs,
+          feeArgs,
+          WORMHOLE_CHAIN_DESTINATION
+        )
 
       // Verify parameters were set successfully by checking from each user's context
       const [isSet1] = await depositor.connect(user1).areExecutorParametersSet()
@@ -181,58 +222,66 @@ describe("L1BTCDepositorNttWithExecutor - Minimal Auto-Nonce Test", () => {
 
     it("should provide workflow status information", async () => {
       const executorArgs = {
-        value: ethers.utils.parseEther("0.01"),
+        value: ethers.parseEther("0.01"),
         refundAddress: user1.address,
-        signedQuote: ethers.utils.formatBytes32String("quote"),
+        signedQuote: ethers.encodeBytes32String("quote"),
         instructions: "0x",
       }
 
       const feeArgs = {
-        dbps: 100, // 0.1% (100/100000)
-        payee: owner.address,
+        dbps: 0,
+        payee: ethers.ZeroAddress,
       }
 
       // Initially no workflow
       const [hasWorkflow, nonce, timestamp] =
         await depositor.getUserWorkflowStatus(user1.address)
       expect(hasWorkflow).to.be.false
-      expect(nonce).to.equal(ethers.constants.HashZero)
+      expect(nonce).to.equal(ethers.ZeroHash)
       expect(timestamp).to.equal(0)
 
       // Set parameters
       const tx = await depositor
         .connect(user1)
-        .setExecutorParameters(executorArgs, feeArgs)
-      const receipt = await tx.wait()
-      const expectedNonce = receipt.events?.find(
-        (e) => e.event === "ExecutorParametersSet"
-      )?.args?.nonce
+        .setExecutorParameters(
+          executorArgs,
+          feeArgs,
+          WORMHOLE_CHAIN_DESTINATION
+        )
+      const receipt = requireValue(await tx.wait(), "Transaction receipt")
+      const expectedNonce = receipt.logs
+        .filter((log): log is EventLog => log instanceof EventLog)
+        ?.find((e) => e.eventName === "ExecutorParametersSet")?.args?.nonce
 
       // Check workflow status
       const [hasWorkflowAfter, nonceAfter, timestampAfter] =
         await depositor.getUserWorkflowStatus(user1.address)
       expect(hasWorkflowAfter).to.be.true
       expect(nonceAfter).to.equal(expectedNonce)
-      expect(timestampAfter.toNumber()).to.be.greaterThan(0)
+      expect(ethers.toNumber(timestampAfter)).to.be.greaterThan(0)
     })
 
     it("should allow users to clear their own parameters", async () => {
       const executorArgs = {
-        value: ethers.utils.parseEther("0.01"),
+        value: ethers.parseEther("0.01"),
         refundAddress: user1.address,
-        signedQuote: ethers.utils.formatBytes32String("quote"),
+        signedQuote: ethers.encodeBytes32String("quote"),
         instructions: "0x",
       }
 
       const feeArgs = {
-        dbps: 100, // 0.1% (100/100000)
-        payee: owner.address,
+        dbps: 0,
+        payee: ethers.ZeroAddress,
       }
 
       // Set parameters
       await depositor
         .connect(user1)
-        .setExecutorParameters(executorArgs, feeArgs)
+        .setExecutorParameters(
+          executorArgs,
+          feeArgs,
+          WORMHOLE_CHAIN_DESTINATION
+        )
 
       // Verify parameters are set
       const [isSetBefore] = await depositor

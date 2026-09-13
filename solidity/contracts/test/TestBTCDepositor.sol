@@ -247,6 +247,10 @@ contract MockBridge is IBridge {
         redemptionTimeoutSlashingAmount = _redemptionTimeoutSlashingAmount;
         redemptionTimeoutNotifierRewardMultiplier = _redemptionTimeoutNotifierRewardMultiplier;
     }
+
+    function getRedemptionWatchtower() external pure returns (address) {
+        return address(0);
+    }
 }
 
 contract MockTBTCVault is ITBTCVault {
