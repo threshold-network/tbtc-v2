@@ -185,6 +185,103 @@ describe("FrostDkgValidator digest parity (B-1.5 helper invariant)", () => {
         expect(errorMsg).to.equal("Corrupted misbehaved members indices")
       })
     }
+
+    // Finding #4 (PR #971 remediation): the sibling test above only
+    // exercises out-of-range values for `misbehavedMembersIndices`.
+    // Duplicate and out-of-order cases were uncovered in the
+    // P2 test-coverage review. The same under-coverage applied to
+    // `signingMembersIndices` — only the out-of-range branch is hit
+    // transitively in production (and only via `validate`, not via
+    // `validateFields` directly), so neither the duplicate nor
+    // the descending-order path has a unit-level pin. Add them.
+
+    it("rejects a duplicate misbehaved member index gracefully", async () => {
+      const result = {
+        submitterMemberIndex: 1,
+        xOnlyOutputKey:
+          "0xaabbccddeeff00112233445566778899aabbccddeeff00112233445566778899",
+        // [2, 2] is in-range (both within [1, groupSize]) and
+        // satisfies `groupSize - 2 >= activeThreshold` (98 >= 90),
+        // so the validator reaches the strict-ascending loop and
+        // trips on `misbehavedMembersIndices[0] >=
+        //  misbehavedMembersIndices[1]`.
+        misbehavedMembersIndices: [2, 2],
+        signatures: "0x",
+        signingMembersIndices: [],
+        members: [],
+        membersHash: ethers.constants.HashZero,
+      }
+
+      const [isValid, errorMsg] = await validator.validateFields(result)
+      expect(isValid).to.equal(false)
+      expect(errorMsg).to.equal("Corrupted misbehaved members indices")
+    })
+
+    // Signing-member-index cases need `signaturesCount >= groupThreshold`
+    // (51) to reach the indices check, so the `signatures` payload is
+    // `length * 65` zero bytes.
+    const SIGNATURE_BYTE_SIZE = 65
+
+    it("rejects a duplicate signing member index gracefully", async () => {
+      const signingMembersIndices: number[] = []
+      for (let i = 1; i <= 51; i++) signingMembersIndices.push(i)
+      // Inject a duplicate at the end (51 again). Range check
+      // passes ([0]=1, [51]=51 ∈ [1, 100]); the strict-ascending
+      // loop trips on `signingMembersIndices[50] >=
+      //  signingMembersIndices[51]` (51 >= 51).
+      signingMembersIndices.push(51)
+      const signatures = "0x" + "00".repeat(
+        signingMembersIndices.length * SIGNATURE_BYTE_SIZE
+      )
+
+      const result = {
+        submitterMemberIndex: 1,
+        xOnlyOutputKey:
+          "0xaabbccddeeff00112233445566778899aabbccddeeff00112233445566778899",
+        misbehavedMembersIndices: [],
+        signatures,
+        signingMembersIndices,
+        members: [],
+        membersHash: ethers.constants.HashZero,
+      }
+
+      const [isValid, errorMsg] = await validator.validateFields(result)
+      expect(isValid).to.equal(false)
+      expect(errorMsg).to.equal("Corrupted signing member indices")
+    })
+
+    it("rejects an out-of-order signing member index gracefully", async () => {
+      const signingMembersIndices: number[] = []
+      for (let i = 1; i <= 51; i++) signingMembersIndices.push(i)
+      // Append 52 then swap entries 49 and 50 (values 50 and 51)
+      // so the array is `[..., 49, 51, 50, 52]` (strictly
+      // descending at that point). Range check passes; the
+      // strict-ascending loop trips on
+      // `signingMembersIndices[49] >= signingMembersIndices[50]`
+      // (51 >= 50).
+      signingMembersIndices.push(52)
+      const swap = signingMembersIndices[49]
+      signingMembersIndices[49] = signingMembersIndices[50]
+      signingMembersIndices[50] = swap
+      const signatures = "0x" + "00".repeat(
+        signingMembersIndices.length * SIGNATURE_BYTE_SIZE
+      )
+
+      const result = {
+        submitterMemberIndex: 1,
+        xOnlyOutputKey:
+          "0xaabbccddeeff00112233445566778899aabbccddeeff00112233445566778899",
+        misbehavedMembersIndices: [],
+        signatures,
+        signingMembersIndices,
+        members: [],
+        membersHash: ethers.constants.HashZero,
+      }
+
+      const [isValid, errorMsg] = await validator.validateFields(result)
+      expect(isValid).to.equal(false)
+      expect(errorMsg).to.equal("Corrupted signing member indices")
+    })
   })
 
   cases.forEach((c) => {

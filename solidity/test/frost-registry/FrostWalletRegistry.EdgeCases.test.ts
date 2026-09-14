@@ -522,4 +522,130 @@ describe("FrostWalletRegistry DKG edge cases (B-1.5 slice 4)", () => {
     void computeFrostResultDigest
     void hardhatNetworkId
   })
+
+  // Finding #12 (PR #971 remediation): the optimistic-DKG state
+  // machine has a `dkg.lockState()` guard inside `requestNewWallet`
+  // that reverts with `"Current state is not IDLE"` whenever the
+  // registry is mid-session. None of the sibling frost-registry
+  // tests exercise that revert; Bridge.Wallets.test.ts:415-419
+  // claims the guard is "covered at the FROST registry layer",
+  // which a repo-wide grep confirms it is not. Add cases that pin
+  // the guard against each non-IDLE state so a future refactor that
+  // relaxes `lockState()` (e.g. allowing back-to-back requests
+  // when only `submitterPrecedencePeriodLength` has elapsed) is
+  // caught immediately.
+  describe("requestNewWallet non-IDLE guard", () => {
+    it("reverts with 'Current state is not IDLE' while AWAITING_SEED", async function () {
+      this.timeout(60_000)
+
+      await ethers.provider.send("hardhat_impersonateAccount", [
+        bridge.address,
+      ])
+      const bridgeAsSigner = await ethers.getSigner(bridge.address)
+
+      // First call: IDLE → AWAITING_SEED.
+      await frostWalletRegistry.connect(bridgeAsSigner).requestNewWallet()
+      expect(
+        await frostWalletRegistry.getWalletCreationState()
+      ).to.equal(State.AWAITING_SEED)
+
+      // Second call: state is not IDLE, must revert.
+      await expect(
+        frostWalletRegistry.connect(bridgeAsSigner).requestNewWallet()
+      ).to.be.revertedWith("Current state is not IDLE")
+    })
+
+    it("reverts with 'Current state is not IDLE' while AWAITING_RESULT", async function () {
+      this.timeout(60_000)
+
+      await ethers.provider.send("hardhat_impersonateAccount", [
+        bridge.address,
+      ])
+      const bridgeAsSigner = await ethers.getSigner(bridge.address)
+
+      await frostWalletRegistry.connect(bridgeAsSigner).requestNewWallet()
+
+      await ethers.provider.send("hardhat_impersonateAccount", [
+        randomBeacon.address,
+      ])
+      const beaconAsSigner = await ethers.getSigner(randomBeacon.address)
+      const seed = ethers.BigNumber.from(
+        ethers.utils.id("frost-nonidle-awaiting-result-seed")
+      )
+      await frostWalletRegistry
+        .connect(beaconAsSigner)
+        .__beaconCallback(seed, 0)
+
+      expect(
+        await frostWalletRegistry.getWalletCreationState()
+      ).to.equal(State.AWAITING_RESULT)
+
+      await expect(
+        frostWalletRegistry.connect(bridgeAsSigner).requestNewWallet()
+      ).to.be.revertedWith("Current state is not IDLE")
+    })
+
+    it("reverts with 'Current state is not IDLE' while CHALLENGE", async function () {
+      this.timeout(120_000)
+
+      await ethers.provider.send("hardhat_impersonateAccount", [
+        bridge.address,
+      ])
+      const bridgeAsSigner = await ethers.getSigner(bridge.address)
+
+      await frostWalletRegistry.connect(bridgeAsSigner).requestNewWallet()
+
+      await ethers.provider.send("hardhat_impersonateAccount", [
+        randomBeacon.address,
+      ])
+      const beaconAsSigner = await ethers.getSigner(randomBeacon.address)
+      const seed = ethers.BigNumber.from(
+        ethers.utils.id("frost-nonidle-challenge-seed")
+      )
+      await frostWalletRegistry
+        .connect(beaconAsSigner)
+        .__beaconCallback(seed, 0)
+
+      // Drive into CHALLENGE by submitting a 51-signature
+      // result. `submitResult` is optimistic — it passes on
+      // `validateFields` and `validateGroupMembers` and lands
+      // the state in CHALLENGE regardless of whether the
+      // approval path would later succeed. Reuses the
+      // `selectFrostGroup` helper to keep group selection
+      // deterministic across the file.
+      const groupMembers = await selectFrostGroup(
+        hre,
+        frostWalletRegistry,
+        frostSortitionPool,
+        operators
+      )
+
+      // Build a 51-signature result so `submitResult` passes
+      // `validateFields` (the `groupThreshold` floor). The submit
+      // path is optimistic and lands the state in CHALLENGE
+      // regardless of whether the approval path would later
+      // succeed; that's all the `requestNewWallet` revert
+      // assertion needs.
+      const badResult = await signFrostDkgResult(
+        hre,
+        groupMembers,
+        bridge.address,
+        frostWalletRegistry.address,
+        seed,
+        `0x${"11".repeat(32)}`,
+        1,
+        [],
+        51 // exactly groupThreshold; signatures are well-formed
+      )
+      const submitter = groupMembers[0].signer
+      await frostWalletRegistry.connect(submitter).submitDkgResult(badResult)
+      expect(
+        await frostWalletRegistry.getWalletCreationState()
+      ).to.equal(State.CHALLENGE)
+
+      await expect(
+        frostWalletRegistry.connect(bridgeAsSigner).requestNewWallet()
+      ).to.be.revertedWith("Current state is not IDLE")
+    })
+  })
 })

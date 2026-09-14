@@ -541,12 +541,17 @@ function approveDkgResult(DKG.Result calldata dkgResult) external {
 
 ### Custom-error vocabulary
 
-Used throughout instead of require-strings for cross-environment
-revert-decoding reliability:
+Representative errors used in the FROST registry surface. The list is
+**illustrative, not exhaustive** — additions made after the RFC was
+last reconciled (see the 2026-08-14 note below) are valid custom
+errors even when they don't appear here, and tooling must decode
+revert data rather than match names. Cross-environment revert
+decoding relies on the selector, not the prose label:
 
 ```solidity
 error LifecycleOwnerNotSet();
-error CallerIsNotLifecycleOwner();
+error OwnerAddressCannotBeZero();
+error DkgNotIdle();
 error EcdsaWalletIdIsZero();
 error FrostWalletRegistryNotSet();
 error CallerIsNotFrostWalletRegistry();
@@ -557,10 +562,28 @@ error FrostWalletAlreadyRegistered();
 error FrostWalletIdMissing();
 error XOnlyOutputKeyIsZero();
 error XOnlyOutputKeyIsLegacyAlias();
+error XOnlyOutputKeyAlreadyRegistered();
+error WalletNotRegistered();
 
 ```
 
-### Already-registered fail-fast at submission
+> **(2026-08-14 canonical-mirror reconciliation):** The
+> access-control modifiers `onlyWalletOwner` and `onlyLifecycleOwner`
+> do NOT use custom errors — they use `require` strings
+> (`require(..., "Caller is not the Wallet Owner")` for
+> `onlyWalletOwner` and
+> `require(..., "Caller is not the Lifecycle Owner")` for
+> `onlyLifecycleOwner`). No `CallerIsNotLifecycleOwner()` /
+> `CallerIsNotWalletOwner()` custom errors exist; the earlier
+> drift note that claimed `onlyLifecycleOwner` reverted with
+> `CallerIsNotLifecycleOwner()` was wrong, and that line has
+> been dropped from the illustrative vocabulary above.
+> `OwnerAddressCannotBeZero()` and `DkgNotIdle()` ARE shipped
+> (added in the owner-setter hardening for finding #7 in the
+> PR #971 remediation); `XOnlyOutputKeyAlreadyRegistered()`
+> and `WalletNotRegistered()` are shipped in
+> `FrostRegistryWallets.sol`. Cross-environment tooling must
+> decode the revert selector, not match by prose label.
 
 ```solidity
 function submitDkgResult(DKG.Result calldata dkgResult) external {
@@ -694,8 +717,8 @@ contract. No copy of the ECDSA registry is modified in place.
 | Coordinator declines to submit                                           | Anyone in `members` can submit + approve (no coordinator role on-chain)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | DKG stalls / beacon stalls                                               | `notifyDkgTimeout` / `notifySeedTimeout` reset registry to `Idle` + unlock pool                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | FROST registry unreachable from Bridge before C-2 lands                  | Intentional. B-1's `requestNewWallet()` entry stays dead until C-2 ships + governance flips `currentNewWalletScheme` to FROST. Documented as a prerequisite, not a bug                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| Group key compromise                                                     | Out of scope (any compromise of the group key is catastrophic for the wallet's BTC anyway; registration is the least of the problems)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-
+| Malformed DKG result accepted                                            | Challenge window + slashing harness (inherited from ECDSA WalletRegistry)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| **Slashing semantics under shipped authorization backend**                | **Canonical mirror (PR #971): the shipped `IFrostAuthorizationSource` is `FrostAllowlist.sol`, not a staking-backed `FrostAuthorization.sol`. `FrostAllowlist.reportMaliciousBehavior` (`FrostAllowlist.sol:217-228`) is a pure emit — `emit MaliciousBehaviorIdentified(notifier, _stakingProviders)` — with no on-chain weight or stake decrease. The "submitter's authorized stake decreased by the slashing amount" test assertion in §"Implementation plan" item 5 below only holds for a hypothetical staking-backed `IFrostAuthorizationSource` implementation, not the one deployed by this PR. Under `FrostAllowlist`, a successful `challengeDkgResult` emits the malicious-behavior event but does NOT reduce the submitter's on-chain weight; the DAO must act on the event off-chain. See §"Authorization source: `FrostAllowlist` (canonical mirror)" above for the broader threat-model reconciliation.** |
 ## Open design considerations (v3)
 
 1. **Implementation strategy: port vs. inherit.** B-1 mirrors the
@@ -774,9 +797,85 @@ contract. No copy of the ECDSA registry is modified in place.
      `submitDkgResult(DkgResult)`. After the challenge window,
      any of them calls `approveDkgResult(DkgResult)`.
      No new cryptographic primitive vs. the existing ECDSA DKG
-     coordinator pattern; the coordinator is a transport + the
-     FROST DKG protocol replaces the ECDSA DKG protocol.
+## Authorization source: `FrostAllowlist` (canonical mirror)
 
+Per the 2026-08-14 multi-agent review, the canonical mirror
+(PR #971) does NOT deploy `FrostAuthorization`-style sortition-
+pool staking. The shipped `IFrostAuthorizationSource`
+implementation is `FrostAllowlist.sol`, which replaces token
+staking for FROST operator authorization. Per its header
+comment, "beta operators are selected by the DAO-maintained
+allowlist". The threat model in this RFC (Sybil resistance,
+collusion, slashing economics) is therefore stated for the
+staking-backed `FrostAuthorization` reference, but the shipped
+authorization backend behaves differently:
+
+- **DAO-key compromise.** `FrostAllowlist` is `Ownable2StepUpgradeable`
+  with the owner holding the weight table (`stakingProviders`).
+  A compromised DAO key can weight any operator to zero (or
+  remove them entirely). The on-chain surface accepts whatever
+  weight the owner writes; there is no governance timelock or
+  multi-sig in the contract itself.
+- **Allowlist griefing.** Operators can be added with weight 0
+  (so `isOperatorUpToDate()` returns false), excluded from the
+  sortition pool, or removed entirely. There is no on-chain
+  rate limit or audit log beyond the standard `OwnershipTransferred`
+  event.
+- **No on-chain stake to seize.** `reportMaliciousBehavior`
+  (`FrostAllowlist.sol:217-228`) is a pure emit —
+  `emit MaliciousBehaviorIdentified(notifier, _stakingProviders)`
+  — with no weight decrease. See "Slashing semantics (canonical
+  mirror)" below for the consequence.
+- **Timelock / governance delay.** None on the contract itself;
+  relies entirely on the timelock contract that owns the
+  `FrostAllowlist` instance.
+
+The activation runbook MUST treat the DAO-key compromise and
+allowlist-timelock questions as primary governance risks, not
+staking-economics risks. Until the activation runbook is
+reconciled to the `FrostAllowlist` model (rather than the
+staking-attested `FrostAuthorization` model), this RFC's
+threat model below is incomplete.
+
+## Activation runbook — Post-conditions (2026-08-14 addendum)
+
+Per the 2026-08-14 multi-agent review, the activation runbook
+MUST include a post-conditions section that reads cross-contract
+wiring state after each step and aborts if the wiring is
+inconsistent. Concretely, after each governance call:
+
+- After `Bridge.setFrostWalletRegistry(registry)`: confirm
+  `Bridge.frostWalletRegistry() == registry`.
+- After `Bridge.setLifecycleRouter(router)`: confirm
+  `Bridge.lifecycleRouter() == router`.
+- After `FrostWalletRegistry.updateLifecycleOwner(router)`:
+  confirm `FrostWalletRegistry.lifecycleOwner() == router`.
+- **Cross-attestation view:** the canonical activation runbook
+  SHOULD add a `FrostWalletRegistry.lifecycleOwnerIsWired()`
+  view (a follow-up to the registry contract; see the M24
+  structural-fix tracker) that returns `true` iff
+  `lifecycleOwner != address(0)` AND
+  `Bridge.lifecycleRouter() == lifecycleOwner`. Until that view
+  ships, the activation runbook reads both fields directly and
+  asserts they match before any further step.
+- After any of the above: confirm the previous step's `onlyGovernance`
+  emit landed (e.g. `LifecycleOwnerUpdated(address)` from
+  `FrostWalletRegistry.updateLifecycleOwner`) and that no
+  intermediate transaction has rewritten the value to zero or
+  to a stale address. **The current `LifecycleOwnerUpdated` event
+  in `FrostWalletRegistry.sol:259` emits only the new value, not
+  the old value; off-chain tooling cannot detect zero-clobber or
+  rewiring.** Operators SHOULD read the live
+  `FrostWalletRegistry.lifecycleOwner()` view after every
+  `LifecycleOwnerUpdated` log to detect rewiring. The activation
+  runbook MUST abort on any non-monotonic / unexpected
+  `lifecycleOwner()` change.
+
+The canonical `bridge-lifecycle-router-followup-plan.md`
+activation sequence (deploy router → `setLifecycleRouter` →
+`updateLifecycleOwner` → verify all three views match) is the
+authoritative reference; this section captures the
+post-condition assertions that must accompany each step.
 ## Implementation plan (v3)
 
 1. **Copy + adapt the ECDSA registry.** Copy

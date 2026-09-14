@@ -374,49 +374,6 @@ library BitcoinTx {
         );
     }
 
-    /// @notice Extracts wallet public key hash from the provided output.
-    ///         Reverts if the validation fails.
-    /// @param output The transaction output.
-    /// @return pubKeyHash 20-byte public key hash the output locks funds on.
-    /// @dev Requirements:
-    ///      - The output must be of P2PKH or P2WPKH type.
-    function extractPubKeyHash(BridgeState.Storage storage, bytes memory output)
-        internal
-        view
-        returns (bytes20 pubKeyHash)
-    {
-        (
-            WalletScriptType scriptType,
-            bytes32 walletKey
-        ) = extractWalletScriptKey(output);
-
-        if (scriptType == WalletScriptType.P2TR) {
-            revert("P2TR wallet outputs are not enabled");
-        }
-
-        return bytes20(walletKey);
-    }
-
-    /// @notice Extracts canonical wallet identifier from the provided output.
-    /// @dev For P2TR outputs, this is the 32-byte x-only output key.
-    ///      For legacy outputs, this is a left-padded 20-byte PKH.
-    function extractWalletID(BridgeState.Storage storage, bytes memory output)
-        internal
-        pure
-        returns (bytes32 walletID)
-    {
-        (
-            WalletScriptType scriptType,
-            bytes32 walletKey
-        ) = extractWalletScriptKey(output);
-
-        if (scriptType == WalletScriptType.P2TR) {
-            return walletKey;
-        }
-
-        return bytes32(uint256(uint160(bytes20(walletKey))));
-    }
-
     /// @notice Extracts wallet public key hash compatibility key from the
     ///         provided output.
     /// @dev For legacy outputs, this is the 20-byte PKH directly encoded in
@@ -498,6 +455,16 @@ library BitcoinTx {
                 "Invalid P2PKH script"
             );
 
+            // Note: `slice32(12)` reads bytes 12..43 of a 34-byte
+            // P2PKH output (10 bytes past the end). The overread is
+            // deliberate and bounded by `output.length == 34`; the
+            // garbage in the upper 10 bytes is then truncated to a
+            // 20-byte PKH by the only in-repo caller
+            // (`extractWalletPubKeyHash` -> `bytes20(walletKey)`).
+            // Any new caller MUST either truncate to `bytes20` here
+            // or switch to `BytesLib.slice(output, 12, 20)`; do not
+            // introduce a direct reader of the upper bytes without
+            // re-evaluating this contract.
             return (WalletScriptType.P2PKH, output.slice32(12));
         }
 
@@ -506,6 +473,16 @@ library BitcoinTx {
             // 00 14 <20-byte pubKeyHash>
             require(output.slice2(9) == hex"0014", "Invalid P2WPKH script");
 
+            // Note: `slice32(11)` reads bytes 11..42 of a 31-byte
+            // P2WPKH output (12 bytes past the end). The overread is
+            // deliberate and bounded by `output.length == 31`; the
+            // garbage in the upper 12 bytes is then truncated to a
+            // 20-byte PKH by the only in-repo caller
+            // (`extractWalletPubKeyHash` -> `bytes20(walletKey)`).
+            // Any new caller MUST either truncate to `bytes20` here
+            // or switch to `BytesLib.slice(output, 11, 20)`; do not
+            // introduce a direct reader of the upper bytes without
+            // re-evaluating this contract.
             return (WalletScriptType.P2WPKH, output.slice32(11));
         }
 
@@ -514,10 +491,10 @@ library BitcoinTx {
             // 51 20 <32-byte x-only output key>
             require(output.slice2(9) == hex"5120", "Invalid P2TR script");
 
+            // P2TR is bounds-safe: a 43-byte output with `slice32(11)`
+            // reads exactly bytes 11..42, the full 32-byte x-only key.
             return (WalletScriptType.P2TR, output.slice32(11));
         }
-
-        revert("Output must be P2PKH or P2WPKH or P2TR");
     }
 
     /// @notice Extracts the payload from a standard length-prefixed output

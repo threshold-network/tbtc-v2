@@ -17,6 +17,19 @@ interface IFrostAllowlistWalletRegistry {
         uint96 fromAmount,
         uint96 toAmount
     ) external;
+
+    /// @notice Compelled-decrease callback. `FrostAllowlist.ejectStakingProvider`
+    ///         invokes this on the registry so the sortition-pool weight
+    ///         update runs synchronously without waiting for the
+    ///         `authorizationDecreaseDelay`. Mirrors the role of
+    ///         `authorizationDecreaseRequested` but skips the delay
+    ///         window, because the governance-initiated eject IS the
+    ///         activation event.
+    function involuntaryAuthorizationDecrease(
+        address stakingProvider,
+        uint96 fromAmount,
+        uint96 toAmount
+    ) external;
 }
 
 /// @title FrostAllowlist
@@ -56,6 +69,16 @@ contract FrostAllowlist is IFrostAuthorizationSource, Ownable2StepUpgradeable {
     event MaliciousBehaviorIdentified(
         address indexed notifier,
         address[] stakingProviders
+    );
+    /// @notice Emitted when DAO governance ejects a staking provider
+    ///         via `ejectStakingProvider`. Skips the
+    ///         `authorizationDecreaseDelay` because the governance
+    ///         call IS the activation event — distinct from
+    ///         `WeightDecreaseFinalized` which always implies a delay
+    ///         path.
+    event StakingProviderEjected(
+        address indexed stakingProvider,
+        uint96 previousWeight
     );
 
     error StakingProviderAlreadyAdded();
@@ -198,6 +221,54 @@ contract FrostAllowlist is IFrostAuthorizationSource, Ownable2StepUpgradeable {
         info.pendingNewWeight = 0;
         info.decreasePending = false;
         return newWeight;
+    }
+
+    /// @notice Emergency DAO-only eject of a staking provider. Zeros
+    ///         the on-source weight immediately and notifies the
+    ///         wallet registry so the sortition-pool state is updated
+    ///         synchronously. Bypasses the
+    ///         `authorizationDecreaseDelay` because the governance
+    ///         call IS the activation event. Distinct from
+    ///         `requestWeightDecrease`/`approveAuthorizationDecrease`,
+    ///         which are the cooperative-path operators opt into.
+    /// @dev Mirrors the `involuntaryAuthorizationDecrease` path the
+    ///      registry exposes (`onlyAuthorizationSource`). The
+    ///      self-contained portion of finding 6: this surfaces the
+    ///      fast DAO lever without touching any orchestrator-owned
+    ///      function (the allowlist's `reportMaliciousBehavior`
+    ///      remains event-only by design).
+    function ejectStakingProvider(address stakingProvider)
+        external
+        onlyOwner
+    {
+        if (stakingProvider == address(0)) {
+            revert ZeroAddress();
+        }
+
+        StakingProviderInfo storage info = stakingProviders[stakingProvider];
+        uint96 previousWeight = info.weight;
+
+        if (previousWeight == 0) {
+            revert StakingProviderUnknown();
+        }
+
+        // Effects before interactions: zero the on-source state
+        // BEFORE notifying the registry, so any reentrant call back
+        // into `authorizedWeight` observes the post-eject weight.
+        info.weight = 0;
+        // A pending cooperative decrease is moot once an eject lands;
+        // clear it so a later `approveAuthorizationDecrease` from the
+        // registry cannot finalize a stale weight on top of the eject.
+        info.pendingNewWeight = 0;
+        info.decreasePending = false;
+
+        emit StakingProviderEjected(stakingProvider, previousWeight);
+
+        walletRegistry.involuntaryAuthorizationDecrease(
+            stakingProvider,
+            previousWeight,
+            0
+        );
     }
 
     /// @notice Returns the current authorization weight of the operator

@@ -44,8 +44,16 @@ cite a consistent v7 spec.
   C-2). The order swap is a side-effect of phasing:
   C-2 shipped only the scheme enum; C-2.1a (PR #442) added
   the counter as an additive append. D-1 (PR #443) then
-  appended `bool ecdsaRetired` at offset 17. Total slot 38
-  usage: 18 bytes / 32 bytes.
+  appended `bool ecdsaRetired` at offset 17. Total slot 37
+  usage: 18 bytes / 32 bytes. **(Updated post-v7:** the
+  packed slot landed at 37, not 38, because `frostWalletRegistry`
+  (slot 32) + `ecdsaFraudRouter` (33) + `p2trFraudRouter`
+  (34) + `lifecycleRouter` (35) + `walletIDByWalletPubKeyHash`
+  (36) were appended before C-2's packed fields. The
+  canonical storage-layout snapshot
+  `solidity/test/formal/Bridge.storage-layout.json` is the
+  source of truth; any "slot 38" claim in the body of this
+  RFC is stale. See the table in §"Storage layout" below.)
 
 - **`ecdsaWalletCountSeeded` flag DEFERRED indefinitely.**
   v6's `seedEcdsaWalletCount` one-time setter would have
@@ -155,7 +163,17 @@ cite a consistent v7 spec.
   bytecode reclaim (needed to fit the D-1-deferred
   `retireEcdsa()` setter); cost is that older indexer
   ABIs see the selector vanish from Bridge.
-
+  > **(Updated post-v7 per the 2026-08-14 canonical-mirror
+  > review):** the canonical mirror (PR #971) RETURNS the
+  > callback with its exact legacy selector and registry
+  > authentication, so a DKG initiated in the last pre-upgrade
+  > block can still complete after the proxy upgrade. The
+  > "REMOVED entirely" claim above describes the v7 D-2.1
+  > architecture that was reverted by the security-continuity
+  > correction; see "Security-continuity correction" at the top
+  > of this RFC. The `IWalletOwner` inheritance is also
+  > retained on the canonical mirror (the `override` keyword
+  > is preserved on `__ecdsaWalletHeartbeatFailedCallback`).
 - **`Wallets.requestNewWallet` Ecdsa branch always-reverts
   (Codex P1 re-raise on #444).** v6's D-2 had the Ecdsa
   branch reverting only if a prior `finalizeEcdsaRetirement`
@@ -186,7 +204,15 @@ cite a consistent v7 spec.
 
 - **No public `ecdsaRetired()` getter on Bridge.** Bytecode
   budget. Off-chain consumers observe the flag via the
-  `EcdsaRetired` event + storage slot 38 byte 17 decode.
+  `EcdsaRetired` event + storage slot 37 byte 17 decode
+  (canonical storage-layout snapshot
+  `solidity/test/formal/Bridge.storage-layout.json` packs
+  `currentNewWalletScheme` (off 0) + `ecdsaWalletCount`
+  (off 1) + `ecdsaRetired` (off 17) all into slot 37; the
+  body bullets above at :40/:47 that say "slot 38" are stale
+  — see "Storage layout differs from v6's three-field plan"
+  reconciliation at the top of this section, and the
+  "Updated post-v7" inline note below).
   (**Updated post-v7:** D-2.2 slice 1 — PR #447 — added the
   public `ecdsaRetired()` getter by trading the `emit EcdsaRetired()` in `retireEcdsa()` for the bytecode
   budget. The event declaration stays on BridgeState for
@@ -197,7 +223,48 @@ cite a consistent v7 spec.
   and the open question on re-introducing the event once
   D-2.2 slice 4 reclaims sufficient bytecode budget.)
 
-#### Activation runbook (NEW — was not in v6)
+#### Activation runbook (canonical mirror — supersedes the v7 numbered steps below)
+
+The canonical mirror (PR #971 + the D-2.2 slice 3 follow-up)
+removed the `setNewWalletScheme` setter, the `pause` ceremony,
+and the `pause`/`unpause` step ordering described in the v6-era
+runbook below. ECDSA wallet creation is removed permanently
+from the canonical Bridge implementation; `requestNewWallet`
+dispatches unconditionally to the FROST wallet registry and
+reverts until governance wires the FROST wallet registry and
+the lifecycle router. The live, authoritative activation
+sequence is:
+
+1. Deploy `BridgeLifecycleRouter(bridge)` (script
+   `solidity/deploy/49_deploy_bridge_lifecycle_router.ts`
+   ships with PR #971).
+2. Verify the router's immutable `bridge` value.
+3. Governance calls `Bridge.setLifecycleRouter(router)`.
+4. Governance calls
+   `FrostWalletRegistry.updateLifecycleOwner(router)`.
+5. Verify `Bridge.lifecycleRouter() == router`,
+   `FrostWalletRegistry.lifecycleOwner() == router`, and
+   `Bridge.frostWalletRegistry() == FrostWalletRegistry`.
+
+Steps 3 + 4 should be batched in the same governance action
+where possible. If they cannot be batched, the system remains
+safe because `Bridge.requestNewWallet` and
+`Bridge.__frostWalletCreatedCallback` both fail closed until
+the two addresses match (defense-in-depth via
+`LifecycleRouterNotSet` and `LifecycleOwnerMismatch`).
+
+ECDSA wallet creation is **not reversible by code** on the
+canonical mirror — recovery from any FROST-path bug requires
+a Bridge implementation upgrade (redeploy + proxy upgrade)
+that reintroduces a scheme branch.
+
+> **DEPRECATED — preserved for historical reference only.** The
+> numbered v7 runbook below describes the original v6/v7
+> activation sequence: pause → drain IDLE → call
+> `setNewWalletScheme(Frost)` → deploy D-2 → unpause. That
+> sequence is impossible on the canonical mirror because the
+> `pause` modifier and the `setNewWalletScheme` setter were
+> both removed.
 
 v6's "Phase ordering summary" was a high-level dependency
 DAG. Shipped activation requires a precise governance call
@@ -510,9 +577,10 @@ Rationale:
   per-request shape (A) or weighted shape (C) needs governance
   to inspect every individual request to understand operator
   behavior.
-- B's failure modes are tractable (the flip is idempotent + can
-  be flipped back if FROST registration ships with a bug). A and C
-  introduce more complex unwind stories.
+- B's failure modes are tractable (the flip is idempotent; in v6
+  the flip was rollback-able, but D-2.2 slice 3 (PR #971) removed
+  the setter so the canonical mirror is irreversible by code).
+  A and C introduce more complex unwind stories.
 
 ### Storage + interface
 
@@ -819,17 +887,26 @@ Governance calls a new `retireEcdsa()` one-time setter on Bridge.
 This:
 
 - Sets a `bool ecdsaRetired` storage flag.
-- Modifies `requestNewWallet` to revert if
-  `currentNewWalletScheme == Ecdsa` AND `ecdsaRetired == true`
-  (defense-in-depth — should already be impossible if C-2 has
-  flipped to FROST, but the check makes the invariant explicit).
-- Reverts `__ecdsaWalletCreatedCallback` if `ecdsaRetired`
-  (prevents the ECDSA registry from registering any new wallet
-  even if governance forgets to deauthorize it).
-- Leaves `ecdsaWalletRegistry` slot populated AND every existing
-  ECDSA wallet's lifecycle paths (closing, slashing, inactivity,
-  moveFunds) fully functional — drain continues normally after
-  D-1 activates.
+- (Historical — superseded by canonical mirror hardening.)
+  Modifies `requestNewWallet` to revert if
+  `currentNewWalletScheme == Ecdsa` AND `ecdsaRetired == true`.
+  **In the canonical mirror (PR #971), the
+  `currentNewWalletScheme` enum and its setter were removed
+  under D-2.2 slice 3, and `Wallets.requestNewWallet`
+  unconditionally reverts the Ecdsa branch with
+  `"ECDSA wallet creation retired"` regardless of scheme or
+  flag state.** The dead-state-check is moot; the
+  always-reverts branch is what closes the deadlock vector.
+- (Historical — was reverted during implementation review.)
+  Reverts `__ecdsaWalletCreatedCallback` if `ecdsaRetired`.
+  **In the canonical mirror the callback is retained (with
+  legacy selector + registry authentication) so a DKG
+  initiated in the last pre-upgrade block can still complete
+  after the proxy upgrade; it is not gated by `ecdsaRetired`.
+  New post-upgrade `requestNewWallet` calls are FROST-only
+  because the post-upgrade request path has no ECDSA dispatch.
+  See "Security-continuity correction" at the top of this
+  RFC.**
 
 D-1's only pre-condition is the governance-delay window
 (standard for any one-time setter); there is no on-chain check
@@ -1022,6 +1099,22 @@ D-2 changes:
 >   the Ecdsa scheme (no list-based check needed — no new
 >   ECDSA wallet can be created regardless of what
 >   governance claims).
+> - `setNewWalletScheme(Frost)` setter — REMOVED under D-2.2
+>   slice 3 (PR #971). The "roll back to ECDSA" mitigation
+>   that v6 promised in the row below is no longer reachable
+>   on-chain. ECDSA wallet creation is removed permanently
+>   from the canonical Bridge implementation; recovery from
+>   any FROST-path bug requires a Bridge implementation
+>   upgrade (redeploy + proxy upgrade) that reintroduces a
+>   scheme branch.
+> - `currentNewWalletScheme` enum — retained in storage for
+>   layout preservation but no longer read or written.
+>   `Wallets.requestNewWallet` dispatches unconditionally to
+>   the FROST registry and reverts with
+>   `FrostWalletRegistryNotSet` / `LifecycleRouterNotSet` /
+>   `LifecycleOwnerMismatch` until the FROST wallet registry
+>   and lifecycle router are wired. Once wired, every call
+>   goes to FROST regardless of any prior intent.
 >
 > Threat rows preserved unchanged below: scheme dispatch
 > guard, replay protection via chainid/governance binding,
@@ -1032,18 +1125,18 @@ D-2 changes:
 
 | Threat                                                                                                       | Mitigation                                                                                                                                                                                                                                                                                                                                                                                                       |
 | ------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Governance flips to FROST before B-1/B-2 ready → all new wallet requests revert                              | C-2: `setNewWalletScheme(Frost)` reverts if `frostWalletRegistry == address(0)`                                                                                                                                                                                                                                                                                                                                  |
-| Governance override bypasses the registry-set guard (v1 gap)                                                 | `requestNewWalletOfScheme(Frost, ...)` enforces the same `frostWalletRegistry != 0` guard as the regular setter                                                                                                                                                                                                                                                                                                  |
-| Bug discovered in FROST path after the flip — need to roll back                                              | Stateful enum is reversible; governance flips back to ECDSA until fix lands                                                                                                                                                                                                                                                                                                                                      |
+| Governance flips to FROST before B-1/B-2 ready → all new wallet requests revert                              | Canonical mirror (PR #971): `setNewWalletScheme(Frost)` setter is REMOVED (D-2.2 slice 3). `Wallets.requestNewWallet` reverts with `FrostWalletRegistryNotSet` until `Bridge.frostWalletRegistry != address(0)`, and additionally reverts with `LifecycleRouterNotSet` / `LifecycleOwnerMismatch` until both `Bridge.lifecycleRouter == FrostWalletRegistry.lifecycleOwner != address(0)`. The PR explicitly does not ship any scheme-flip path; the activation sequence is governance-wires-the-registry-then-the-router. |
+| Governance override bypasses the registry-set guard (v1 gap)                                                 | `requestNewWalletOfScheme(Frost, ...)` DEFERRED, never shipped; the canonical mirror exposes no governance override of the dispatch path. Activation requires wiring the FROST wallet registry and the lifecycle router as one unit. |
+| Bug discovered in FROST path after the flip — need to roll back | **There is no on-chain rollback.** The `setNewWalletScheme` setter, `requestNewWalletOfScheme` override, and `currentNewWalletScheme` enum were all removed under D-2.2 slice 3. `Wallets.requestNewWallet` dispatches unconditionally to the FROST registry and reverts with `FrostWalletRegistryNotSet` / `LifecycleRouterNotSet` / `LifecycleOwnerMismatch` until the FROST wallet registry and lifecycle router are wired; once they are, every call goes to FROST regardless of any prior intent. Recovery from a FROST-path bug requires a Bridge implementation upgrade (redeploy + proxy upgrade) that reintroduces a scheme branch. |
 | D-1 activation blocked during drain period (v1 contradiction)                                                | D-1 has no on-chain pre-condition beyond the governance call itself. The all-wallets-closed check moved to D-2 where it semantically belongs                                                                                                                                                                                                                                                                     |
-| D-2 closed-wallets check needs to iterate `registeredWallets` mapping (v1 impossibility)                     | D-2 takes `bytes20[] remainingEcdsaWalletPubKeyHashes` from governance + the on-chain `ecdsaWalletCount` (added in C-2) verifies the list is complete + every supplied wallet is in `Closed`/`Terminated`                                                                                                                                                                                                        |
-| Governance lies about the remaining-wallets list                                                             | The counter check rejects an incomplete list (`count(supplied) == ecdsaWalletCount`). Governance off-chain attestation is verifiable against on-chain state by anyone                                                                                                                                                                                                                                            |
+| D-2 closed-wallets check needs to iterate `registeredWallets` mapping (v1 impossibility)                     | DROPPED. `finalizeEcdsaRetirement(bytes20[])` was removed entirely; D-2.1 ships no list-based check. Canonical mirror (PR #971): the security property ("no live ECDSA wallet") is enforced by `Wallets.requestNewWallet` unconditionally reverting on the Ecdsa scheme, not by enumerating closed wallets on-chain.                                                                                                                                                                  |
+| Governance lies about the remaining-wallets list                                                             | N/A on the canonical mirror — `finalizeEcdsaRetirement` was dropped; there is no list-based D-2 check for governance to lie about. The "all ECDSA wallets closed" invariant is enforced by the unconditional Ecdsa-branch revert in `Wallets.requestNewWallet`, which makes any future ECDSA wallet creation impossible regardless of governance claims.                                                                                                                                                          |
 | D-2 corrupts proxy storage by removing `ecdsaWalletRegistry` slot (v1 bug)                                   | D-2 preserves the slot intact as a reserved placeholder; the slot stays for the lifetime of the proxy. Only write paths are removed                                                                                                                                                                                                                                                                              |
 | Indexer-state corruption during retirement                                                                   | D is staged (D-1 soft / D-2 hard) + 30+ day buffer between them; operators have ample time to migrate indexer queries                                                                                                                                                                                                                                                                                            |
 | Bytecode budget regression on the C-2 upgrade                                                                | ~280-byte cost estimated (v2 adds the counter + dispatch helper + override guard vs v1's ~230); leaves ~465 bytes EIP-170 headroom (verified before merge)                                                                                                                                                                                                                                                       |
-| Hybrid wallet (one request becomes both schemes)                                                             | `dispatchNewWalletRequest` if-branch ensures exactly one of the two registry calls is made                                                                                                                                                                                                                                                                                                                       |
-| Replay of an old `setNewWalletScheme` transaction on a different chain                                       | `onlyGovernance` modifier + per-chain governance signer                                                                                                                                                                                                                                                                                                                                                          |
-| Operator confusion about which scheme is current                                                             | C-2 emits `NewWalletSchemeSet` event on each flip; SDKs read `Bridge.newWalletScheme()` view to display current state                                                                                                                                                                                                                                                                                            |
+| Hybrid wallet (one request becomes both schemes)                                                             | Canonical mirror: `Wallets.requestNewWallet` no longer branches on scheme — it dispatches unconditionally to the FROST registry. No hybrid path is reachable on-chain; an ECDSA-scheme selection is impossible because no setter exists.                                                                                                                                                                          |
+| Replay of an old `setNewWalletScheme` transaction on a different chain                                       | N/A — canonical mirror (PR #971) has no `setNewWalletScheme` function. Cross-chain replay of the scheme-flip path is not reachable.                                                                                                                                                                                                                                                                            |
+| Operator confusion about which scheme is current                                                             | Canonical mirror: `NewWalletSchemeSet` event declaration is preserved for ABI back-compat but no longer fires (the setter was removed). The scheme is by definition always FROST after the lifecycle router is wired; consumers must not rely on `NewWalletSchemeSet` as an activation signal. Read `Bridge.frostWalletRegistry()` / `Bridge.lifecycleRouter()` to determine whether FROST activation is complete. |
 | ECDSA counter desync (count != actual total-ever-created)                                                    | Counter increments ONLY in `__ecdsaWalletCreatedCallback`; never decrements. Unit test verifies counter monotonically grows across a full request → register → close cycle. Cross-checkable off-chain by anyone via `NewWalletRegistered` event count                                                                                                                                                            |
 | Counter incorrectly decremented (semantics bug)                                                              | Implementation MUST NOT add any decrement path. Verified by unit test that asserts counter doesn't decrement on wallet close/terminate. Codex v2-review specifically flagged this as a v2-design bug                                                                                                                                                                                                             |
 | Counter starts at 0 for pre-C-2 wallets, D-2 bypassed with empty list (v3 bug Codex caught)                  | C-2 adds a one-time `seedEcdsaWalletCount(uint128)` governance setter; deployment runbook requires this is called BEFORE flipping the scheme. The supplied count is auditable by anyone via on-chain `NewWalletRegistered` event replay; `ecdsaWalletCountSeeded` flag prevents re-seeding                                                                                                                       |
@@ -1143,6 +1236,15 @@ D-2 changes:
 >   §"Phase D" v7 note).
 > - D-2 step 1 (`finalizeEcdsaRetirement(bytes20[])`) —
 >   DROPPED ENTIRELY.
+> - **C-2 setter removed under D-2.2 slice 3 (PR #971):**
+>   `setNewWalletScheme` external + `setNewWalletScheme`
+>   internal + `requestNewWalletOfScheme` governance override
+>   + `NewWalletSchemeSet` event emission were all removed.
+>   `currentNewWalletScheme` storage field is preserved
+>   (layout-only) but never read or written. Steps 2/3/6/7
+>   below describe a surface that no longer ships on the
+>   canonical Bridge implementation; the canonical mirror is
+>   irreversible by code.
 >
 > Use the body of this section as historical design intent
 > only; the live operator-facing reference is the v7
@@ -1150,7 +1252,20 @@ D-2 changes:
 > (`d1-ecdsa-soft-retirement-plan.md`,
 > `d2-ecdsa-hard-retirement-plan.md`).
 
-### C-2 (one PR)
+### C-2 (one PR) — DEPRECATED
+
+> **DEPRECATED — preserved for historical reference only.** The
+> numbered steps below describe the v6 implementation plan that
+> was approved before the implementation diverged. Steps 2, 3,
+> 7, 9, and 10 describe setters / overrides / forwarders that
+> the canonical mirror (PR #971) does not ship: `setNewWalletScheme`
+> external + internal, `requestNewWalletOfScheme` governance
+> override, and `seedEcdsaWalletCount` historical-count setter
+> were all deferred or removed (see "C-2 implementation deltas"
+> in §"Revision history / v7" at the top of this document for
+> the per-step shipped-vs-deferred reconciliation). The live
+> canonical activation sequence is the activation runbook in
+> the d2-2-followups-plan.md slice-3 section, not this body.
 
 1. Add three fields to `BridgeState.Storage`, in this declaration
    order (so they all pack into one slot):
@@ -1214,7 +1329,21 @@ D-2 changes:
 14. Update `tbtc-monorepo` cutover playbook +
     `wallet-lifecycle-migration-plan.md` to reflect C-2.
 
-### D-1 (separate PR; gated on B-1/B-2/C-2 live + governance call)
+### D-1 (separate PR; gated on B-1/B-2/C-2 live + governance call) — DEPRECATED
+
+> **DEPRECATED — preserved for historical reference only.** The
+> numbered steps below describe the v6 design. Step 1 adds a
+> `ecdsaRetirementBufferEnd` slot that D-2.2 confirmed never
+> shipped. Step 2 specifies a `retireEcdsa(uint64)` setter that
+> ships in the canonical mirror as `retireEcdsa()` no-arg. Step
+> 4 specifies a late-callback revert that was REMOVED during
+> implementation review (Codex P1 deadlock); the canonical
+> mirror RETURNS the callback with its legacy selector and
+> registry authentication. Step 5 specifies a
+> `EcdsaRetired(uint64,uint64)` event that ships as a no-arg
+> `EcdsaRetired()` declaration that never fires. The live D-1
+> / D-2 narrative is in `d1-ecdsa-soft-retirement-plan.md` and
+> `d2-ecdsa-hard-retirement-plan.md`.
 
 1. Add `bool ecdsaRetired` + `uint64 ecdsaRetirementBufferEnd`
    slots to BridgeState (pack into one slot; decrement `__gap`
@@ -1237,8 +1366,18 @@ D-2 changes:
    funds, slash, inactivity, close) STILL succeed after
    activation; the legacy ECDSA registry's slashing/inactivity
    callbacks STILL succeed after activation.
-
-### D-2 (separate PR; gated on D-1 + buffer period elapsed + all wallets closed)
+> **DEPRECATED — preserved for historical reference only.** The
+> numbered steps below describe the v6 design. Step 1 specifies
+> `finalizeEcdsaRetirement(bytes20[])` with the v6 5-check
+> chain — DROPPED ENTIRELY in the canonical mirror; no list-
+> based D-2 verification ships. Step 2 specifies reverting the
+> `__ecdsaWalletCreatedCallback` body; the canonical mirror
+> RETURNS the callback with its legacy selector. Step 3
+> describes an Ecdsa scheme branch in
+> `Wallets.requestNewWallet`; the canonical mirror removed
+> the scheme branch and dispatches unconditionally to FROST.
+> The live D-2 narrative is in `d2-ecdsa-hard-retirement-plan.md`.
+### D-2 (separate PR; gated on D-1 + buffer period elapsed + all wallets closed) — DEPRECATED
 
 1. Add `finalizeEcdsaRetirement(bytes20[] calldata remainingEcdsaWalletPubKeyHashes)`
    external on Bridge gated by `onlyGovernance`.
@@ -1358,7 +1497,9 @@ prereq, started as soon as B-1 lands.
 
 Approve:
 
-1. C-2 shape B (stateful enum, governance-flipped, reversible)
+1. C-2 shape B (stateful enum, governance-flipped; **D-2.2 slice 3
+   later removed the flip surface — see top of this RFC for the
+   as-shipped irreversible state**)
    - the `requestNewWalletOfScheme` governance override
      (Gemini-required `frostWalletRegistry != 0` guard included)?
 2. C-2's three new storage fields packed into one slot in this

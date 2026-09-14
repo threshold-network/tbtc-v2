@@ -162,7 +162,9 @@ library FrostDkg {
         CHALLENGE
     }
 
-    /// @dev Size of a group in ECDSA wallet.
+    /// @dev Size of a group in the FROST DKG. FROST uses a 100-member group;
+    ///      the registry's `selectGroup` call and the validator's member
+    ///      indexing both read this constant to stay in sync.
     uint256 public constant groupSize = 100;
 
     event DkgStarted(uint256 indexed seed);
@@ -316,6 +318,27 @@ library FrostDkg {
             revert SubmitterChallengedForCurrentDkg();
         }
 
+        // A result whose fields or members hash cannot validate must never
+        // reach the challenge state. `approveResult` dereferences
+        // `members[misbehavedMembersIndices[i] - 1]`, so a zero index panics
+        // every approval attempt, and once the challenge period lapses the
+        // result can no longer be challenged either — leaving the DKG wedged
+        // with the sortition pool locked. The field and members-hash checks are
+        // `pure` and the liftability check is a single precompile call, all far
+        // cheaper than the `selectGroup` call already made above.
+        (bool hasValidFields, string memory fieldsError) = self
+            .dkgValidator
+            .validateFields(result);
+        require(hasValidFields, fieldsError);
+        require(
+            self.dkgValidator.validateMembersHash(result),
+            "Malformed members hash"
+        );
+        require(
+            self.dkgValidator.isXOnlyOutputKeyLiftable(result.xOnlyOutputKey),
+            "Unliftable x-only output key"
+        );
+
         self.submittedResultHash = keccak256(abi.encode(result));
         self.submittedResultBlock = block.number;
 
@@ -337,14 +360,36 @@ library FrostDkg {
     ///         deadline to give the remaining selected members a full retry window.
     ///         Retries remain bounded because every challenged submitter is
     ///         quarantined for the current DKG.
+    /// @dev Also fires from `CHALLENGE` once a submitted result has outlived its
+    ///      challenge period, the submitter precedence period and a further
+    ///      result-submission timeout without being approved. Without that
+    ///      branch a result that no one can approve has no bounded escape:
+    ///      every other transition out of `CHALLENGE` requires `IDLE`, so the
+    ///      sortition pool would stay locked until a governance implementation
+    ///      upgrade. The extra timeout keeps a healthy result's approval window
+    ///      strictly wider than the window in which anyone may approve it.
     /// @return True if DKG timed out, false otherwise.
     function hasDkgTimedOut(Data storage self) internal view returns (bool) {
-        return
-            currentState(self) == State.AWAITING_RESULT &&
-            block.number >
-            (self.startBlock +
-                self.resultSubmissionStartBlockOffset +
-                self.parameters.resultSubmissionTimeout);
+        State state = currentState(self);
+
+        if (state == State.AWAITING_RESULT) {
+            return
+                block.number >
+                (self.startBlock +
+                    self.resultSubmissionStartBlockOffset +
+                    self.parameters.resultSubmissionTimeout);
+        }
+
+        if (state == State.CHALLENGE) {
+            return
+                block.number >
+                (self.submittedResultBlock +
+                    self.parameters.resultChallengePeriodLength +
+                    self.parameters.submitterPrecedencePeriodLength +
+                    self.parameters.resultSubmissionTimeout);
+        }
+
+        return false;
     }
 
     /// @notice Notifies about the seed was not delivered and restores the
@@ -464,10 +509,10 @@ library FrostDkg {
             self.dkgValidator.validate(
                 result,
                 self.seed,
-                self.startBlock,
                 self.bridge,
                 address(this)
             )
+
         returns (
             // slither-disable-next-line uninitialized-local,variable-scope
             bool isValid,
@@ -545,10 +590,10 @@ library FrostDkg {
             self.dkgValidator.validate(
                 result,
                 self.seed,
-                self.startBlock,
                 self.bridge,
                 address(this)
             );
+
     }
 
     /// @notice Set setSeedTimeout parameter.

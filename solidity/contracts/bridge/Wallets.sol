@@ -206,6 +206,29 @@ library Wallets {
         bytes20 indexed walletPubKeyHash
     );
 
+    /// @notice Emitted by every timeout / defeat path that triggers
+    ///         a wallet seizure, regardless of whether `slashingActive`
+    ///         is true. For ECDSA wallets the diagnostic fires whether
+    ///         or not the gated `seize` call actually moved stake, so
+    ///         off-chain watchtowers keep an attributable record of
+    ///         reported misbehavior even when economic slashing is
+    ///         disabled. For FROST wallets the event complements the
+    ///         always-on `MaliciousBehaviorIdentified` emitted by the
+    ///         router.
+    /// @param walletPubKeyHash 20-byte wallet public key hash.
+    /// @param reason Short identifier of the misbehavior reason
+    ///        (e.g. "redemption-timeout", "moving-funds-timeout",
+    ///        "moved-funds-sweep-timeout", "fraud-defeat-timeout").
+    /// @param notifier Address of the caller that reported the
+    ///        timeout — typically the watchtower that submitted the
+    ///        notification, or the fraud router for the fraud
+    ///        timeout path.
+    event WalletMisbehaviorReported(
+        bytes20 indexed walletPubKeyHash,
+        bytes32 indexed reason,
+        address indexed notifier
+    );
+
     /// @notice Requests creation of a new wallet. This function just
     ///         forms a request and the creation process is performed
     ///         asynchronously. Outcome of that process should be delivered
@@ -609,6 +632,14 @@ library Wallets {
                         walletMembersIDs
                     );
                 }
+                // Always emit the misbehavior diagnostic so off-chain
+                // watchtowers keep an attributable record when economic
+                // slashing is gated off.
+                emit WalletMisbehaviorReported(
+                    walletPubKeyHash,
+                    keccak256("redemption-timeout"),
+                    msg.sender
+                );
             } else {
                 IBridgeLifecycleRouter(self.lifecycleRouter).seize(
                     walletPubKeyHash,
@@ -616,6 +647,11 @@ library Wallets {
                     self.redemptionTimeoutNotifierRewardMultiplier,
                     msg.sender,
                     walletMembersIDs
+                );
+                emit WalletMisbehaviorReported(
+                    walletPubKeyHash,
+                    keccak256("redemption-timeout"),
+                    msg.sender
                 );
             }
         }
@@ -871,6 +907,14 @@ library Wallets {
                     walletMembersIDs
                 );
             }
+            // Always emit the misbehavior diagnostic so off-chain
+            // watchtowers keep an attributable record when economic
+            // slashing is gated off.
+            emit WalletMisbehaviorReported(
+                walletPubKeyHash,
+                keccak256("moving-funds-timeout"),
+                msg.sender
+            );
         } else {
             IBridgeLifecycleRouter(self.lifecycleRouter).seize(
                 walletPubKeyHash,
@@ -878,6 +922,11 @@ library Wallets {
                 self.movingFundsTimeoutNotifierRewardMultiplier,
                 msg.sender,
                 walletMembersIDs
+            );
+            emit WalletMisbehaviorReported(
+                walletPubKeyHash,
+                keccak256("moving-funds-timeout"),
+                msg.sender
             );
         }
 
@@ -926,6 +975,14 @@ library Wallets {
                         walletMembersIDs
                     );
                 }
+                // Always emit the misbehavior diagnostic so off-chain
+                // watchtowers keep an attributable record when economic
+                // slashing is gated off.
+                emit WalletMisbehaviorReported(
+                    walletPubKeyHash,
+                    keccak256("moved-funds-sweep-timeout"),
+                    msg.sender
+                );
             } else {
                 IBridgeLifecycleRouter(self.lifecycleRouter).seize(
                     walletPubKeyHash,
@@ -933,6 +990,11 @@ library Wallets {
                     self.movedFundsSweepTimeoutNotifierRewardMultiplier,
                     msg.sender,
                     walletMembersIDs
+                );
+                emit WalletMisbehaviorReported(
+                    walletPubKeyHash,
+                    keccak256("moved-funds-sweep-timeout"),
+                    msg.sender
                 );
             }
 
@@ -980,6 +1042,14 @@ library Wallets {
                         walletMembersIDs
                     );
                 }
+                // Always emit the misbehavior diagnostic so off-chain
+                // watchtowers keep an attributable record when economic
+                // slashing is gated off.
+                emit WalletMisbehaviorReported(
+                    walletPubKeyHash,
+                    keccak256("fraud-defeat-timeout"),
+                    challenger
+                );
             } else {
                 IBridgeLifecycleRouter(self.lifecycleRouter).seize(
                     walletPubKeyHash,
@@ -987,6 +1057,11 @@ library Wallets {
                     self.fraudNotifierRewardMultiplier,
                     challenger,
                     walletMembersIDs
+                );
+                emit WalletMisbehaviorReported(
+                    walletPubKeyHash,
+                    keccak256("fraud-defeat-timeout"),
+                    challenger
                 );
             }
 

@@ -236,19 +236,59 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
   // before that branch is reached. Any other error (e.g. an RPC failure)
   // rethrows so it is not silently swallowed (cf. the blanket-catch regression
   // fixed in 48_deploy_frost_wallet_registry).
+  // Idempotency pre-check via the public getter. Defense in depth: do NOT
+  // trust the ethers.js error code alone. A pre-upgrade Bridge returns no
+  // data for `ecdsaFraudRouter()` and that surfaces as CALL_EXCEPTION, but
+  // an unrelated RPC failure (SERVER_ERROR / TIMEOUT / connection reset)
+  // can ALSO classify as CALL_EXCEPTION on some providers. Cross-check by:
+  //   1. Confirming the Bridge address actually has deployed bytecode
+  //      (`provider.getCode` returns non-empty hex). If it has no code, the
+  //      CALL_EXCEPTION is from a bad address and we rethrow.
+  //   2. Re-issuing the same query as a raw `eth_call` and inspecting the
+  //      returned hex. Empty data => the selector is genuinely absent (the
+  //      pre-upgrade case); non-empty data that fails decoding => some
+  //      other revert, rethrow.
+  //   3. Tolerating ONLY the empty-data case as "selector not found".
   let currentEcdsaFraudRouter: string
   let bridgeExposesGetter = true
   try {
     currentEcdsaFraudRouter = await bridgeContract.ecdsaFraudRouter()
   } catch (err) {
-    if ((err as { code?: string }).code !== "CALL_EXCEPTION") {
+    const errAny = err as {
+      code?: string
+      data?: string
+      error?: { data?: string }
+      message?: string
+    }
+    if (errAny.code !== "CALL_EXCEPTION") {
       throw err
     }
-    console.log(
-      "Bridge.ecdsaFraudRouter() reverted (no such selector on the current " +
-        "Bridge implementation -- pre-upgrade proxy); treating the router as " +
-        "unwired and emitting wiring for the upgrade proposal"
-    )
+    // (1) Bad address / no contract code at Bridge.address
+    const bridgeCode = await ethers.provider.getCode(Bridge.address)
+    if (bridgeCode === "0x") {
+      throw new Error(
+        `Bridge at ${Bridge.address} has no deployed bytecode; refusing to interpret the CALL_EXCEPTION as a missing selector`
+      )
+    }
+    // (2) Raw eth_call to inspect the actual revert data length
+    const rawSelector = bridgeContract.interface.getSighash("ecdsaFraudRouter")
+    let rawResult: string
+    try {
+      rawResult = await ethers.provider.call({
+        to: Bridge.address,
+        data: rawSelector,
+      })
+    } catch (rawErr) {
+      throw new Error(
+        `Bridge.ecdsaFraudRouter() raw eth_call failed; treating as a real revert and aborting so the operator can investigate: ${(rawErr as Error).message}`
+      )
+    }
+    // (3) Only empty data + deployed code => selector genuinely absent
+    if (rawResult !== "0x" && rawResult !== "") {
+      throw new Error(
+        `Bridge.ecdsaFraudRouter() returned non-empty data [${rawResult}] but ethers.js decoded it as a CALL_EXCEPTION; refusing to treat this as a missing selector`
+      )
+    }
     currentEcdsaFraudRouter = ethers.constants.AddressZero
     bridgeExposesGetter = false
   }

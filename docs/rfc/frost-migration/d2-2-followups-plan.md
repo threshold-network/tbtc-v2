@@ -28,10 +28,12 @@ D-2.1 (PR #445) originally shipped the structural ECDSA hard retirement:
 
 It deferred several smaller follow-ups for EIP-170 budget +
 operational-drain reasons. D-2.2 picks those up as a series
-of slices. The umbrella source PRs tracked some slices separately;
-the canonical mirror batches slice 1 and slice 3 into PR #971.
-
-## Lifecycle-router dependency
+of slices. The umbrella source PRs (the pre-canonical-mirror
+`tlabs-xyz/tbtc` repository; see
+[`external-repository-tracking.md`](./external-repository-tracking.md)
+for the 2026-05-27 source-of-truth pivot) tracked some slices
+separately; the canonical mirror batches slice 1 and slice 3
+into PR #971.
 
 All FROST wallet-creation and lifecycle paths assume a deployed
 `BridgeLifecycleRouter`, but PR #971 ships only the Bridge-side hooks

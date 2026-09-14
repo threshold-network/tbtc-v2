@@ -444,6 +444,11 @@ library Deposit {
         );
 
         require(
+            reveal.walletXOnlyPublicKey != bytes32(0),
+            "Wallet is not FROST-scheme"
+        );
+
+        require(
             self.walletIDByWalletPubKeyHash[reveal.walletPubKeyHash] ==
                 reveal.walletXOnlyPublicKey,
             "Wallet x-only key mismatch"
@@ -591,24 +596,20 @@ library Deposit {
     /// @param fundingOutputAmount The funding output amount in satoshi.
     /// @param reveal Taproot deposit reveal data.
     /// @dev This function is extracted to overcome the stack too deep error.
+    ///      The legacy `DepositRevealed` event is intentionally NOT emitted
+    ///      for Taproot-native reveals. The `refundPubKeyHash` field on a
+    ///      Taproot reveal is the synthetic HASH160(0x02 || xOnly) alias
+    ///      (see `BitcoinTx.deriveWalletPubKeyHashFromXOnly`) and does not
+    ///      correspond to a P2SH/P2WSH address on Bitcoin. Subscribers that
+    ///      reconstruct the on-chain script from `refundPubKeyHash` would
+    ///      derive an address that does not exist. Consumers must subscribe
+    ///      to `TaprootDepositRevealed` (which carries the full x-only
+    ///      output key) and index off the new event topic.
     function _emitTaprootDepositRevealedEvents(
         bytes32 fundingTxHash,
         uint64 fundingOutputAmount,
         TaprootDepositRevealInfo calldata reveal
     ) internal {
-        // slither-disable-next-line reentrancy-events
-        emit DepositRevealed(
-            fundingTxHash,
-            reveal.fundingOutputIndex,
-            msg.sender,
-            fundingOutputAmount,
-            reveal.blindingFactor,
-            reveal.walletPubKeyHash,
-            reveal.refundPubKeyHash,
-            reveal.refundLocktime,
-            reveal.vault
-        );
-
         // slither-disable-next-line reentrancy-events
         emit TaprootDepositRevealed(
             fundingTxHash,
@@ -833,8 +834,8 @@ library Deposit {
         // 8-byte value + 1-byte script length + 34-byte P2TR script. The
         // strict script prefix and output-key checks below rule out
         // same-length non-P2TR outputs.
-        require(fundingOutput.length == 43, "Output must be P2TR");
-        require(fundingOutput.slice3(8) == hex"225120", "Output must be P2TR");
+        require(fundingOutput.length == 43, "Wrong output length");
+        require(fundingOutput.slice3(8) == hex"225120", "Wrong output script prefix");
         require(
             fundingOutput.slice32(11) == taprootOutputKey,
             "Wrong Taproot output key"

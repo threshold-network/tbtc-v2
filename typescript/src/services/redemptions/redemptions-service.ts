@@ -817,30 +817,33 @@ export class RedemptionsService {
     const findMatchingUtxo = (
       walletTransaction: BitcoinTx
     ): BitcoinUtxo | undefined => {
-      // Find the output that locks the funds on the wallet. Only such an output
-      // can be a wallet main UTXO.
-      const outputIndex = walletTransaction.outputs.findIndex(isWalletOutput)
+      // Iterate ALL wallet-matching outputs so we can find the one whose
+      // UTXO hash matches mainUtxoHash. A single transaction can pay the
+      // wallet twice (e.g. a moving-funds tx with a change output during a
+      // FROST/legacy transition), and stopping at the first hit would
+      // silently exclude the wallet from redemption if that first output
+      // is not the main UTXO.
+      const matchingIndices = walletTransaction.outputs
+        .map((output, index) => (isWalletOutput(output) ? index : -1))
+        .filter((index) => index >= 0)
 
-      // Should never happen as all transactions come from wallet history. Just
-      // in case check whether the wallet output was actually found.
-      if (outputIndex < 0) {
+      if (matchingIndices.length === 0) {
         console.error(
           `wallet output for transaction ${walletTransaction.transactionHash.toString()} not found`
         )
         return undefined
       }
 
-      // Build a candidate UTXO instance based on the detected output.
-      const utxo: BitcoinUtxo = {
-        transactionHash: walletTransaction.transactionHash,
-        outputIndex: outputIndex,
-        value: walletTransaction.outputs[outputIndex].value,
-      }
+      for (const outputIndex of matchingIndices) {
+        const utxo: BitcoinUtxo = {
+          transactionHash: walletTransaction.transactionHash,
+          outputIndex: outputIndex,
+          value: walletTransaction.outputs[outputIndex].value,
+        }
 
-      // Check whether the candidate UTXO hash matches the main UTXO hash stored
-      // on the Bridge.
-      if (mainUtxoHash.equals(this.tbtcContracts.bridge.buildUtxoHash(utxo))) {
-        return utxo
+        if (mainUtxoHash.equals(this.tbtcContracts.bridge.buildUtxoHash(utxo))) {
+          return utxo
+        }
       }
 
       return undefined
@@ -1032,7 +1035,23 @@ export class RedemptionsService {
         )
       }
 
-      return Hex.from(redeemerAddressOrScript)
+      const redeemerOutputScript = Hex.from(redeemerAddressOrScript)
+      // Apply the same standard-type check that getRedeemerOutputScript uses
+      // for the address branch. Without this, callers can bypass the
+      // P2PKH/P2WPKH/P2SH/P2WSH/P2TR guard by passing a raw hex script.
+      if (
+        !BitcoinScriptUtils.isP2PKHScript(redeemerOutputScript) &&
+        !BitcoinScriptUtils.isP2WPKHScript(redeemerOutputScript) &&
+        !BitcoinScriptUtils.isP2SHScript(redeemerOutputScript) &&
+        !BitcoinScriptUtils.isP2WSHScript(redeemerOutputScript) &&
+        !BitcoinScriptUtils.isP2TRScript(redeemerOutputScript)
+      ) {
+        throw new Error(
+          "Redeemer output script must be of standard type (P2PKH, P2WPKH, P2SH, P2WSH, or P2TR)"
+        )
+      }
+
+      return redeemerOutputScript
     }
 
     return this.getRedeemerOutputScript(redeemerAddressOrScript)

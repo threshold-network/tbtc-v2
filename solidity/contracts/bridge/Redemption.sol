@@ -515,6 +515,18 @@ library Redemption {
             "Redeemer output script must not point to the wallet PKH"
         );
         bytes32 walletID = self.walletIDByWalletPubKeyHash[walletPubKeyHash];
+        // The P2TR self-send check is intentionally wallet-scoped
+        // (only the source wallet's own P2TR script is rejected, not
+        // every registered wallet's). Extending it to a full
+        // cross-wallet scan would require iterating every registered
+        // wallet on the redemption request path -- a measurable gas
+        // cost -- and the harm it prevents (a redeemer accidentally
+        // directing output to *another* registered wallet's own
+        // P2TR script and stranding funds outside Bridge accounting)
+        // is self-griefing: only the redeemer loses value, no
+        // third-party path exists. The narrower wallet-scoped check
+        // above matches the legacy P2PKH/P2WPKH guard at :512-516,
+        // keeping the two script families symmetric.
         require(
             walletID == bytes32(0) ||
                 keccak256(redeemerOutputScript) !=
@@ -830,38 +842,14 @@ library Redemption {
         // Please refer `BTCUtils` library and compactSize uint
         // docs in `BitcoinTx` library for more details.
         uint256 outputStartingIndex = 1 + outputsCompactSizeUintLength;
-
         // Calculate the keccak256 for possible wallet scripts that can be used
-        // to lock the change. This is done upfront to save on gas. The scripts
-        // have strict formats defined by Bitcoin.
-        //
-        // The P2PKH script has the byte format: <0x1976a914> <20-byte PKH> <0x88ac>.
-        // According to https://en.bitcoin.it/wiki/Script#Opcodes this translates to:
-        // - 0x19: Byte length of the entire script
-        // - 0x76: OP_DUP
-        // - 0xa9: OP_HASH160
-        // - 0x14: Byte length of the public key hash
-        // - 0x88: OP_EQUALVERIFY
-        // - 0xac: OP_CHECKSIG
-        // which matches the P2PKH structure as per:
-        // https://en.bitcoin.it/wiki/Transaction#Pay-to-PubkeyHash
-        bytes32 walletP2PKHScriptKeccak = keccak256(
-            abi.encodePacked(BitcoinTx.makeP2PKHScript(walletPubKeyHash))
-        );
-        // The P2WPKH script has the byte format: <0x160014> <20-byte PKH>.
-        // According to https://en.bitcoin.it/wiki/Script#Opcodes this translates to:
-        // - 0x16: Byte length of the entire script
-        // - 0x00: OP_0
-        // - 0x14: Byte length of the public key hash
-        // which matches the P2WPKH structure as per:
-        // https://github.com/bitcoin/bips/blob/master/bip-0141.mediawiki#P2WPKH
-        bytes32 walletP2WPKHScriptKeccak = keccak256(
-            abi.encodePacked(BitcoinTx.makeP2WPKHScript(walletPubKeyHash))
-        );
-
+        // to lock the change. The legacy P2PKH/P2WPKH scripts are only needed
+        // for non-FROST (ECDSA) wallets, so compute them only on that branch.
         bytes32 walletP2TRScriptKeccak;
         bytes32 walletID = self.walletIDByWalletPubKeyHash[walletPubKeyHash];
         bool isFrostWallet = walletID != bytes32(0);
+        bytes32 walletP2PKHScriptKeccak;
+        bytes32 walletP2WPKHScriptKeccak;
         if (isFrostWallet) {
             // FROST wallets store their x-only Taproot output key as the
             // canonical wallet ID. That key is not derivable from the
@@ -869,6 +857,30 @@ library Redemption {
             // reverse mapping populated at FROST wallet registration time.
             walletP2TRScriptKeccak = keccak256(
                 BitcoinTx.makeP2TRScript(walletID)
+            );
+        } else {
+            // The P2PKH script has the byte format: <0x1976a914> <20-byte PKH> <0x88ac>.
+            // According to https://en.bitcoin.it/wiki/Script#Opcodes this translates to:
+            // - 0x19: Byte length of the entire script
+            // - 0x76: OP_DUP
+            // - 0xa9: OP_HASH160
+            // - 0x14: Byte length of the public key hash
+            // - 0x88: OP_EQUALVERIFY
+            // - 0xac: OP_CHECKSIG
+            // which matches the P2PKH structure as per:
+            // https://en.bitcoin.it/wiki/Transaction#Pay-to-PubkeyHash
+            walletP2PKHScriptKeccak = keccak256(
+                abi.encodePacked(BitcoinTx.makeP2PKHScript(walletPubKeyHash))
+            );
+            // The P2WPKH script has the byte format: <0x160014> <20-byte PKH>.
+            // According to https://en.bitcoin.it/wiki/Script#Opcodes this translates to:
+            // - 0x16: Byte length of the entire script
+            // - 0x00: OP_0
+            // - 0x14: Byte length of the public key hash
+            // which matches the P2WPKH structure as per:
+            // https://github.com/bitcoin/bips/blob/master/bip-0141.mediawiki#P2WPKH
+            walletP2WPKHScriptKeccak = keccak256(
+                abi.encodePacked(BitcoinTx.makeP2WPKHScript(walletPubKeyHash))
             );
         }
 

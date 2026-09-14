@@ -7,11 +7,17 @@ import "./P2TRSignatureFraud.sol";
 /// @title Check Bitcoin BIP-341 Key-Path Sighash
 /// @notice Reconstructs Taproot key-path sighashes for the P2TR signature-fraud
 ///         verifier feasibility path.
-/// @dev This is intentionally not wired into Bridge fraud entrypoints yet. It
+/// @dev Backs the live `P2TRSignatureFraudRouter.processP2TRSignatureFraudChallenge`
+///      entrypoint (reachable once the router is deployed/wired via
+///      `Bridge.setP2TRFraudRouter`) through `CheckBitcoinP2TRSignatureFraud`
+///      (which imports this library for its sighash reconstruction). It
 ///      reconstructs every KEY-PATH (ext_flag = 0) Taproot sighash mode -- the
 ///      base types DEFAULT (implicit 0x00), ALL (0x01), NONE (0x02) and
 ///      SINGLE (0x03), each optionally combined with the ANYONECANPAY flag
-///      (0x81/0x82/0x83) -- with or without a witness annex.
+///      (0x81/0x82/0x83) -- with or without a witness annex. The production
+///      *activation* of the P2TR signature-fraud challenge per
+///      `docs/test-vectors/p2tr-signature-fraud-spend-type-closure.json` is
+///      still `draft-no-go`, but the library is reachable today.
 library CheckBitcoinBIP341Sighash {
     struct TransactionInput {
         bytes32 txid;
@@ -339,7 +345,27 @@ library CheckBitcoinBIP341Sighash {
         uint256 offset = 0;
         for (uint256 i = 0; i < parts.length; i++) {
             bytes memory part = parts[i];
-            for (uint256 j = 0; j < part.length; j++) {
+            uint256 src;
+            uint256 len = part.length;
+            // Copy full 32-byte words where possible, then handle the
+            // trailing byte-by-byte tail. The byte-by-byte fallback
+            // path is the same as the previous implementation but is
+            // only exercised on the residual 0..31 bytes at the end of
+            // each part, keeping the gas profile proportional to the
+            // number of full words and not the total byte count.
+            assembly {
+                src := add(part, 0x20)
+            }
+            while (len >= 0x20) {
+                assembly {
+                    mstore(add(serialized, add(offset, 0x20)), mload(src))
+                    src := add(src, 0x20)
+                }
+                offset += 0x20;
+                len -= 0x20;
+            }
+            uint256 tail = len;
+            for (uint256 j = 0; j < tail; j++) {
                 serialized[offset] = part[j];
                 offset++;
             }

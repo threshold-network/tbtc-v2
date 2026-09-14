@@ -296,7 +296,17 @@ const assertCustodyInvariants = async (
   )
 }
 
-describe("CustodyInvariantHarness", () => {
+// NOTE: This harness models the on-chain ledger arithmetic of Bank +
+// TBTCVault (Bank.balanceOf vs TBTC.totalSupply vs Vault Bank balance,
+// transfer/mint/unmint actions under seeded campaigns). It does NOT
+// exercise FROST/Taproot custody: there is no Bitcoin-side deposit
+// reveal/sweep/redemption/moving-funds surface, no wallet main UTXO
+// accounting, and no scheme-migration path. The original "Custody
+// Invariant Harness" name predates the FROST migration and now scopes to
+// the Bank/Vault ledger only. The Bitcoin-side risk surface is covered by
+// docs/test-vectors/p2tr-signature-fraud-v0.json and the dedicated
+// Bridge.P2TRFrauds / CompleteP2TRSignatureFraudRouter suites.
+describe("Bank/Vault Ledger Invariant Harness", () => {
   it("keeps governance gates fail-closed for bank and vault upgrade controls", async () => {
     const { governance, bank, vault, campaignAccounts } = await loadFixture(
       fixture

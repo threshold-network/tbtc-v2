@@ -9,17 +9,20 @@ and uses the reclaimed bytecode budget to land the canonical
 `retireEcdsa()` governance setter + supporting surface that was
 deferred from D-1.
 
-> **Security-continuity correction (2026-07-13):** The canonical FROST
-> upgrade retains `__ecdsaWalletCreatedCallback` and `IWalletOwner`
-> compatibility. The deployed Bridge/BridgeGovernance does not expose the
-> pause and scheme-setter ceremony described in the historical runbook below,
-> so a DKG can begin in the last pre-upgrade block. The retained callback is
-> authenticated by the legacy registry, is deliberately not gated by
-> `ecdsaRetired`, and can only drain a request that registry already started;
-> new post-upgrade wallet requests remain FROST-only. Treat the callback-removal
-> and activation-sequence text below as a historical record, not a deployment
-> instruction.
-
+> **Canonical-mirror correction (2026-08-14):** PR #971 + the
+> D-2.2 slice 3 follow-up removed `setNewWalletScheme` and the
+> `requestNewWallet` scheme branch. ECDSA wallet creation is
+> removed permanently from the canonical Bridge implementation:
+> `Wallets.requestNewWallet` dispatches unconditionally to the
+> FROST wallet registry and reverts with `FrostWalletRegistryNotSet`
+> / `LifecycleRouterNotSet` / `LifecycleOwnerMismatch` until the
+> FROST wallet registry and lifecycle router are wired. Once
+> wired, every call goes to FROST regardless of any prior intent.
+> Rollback requires a Bridge implementation upgrade (redeploy +
+> proxy upgrade) that reintroduces a scheme branch. The
+> `BridgeGovernance.setNewWalletScheme(Frost)` ceremony in §"Layer 2"
+> below describes the superseded v6/C-2 design; the canonical
+> mirror ships no scheme-flip surface.
 > **NOTE (post-D-2.2 reconciliation, 2026-05-25):** Several
 > claims in the body below are stale relative to the as-shipped
 > contract after PR #447 (D-2.2 slice 1) merged:
@@ -57,7 +60,33 @@ deferred from D-1.
 
 ## What this PR ships
 
-### Removals
+### Removals — superseded by canonical mirror (PR #971)
+
+> **Canonical mirror correction (2026-08-14).** The Removals
+> bullets below describe the v6 D-2 design as originally
+> specified. The canonical mirror (PR #971) does NOT match
+> either bullet:
+>
+> 1. `Bridge.__ecdsaWalletCreatedCallback` is RETAINED in the
+>    canonical mirror (not removed). It keeps its exact legacy
+>    selector and registry authentication so a DKG initiated
+>    immediately before the proxy upgrade can still complete
+>    after the upgrade. Per the Security-continuity correction
+>    at the top of this file: "the canonical FROST upgrade
+>    retains `__ecdsaWalletCreatedCallback` and `IWalletOwner`
+>    compatibility". New post-upgrade wallet requests are
+>    FROST-only because the post-upgrade request path has no
+>    ECDSA dispatch; the callback itself is not gated by
+>    `ecdsaRetired`.
+> 2. `IWalletOwner` inheritance on Bridge is RETAINED in the
+>    canonical mirror (not dropped). The `override` keyword is
+>    preserved because the interface inheritance is preserved.
+>    The heartbeat callback (`__ecdsaWalletHeartbeatFailedCallback`)
+>    remains an override of `IWalletOwner.__ecdsaWalletHeartbeatFailedCallback`.
+
+The body bullets below are preserved verbatim as historical
+design record for PR #445. Read with the canonical-mirror
+correction at the top of this file as authoritative.
 
 1. `Bridge.__ecdsaWalletCreatedCallback` — gone entirely. No new
    ECDSA wallets can be created after D-2 ships; any registry
@@ -91,8 +120,11 @@ deferred from D-1.
 - Public `Bridge.ecdsaRetired()` getter. Adding it pushed the
   Bridge implementation back over EIP-170. Off-chain consumers
   observe the transition via the `EcdsaRetired` event;
-  on-chain consumers and indexers can decode storage slot 38
-  byte 17 directly.
+  on-chain consumers and indexers can decode storage slot 37
+  byte 17 directly. **STALE: this bullet was reverted by
+  D-2.2 slice 1 (PR #447) which shipped the public
+  `Bridge.ecdsaRetired()` getter. The getter is the canonical
+  observation path; storage-slot decode is now a fallback only.**
 - `Bridge.slashWalletForFraud` ECDSA-only callback. Still
   needed by the EcdsaFraudRouter sidecar for existing ECDSA
   wallets' fraud lifecycle; deferred to a follow-up that also
@@ -200,17 +232,19 @@ Sequence:
    Bridge governance to the new instance and call
    `BridgeGovernance.retireEcdsa()` to flip the `ecdsaRetired`
    flag and emit `EcdsaRetired`. The flag is observable on-
-   chain via storage slot 38 byte 17 (no public getter — see
-   §"What this PR did NOT ship"), and the event provides a
-   single canonical "ECDSA retired" marker for off-chain
-   indexers. Step is purely informational; skipping it does
-   not weaken the structural hard retirement that steps 3+4
-   establish.
+   chain via storage slot 37 byte 17 (canonical observation
+   path is the public `Bridge.ecdsaRetired()` getter shipped
+   by D-2.2 slice 1 (PR #447) — see §"What this PR did NOT ship"
+   reconciliation in the post-D-2.2 note at the top of this
+   file), and the event provides a single canonical "ECDSA
+   retired" marker for off-chain indexers. Step is purely
+   informational; skipping it does not weaken the structural
+   hard retirement that steps 3+4 establish.
 
 ## Upgrade-safety check
 
 - No storage layout changes vs D-1. `ecdsaRetired` continues
-  to pack at slot 38 offset 17.
+  to pack at slot 37 offset 17.
 - `Bridge.storage-layout.json` snapshot unchanged (D-2 added
   no new storage fields).
 - `__gap[39]` unchanged.

@@ -114,22 +114,18 @@ contract FrostWalletRegistry is
     ///         which protects against claim replay.
     mapping(bytes32 => uint256) public inactivityClaimNonce; // walletID -> nonce
 
-    /// @notice RFC v4 delta #4: defensive guard against duplicate
-    ///         FROST wallet registration. Set in `approveDkgResult`
-    ///         when a wallet is successfully registered; re-checked
-    ///         at the top of `submitDkgResult` to fail fast (and
-    ///         to prevent a griefing attack where a malicious
-    ///         operator submits a valid-but-already-registered
-    ///         result, which would otherwise consume the challenge
-    ///         window without yielding a new wallet — leaving the
-    ///         DKG state machine locked until timeout).
-    ///         Layered on top of the Bridge's own collision check
-    ///         in `Wallets.registerNewFrostWallet`; mirrors the
-    ///         pattern PR #435 uses for `fraudChallenges`.
+    /// @notice RFC v4 delta #4: permanent tombstone of every wallet_id that has
+    ///         ever been registered. Set in `approveDkgResult` when a wallet
+    ///         is successfully registered and never cleared (the registry's
+    ///         `membership` namespace is what `isWalletRegistered` reads and
+    ///         that namespace is cleared by `closeWallet`).
+    ///         Layered on top of the Bridge's own collision check in
+    ///         `Wallets.registerNewFrostWallet`; mirrors the pattern PR #435
+    ///         uses for `fraudChallenges`.
     /// @dev Keys exclusively represent permanently registered wallet IDs.
     ///      Migration metadata is kept in dedicated wallet storage and must
     ///      never enter this namespace because DKG submission consults it.
-    mapping(bytes32 => bool) public registered; // wallet ID -> true
+    mapping(bytes32 => bool) public registered; // wallet ID -> true (ever-registered)
 
     // Address that initiates wallet CREATION on the FROST registry.
     // Set to Bridge at initialize() time. Bridge calls
@@ -166,7 +162,8 @@ contract FrostWalletRegistry is
     /// @notice Contract providing FROST operator authorization weights. The
     ///         current production source is `FrostAllowlist`, but the registry
     ///         only depends on this neutral interface. Source migration is
-    ///         upgrade-only because `initializeV2` is intentionally one-shot.
+    ///         restricted to governance calls while the DKG state machine is
+    ///         IDLE (see `updateAuthorizationSource`).
     IFrostAuthorizationSource public authorizationSource;
 
     // Events
@@ -211,10 +208,19 @@ contract FrostWalletRegistry is
 
     event WalletArchiveMigrationCompleted(bytes32 indexed manifestHash);
 
-    event DkgMaliciousResultSlashed(
+    /// @notice Emitted when a proven-malicious DKG result has been reported to
+    ///         the configured authorization source.
+    /// @dev Deliberately does NOT assert that value was seized. The
+    ///      permissioned `FrostAllowlist` source is event-only by design and
+    ///      seizes nothing, so `requestedSlashingAmount` is the penalty this
+    ///      contract asked for, not a settled amount. A bonded authorization
+    ///      source emits its own settlement events; consumers that need to
+    ///      know what was actually seized must read those, never this.
+    event DkgMaliciousResultReported(
         bytes32 indexed resultHash,
-        uint256 slashingAmount,
-        address maliciousSubmitter
+        address indexed maliciousSubmitter,
+        address indexed notifier,
+        uint256 requestedSlashingAmount
     );
 
     event DkgMaliciousResultSlashingFailed(
@@ -269,6 +275,19 @@ contract FrostWalletRegistry is
     ///         Custom error (not require string) so it survives
     ///         all JSON-RPC node decoding paths.
     error LifecycleOwnerNotSet();
+
+    /// @notice Raised when `updateWalletOwner` or `updateLifecycleOwner`
+    ///         is called with the zero address. Set by governance; the
+    ///         zero address would make `requestNewWallet()`/`closeWallet()`
+    ///         revert forever.
+    error OwnerAddressCannotBeZero();
+
+    /// @notice Raised when `updateWalletOwner` or `updateLifecycleOwner`
+    ///         is called while DKG is in any state other than IDLE.
+    ///         Reassigning wallet/lifecycle ownership mid-DKG can wedge
+    ///         the in-flight session against a new owner that never
+    ///         requested the wallet.
+    error DkgNotIdle();
 
     event OperatorRegistered(
         address indexed stakingProvider,
@@ -375,128 +394,89 @@ contract FrostWalletRegistry is
     }
 
     /// @dev Initializes upgradable contract on deployment.
+    /// @param _frostDkgValidator FROST DKG result validator (RFC v4 digest).
     /// @param _bridge Bridge address — serves two distinct roles:
-    ///        (a) wired into the DKG result digest for
-    ///            cross-deployment replay safety (RFC v4); and
-    ///        (b) set as the registry's `walletOwner`, so the
-    ///            `onlyWalletOwner` modifier on `requestNewWallet` /
-    ///            `closeWallet` / etc. resolves correctly when
-    ///            Bridge's scheme-aware dispatcher (post-C-2)
-    ///            routes wallet-creation requests here. Without
-    ///            this, the registry would be deployed-but-dead
-    ///            even AFTER `setFrostWalletRegistry` wires it
-    ///            to Bridge, because every entry would revert
-    ///            with `Caller is not the Wallet Owner`.
-    ///            (Per PR #441 review.)
+    ///        (a) wired into the DKG result digest for cross-deployment
+    ///            replay safety (RFC v4); and (b) set as the registry's
+    ///        `walletOwner`, so the `onlyWalletOwner` modifier on
+    ///        `requestNewWallet` / `closeWallet` / etc. resolves correctly
+    ///        when Bridge's scheme-aware dispatcher (post-C-2) routes
+    ///        wallet-creation requests here.
+    /// @param _authorizationSource Initial FROST authorization source
+    ///        (DAO-managed allowlist under the shipped configuration).
+    ///        May be `address(0)` — when the production wiring deploys
+    ///        the registry before the allowlist contract exists (current
+    ///        hardhat-deploy order), governance calls
+    ///        `updateAuthorizationSource` to set the source. Passing a
+    ///        non-zero address here lets deploy scripts that DO deploy
+    ///        the allowlist first bind it atomically, eliminating the
+    ///        fail-closed window in `_currentAuthorizationSource()` for
+    ///        those deploys. The address is never read until governance
+    ///        sets the source explicitly, so both flows stay valid.
     function initialize(
-        DKGValidator _ecdsaDkgValidator,
+        DKGValidator _frostDkgValidator,
         IRandomBeacon _randomBeacon,
         ReimbursementPool _reimbursementPool,
-        address _bridge
+        address _bridge,
+        IFrostAuthorizationSource _authorizationSource
     ) external initializer {
         randomBeacon = _randomBeacon;
         reimbursementPool = _reimbursementPool;
-        // Wire walletOwner = Bridge at init time. The
-        // `updateWalletOwner` external still exists for
-        // governance to retarget in a future deploy where
-        // Bridge ownership is moved (e.g., to a router or
-        // lifecycle-dispatch contract).
         walletOwner = IFrostWalletOwner(_bridge);
         emit WalletOwnerUpdated(_bridge);
 
         _transferGovernance(msg.sender);
 
-        //
-        // All parameters set in the constructor are initial ones, used at the
-        // moment contracts were deployed for the first time. Parameters are
-        // governable and values assigned in the constructor do not need to
-        // reflect the current ones.
-        //
-
-        // Minimum authorization is 40k T.
-        //
-        // Authorization decrease delay is 45 days.
-        //
-        // Authorization decrease change period is 45 days. It means pending
-        // authorization decrease can be overwritten all the time.
         authorization.setMinimumAuthorization(40_000e18);
         authorization.setAuthorizationDecreaseDelay(3_888_000);
         authorization.setAuthorizationDecreaseChangePeriod(3_888_000);
 
-        // Malicious DKG result slashing amount is set initially to 1% of the
-        // minimum authorization (400 T). This values needs to be increased
-        // significantly once the system is fully launched.
-        //
-        // Notifier multiplier kept at 100 for compatibility with the
-        // authorization-source hook. The FROST allowlist hook is event-only.
-        //
-        // Inactive operators are set as ineligible for rewards for 2 weeks.
         _maliciousDkgResultSlashingAmount = 400e18;
         _maliciousDkgResultNotificationRewardMultiplier = 100;
         _sortitionPoolRewardsBanDuration = 2 weeks;
 
-        // DKG seed timeout is set to 48h assuming 15s block time. The same
-        // value is used by the Random Beacon as a relay entry hard timeout.
-        //
-        // DKG result challenge period length is set to 48h as well, assuming
-        // 15s block time.
-        //
-        // DKG result submission timeout covers:
-        // - 20 blocks required to confirm the DkgStarted event off-chain
-        // - 1 attempt of the off-chain protocol that takes 216 blocks at most
-        // - 3 blocks to submit the result for each of the 100 members
-        // That gives: 20 + (1 * 216) + (3 * 100) = 536
-        //
-        //
-        // The original DKG result submitter has 20 blocks to approve it before
-        // anyone else can do that.
-        //
-        // With these parameters, the happy path takes no more than 104 hours.
-        // In practice, it should take about 48 hours (just the challenge time).
-        // Optimization noted during PR #441 review: `registry`
-        // address is no longer passed at init time — FrostDkg's
-        // internal library functions execute in this contract's
-        // context, so `address(this)` at the validate call site
-        // evaluates to the registry address directly.
-        dkg.init(sortitionPool, _ecdsaDkgValidator, _bridge);
+        dkg.init(sortitionPool, _frostDkgValidator, _bridge);
         dkg.setSeedTimeout(11_520);
         dkg.setResultChallengePeriodLength(11_520);
         dkg.setResultChallengeExtraGas(50_000);
         dkg.setResultSubmissionTimeout(536);
         dkg.setSubmitterPrecedencePeriodLength(20);
 
-        // DKG result submission recreates the 100-member group selected for the
-        // current seed. The reimbursement includes headroom over the measured
-        // cost of that validation against a populated sortition pool.
         _dkgResultSubmissionGas = 1_500_000;
-
-        // The remaining gas parameters were adjusted based on Ethereum state in
-        // April 2022. If the cost of EVM opcodes changes over time, these
-        // parameters will have to be updated.
         _dkgResultApprovalGasOffset = 72_000;
         _notifyOperatorInactivityGasOffset = 93_000;
         _notifySeedTimeoutGasOffset = 7_250;
         _notifyDkgTimeoutNegativeGasOffset = 2_300;
 
-        // Fresh proxies have no legacy-loss history. Mark them atomically so
-        // fresh and migrated completion remain distinguishable on chain.
+        // Atomic source binding when available; otherwise governance must
+        // call `updateAuthorizationSource` before any function that reads
+        // `_currentAuthorizationSource()`.
+        if (address(_authorizationSource) != address(0)) {
+            authorizationSource = _authorizationSource;
+            emit AuthorizationSourceUpdated(address(_authorizationSource));
+        }
+
         Inactivity.initializeFreshArchive(wallets);
     }
 
-    /// @notice Wires the FROST operator authorization source. Authorization
-    ///         callbacks and authorization weight reads are disabled until this
-    ///         method is called.
-    function initializeV2(address _authorizationSource)
-        external
-        reinitializer(2)
-    {
-        require(governance == msg.sender, "Caller is not the governance");
+    /// @notice Updates the FROST authorization source. The current production
+    ///         source is `FrostAllowlist`, but governance may rotate to a
+    ///         future bonded or permissionless source. Reverts while a DKG
+    ///         is in any state other than IDLE to avoid swapping the
+    ///         authorization-checking surface mid-session.
+    function updateAuthorizationSource(
+        IFrostAuthorizationSource _authorizationSource
+    ) external onlyGovernance {
         require(
-            _authorizationSource != address(0),
+            address(_authorizationSource) != address(0),
             "Authorization source address cannot be zero"
         );
-        authorizationSource = IFrostAuthorizationSource(_authorizationSource);
-        emit AuthorizationSourceUpdated(_authorizationSource);
+        require(
+            dkg.currentState() == DKG.State.IDLE,
+            "Current state is not IDLE"
+        );
+        authorizationSource = _authorizationSource;
+        emit AuthorizationSourceUpdated(address(_authorizationSource));
     }
 
     /// @notice Enters the frozen archive phase atomically with the proxy
@@ -699,6 +679,12 @@ contract FrostWalletRegistry is
         external
         onlyGovernance
     {
+        if (address(_walletOwner) == address(0)) {
+            revert OwnerAddressCannotBeZero();
+        }
+        if (dkg.currentState() != DKG.State.IDLE) {
+            revert DkgNotIdle();
+        }
         walletOwner = _walletOwner;
         emit WalletOwnerUpdated(address(_walletOwner));
     }
@@ -726,6 +712,12 @@ contract FrostWalletRegistry is
         external
         onlyGovernance
     {
+        if (_lifecycleOwner == address(0)) {
+            revert OwnerAddressCannotBeZero();
+        }
+        if (dkg.currentState() != DKG.State.IDLE) {
+            revert DkgNotIdle();
+        }
         lifecycleOwner = _lifecycleOwner;
         emit LifecycleOwnerUpdated(_lifecycleOwner);
     }
@@ -854,13 +846,12 @@ contract FrostWalletRegistry is
         _notifyOperatorInactivityGasOffset = notifyOperatorInactivityGasOffset;
         _notifySeedTimeoutGasOffset = notifySeedTimeoutGasOffset;
         _notifyDkgTimeoutNegativeGasOffset = notifyDkgTimeoutNegativeGasOffset;
-
         emit GasParametersUpdated(
             dkgResultSubmissionGas,
             dkgResultApprovalGasOffset,
             notifyOperatorInactivityGasOffset,
-            _notifySeedTimeoutGasOffset,
-            _notifyDkgTimeoutNegativeGasOffset
+            notifySeedTimeoutGasOffset,
+            notifyDkgTimeoutNegativeGasOffset
         );
     }
 
@@ -889,6 +880,9 @@ contract FrostWalletRegistry is
     {
         if (lifecycleOwner == address(0)) {
             revert LifecycleOwnerNotSet();
+        }
+        if (address(walletOwner) == address(0)) {
+            revert OwnerAddressCannotBeZero();
         }
         dkg.lockState();
 
@@ -982,6 +976,9 @@ contract FrostWalletRegistry is
         if (lifecycleOwner == address(0)) {
             revert LifecycleOwnerNotSet();
         }
+        if (address(walletOwner) == address(0)) {
+            revert OwnerAddressCannotBeZero();
+        }
         Inactivity.approveDkgResult(
             dkg,
             wallets,
@@ -1019,10 +1016,15 @@ contract FrostWalletRegistry is
         // Note that the offset is subtracted as it is expected that the cleanup
         // performed on DKG timeout notification removes data from the storage
         // which is recovering gas for the transaction.
-        reimbursementPool.refund(
-            (gasStart - gasleft()) - _notifyDkgTimeoutNegativeGasOffset,
-            msg.sender
-        );
+        //
+        // Clamp the subtraction so a misconfigured offset that would underflow
+        // Solidity 0.8 checked arithmetic degrades the refund to zero instead
+        // of reverting the recovery transaction.
+        uint256 gasUsed = gasStart - gasleft();
+        uint256 refund = gasUsed > _notifyDkgTimeoutNegativeGasOffset
+            ? gasUsed - _notifyDkgTimeoutNegativeGasOffset
+            : 0;
+        reimbursementPool.refund(refund, msg.sender);
     }
 
     /// @notice Challenges DKG result. If the submitted result is proved to be
@@ -1064,11 +1066,18 @@ contract FrostWalletRegistry is
                 operatorWrapper
             )
         {
+            // The configured authorization source decides what a report costs
+            // the offender. The permissioned `FrostAllowlist` is event-only by
+            // design, so it seizes nothing; a bonded source seizes and emits
+            // its own settlement events. Report what this contract actually
+            // did — request a penalty of `requestedSlashingAmount` — instead
+            // of asserting a seizure it cannot observe.
             // slither-disable-next-line reentrancy-events
-            emit DkgMaliciousResultSlashed(
+            emit DkgMaliciousResultReported(
                 maliciousDkgResultHash,
-                _maliciousDkgResultSlashingAmount,
-                maliciousDkgResultSubmitterAddress
+                maliciousDkgResultSubmitterAddress,
+                msg.sender,
+                _maliciousDkgResultSlashingAmount
             );
         } catch {
             // Should never happen but we want to ensure a non-critical path
@@ -1081,16 +1090,17 @@ contract FrostWalletRegistry is
             );
         }
 
-        // Due to EIP-150, 1/64 of the gas is not forwarded to the call, and
-        // will be kept to execute the remaining operations in the function
-        // after the call inside the try-catch.
-        //
-        // To ensure there is no way for the caller to manipulate gas limit in
-        // such a way that the call inside try-catch fails with out-of-gas and
-        // the rest of the function is executed with the remaining 1/64 of gas,
-        // we require an extra gas amount to be left at the end of the call to
-        // `challengeDkgResult`.
+        // Refund the challenger's gas cost. The Pool's `refund` charges the
+        // net spend against the registry's reimbursement balance, so the
+        // challenger is made whole for the validation path. Without this
+        // refund, the permissionless challenge entrypoint is the only DKG
+        // state transition that does not pay its submitter, eroding the
+        // economic incentive the optimistic DKG design relies on.
         dkg.requireChallengeExtraGas();
+        // Approximate the validation gas cost with the submission-gas
+        // parameter; the pool accepts a flat refund and won't overpay since
+        // the parameter is updated by governance.
+        reimbursementPool.refund(_dkgResultSubmissionGas, msg.sender);
     }
 
     /// @notice Notifies about operators who are inactive. Using this function,
@@ -1400,9 +1410,12 @@ contract FrostWalletRegistry is
         return wallets.getWalletXOnlyOutputKey(walletID);
     }
 
-    /// @notice Checks if a wallet with the given ID is registered.
+    /// @notice Checks if a wallet with the given ID is currently registered
+    ///         (live, not yet closed). Returns false for closed/archived
+    ///         and never-registered wallets alike; use `registered(walletID)`
+    ///         to distinguish "currently live" from "ever registered".
     /// @param walletID Wallet's ID.
-    /// @return True if wallet is registered, false otherwise.
+    /// @return True if wallet is currently registered, false otherwise.
     function isWalletRegistered(bytes32 walletID) external view returns (bool) {
         return wallets.isWalletRegistered(walletID);
     }
@@ -1619,8 +1632,8 @@ contract FrostWalletRegistry is
     /// @return notifySeedTimeoutGasOffset Gas that is meant to balance the
     ///         notification of a seed for DKG delivery timeout. It can be updated
     ///         by the governance based on the current market conditions.
-    /// @return notifyDkgTimeoutNegativeGasOffset Gas that is meant to balance
-    ///         the notification of a DKG protocol execution timeout. It can be
+    /// @return notifyDkgTimeoutNegativeGasOffset Gas that is meant to balance the
+    ///         notification of a DKG protocol execution timeout. It can be
     ///         updated by the governance based on the current market conditions.
     function gasParameters()
         external

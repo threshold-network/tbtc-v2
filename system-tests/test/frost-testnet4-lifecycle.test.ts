@@ -27,11 +27,23 @@
  * `system-tests/FROST_TESTNET4_E2E.md`. Implement the steps from there behind a
  * `RUN_FROST_TESTNET4_E2E` gate once (1)–(3) are in place.
  *
- * This file deliberately imports nothing and asserts nothing: the single
- * `it(...)` below has no callback, so Mocha reports it as **pending** (never a
- * passing no-op), it compiles against any SDK version, and it requires no env.
+ * The `before()` hook below makes the gate explicit: when the env var is not
+ * set, the entire suite is skipped (Mocha reports it as `pending` and the run
+ * is a no-op for this file). The single `it(...)` deliberately has no
+ * callback: if the gate is set without a real implementation, Mocha reports
+ * it as **pending** (never a passing no-op), the suite compiles against any
+ * SDK version, and no env other than the gate is required.
  */
+
+const RUN_FROST_TESTNET4_E2E_ENV = "RUN_FROST_TESTNET4_E2E"
+
 describe("System Test - FROST testnet4 lifecycle", () => {
+  before(function () {
+    if (!process.env[RUN_FROST_TESTNET4_E2E_ENV]) {
+      this.skip()
+    }
+  })
+
   it(
     "deposit → sweep → MINT → redemption → FROST→FROST moving funds " +
       "(pending — see system-tests/FROST_TESTNET4_E2E.md)"

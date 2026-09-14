@@ -1,16 +1,30 @@
 # FROST migration audit-prep findings (2026-05-25)
 
+> **Historical appendix (2026-08-14):** This document is a
+> **dated findings sweep** from 2026-05-25, plus a 2026-05-27
+> addendum and the original (May-2026) PR-status tracker
+> references throughout. Per the 2026-08-14 multi-agent
+> review, PR-status trackers and dated findings sweeps rot on
+> contact and should not be the primary durable documentation
+> for the FROST migration. The substantive design decisions
+> are captured in
+> [`scheme-preference-and-retirement-rfc.md`](./scheme-preference-and-retirement-rfc.md),
+> [`d2-ecdsa-hard-retirement-plan.md`](./d2-ecdsa-hard-retirement-plan.md),
+> and [`wallet-registry-trust-model-rfc.md`](./wallet-registry-trust-model-rfc.md)
+> (each of which has been updated to reflect the canonical
+> mirror as of 2026-08-14). The body of THIS document is
+> preserved as a historical audit trail; treat it as
+> point-in-time evidence of what the team thought was needed
+> before the canonical-mirror reconciliation, not as the
+> current source of truth. For activation gating, read
+> `bridge-lifecycle-router-followup-plan.md` and the canonical
+> activation runbook in `scheme-preference-and-retirement-rfc.md`.
+
 Sweep of the merged FROST migration surface
 (`solidity/contracts/frost-registry/`, `solidity/contracts/bridge/`,
 `solidity/test/frost-registry/`, `solidity/test/integration/utils/`,
 `docs/rfc/frost-migration/`) for residual hygiene issues prior to
 external audit. Categorized by load-bearingness.
-
-## Methodology
-
-- grep for `TODO`/`FIXME`/`XXX`/`HACK`/`DEPRECATED`.
-- grep for `deferred`/`DEFERRED` to verify each is still
-  accurately deferred (vs. shipped and the marker stale).
 - grep for `EcdsaRetired`/`finalizeEcdsaRetirement`/
   `seedEcdsaWalletCount`/`requestNewWalletOfScheme` to verify
   references match shipped reality after the D-2.2 emit-drop

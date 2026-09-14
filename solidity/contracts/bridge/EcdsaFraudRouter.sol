@@ -7,6 +7,7 @@ import {BTCUtils} from "@keep-network/bitcoin-spv-sol/contracts/BTCUtils.sol";
 import {CheckBitcoinSigs} from "@keep-network/bitcoin-spv-sol/contracts/CheckBitcoinSigs.sol";
 
 import "./BitcoinTx.sol";
+import "./IBridgeFraudViews.sol";
 import "./Deposit.sol";
 import "./EcdsaLib.sol";
 import "./EcdsaFraudRouterProtocol.sol";
@@ -15,39 +16,20 @@ import "./Heartbeat.sol";
 import "./MovingFunds.sol";
 import "./Wallets.sol";
 
-/// @notice State the router needs to read from Bridge while processing
-///         ECDSA fraud lifecycle actions, plus the one privileged
-///         callback used for slashing on timeout.
-interface IBridgeForFraud {
+/// @notice Read-only views plus the scheme-specific extras that the
+///         ECDSA fraud router needs from Bridge while processing
+///         fraud lifecycle actions. The shared read-only getters used
+///         by both fraud router sidecars are declared on
+///         `IBridgeFraudViews`; this interface extends that with the
+///         scheme-specific views and the privileged slash callback.
+interface IBridgeForFraud is IBridgeFraudViews {
     function ecdsaFraudRouter() external view returns (address);
-
-    function wallets(bytes20 walletPubKeyHash)
-        external
-        view
-        returns (Wallets.Wallet memory);
 
     function activeWalletPubKeyHash() external view returns (bytes20);
 
     function activeWalletID() external view returns (bytes32);
 
     function walletID(bytes20 walletPubKeyHash) external view returns (bytes32);
-
-    function walletPubKeyHashForWalletID(bytes32 walletId)
-        external
-        view
-        returns (bytes20);
-
-    function fraudParameters()
-        external
-        view
-        returns (
-            uint96 fraudChallengeDepositAmount,
-            uint32 fraudChallengeDefeatTimeout,
-            uint96 fraudSlashingAmount,
-            uint32 fraudNotifierRewardMultiplier
-        );
-
-    function treasury() external view returns (address);
 
     /// @dev Returns the full `Deposit.DepositRequest` struct. Bridge
     ///      exposes a struct-returning view (not a Solidity-generated
@@ -67,11 +49,6 @@ interface IBridgeForFraud {
         external
         view
         returns (MovingFunds.MovedFundsSweepRequest memory);
-
-    function legacyFraudChallengeExists(uint256 challengeKey)
-        external
-        view
-        returns (bool);
 
     /// @notice Privileged callback the router invokes from the timeout
     ///         path. Bridge gates this with `onlyEcdsaFraudRouter`.
@@ -626,15 +603,6 @@ contract EcdsaFraudRouter {
             walletPublicKey.slice32(32)
         );
         bytes20 walletPubKeyHash = compressedWalletPublicKey.hash160View();
-
-        bytes32 activeID = b.activeWalletID();
-        require(
-            b.activeWalletPubKeyHash() != walletPubKeyHash ||
-                activeID == bytes32(0) ||
-                activeID == b.walletID(walletPubKeyHash),
-            "Legacy ECDSA wallet required"
-        );
-
         Wallets.Wallet memory wallet = b.wallets(walletPubKeyHash);
         require(
             wallet.ecdsaWalletID != bytes32(0),

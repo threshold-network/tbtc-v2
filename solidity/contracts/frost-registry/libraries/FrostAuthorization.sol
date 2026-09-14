@@ -11,6 +11,7 @@
 // ▓▓▓▓▓▓▓▓▓▓ ▓▓▓▓▓▓▓▓▓▓ ▐▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓ ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓  ▓▓▓▓▓▓▓▓▓▓
 //
 //
+//
 
 pragma solidity 0.8.17;
 
@@ -364,9 +365,12 @@ library FrostAuthorization {
 
         emit AuthorizationDecreaseApproved(stakingProvider);
 
+        // Clear the pending decrease before the external call so a
+        // future bonded `IFrostAuthorizationSource` implementation
+        // cannot re-enter with a stale state.
+        delete self.pendingDecreases[stakingProvider];
         // slither-disable-next-line unused-return
         authorizationSource.approveAuthorizationDecrease(stakingProvider);
-        delete self.pendingDecreases[stakingProvider];
     }
 
     /// @notice Compatibility callback for involuntary authorization decreases.

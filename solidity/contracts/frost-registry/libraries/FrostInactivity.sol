@@ -216,14 +216,13 @@ library FrostInactivity {
         // being able to sign messages soon.
         bool heartbeatFailed;
         // Concatenation of signatures from members supporting the claim.
-        // The message to be signed by each member is keccak256 hash of the
-        // concatenation of the chain ID, inactivity claim nonce for the given
-        // wallet, wallet public key, inactive members indices, and boolean flag
-        // indicating if this is a wallet-wide heartbeat failure. The calculated
-        // hash should be prefixed with `\x19Ethereum signed message:\n` before
+        // The message to be signed by each member is the keccak256 hash of the
+        // ABI-encoded tuple `(chainid, nonce, xOnlyOutputKey,
+        // inactiveMembersIndices, heartbeatFailed)`. The calculated hash
+        // should be prefixed with `\x19Ethereum signed message:\n` before
         // signing, so the message to sign is:
         // `\x19Ethereum signed message:\n${keccak256(
-        //    chainID | nonce | walletPubKey | inactiveMembersIndices | heartbeatFailed
+        //    abi.encode(chainid, nonce, xOnlyOutputKey, inactiveMembersIndices, heartbeatFailed)
         // )}`
         bytes signatures;
         // Indices of members corresponding to each signature. Indices must be
@@ -1019,6 +1018,17 @@ library FrostInactivity {
             dkgResult.xOnlyOutputKey
         );
         registered[dkgResult.xOnlyOutputKey] = true;
+
+        // Finalize the DKG state machine BEFORE any external interaction
+        // and BEFORE emitting the off-chain "wallet is live" signal.
+        // Checks-effects-interactions ordering: a reentrant call from
+        // `__frostWalletCreatedCallback` (or any future external hook)
+        // must observe `currentState() == IDLE`, must see the wallet
+        // row, and must not see the pre-completion state. The
+        // `WalletCreated` emit is moved after `dkg.complete()` so
+        // off-chain consumers cannot observe a wallet they consider
+        // live while the registry still reports CHALLENGE/AWAITING_RESULT.
+        dkg.complete();
         emit WalletCreated(walletID, keccak256(abi.encode(dkgResult)));
 
         if (misbehavedMembers.length > 0) {
@@ -1030,7 +1040,6 @@ library FrostInactivity {
         }
 
         walletOwner.__frostWalletCreatedCallback(dkgResult.xOnlyOutputKey);
-        dkg.complete();
 
         reimbursementPool.refund(
             submissionGas + (gasStart - gasleft()) + approvalGasOffset,

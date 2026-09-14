@@ -3,32 +3,13 @@
 pragma solidity 0.8.17;
 
 import "../bridge/P2TRSignatureFraud.sol";
-import "../prototypes/PrototypeP2TRSignatureFraud.sol";
 
-/// @dev Test-only harness for draft P2TR signature-fraud challenge identities.
-///      This contract is vector evidence, not production challenge-key logic.
+/// @dev Test-only harness for production P2TR signature-fraud challenge key
+///      derivation. Draft challenge identity coverage was retired alongside
+///      solidity/contracts/prototypes/PrototypeP2TRSignatureFraud.sol; this
+///      harness now exercises only the production P2TRSignatureFraud witness
+///      parser and Bridge challenge-key derivation.
 contract TestP2TRSignatureFraudChallenge {
-    function computeDraftChallengeIdentity(
-        bytes32 walletID,
-        bytes32 sighash,
-        bytes calldata signature,
-        uint8 sighashType,
-        uint32 signedInputIndex,
-        bytes calldata unsignedTransaction,
-        PrototypeP2TRSignatureFraud.Prevout[] calldata prevouts
-    ) external pure returns (bytes32) {
-        return
-            PrototypeP2TRSignatureFraud.computeDraftChallengeIdentity(
-                walletID,
-                sighash,
-                signature,
-                sighashType,
-                signedInputIndex,
-                unsignedTransaction,
-                prevouts
-            );
-    }
-
     function parseWitnessSignature(bytes calldata witnessSignature)
         external
         pure

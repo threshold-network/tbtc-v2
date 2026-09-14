@@ -83,18 +83,21 @@ contract BridgeLifecycleRouter is IBridgeLifecycleRouter {
         IBridgeFrostLifecycleContext bridgeContext = IBridgeFrostLifecycleContext(
                 bridge
             );
+        // Apply the P2TR fraud-challenge-pending guard for every
+        // closeWallet call, regardless of whether the wallet reaches
+        // the router in `Closed` (from `finalizeWalletClosing`) or
+        // `Terminated` (from timeout-driven `terminateWallet`). The
+        // state-dependent gate was bypassable: terminateWallet sets
+        // `Terminated` on the wallet before invoking this router, so
+        // a fraudulent signature under a terminated wallet could close
+        // on the registry without the guard firing.
+        address p2trRouter = bridgeContext.p2trFraudRouter();
         if (
-            bridgeContext.wallets(walletPubKeyHash).state ==
-            Wallets.WalletState.Closed
+            p2trRouter != address(0) &&
+            IP2TRFraudChallengeCounter(p2trRouter)
+                .hasOpenFraudChallengeForWallet(walletPubKeyHash)
         ) {
-            address p2trRouter = bridgeContext.p2trFraudRouter();
-            if (
-                p2trRouter != address(0) &&
-                IP2TRFraudChallengeCounter(p2trRouter)
-                    .hasOpenFraudChallengeForWallet(walletPubKeyHash)
-            ) {
-                revert P2TRFraudChallengePending();
-            }
+            revert P2TRFraudChallengePending();
         }
 
         registry.closeWallet(walletID);

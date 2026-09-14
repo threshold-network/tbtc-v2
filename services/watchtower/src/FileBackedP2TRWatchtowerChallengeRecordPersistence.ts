@@ -35,7 +35,20 @@ export class FileBackedP2TRWatchtowerChallengeRecordPersistence
       throw error
     }
 
-    const records = JSON.parse(rawRecords) as unknown
+    // A truncated or externally-corrupted state file must fail closed with a
+    // message that names the file, rather than surfacing an opaque
+    // `SyntaxError: Unexpected token` from deep inside the load path.
+    let records: unknown
+    try {
+      records = JSON.parse(rawRecords) as unknown
+    } catch (error) {
+      throw new Error(
+        `P2TR watchtower state file ${this.filePath} is not valid JSON ` +
+          `(${error instanceof Error ? error.message : String(error)}). ` +
+          `Restore it from a backup or remove it to start from an empty state.`
+      )
+    }
+
     if (!Array.isArray(records)) {
       throw new Error("P2TR watchtower state file must contain an array")
     }
@@ -57,6 +70,17 @@ export class FileBackedP2TRWatchtowerChallengeRecordPersistence
     this.lastLoadedState = { exists: true, contents: serializedRecords }
   }
 
+  /**
+   * Best-effort staleness detection, NOT mutual exclusion: the read below and
+   * the rename in `saveChallengeRecords` are not atomic with respect to each
+   * other, so a concurrent writer landing between them is still not caught.
+   * It exists to turn the common case of an externally-modified state file
+   * into a loud error instead of a silent overwrite.
+   *
+   * Single-writer safety comes from the single-process profile marker and
+   * `requireSubmissionIndexingStoreProfile` gating, not from this check. Do not
+   * treat it as a lock or use it to justify running concurrent watchtowers.
+   */
   private async assertStateFileUnchangedSinceLoad(): Promise<void> {
     if (this.lastLoadedState === undefined) {
       return

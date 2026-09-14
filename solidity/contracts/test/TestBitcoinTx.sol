@@ -22,22 +22,6 @@ contract TestBitcoinTx {
         emit ProofValidated(BitcoinTx.validateProof(self, txInfo, proof));
     }
 
-    function extractPubKeyHash(bytes calldata output)
-        external
-        view
-        returns (bytes20)
-    {
-        return BitcoinTx.extractPubKeyHash(self, output);
-    }
-
-    function extractWalletID(bytes calldata output)
-        external
-        view
-        returns (bytes32)
-    {
-        return BitcoinTx.extractWalletID(self, output);
-    }
-
     function extractWalletPubKeyHash(bytes calldata output)
         external
         view
