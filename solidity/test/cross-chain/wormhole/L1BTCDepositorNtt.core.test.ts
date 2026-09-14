@@ -1,9 +1,9 @@
-import { ethers, getUnnamedAccounts, helpers, waffle } from "hardhat"
+import { ethers, getUnnamedAccounts, helpers } from "hardhat"
 import { randomBytes } from "crypto"
-import chai, { expect } from "chai"
-import { FakeContract, smock } from "@defi-wonderland/smock"
-import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
-import { BigNumber, ContractTransaction } from "ethers"
+import { expect } from "chai"
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
+import { ContractTransactionResponse } from "ethers"
+import { loadFixture } from "../../helpers/fixture"
 import {
   IBridge,
   ITBTCVault,
@@ -11,13 +11,14 @@ import {
   ReimbursementPool,
   TestERC20,
 } from "../../../typechain"
-import type {
-  BitcoinTxInfoStruct,
-  DepositRevealInfoStruct,
-} from "../../../typechain/L2BTCDepositorWormhole"
+import type { IBridgeTypes as IBridgeTypesTypes } from "../../../typechain/contracts/cross-chain/wormhole/L2BTCDepositorWormhole"
 import { to1ePrecision } from "../../helpers/contract-test-helpers"
+import { createMock } from "../../helpers/mock"
+import type { Mock } from "../../helpers/mock"
+import type { FakeNttManager } from "./fake-ntt-manager"
 
-chai.use(smock.matchers)
+type BitcoinTxInfoStruct = IBridgeTypesTypes.BitcoinTxInfoStruct
+type DepositRevealInfoStruct = IBridgeTypesTypes.DepositRevealInfoStruct
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 const { lastBlockTime } = helpers.time
@@ -27,20 +28,6 @@ const WORMHOLE_CHAIN_ETH = 2
 const WORMHOLE_CHAIN_DESTINATION = 32
 const WORMHOLE_CHAIN_BASE = 30
 
-// Mock NTT Manager interface
-interface INttManager {
-  transfer(
-    amount: BigNumber,
-    recipientChain: number,
-    recipient: string
-  ): Promise<ContractTransaction>
-
-  quoteDeliveryPrice(
-    recipientChain: number,
-    transceiverInstructions: string
-  ): Promise<{ priceQuotes: BigNumber[]; totalPrice: BigNumber }>
-}
-
 describe("L1BTCDepositorNtt Core Functions", () => {
   const contractsFixture = async () => {
     const { deployer, governance } = await helpers.signers.getNamedSigners()
@@ -49,14 +36,14 @@ describe("L1BTCDepositorNtt Core Functions", () => {
     const relayer = await ethers.getSigner(accounts[1])
     const user = await ethers.getSigner(accounts[2])
 
-    const bridge = await smock.fake<IBridge>("IBridge")
+    const bridge = await createMock<IBridge>("IBridge")
     const tbtcToken = await (
       await ethers.getContractFactory("TestERC20")
     ).deploy()
-    const tbtcVault = await smock.fake<ITBTCVault>("ITBTCVault", {
+    const tbtcVault = await createMock<ITBTCVault>("ITBTCVault", {
       address: tbtcVaultAddress,
     })
-    tbtcVault.tbtcToken.returns(tbtcToken.address)
+    await tbtcVault.tbtcToken.returns(tbtcToken.target)
 
     const nttManager = {
       address: ethers.Wallet.createRandom().address,
@@ -75,11 +62,11 @@ describe("L1BTCDepositorNtt Core Functions", () => {
       async quoteDeliveryPrice(
         recipientChain: number,
         transceiverInstructions?: string
-      ): Promise<[unknown[], BigNumber]> {
+      ): Promise<[unknown[], bigint]> {
         // Simulate the quoteDeliveryPrice function that returns (uint256[], uint256)
-        return [[], BigNumber.from(50000)]
+        return [[], BigInt(50000)]
       },
-    } as Record<string, unknown>
+    } as unknown as FakeNttManager
 
     // Add mock methods to the functions
     nttManager.transfer.returns = (value: unknown): void => {}
@@ -87,26 +74,8 @@ describe("L1BTCDepositorNtt Core Functions", () => {
     nttManager.quoteDeliveryPrice.returns = (value: unknown): void => {}
     nttManager.quoteDeliveryPrice.reset = (): void => {}
 
-    // Add call method to simulate contract calls
-    nttManager.transfer.call = async function transferCall(
-      amount: string,
-      recipientChain: number,
-      recipient: string,
-      refundAddress?: string,
-      shouldQueue?: boolean,
-      transceiverInstructions?: string
-    ): Promise<number> {
-      return 123
-    }
-    nttManager.quoteDeliveryPrice.call = async function quoteDeliveryPriceCall(
-      recipientChain: number,
-      transceiverInstructions?: string
-    ): Promise<[unknown[], BigNumber]> {
-      return [[], BigNumber.from(50000)]
-    }
-    const reimbursementPool = await smock.fake<ReimbursementPool>(
-      "ReimbursementPool"
-    )
+    const reimbursementPool =
+      await createMock<ReimbursementPool>("ReimbursementPool")
 
     const deployment = await helpers.upgrades.deployProxy(
       // Hacky workaround allowing to deploy proxy contract any number of times
@@ -126,7 +95,7 @@ describe("L1BTCDepositorNtt Core Functions", () => {
         },
       }
     )
-    const l1BtcDepositorNtt = deployment[0] as L1BTCDepositorNtt
+    const l1BtcDepositorNtt = deployment[0] as unknown as L1BTCDepositorNtt
 
     await l1BtcDepositorNtt
       .connect(deployer)
@@ -145,18 +114,17 @@ describe("L1BTCDepositorNtt Core Functions", () => {
     }
   }
 
-  let governance: SignerWithAddress
-  let relayer: SignerWithAddress
-  let user: SignerWithAddress
-  let bridge: FakeContract<IBridge>
+  let governance: HardhatEthersSigner
+  let relayer: HardhatEthersSigner
+  let user: HardhatEthersSigner
+  let bridge: Mock<IBridge>
   let tbtcToken: TestERC20
-  let tbtcVault: FakeContract<ITBTCVault>
-  let nttManager: Record<string, unknown>
-  let reimbursementPool: FakeContract<ReimbursementPool>
+  let tbtcVault: Mock<ITBTCVault>
+  let nttManager: FakeNttManager
+  let reimbursementPool: Mock<ReimbursementPool>
   let l1BtcDepositorNtt: L1BTCDepositorNtt
 
   before(async () => {
-    // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({
       governance,
       relayer,
@@ -167,7 +135,7 @@ describe("L1BTCDepositorNtt Core Functions", () => {
       nttManager,
       reimbursementPool,
       l1BtcDepositorNtt,
-    } = await waffle.loadFixture(contractsFixture))
+    } = await loadFixture(contractsFixture))
   })
 
   describe("initialization", () => {
@@ -279,7 +247,7 @@ describe("L1BTCDepositorNtt Core Functions", () => {
               .initializeDeposit(
                 initializeDepositFixture.fundingTx,
                 initializeDepositFixture.reveal,
-                ethers.constants.HashZero
+                ethers.ZeroHash
               )
           ).to.be.revertedWith("L2 deposit owner must not be 0x0")
         })
@@ -288,10 +256,10 @@ describe("L1BTCDepositorNtt Core Functions", () => {
       context("when the L2 deposit owner is non-zero", () => {
         context("when the requested vault is not TBTCVault", () => {
           it("should revert", async () => {
-            const corruptedReveal = JSON.parse(
-              JSON.stringify(initializeDepositFixture.reveal)
+            const corruptedReveal = structuredClone(
+              initializeDepositFixture.reveal
             )
-            corruptedReveal.vault = ethers.constants.AddressZero
+            corruptedReveal.vault = ethers.ZeroAddress
 
             await expect(
               l1BtcDepositorNtt
@@ -321,7 +289,7 @@ describe("L1BTCDepositorNtt Core Functions", () => {
               })
 
               after(async () => {
-                bridge.revealDepositWithExtraData.reset()
+                await bridge.revealDepositWithExtraData.reset()
                 await restoreSnapshot()
               })
 
@@ -342,13 +310,13 @@ describe("L1BTCDepositorNtt Core Functions", () => {
           context("when the deposit state is correct", () => {
             before(async () => {
               await createSnapshot()
-              bridge.revealDepositWithExtraData.returns(
+              await bridge.revealDepositWithExtraData.returns(
                 initializeDepositFixture.depositKey
               )
             })
 
             after(async () => {
-              bridge.revealDepositWithExtraData.reset()
+              await bridge.revealDepositWithExtraData.reset()
               await restoreSnapshot()
             })
 
@@ -407,41 +375,41 @@ describe("L1BTCDepositorNtt Core Functions", () => {
 
           const revealedAt = (await lastBlockTime()) - 7200
           const finalizedAt = await lastBlockTime()
-          bridge.deposits
+          await bridge.deposits
             .whenCalledWith(initializeDepositFixture.depositKey)
             .returns({
-              depositor: ethers.constants.AddressZero,
-              amount: BigNumber.from(100000),
+              depositor: ethers.ZeroAddress,
+              amount: BigInt(100000),
               revealedAt,
-              vault: ethers.constants.AddressZero,
-              treasuryFee: BigNumber.from(0),
+              vault: ethers.ZeroAddress,
+              treasuryFee: BigInt(0),
               sweptAt: finalizedAt,
-              extraData: ethers.constants.HashZero,
+              extraData: ethers.ZeroHash,
             })
 
-          tbtcVault.optimisticMintingRequests
+          await tbtcVault.optimisticMintingRequests
             .whenCalledWith(initializeDepositFixture.depositKey)
             .returns([revealedAt, finalizedAt])
 
-          nttManager.quoteDeliveryPrice.returns([[], BigNumber.from(50000)])
-          nttManager.transfer.returns(123)
+          await nttManager.quoteDeliveryPrice.returns([[], BigInt(50000)])
+          await nttManager.transfer.returns(123)
 
           await l1BtcDepositorNtt
             .connect(governance)
             .setSupportedChain(WORMHOLE_CHAIN_DESTINATION, true)
 
           await tbtcToken.mint(
-            l1BtcDepositorNtt.address,
-            ethers.utils.parseEther("1").mul(10)
+            l1BtcDepositorNtt.target,
+            ethers.parseEther("1") * 10n
           )
         })
 
         after(async () => {
-          bridge.revealDepositWithExtraData.reset()
-          bridge.deposits.reset()
-          tbtcVault.optimisticMintingRequests.reset()
-          nttManager.quoteDeliveryPrice.reset()
-          nttManager.transfer.reset()
+          await bridge.revealDepositWithExtraData.reset()
+          await bridge.deposits.reset()
+          await tbtcVault.optimisticMintingRequests.reset()
+          await nttManager.quoteDeliveryPrice.reset()
+          await nttManager.transfer.reset()
           await restoreSnapshot()
         })
       })
@@ -503,7 +471,7 @@ describe("L1BTCDepositorNtt Core Functions", () => {
       })
 
       context("when the caller is the owner", () => {
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()

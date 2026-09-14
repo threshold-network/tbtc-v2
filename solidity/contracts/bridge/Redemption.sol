@@ -58,10 +58,9 @@ interface IRedemptionWatchtower {
     /// @param redemptionKey Redemption key built as
     ///        `keccak256(keccak256(redeemerOutputScript) | walletPubKeyHash)`.
     /// @return Redemption delay.
-    function getRedemptionDelay(uint256 redemptionKey)
-        external
-        view
-        returns (uint32);
+    function getRedemptionDelay(
+        uint256 redemptionKey
+    ) external view returns (uint32);
 }
 
 /// @notice Aggregates functions common to the redemption transaction proof
@@ -581,9 +580,10 @@ library Redemption {
         // No need to check whether `amount - treasuryFee - txMaxFee > 0`
         // since the `redemptionDustThreshold` should force that condition
         // to be always true.
-        uint64 treasuryFee = self.redemptionTreasuryFeeDivisor > 0
-            ? amount / self.redemptionTreasuryFeeDivisor
-            : 0;
+        uint64 treasuryFee =
+            self.redemptionTreasuryFeeDivisor > 0
+                ? amount / self.redemptionTreasuryFeeDivisor
+                : 0;
         // Apply rebate only when the redeemer is authorized for this
         // balance owner. Direct redemptions (`balanceOwner == redeemer`)
         // are always authorized; callback redemptions where
@@ -1027,8 +1027,8 @@ library Redemption {
             // amount reduced by the treasury fee. The request's
             // minimal amount is then the redeemable amount reduced by
             // the maximum transaction fee.
-            uint64 redeemableAmount = request.requestedAmount -
-                request.treasuryFee;
+            uint64 redeemableAmount =
+                request.requestedAmount - request.treasuryFee;
             // Output value must fit between the request's redeemable
             // and minimal amounts to be deemed valid.
             require(
@@ -1064,8 +1064,8 @@ library Redemption {
                 "Output is a non-requested redemption"
             );
 
-            uint64 redeemableAmount = request.requestedAmount -
-                request.treasuryFee;
+            uint64 redeemableAmount =
+                request.requestedAmount - request.treasuryFee;
 
             require(
                 redeemableAmount - request.txMaxFee <= outputValue &&
@@ -1139,8 +1139,7 @@ library Redemption {
             walletPubKeyHash
         ];
         wallet.pendingRedemptionsValue -=
-            request.requestedAmount -
-            request.treasuryFee;
+            request.requestedAmount - request.treasuryFee;
 
         // It is worth noting that there is no need to check if
         // `timedOutRedemption` mapping already contains the given redemption
@@ -1173,11 +1172,10 @@ library Redemption {
     /// @param walletPubKeyHash the pubkey hash of the wallet.
     /// @param script the output script of the redemption.
     /// @return The key = keccak256(keccak256(script) | walletPubKeyHash).
-    function getRedemptionKey(bytes20 walletPubKeyHash, bytes memory script)
-        internal
-        pure
-        returns (uint256)
-    {
+    function getRedemptionKey(
+        bytes20 walletPubKeyHash,
+        bytes memory script
+    ) internal pure returns (uint256) {
         bytes32 scriptHash = keccak256(script);
         uint256 key;
         /* solhint-disable-next-line no-inline-assembly */
@@ -1193,11 +1191,10 @@ library Redemption {
     /// @param walletPubKeyHash the pubkey hash of the wallet.
     /// @param scriptHash the output script hash of the redemption.
     /// @return The key = keccak256(scriptHash | walletPubKeyHash).
-    function _getRedemptionKey(bytes20 walletPubKeyHash, bytes32 scriptHash)
-        internal
-        pure
-        returns (uint256)
-    {
+    function _getRedemptionKey(
+        bytes20 walletPubKeyHash,
+        bytes32 scriptHash
+    ) internal pure returns (uint256) {
         uint256 key;
         /* solhint-disable-next-line no-inline-assembly */
         assembly {
@@ -1253,8 +1250,7 @@ library Redemption {
         // If we don't do this, the wallet will hold the reserve
         // for a redemption request that will never be processed.
         self.registeredWallets[walletPubKeyHash].pendingRedemptionsValue -=
-            redemption.requestedAmount -
-            redemption.treasuryFee;
+            redemption.requestedAmount - redemption.treasuryFee;
 
         // Capture the amount that should be transferred to the
         // redemption watchtower. Use the whole requested amount as a detained

@@ -1,7 +1,7 @@
 import type { HardhatRuntimeEnvironment } from "hardhat/types"
 import type { DeployFunction } from "hardhat-deploy/types"
 
-import initializeWalletOwner from "@keep-network/ecdsa/export/tasks/initialize-wallet-owner"
+import initializeWalletOwner from "../tasks/initialize-wallet-owner"
 
 const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
   const Bridge = await hre.deployments.get("Bridge")

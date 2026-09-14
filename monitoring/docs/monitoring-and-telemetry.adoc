@@ -189,6 +189,42 @@ should get team’s attention. The default action is investigating the cause
 of the extended processing time as this alert may be an early sign of
 a malfunctioning wallet or may indicate a problem with the maintainer bot.
 
+==== Redemption proof accepted
+
+An *informational system event* sent to Discord when the Bridge emits
+`RedemptionsCompleted`, confirming acceptance of an SPV proof. It includes the
+wallet public key hash, Bitcoin redemption transaction hash in display byte
+order, and Ethereum proof transaction. Proof submission attempts and off-chain
+proposal broadcasts do not trigger this notification.
+
+==== Redemption nearing timeout
+
+A *warning system event* sent to Sentry when a pending request enters the
+configured warning period (6 hours by default). The deadline is the request's
+block timestamp plus the current Bridge timeout. Confirm Bitcoin transaction
+status and SPV maintainer progress before the deadline. If a catch-up window
+ends after expiration, the monitor emits the critical expiration alert instead.
+
+==== Redemption expired without proof
+
+A *critical system event* sent to Sentry when a request remains pending strictly
+after its contract deadline. Expiration does not emit an on-chain event; the
+monitor derives it from checkpointed pending state. This alert does not assert
+that a timeout report was submitted or that the Bitcoin payment failed. Check
+the payment, proof acceptance, and maintainer state immediately.
+
+==== Redemption timeout reported
+
+A *critical system event* sent to Sentry when the Bridge emits
+`RedemptionTimedOut`. This confirms that a timeout report was accepted, separately
+from the earlier derived expiration alert. It includes the wallet, output script,
+and Ethereum reporting transaction. Inspect the affected wallet and request.
+
+Lifecycle deadline alerts use stable request identifiers and deadlines so the
+Manager can deduplicate overlapping/retried windows. Follow the initial backfill
+and receiver validation procedure in link:../README.adoc[the rollout guide]; a
+new checkpoint does not automatically inventory every already-expired request.
+
 ==== Optimistic minting cancelled
 
 A *warning system event* indicating that an optimistic minting request was
