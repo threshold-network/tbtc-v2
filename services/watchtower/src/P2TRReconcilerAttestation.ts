@@ -19,6 +19,12 @@ type P2TRProductionCandidateInputProvenance =
 
 export const P2TR_RECONCILER_EXPORT_CHUNK_BYTES = 65536 as const
 
+/**
+ * Names the durable slot AND what is actually signed for it: the lane whose
+ * signer is called, the transaction intent, and the lane-specific fee envelope
+ * handed to that signer. Field order is load-bearing — see the note on
+ * `normalizeRequestBinding`.
+ */
 export type P2TRReconcilerRequestBinding = {
   recordID: string
   recordGeneration: number
@@ -26,11 +32,29 @@ export type P2TRReconcilerRequestBinding = {
   reservationID: string
   sender: string
   transactionNonce: number
-  stage: "prepare" | "replacement" | "broadcast"
+  stage: "prepare" | "replacement" | "broadcast" | "burn"
   attempt: number
   provenanceFingerprint: string
   activationManifestHash: string
-  signingRequestDigest?: string
+  /** The lane selects both which signer is invoked and which envelope applies. */
+  laneID: string
+  signerIdentity: string
+  /**
+   * Recomputed from the intent at the boundary, never copied from durable
+   * state. It commits to the router, the calldata and the value.
+   */
+  intentID: string
+  /** Carried in the clear as well: an authorizer cannot invert `intentID`. */
+  routerAddress: string
+  intentValueWei: string
+  challengeValueWei: string
+  maxGasLimit: string
+  maxFeePerGas: string
+  maxPriorityFeePerGas: string
+  maxTotalFeeWei: string
+  /** Required only for a replacement boundary: the variant being superseded. */
+  replacedTransactionHash?: string
+  /** Required only for a broadcaster boundary. */
   preparedTransactionHash?: string
 }
 
@@ -41,7 +65,7 @@ export type P2TRReconcilerCandidateRequest = {
 }
 
 export type P2TRReconcilerCandidateAttestationChallenge = {
-  schema: "tbtc-p2tr-reconciler-complete-candidate-challenge/v3"
+  schema: "tbtc-p2tr-reconciler-complete-candidate-challenge/v4"
   requestNonce: string
   manifestHash: string
   requestBinding: P2TRReconcilerRequestBinding
@@ -184,7 +208,7 @@ export type P2TRReconcilerAttestationSource = {
 }
 
 export type P2TRReconcilerCandidateAttestationPayload = {
-  schema: "tbtc-p2tr-reconciler-complete-candidate-attestation/v3"
+  schema: "tbtc-p2tr-reconciler-complete-candidate-attestation/v4"
   requestNonce: string
   manifestHash: string
   requestBinding: P2TRReconcilerRequestBinding
@@ -275,7 +299,7 @@ export function computeP2TRReconcilerRequestBindingDigest(
   value: P2TRReconcilerRequestBinding
 ): string {
   return sha256({
-    schema: "tbtc-p2tr-reconciler-request-binding/v2",
+    schema: "tbtc-p2tr-reconciler-request-binding/v3",
     binding: normalizeRequestBinding(value),
   })
 }
@@ -293,7 +317,7 @@ export function computeP2TRReconcilerChallengeRequestDigest(
   value: P2TRReconcilerCandidateAttestationChallenge
 ): string {
   return sha256({
-    schema: "tbtc-p2tr-reconciler-complete-request/v3",
+    schema: "tbtc-p2tr-reconciler-complete-request/v4",
     challenge: normalizeChallenge(value),
   })
 }
@@ -510,7 +534,7 @@ export async function verifyP2TRReconcilerCandidateAttestation(
     payload: deepFreeze(structuredClone(payload)),
     completeIdentity,
     attestationDigest: sha256({
-      schema: "tbtc-p2tr-signed-reconciler-complete-attestation/v3",
+      schema: "tbtc-p2tr-signed-reconciler-complete-attestation/v4",
       envelope,
     }),
   }) as P2TRVerifiedReconcilerCandidateAttestation
@@ -594,7 +618,7 @@ function assertManifestBounds(
 function normalizeChallenge(
   value: P2TRReconcilerCandidateAttestationChallenge
 ): P2TRReconcilerCandidateAttestationChallenge {
-  if (value.schema !== "tbtc-p2tr-reconciler-complete-candidate-challenge/v3") {
+  if (value.schema !== "tbtc-p2tr-reconciler-complete-candidate-challenge/v4") {
     throw new Error("Reconciler challenge schema is unsupported")
   }
   const requestBinding = normalizeRequestBinding(value.requestBinding)
@@ -637,7 +661,7 @@ function normalizeEnvelope(
     value.signatureAlgorithm !== "ed25519" ||
     !isPlainObject(value.payload) ||
     value.payload.schema !==
-      "tbtc-p2tr-reconciler-complete-candidate-attestation/v3"
+      "tbtc-p2tr-reconciler-complete-candidate-attestation/v4"
   ) {
     throw new Error("Signed reconciler attestation is malformed")
   }
@@ -1150,30 +1174,48 @@ function normalizeInputProvenance(
   }
 }
 
+/**
+ * Key INSERTION order here is load-bearing beyond the digest. The digest sorts
+ * keys (`canonicalJSON`), but the boundary authorizer additionally compares
+ * `JSON.stringify(payload.requestBinding)` against
+ * `JSON.stringify(reconcilerRequestBinding(binding))`, which does not. Any
+ * field added here must be added at the same position, and with the same
+ * conditional-spread idiom, in `reconcilerRequestBinding`
+ * (`P2TRSignatureFraudIrreversibleBoundaryAuthorization.ts`).
+ */
 function normalizeRequestBinding(
   value: P2TRReconcilerRequestBinding
 ): P2TRReconcilerRequestBinding {
   if (
     value.stage !== "prepare" &&
     value.stage !== "replacement" &&
-    value.stage !== "broadcast"
+    value.stage !== "broadcast" &&
+    value.stage !== "burn"
   ) {
     throw new Error("Reconciler request stage is invalid")
   }
+  const replacedTransactionHash =
+    value.replacedTransactionHash === undefined
+      ? undefined
+      : bytes32(value.replacedTransactionHash, "replaced transaction hash")
   const preparedTransactionHash =
     value.preparedTransactionHash === undefined
       ? undefined
       : bytes32(value.preparedTransactionHash, "prepared transaction hash")
-  const signingRequestDigest =
-    value.signingRequestDigest === undefined
-      ? undefined
-      : bytes32(value.signingRequestDigest, "signing request digest")
   if (
-    (value.stage === "broadcast") !== (preparedTransactionHash !== undefined) ||
-    (value.stage !== "broadcast") !== (signingRequestDigest !== undefined)
+    (value.stage === "replacement") !==
+    (replacedTransactionHash !== undefined)
   ) {
     throw new Error(
-      "Signer reconciler requests require an exact request digest and broadcast requests require exact prepared bytes"
+      "Only a replacement reconciler request may name the superseded transaction"
+    )
+  }
+  if (
+    (value.stage === "broadcast") !==
+    (preparedTransactionHash !== undefined)
+  ) {
+    throw new Error(
+      "Only a broadcast reconciler request may name prepared transaction bytes"
     )
   }
   return {
@@ -1199,7 +1241,37 @@ function normalizeRequestBinding(
       value.activationManifestHash,
       "request activation manifest hash"
     ),
-    ...(signingRequestDigest === undefined ? {} : { signingRequestDigest }),
+    laneID: identityText(value.laneID, "request signer lane ID"),
+    signerIdentity: identityText(
+      value.signerIdentity,
+      "request signer identity"
+    ),
+    intentID: bytes32(value.intentID, "request submission intent ID"),
+    routerAddress: address(value.routerAddress, "request router address"),
+    intentValueWei: uint256Decimal(
+      value.intentValueWei,
+      "request intent value"
+    ),
+    challengeValueWei: uint256Decimal(
+      value.challengeValueWei,
+      "request challenge value"
+    ),
+    maxGasLimit: uint256Decimal(value.maxGasLimit, "request maximum gas limit"),
+    maxFeePerGas: uint256Decimal(
+      value.maxFeePerGas,
+      "request maximum fee per gas"
+    ),
+    maxPriorityFeePerGas: uint256Decimal(
+      value.maxPriorityFeePerGas,
+      "request maximum priority fee per gas"
+    ),
+    maxTotalFeeWei: uint256Decimal(
+      value.maxTotalFeeWei,
+      "request maximum total fee"
+    ),
+    ...(replacedTransactionHash === undefined
+      ? {}
+      : { replacedTransactionHash }),
     ...(preparedTransactionHash === undefined
       ? {}
       : { preparedTransactionHash }),
@@ -1359,6 +1431,42 @@ function boundedString(value: string, maximum: number, label: string): string {
     value.length > maximum
   ) {
     throw new Error(`${label} is malformed`)
+  }
+  return value
+}
+
+/**
+ * Mirrors the outbox's `requireBoundedText` exactly — including the trim — so
+ * one untrimmed lane identity cannot yield two different digests on the two
+ * sides of the boundary.
+ */
+function identityText(value: string, label: string): string {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new Error(`${label} must be non-empty`)
+  }
+  const normalized = value.trim()
+  if (normalized.length > 128) {
+    throw new Error(`${label} exceeds 128 characters`)
+  }
+  return normalized
+}
+
+/**
+ * Mirrors the outbox's `normalizePolicyUint256`. The length is bounded before
+ * the BigInt conversion: this runs on remote attestation input before the
+ * envelope signature is verified, and parsing an unbounded decimal is
+ * superlinear. 2^256-1 has 78 digits, so nothing legitimate is excluded.
+ */
+function uint256Decimal(value: string, label: string): string {
+  if (
+    typeof value !== "string" ||
+    value.length > 78 ||
+    !/^(?:0|[1-9][0-9]*)$/.test(value)
+  ) {
+    throw new Error(`${label} must be a canonical unsigned decimal integer`)
+  }
+  if (BigInt(value) > (1n << 256n) - 1n) {
+    throw new Error(`${label} exceeds uint256`)
   }
   return value
 }

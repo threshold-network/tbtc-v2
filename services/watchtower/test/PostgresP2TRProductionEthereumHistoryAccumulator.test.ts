@@ -143,7 +143,7 @@ describe("durable production Ethereum history accumulator", () => {
 
   it("destroys the database session when BEGIN outcome is ambiguous", async () => {
     const beginFailure = new Error("connection lost during begin")
-    let releaseError: Error | undefined
+    let releaseError: Error | boolean | undefined
     const client: P2TRPostgresClient = {
       query: async () => {
         throw beginFailure
@@ -168,7 +168,7 @@ describe("durable production Ethereum history accumulator", () => {
 function existingAccumulatorHarness(options?: { commitFailure?: Error }) {
   const queries: { sql: string; values?: readonly unknown[] }[] = []
   const providerBlockCalls: number[] = []
-  let releaseError: Error | undefined
+  let releaseError: Error | boolean | undefined
   const descriptors = eventDescriptors()
   const provider = providerFor(providerBlockCalls, [])
   let accumulator!: PostgresP2TRProductionEthereumHistoryAccumulator

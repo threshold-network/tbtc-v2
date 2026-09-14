@@ -10,6 +10,7 @@ import {
   Hex,
   P2TR_SIGNATURE_FRAUD_SPEND_TYPE_REDEMPTION,
 } from "@keep-network/tbtc-v2.ts"
+import type { P2TRSignatureFraudWatchtowerBridgeLifecycleEventSource } from "@keep-network/tbtc-v2.ts"
 
 import {
   deriveP2TRWalletAddress,
@@ -25,6 +26,22 @@ import type {
   P2TRTaprootDepositBindingInventory,
   P2TRTaprootDepositRevealSource,
 } from "../src/index.js"
+
+/**
+ * Committing the bridge-lifecycle cursor is an optional capability: the service
+ * discovers it structurally (`hasBridgeLifecycleScanCommitter`) rather than
+ * requiring it on the source interface. A double that provides it has to say so
+ * in its type, or the excess-property check rejects the literal and the
+ * contextual type never reaches `spendType`.
+ */
+type CommittingBridgeLifecycleEventSource =
+  P2TRSignatureFraudWatchtowerBridgeLifecycleEventSource & {
+    commitBridgeLifecycleScan(): Promise<void>
+  }
+
+const committingBridgeLifecycleSource = (
+  source: CommittingBridgeLifecycleEventSource
+): CommittingBridgeLifecycleEventSource => source
 
 const walletID =
   "f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9"
@@ -496,7 +513,7 @@ test("does not claim a multi-cycle outspend view is complete when an early bindi
     outspendLimit: 1,
   })
   let committedBridgeLifecycleScan = false
-  const lifecycleSource = {
+  const lifecycleSource: CommittingBridgeLifecycleEventSource = {
     async listBridgeLifecycleEvents() {
       return [
         {
@@ -563,7 +580,7 @@ test("does not certify an empty Esplora inventory or drop an unmatched lifecycle
     {
       bitcoinClient: {} as never,
       transactionSource: source,
-      bridgeLifecycleEventSource: {
+      bridgeLifecycleEventSource: committingBridgeLifecycleSource({
         async listBridgeLifecycleEvents() {
           lifecycleListCount++
           return [
@@ -577,7 +594,7 @@ test("does not certify an empty Esplora inventory or drop an unmatched lifecycle
         async commitBridgeLifecycleScan() {
           lifecycleCommitCount++
         },
-      },
+      }),
       persistence: {
         async loadChallengeRecords() {
           return []

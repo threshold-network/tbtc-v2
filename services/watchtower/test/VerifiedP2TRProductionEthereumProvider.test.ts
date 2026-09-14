@@ -11,6 +11,7 @@ import {
   hashP2TRActivationLinkedLibraryDescriptorSet,
   hashP2TRActivationLinkedLibraryInventory,
   P2TR_ECDSA_FRAUD_ROUTER_CURRENT_V3,
+  P2TR_FROST_WALLET_GROUP_INVENTORY_SCHEMA,
   type P2TRActivationLinkedLibraryBinding,
   type P2TRProductionEthereumState,
 } from "../src/P2TRProductionActivation.js"
@@ -146,11 +147,11 @@ describe("verified production Ethereum provider", () => {
       ...base,
       getCode: async (target: string) =>
         target.toLowerCase() === libraryAddress ? libraryCode : ownerCode,
-    } as JsonRpcP2TRCanonicalEthereumProvider
+    } as unknown as JsonRpcP2TRCanonicalEthereumProvider
     const runtime = configuredProvider(provider, ownerCode, linkedLibraries)
     await (
       runtime as unknown as {
-        verifyContractBindings(point: typeof point): Promise<void>
+        verifyContractBindings(at: typeof point): Promise<void>
       }
     ).verifyContractBindings(point)
 
@@ -159,14 +160,14 @@ describe("verified production Ethereum provider", () => {
         ...provider,
         getCode: async (target: string) =>
           target.toLowerCase() === libraryAddress ? "0x60026000" : ownerCode,
-      } as JsonRpcP2TRCanonicalEthereumProvider,
+      } as unknown as JsonRpcP2TRCanonicalEthereumProvider,
       ownerCode,
       linkedLibraries
     )
     await assert.rejects(
       (
         corrupt as unknown as {
-          verifyContractBindings(point: typeof point): Promise<void>
+          verifyContractBindings(at: typeof point): Promise<void>
         }
       ).verifyContractBindings(point),
       /linked-library runtime code changed/
@@ -394,6 +395,25 @@ function configuredExactProvider(
       registryFrostInactivityAddress:
         "0x0000000000000000000000000000000000000007",
       activeOnlyGetWalletSemantics: true,
+    },
+    requiredEventCoverage: {
+      blocks: 1,
+      transactions: 1,
+      receipts: 1,
+      logs: 1,
+      requiredEvents: 1,
+    },
+    frostWalletGroupInventory: {
+      schema: P2TR_FROST_WALLET_GROUP_INVENTORY_SCHEMA,
+      point,
+      snapshotGeneration: 1,
+      inventoryRoot: `0x${"26".repeat(32)}`,
+      walletCount: 0,
+      minimumActualGroupSize: 0,
+      maximumActualGroupSize: 0,
+      membershipAmbiguityCount: 0,
+      groupSizeViolationCount: 0,
+      complete: true,
     },
   } satisfies Omit<
     P2TRProductionEthereumState,

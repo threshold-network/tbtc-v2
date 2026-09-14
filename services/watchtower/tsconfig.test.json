@@ -4,5 +4,10 @@
     "rootDir": ".",
     "noEmit": true
   },
-  "include": ["src/**/*.ts", "test/**/*.ts"]
+  "include": ["src/**/*.ts", "test/**/*.ts"],
+  // `exclude` is inherited, not replaced, by `extends`. The base config
+  // excludes `test` so that a build emits only `src`, which silently cancelled
+  // the `include` above: this project compiled zero test files and reported
+  // success. Restate `exclude` without `test`.
+  "exclude": ["dist", "node_modules"]
 }

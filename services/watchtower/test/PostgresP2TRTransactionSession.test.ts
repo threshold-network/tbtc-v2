@@ -755,6 +755,7 @@ function readinessInput(): P2TRProductionReadinessCertificateInput {
       transactions: 1,
       receipts: 1,
       logs: 1,
+      requiredEvents: 1,
     },
     failureGeneration: 0,
     clearedFailureGeneration: 0,

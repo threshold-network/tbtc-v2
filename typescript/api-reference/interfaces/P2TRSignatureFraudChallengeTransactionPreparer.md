@@ -12,6 +12,7 @@
 
 - [prepareSignatureFraudChallengeReplacementTransaction](P2TRSignatureFraudChallengeTransactionPreparer.md#preparesignaturefraudchallengereplacementtransaction)
 - [prepareSignatureFraudChallengeTransaction](P2TRSignatureFraudChallengeTransactionPreparer.md#preparesignaturefraudchallengetransaction)
+- [prepareSignatureFraudNonceBurnTransaction](P2TRSignatureFraudChallengeTransactionPreparer.md#preparesignaturefraudnonceburntransaction)
 - [releaseSignatureFraudChallengeNonce](P2TRSignatureFraudChallengeTransactionPreparer.md#releasesignaturefraudchallengenonce)
 - [reserveSignatureFraudChallengeNonce](P2TRSignatureFraudChallengeTransactionPreparer.md#reservesignaturefraudchallengenonce)
 - [tombstoneSignatureFraudSignerInvocation](P2TRSignatureFraudChallengeTransactionPreparer.md#tombstonesignaturefraudsignerinvocation)
@@ -26,7 +27,7 @@ Stable identities used for durable lane and signer quarantine records.
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:736](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L736)
+[src/services/maintenance/p2tr-signature-fraud.ts:803](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L803)
 
 ___
 
@@ -36,7 +37,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:737](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L737)
+[src/services/maintenance/p2tr-signature-fraud.ts:804](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L804)
 
 ___
 
@@ -48,13 +49,13 @@ Sender whose nonce lane is serialized by the durable outbox store.
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:739](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L739)
+[src/services/maintenance/p2tr-signature-fraud.ts:806](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L806)
 
 ## Methods
 
 ### prepareSignatureFraudChallengeReplacementTransaction
 
-▸ **prepareSignatureFraudChallengeReplacementTransaction**(`intent`, `reservation`, `previous`, `feePolicy`, `signerInvocationID`, `signingRequestDigest`): `Promise`\<[`P2TRSignatureFraudPreparedChallengeTransactionResponse`](../README.md#p2trsignaturefraudpreparedchallengetransactionresponse)\>
+▸ **prepareSignatureFraudChallengeReplacementTransaction**(`intent`, `reservation`, `previous`, `feePolicy`, `invocation`): `Promise`\<[`P2TRSignatureFraudPreparedChallengeTransactionResponse`](../README.md#p2trsignaturefraudpreparedchallengetransactionresponse)\>
 
 Signs an EIP-1559 replacement for the same durable intent, sender, and
 nonce. The outbox persists the signer-invocation boundary before calling
@@ -62,14 +63,13 @@ this method and appends the returned raw bytes before any broadcast.
 
 #### Parameters
 
-| Name | Type | Description |
-| :------ | :------ | :------ |
-| `intent` | [`P2TRSignatureFraudSubmissionIntent`](../README.md#p2trsignaturefraudsubmissionintent) | - |
-| `reservation` | [`P2TRSignatureFraudBoundNonceReservation`](../README.md#p2trsignaturefraudboundnoncereservation) | - |
-| `previous` | [`P2TRSignatureFraudPreparedChallengeTransaction`](../README.md#p2trsignaturefraudpreparedchallengetransaction) | - |
-| `feePolicy` | [`P2TRSignatureFraudChallengeTransactionFeePolicy`](../README.md#p2trsignaturefraudchallengetransactionfeepolicy) | - |
-| `signerInvocationID` | [`Hex`](../classes/Hex.md) | Deterministic idempotency key; tombstoned IDs MUST be rejected. |
-| `signingRequestDigest` | [`Hex`](../classes/Hex.md) | Digest of every exact signer input, independently authorized upstream. |
+| Name | Type |
+| :------ | :------ |
+| `intent` | [`P2TRSignatureFraudSubmissionIntent`](../README.md#p2trsignaturefraudsubmissionintent) |
+| `reservation` | [`P2TRSignatureFraudBoundNonceReservation`](../README.md#p2trsignaturefraudboundnoncereservation) |
+| `previous` | [`P2TRSignatureFraudPreparedChallengeTransaction`](../README.md#p2trsignaturefraudpreparedchallengetransaction) |
+| `feePolicy` | [`P2TRSignatureFraudChallengeTransactionFeePolicy`](../README.md#p2trsignaturefraudchallengetransactionfeepolicy) |
+| `invocation` | [`P2TRSignatureFraudSignerInvocationRequest`](../README.md#p2trsignaturefraudsignerinvocationrequest) |
 
 #### Returns
 
@@ -77,13 +77,13 @@ this method and appends the returned raw bytes before any broadcast.
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:782](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L782)
+[src/services/maintenance/p2tr-signature-fraud.ts:846](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L846)
 
 ___
 
 ### prepareSignatureFraudChallengeTransaction
 
-▸ **prepareSignatureFraudChallengeTransaction**(`intent`, `reservation`, `feePolicy`, `signerInvocationID`, `signingRequestDigest`): `Promise`\<[`P2TRSignatureFraudPreparedChallengeTransactionResponse`](../README.md#p2trsignaturefraudpreparedchallengetransactionresponse)\>
+▸ **prepareSignatureFraudChallengeTransaction**(`intent`, `reservation`, `feePolicy`, `invocation`): `Promise`\<[`P2TRSignatureFraudPreparedChallengeTransactionResponse`](../README.md#p2trsignaturefraudpreparedchallengetransactionresponse)\>
 
 Prepares and signs, but MUST NOT broadcast, an Ethereum transaction for
 the supplied intent and already-persisted reservation. Implementations
@@ -91,13 +91,12 @@ MUST reject a reservation whose binding, sender, or nonce is not exact.
 
 #### Parameters
 
-| Name | Type | Description |
-| :------ | :------ | :------ |
-| `intent` | [`P2TRSignatureFraudSubmissionIntent`](../README.md#p2trsignaturefraudsubmissionintent) | - |
-| `reservation` | [`P2TRSignatureFraudBoundNonceReservation`](../README.md#p2trsignaturefraudboundnoncereservation) | - |
-| `feePolicy` | [`P2TRSignatureFraudChallengeTransactionFeePolicy`](../README.md#p2trsignaturefraudchallengetransactionfeepolicy) | - |
-| `signerInvocationID` | [`Hex`](../classes/Hex.md) | Deterministic idempotency key; tombstoned IDs MUST be rejected. |
-| `signingRequestDigest` | [`Hex`](../classes/Hex.md) | Digest of every exact signer input, independently authorized upstream. |
+| Name | Type |
+| :------ | :------ |
+| `intent` | [`P2TRSignatureFraudSubmissionIntent`](../README.md#p2trsignaturefraudsubmissionintent) |
+| `reservation` | [`P2TRSignatureFraudBoundNonceReservation`](../README.md#p2trsignaturefraudboundnoncereservation) |
+| `feePolicy` | [`P2TRSignatureFraudChallengeTransactionFeePolicy`](../README.md#p2trsignaturefraudchallengetransactionfeepolicy) |
+| `invocation` | [`P2TRSignatureFraudSignerInvocationRequest`](../README.md#p2trsignaturefraudsignerinvocationrequest) |
 
 #### Returns
 
@@ -105,7 +104,39 @@ MUST reject a reservation whose binding, sender, or nonce is not exact.
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:767](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L767)
+[src/services/maintenance/p2tr-signature-fraud.ts:834](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L834)
+
+___
+
+### prepareSignatureFraudNonceBurnTransaction
+
+▸ **prepareSignatureFraudNonceBurnTransaction**(`reservation`, `envelope`, `invocation`): `Promise`\<[`P2TRSignatureFraudPreparedNonceBurnTransaction`](../README.md#p2trsignaturefraudpreparednonceburntransaction)\>
+
+Signs a value-less self-transfer that spends the reserved nonce, so an
+unresolvable challenge boundary terminates on-chain instead of waiting for
+someone to say what the signer did.
+
+Implementations MUST sign exactly the supplied envelope and nothing else:
+`to` is the reserved sender, value and data are empty, the gas limit is
+21000, and the nonce is the reservation's. There is no intent, no calldata
+and no discretion. A burn is safe to re-sign — every burn for one
+reservation spends the same nonce on the same nothing.
+
+#### Parameters
+
+| Name | Type |
+| :------ | :------ |
+| `reservation` | [`P2TRSignatureFraudBoundNonceReservation`](../README.md#p2trsignaturefraudboundnoncereservation) |
+| `envelope` | [`P2TRSignatureFraudNonceBurnEnvelope`](../README.md#p2trsignaturefraudnonceburnenvelope) |
+| `invocation` | [`P2TRSignatureFraudSignerInvocationRequest`](../README.md#p2trsignaturefraudsignerinvocationrequest) |
+
+#### Returns
+
+`Promise`\<[`P2TRSignatureFraudPreparedNonceBurnTransaction`](../README.md#p2trsignaturefraudpreparednonceburntransaction)\>
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:865](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L865)
 
 ___
 
@@ -130,7 +161,7 @@ ambiguous response returns `already-released` for the same reservation.
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:757](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L757)
+[src/services/maintenance/p2tr-signature-fraud.ts:824](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L824)
 
 ___
 
@@ -156,7 +187,7 @@ bytes. Its EIP-712 binding must recover to `transactionSender`.
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:745](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L745)
+[src/services/maintenance/p2tr-signature-fraud.ts:812](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L812)
 
 ___
 
@@ -180,4 +211,4 @@ must be provider-authenticated so orphan recovery can verify it locally.
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:798](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L798)
+[src/services/maintenance/p2tr-signature-fraud.ts:876](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L876)
