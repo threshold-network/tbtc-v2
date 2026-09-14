@@ -33,16 +33,224 @@ describe("PostgreSQL production transaction capabilities", () => {
     await coordinator.runInP2TRSignatureFraudWatchtowerTransaction(() =>
       adapter.query()
     )
-    assert.deepEqual(client.queries.slice(0, 4), [
+    assert.deepEqual(client.queries.slice(0, 7), [
+      "SELECT current_setting('lock_timeout') AS lock_timeout",
+      "SELECT set_config('lock_timeout', $1, false)",
+      "SELECT pg_advisory_lock_shared(hashtextextended('p2tr-readiness-pre-snapshot-fence', 0))",
+      "SELECT set_config('lock_timeout', $1, false)",
       "BEGIN ISOLATION LEVEL SERIALIZABLE",
       "SELECT set_config('statement_timeout', $1, true)",
       "SELECT current_setting('server_version_num') AS server_version_num",
-      `SELECT version
-         FROM p2tr_watchtower_schema_version
-        WHERE component = 'canonical-evidence-index'`,
     ])
     assert.ok(client.queries.includes("SELECT 1"))
     assert.equal(client.releasedWith, undefined)
+  })
+
+  it("takes the exclusive readiness fence before opening its snapshot", async () => {
+    const client = new TransactionClient()
+    const coordinator = coordinatorFor(client)
+
+    await coordinator.runInP2TRSignatureFraudWatchtowerTransaction(
+      async () => undefined,
+      { readinessFence: "exclusive" }
+    )
+
+    assert.equal(
+      client.queries[2],
+      "SELECT pg_advisory_lock(hashtextextended('p2tr-readiness-pre-snapshot-fence', 0))"
+    )
+    assert.ok(client.queries.indexOf("BEGIN ISOLATION LEVEL SERIALIZABLE") > 0)
+    assert.ok(
+      client.queries.indexOf("COMMIT") <
+        client.queries.findIndex((query) =>
+          query.includes("pg_advisory_unlock(")
+        )
+    )
+  })
+
+  it("bounds the pre-snapshot fence wait and restores lock_timeout", async () => {
+    const client = new TransactionClient("FENCE")
+    const coordinator = coordinatorFor(client)
+
+    const error = await coordinator
+      .runInP2TRSignatureFraudWatchtowerTransaction(async () => undefined)
+      .then(
+        () => undefined,
+        (failure: unknown) => failure
+      )
+
+    assert.match(String(error), /pre-transaction work with 55P03/)
+    assert.equal(
+      coordinator.readP2TRSignatureFraudWatchtowerRetryableTransactionSQLState(
+        error
+      ),
+      "55P03"
+    )
+
+    assert.deepEqual(client.queries.slice(0, 4), [
+      "SELECT current_setting('lock_timeout') AS lock_timeout",
+      "SELECT set_config('lock_timeout', $1, false)",
+      "SELECT pg_advisory_lock_shared(hashtextextended('p2tr-readiness-pre-snapshot-fence', 0))",
+      "SELECT set_config('lock_timeout', $1, false)",
+    ])
+    assert.equal(
+      client.queries.includes("BEGIN ISOLATION LEVEL SERIALIZABLE"),
+      false
+    )
+    assert.equal(client.releasedWith, undefined)
+  })
+
+  it("brands an exclusive enqueue-fence timeout as retryable before BEGIN", async () => {
+    const client = new TransactionClient("FENCE")
+    const coordinator = coordinatorFor(client)
+    let callbackInvoked = false
+
+    const error = await coordinator
+      .runInP2TRSignatureFraudWatchtowerTransaction(
+        async () => {
+          callbackInvoked = true
+        },
+        { readinessFence: "exclusive" }
+      )
+      .then(
+        () => undefined,
+        (failure: unknown) => failure
+      )
+
+    assert.equal(callbackInvoked, false)
+    assert.equal(
+      coordinator.readP2TRSignatureFraudWatchtowerRetryableTransactionSQLState(
+        error
+      ),
+      "55P03"
+    )
+    assert.equal(
+      client.queries.includes("BEGIN ISOLATION LEVEL SERIALIZABLE"),
+      false
+    )
+    assert.equal(client.releasedWith, undefined)
+  })
+
+  it("destroys a session when pre-snapshot fence acquisition loses transport", async () => {
+    const client = new TransactionClient("FENCE_TRANSPORT")
+    const coordinator = coordinatorFor(client)
+
+    await assert.rejects(
+      coordinator.runInP2TRSignatureFraudWatchtowerTransaction(
+        async () => undefined
+      ),
+      /readiness fence transport failure/
+    )
+
+    assert.equal(
+      client.queries.includes("BEGIN ISOLATION LEVEL SERIALIZABLE"),
+      false
+    )
+    assert.ok(client.releasedWith instanceof Error)
+  })
+
+  it("destroys a session when fence cancellation cannot disprove a granted lock", async () => {
+    const client = new TransactionClient("FENCE_CANCELLED")
+    const coordinator = coordinatorFor(client)
+
+    const error = await coordinator
+      .runInP2TRSignatureFraudWatchtowerTransaction(async () => undefined)
+      .then(
+        () => undefined,
+        (failure: unknown) => failure
+      )
+
+    assert.equal(
+      coordinator.readP2TRSignatureFraudWatchtowerRetryableTransactionSQLState(
+        error
+      ),
+      "57014"
+    )
+    assert.equal(
+      client.queries.includes("BEGIN ISOLATION LEVEL SERIALIZABLE"),
+      false
+    )
+    assert.ok(client.releasedWith instanceof Error)
+  })
+
+  it("serializes writers on both sides of the pre-snapshot readiness fence", async () => {
+    const fence = new ReadinessFence()
+    const firstWriterClient = new TransactionClient(undefined, 0, fence)
+    const readinessClient = new TransactionClient(undefined, 0, fence)
+    const secondWriterClient = new TransactionClient(undefined, 0, fence)
+    const firstWriterCoordinator = coordinatorFor(firstWriterClient)
+    const readinessCoordinator = coordinatorFor(readinessClient)
+    const secondWriterCoordinator = coordinatorFor(secondWriterClient)
+    const order: string[] = []
+
+    let releaseFirstWriter!: () => void
+    let markFirstWriterStarted!: () => void
+    const firstWriterGate = new Promise<void>((resolve) => {
+      releaseFirstWriter = resolve
+    })
+    const firstWriterStarted = new Promise<void>((resolve) => {
+      markFirstWriterStarted = resolve
+    })
+    const firstWriter =
+      firstWriterCoordinator.runInP2TRSignatureFraudWatchtowerTransaction(
+        async () => {
+          order.push("first-writer-started")
+          markFirstWriterStarted()
+          await firstWriterGate
+          order.push("first-writer-finished")
+        }
+      )
+    await firstWriterStarted
+
+    let releaseReadiness!: () => void
+    let markReadinessStarted!: () => void
+    const readinessGate = new Promise<void>((resolve) => {
+      releaseReadiness = resolve
+    })
+    const readinessStarted = new Promise<void>((resolve) => {
+      markReadinessStarted = resolve
+    })
+    const readiness =
+      readinessCoordinator.runInP2TRSignatureFraudWatchtowerTransaction(
+        async () => {
+          order.push("readiness-started")
+          markReadinessStarted()
+          await readinessGate
+          order.push("readiness-finished")
+        },
+        { readinessFence: "exclusive" }
+      )
+    await Promise.resolve()
+    assert.equal(
+      readinessClient.queries.includes("BEGIN ISOLATION LEVEL SERIALIZABLE"),
+      false
+    )
+
+    releaseFirstWriter()
+    await firstWriter
+    await readinessStarted
+
+    const secondWriter =
+      secondWriterCoordinator.runInP2TRSignatureFraudWatchtowerTransaction(
+        async () => {
+          order.push("second-writer-started")
+        }
+      )
+    await Promise.resolve()
+    assert.equal(
+      secondWriterClient.queries.includes("BEGIN ISOLATION LEVEL SERIALIZABLE"),
+      false
+    )
+
+    releaseReadiness()
+    await Promise.all([readiness, secondWriter])
+    assert.deepEqual(order, [
+      "first-writer-started",
+      "first-writer-finished",
+      "readiness-started",
+      "readiness-finished",
+      "second-writer-started",
+    ])
   })
 
   it("mints readiness authority before issuing a candidate authorization", async () => {
@@ -89,10 +297,77 @@ describe("PostgreSQL production transaction capabilities", () => {
         query.includes("INSERT INTO p2tr_readiness_certificates")
       )
     )
+    const certificateInsert = client.queries.find((query) =>
+      query.includes("INSERT INTO p2tr_readiness_certificates")
+    )!
+    assert.match(
+      certificateInsert,
+      /p2tr_signature_fraud_outbox_activation_revalidation/
+    )
+    assert.match(certificateInsert, /clock_timestamp\(\)/)
+    assert.match(certificateInsert, /recovery_backlog_count <= \$16/)
     assert.ok(
       client.queries.some((query) =>
         query.includes("INSERT INTO p2tr_candidate_enqueue_authorizations")
       )
+    )
+    assert.equal(
+      client.queries.filter((query) => query.includes("pg_advisory_xact_lock"))
+        .length,
+      3,
+      "the caller, certificate mint, and authorization issue share the database lock"
+    )
+  })
+
+  it("refuses to mint when a preparation lease expires at INSERT time", async () => {
+    const client = new TransactionClient(undefined, 0, undefined, 1)
+    const coordinator = coordinatorFor(client)
+    const store =
+      coordinator.createP2TRSignatureFraudWatchtowerTransactionalAdapter(
+        (session) =>
+          new PostgresP2TRProductionActivationStore(session, {
+            storeID: "watchtower",
+            maxEventHistoryRecords: 10,
+          })
+      )
+
+    await assert.rejects(
+      coordinator.runInP2TRSignatureFraudWatchtowerTransaction(() =>
+        store.mintReadinessCertificate(readinessInput())
+      ),
+      /outbox recovery backlog exceeded its manifest bound/
+    )
+  })
+
+  it("preserves a current certificate while it backs a live authorization", async () => {
+    const client = new TransactionClient(undefined, 1)
+    const coordinator = coordinatorFor(client)
+    const store =
+      coordinator.createP2TRSignatureFraudWatchtowerTransactionalAdapter(
+        (session) =>
+          new PostgresP2TRProductionActivationStore(session, {
+            storeID: "watchtower",
+            maxEventHistoryRecords: 10,
+          })
+      )
+
+    await assert.rejects(
+      coordinator.runInP2TRSignatureFraudWatchtowerTransaction(() =>
+        store.mintReadinessCertificate(readinessInput())
+      ),
+      /live candidate authorization/
+    )
+    assert.equal(
+      client.queries.some((query) =>
+        query.includes("UPDATE p2tr_readiness_certificate_generation")
+      ),
+      false,
+      "a rejected replacement must not consume a generation"
+    )
+    assert.equal(
+      client.queries.some((query) => query.includes("SET is_current = false")),
+      false,
+      "a rejected replacement must leave the backing certificate current"
     )
   })
 
@@ -113,9 +388,13 @@ describe("PostgreSQL production transaction capabilities", () => {
     )
 
     const query = client.queries.find((text) =>
-      text.includes("FROM p2tr_candidate_enqueue_authorizations authorization")
+      text.includes("FROM p2tr_candidate_enqueue_authorizations authz")
     )
     assert.ok(query)
+    assert.match(
+      query,
+      /JOIN p2tr_candidate_enqueue_transaction_guard guard_row/
+    )
     assert.match(query, /JOIN p2tr_readiness_certificates certificate/)
     assert.match(query, /JOIN p2tr_canonical_generations certified_generation/)
     assert.match(query, /JOIN p2tr_bitcoin_cursor certified_bitcoin/)
@@ -126,6 +405,7 @@ describe("PostgreSQL production transaction capabilities", () => {
     )
     assert.doesNotMatch(query, /JOIN p2tr_bitcoin_blocks bitcoin_block\b/)
     assert.doesNotMatch(query, /JOIN p2tr_ethereum_blocks ethereum_block\b/)
+    assert.doesNotMatch(query, /expires_at > clock_timestamp\(\)/)
   })
 
   it("destroys sessions after COMMIT or ROLLBACK ambiguity", async () => {
@@ -139,6 +419,21 @@ describe("PostgreSQL production transaction capabilities", () => {
       )
       assert.ok(client.releasedWith instanceof Error)
     }
+  })
+
+  it("returns committed work when the later readiness-fence unlock fails", async () => {
+    const client = new TransactionClient("UNLOCK")
+    const coordinator = coordinatorFor(client)
+
+    assert.equal(
+      await coordinator.runInP2TRSignatureFraudWatchtowerTransaction(
+        async () => "committed-outbox-intent"
+      ),
+      "committed-outbox-intent"
+    )
+    assert.ok(client.queries.includes("COMMIT"))
+    assert.ok(client.releasedWith instanceof Error)
+    assert.match(client.releasedWith.message, /UNLOCK failed/)
   })
 })
 
@@ -186,7 +481,18 @@ class TransactionClient implements P2TRPostgresClient {
   readonly queries: string[] = []
   releasedWith: Error | undefined
 
-  constructor(private readonly failure?: "COMMIT" | "ROLLBACK") {}
+  constructor(
+    private readonly failure?:
+      | "COMMIT"
+      | "ROLLBACK"
+      | "FENCE"
+      | "FENCE_CANCELLED"
+      | "FENCE_TRANSPORT"
+      | "UNLOCK",
+    private readonly liveCandidateAuthorizationCount = 0,
+    private readonly readinessFence?: ReadinessFence,
+    private readonly recoveryBacklogAtMint = 0
+  ) {}
 
   async query<Row>(
     text: string,
@@ -194,6 +500,58 @@ class TransactionClient implements P2TRPostgresClient {
   ): Promise<{ rows: Row[]; rowCount: number }> {
     this.queries.push(text)
     if (text === this.failure) throw new Error(`${text} failed`)
+    if (this.failure === "UNLOCK" && text.includes("pg_advisory_unlock")) {
+      throw new Error("UNLOCK failed")
+    }
+    if (
+      (this.failure === "FENCE" ||
+        this.failure === "FENCE_CANCELLED" ||
+        this.failure === "FENCE_TRANSPORT") &&
+      (text.includes("pg_advisory_lock(") ||
+        text.includes("pg_advisory_lock_shared(")) &&
+      !text.includes("pg_advisory_xact_lock")
+    ) {
+      const error = new Error(
+        this.failure === "FENCE"
+          ? "readiness fence lock timeout"
+          : this.failure === "FENCE_CANCELLED"
+          ? "readiness fence statement cancelled after possible grant"
+          : "readiness fence transport failure"
+      )
+      if (this.failure === "FENCE") {
+        throw Object.assign(error, { code: "55P03" })
+      }
+      if (this.failure === "FENCE_CANCELLED") {
+        throw Object.assign(error, { code: "57014" })
+      }
+      throw error
+    }
+    if (text.includes("current_setting('lock_timeout')")) {
+      return { rows: [{ lock_timeout: "0" }] as Row[], rowCount: 1 }
+    }
+    if (text.includes("pg_advisory_unlock_shared(")) {
+      this.readinessFence?.release("shared")
+      return { rows: [{ unlocked: true }] as Row[], rowCount: 1 }
+    }
+    if (text.includes("pg_advisory_unlock(")) {
+      this.readinessFence?.release("exclusive")
+      return { rows: [{ unlocked: true }] as Row[], rowCount: 1 }
+    }
+    if (
+      text.includes("pg_advisory_lock_shared(") &&
+      !text.includes("pg_advisory_xact_lock_shared(")
+    ) {
+      await this.readinessFence?.acquire("shared")
+    }
+    if (
+      text.includes("pg_advisory_lock(") &&
+      !text.includes("pg_advisory_xact_lock(")
+    ) {
+      await this.readinessFence?.acquire("exclusive")
+    }
+    if (text.includes(" AS unlocked")) {
+      return { rows: [{ unlocked: true }] as Row[], rowCount: 1 }
+    }
     if (text.includes("server_version_num")) {
       return {
         rows: [{ server_version_num: "160000" }] as Row[],
@@ -202,7 +560,7 @@ class TransactionClient implements P2TRPostgresClient {
     }
     if (text.includes("p2tr_watchtower_schema_version")) {
       return {
-        rows: [{ version: 3 }] as Row[],
+        rows: [{ version: 4 }] as Row[],
         rowCount: 1,
       }
     }
@@ -237,6 +595,7 @@ class TransactionClient implements P2TRPostgresClient {
         rows: [
           {
             activation_sequence: 1,
+            outbox_max_recovery_backlog: 0,
             primary_bitcoin_generation: 1,
             primary_bitcoin_root: WORD("70"),
             primary_bitcoin_semantic_root: WORD("71"),
@@ -251,6 +610,16 @@ class TransactionClient implements P2TRPostgresClient {
         rowCount: 1,
       }
     }
+    if (text.includes("AS live_authorization_count")) {
+      return {
+        rows: [
+          {
+            live_authorization_count: this.liveCandidateAuthorizationCount,
+          },
+        ] as Row[],
+        rowCount: 1,
+      }
+    }
     if (text.includes("RETURNING next_generation - 1")) {
       return {
         rows: [{ certificate_generation: 1 }] as Row[],
@@ -258,7 +627,10 @@ class TransactionClient implements P2TRPostgresClient {
       }
     }
     if (text.includes("INSERT INTO p2tr_readiness_certificates")) {
-      return { rows: [], rowCount: 1 }
+      return {
+        rows: [],
+        rowCount: this.recoveryBacklogAtMint <= Number(values?.[15]) ? 1 : 0,
+      }
     }
     if (
       text.includes("SELECT encode(manifest_hash") &&
@@ -272,16 +644,13 @@ class TransactionClient implements P2TRPostgresClient {
     if (text.includes("INSERT INTO p2tr_candidate_enqueue_authorizations")) {
       return { rows: [], rowCount: 1 }
     }
-    if (
-      text.includes("FROM p2tr_candidate_enqueue_authorizations authorization")
-    ) {
+    if (text.includes("FROM p2tr_candidate_enqueue_authorizations authz")) {
       return {
         rows: [
           {
             candidate_digest: WORD("30"),
             consumed_at: null,
             invalidated_at: null,
-            live: true,
             canonical: true,
             current_manifest_hash: WORD("20"),
           },
@@ -294,6 +663,64 @@ class TransactionClient implements P2TRPostgresClient {
 
   release(error?: Error): void {
     this.releasedWith = error
+  }
+}
+
+class ReadinessFence {
+  private sharedHolders = 0
+  private exclusiveHolder = false
+  private readonly waiters: {
+    mode: "shared" | "exclusive"
+    resolve: () => void
+  }[] = []
+
+  async acquire(mode: "shared" | "exclusive"): Promise<void> {
+    if (this.waiters.length === 0 && this.canAcquire(mode)) {
+      this.grant(mode)
+      return
+    }
+    await new Promise<void>((resolve) => {
+      this.waiters.push({ mode, resolve })
+      this.drain()
+    })
+  }
+
+  release(mode: "shared" | "exclusive"): void {
+    if (mode === "exclusive") {
+      assert.equal(this.exclusiveHolder, true)
+      this.exclusiveHolder = false
+    } else {
+      assert.ok(this.sharedHolders > 0)
+      this.sharedHolders--
+    }
+    this.drain()
+  }
+
+  private canAcquire(mode: "shared" | "exclusive"): boolean {
+    return mode === "shared"
+      ? !this.exclusiveHolder
+      : !this.exclusiveHolder && this.sharedHolders === 0
+  }
+
+  private grant(mode: "shared" | "exclusive"): void {
+    if (mode === "exclusive") this.exclusiveHolder = true
+    else this.sharedHolders++
+  }
+
+  private drain(): void {
+    if (this.waiters.length === 0 || this.exclusiveHolder) return
+    if (this.waiters[0].mode === "exclusive") {
+      if (this.sharedHolders > 0) return
+      const waiter = this.waiters.shift()!
+      this.grant(waiter.mode)
+      waiter.resolve()
+      return
+    }
+    while (this.waiters[0]?.mode === "shared") {
+      const waiter = this.waiters.shift()!
+      this.grant(waiter.mode)
+      waiter.resolve()
+    }
   }
 }
 

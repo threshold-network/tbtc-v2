@@ -13,10 +13,11 @@
   "scripts": {
     "build": "tsc --project tsconfig.json",
     "typecheck": "tsc --project tsconfig.json --noEmit && tsc --project tsconfig.test.json --noEmit",
-    "test": "node --import tsx --test test/**/*.test.ts"
+    "test": "node --import tsx --test --test-concurrency=1 test/**/*.test.ts"
   },
   "devDependencies": {
     "@types/node": "^20.10.0",
+    "@types/pg": "^8.11.10",
     "bitcoinjs-lib": "^6.1.5",
     "tsx": "^4.21.0",
     "typescript": "^5.9.2"

@@ -173,18 +173,28 @@ type JournalCounts = {
 
 type TransactionContext = {
   client: P2TRPostgresClient
+  readinessFence: "shared" | "exclusive"
   readinessSnapshotLocked: boolean
   mutationStarted: boolean
 }
 
-export type P2TRRetryablePostgresSQLState = "40001" | "40P01"
+export type P2TRRetryablePostgresSQLState =
+  | "40001"
+  | "40P01"
+  | "55P03"
+  | "57014"
 
 export type P2TRPostgresTransactionConfirmedAbortReason =
   | "retryable-sqlstate"
+  | "definitive-commit-sqlstate"
+  | "pre-transaction-retryable-sqlstate"
+  | "pre-commit-transport-abort"
   | "rollback-command"
 
 /**
- * Process-local signal that PostgreSQL definitively aborted the transaction.
+ * Process-local signal that PostgreSQL definitively could not commit the
+ * transaction, either because it aborted or because a bounded pre-transaction
+ * fence could not be acquired.
  *
  * The generic coordinator never retries its callback. A higher-level owner
  * may catch this error, discard attempt-local state and external evidence,
@@ -195,13 +205,19 @@ export class P2TRPostgresTransactionConfirmedAbortError extends Error {
 
   constructor(
     readonly reason: P2TRPostgresTransactionConfirmedAbortReason,
-    readonly sqlState: P2TRRetryablePostgresSQLState | undefined,
+    readonly sqlState: string | undefined,
     readonly postgresError: unknown,
     readonly operationError: unknown
   ) {
     super(
-      sqlState === undefined
+      reason === "pre-commit-transport-abort"
+        ? "PostgreSQL transport failed before COMMIT; the transaction was aborted"
+        : reason === "definitive-commit-sqlstate" && sqlState !== undefined
+        ? `PostgreSQL rejected COMMIT with definitive SQLSTATE ${sqlState}`
+        : sqlState === undefined
         ? "PostgreSQL confirmed that the transaction was rolled back"
+        : reason === "pre-transaction-retryable-sqlstate"
+        ? `PostgreSQL rejected pre-transaction work with ${sqlState}`
         : `PostgreSQL confirmed transaction abort ${sqlState}`,
       { cause: operationError }
     )
@@ -214,14 +230,37 @@ export const isP2TRPostgresTransactionConfirmedAbortError = (
 ): value is P2TRPostgresTransactionConfirmedAbortError =>
   value instanceof P2TRPostgresTransactionConfirmedAbortError
 
-type P2TRPostgresTransactionAttempt = {
-  confirmedAbort?: {
-    sqlState: P2TRRetryablePostgresSQLState
-    error: unknown
+/**
+ * Process-local signal that PostgreSQL may have committed even though the
+ * client did not receive a COMMIT response. Callers must not retry the work or
+ * write a rollback-only disposition for this outcome.
+ */
+export class P2TRPostgresTransactionUnknownOutcomeError extends Error {
+  readonly transactionOutcome = "unknown" as const
+
+  constructor(readonly postgresError: Error) {
+    super(
+      `PostgreSQL COMMIT failed; transaction outcome is unknown: ${postgresError.message}`,
+      { cause: postgresError }
+    )
+    this.name = "P2TRPostgresTransactionUnknownOutcomeError"
   }
 }
 
-const REQUIRED_SCHEMA_VERSION = 3
+export const isP2TRPostgresTransactionUnknownOutcomeError = (
+  value: unknown
+): value is P2TRPostgresTransactionUnknownOutcomeError =>
+  value instanceof P2TRPostgresTransactionUnknownOutcomeError
+
+type P2TRPostgresTransactionAttempt = {
+  confirmedAbort?: {
+    sqlState: string
+    error: unknown
+  }
+  preCommitTransportAbort?: unknown
+}
+
+const REQUIRED_SCHEMA_VERSION = 4
 const DEFAULT_STATEMENT_TIMEOUT_MS = 30_000
 const DEFAULT_MAX_READINESS_EXPORTS = 10_000
 const DEFAULT_MAX_READINESS_EXPORT_LIFETIME_MS = 24 * 60 * 60 * 1000
@@ -281,6 +320,15 @@ export class PostgresP2TRCanonicalIndexStore
   private readonly statementTimeoutMs: number
   private readonly transaction = new AsyncLocalStorage<TransactionContext>()
   private readonly transactionalParticipants = new WeakSet<object>()
+  /**
+   * Confirmed aborts this coordinator itself raised. The error class is
+   * process-local, so membership is what proves the aborted transaction was
+   * one of ours and is therefore ours to restart.
+   */
+  private readonly ownConfirmedAborts =
+    new WeakSet<P2TRPostgresTransactionConfirmedAbortError>()
+  private readonly ownUnknownOutcomes =
+    new WeakSet<P2TRPostgresTransactionUnknownOutcomeError>()
 
   constructor(
     private readonly pool: P2TRPostgresPool,
@@ -415,6 +463,11 @@ export class PostgresP2TRCanonicalIndexStore
   createP2TRSignatureFraudWatchtowerTransactionalAdapter<T extends object>(
     factory: (session: P2TRPostgresTransactionSession) => T
   ): T {
+    // The transaction client is already wrapped by
+    // `observeRetryablePostgresAborts`, so a retryable SQLSTATE raised through
+    // an adapter session is recorded at the query boundary even when the
+    // adapter catches, wraps or swallows the error. Do not re-wrap it here:
+    // the caller must keep seeing the original `pg` error and its `code`.
     const session: P2TRPostgresTransactionSession = {
       query: (text, values) =>
         this.requireTransactionClient().query(text, values),
@@ -446,6 +499,50 @@ export class PostgresP2TRCanonicalIndexStore
     }
   }
 
+  /**
+   * Report the retryable SQLSTATE of a transaction PostgreSQL is *confirmed*
+   * to have aborted, so an owner may discard attempt-local state and start a
+   * fresh whole transaction.
+   *
+   * Only a confirmed abort qualifies: a rolled-back-and-released session, or a
+   * COMMIT that itself answered with 40001/40P01, or a bounded pre-snapshot
+   * fence that failed before BEGIN. An unknown COMMIT outcome
+   * never surfaces here — that session is destroyed and its transaction may
+   * have committed, so it must never be retried. A COMMIT answering with the
+   * `ROLLBACK` command tag is a confirmed abort with no SQLSTATE; it is
+   * reported as non-retryable so the failure stays fail-closed and visible.
+   */
+  readP2TRSignatureFraudWatchtowerRetryableTransactionSQLState(
+    error: unknown
+  ): P2TRRetryablePostgresSQLState | undefined {
+    if (!isP2TRPostgresTransactionConfirmedAbortError(error)) return undefined
+    if (!this.ownConfirmedAborts.has(error)) return undefined
+    return retryablePostgresSQLStateCode(error.sqlState)
+  }
+
+  isP2TRSignatureFraudWatchtowerTransactionOutcomeUnknown(
+    error: unknown
+  ): boolean {
+    return (
+      isP2TRPostgresTransactionUnknownOutcomeError(error) &&
+      this.ownUnknownOutcomes.has(error)
+    )
+  }
+
+  isP2TRSignatureFraudWatchtowerTransactionConfirmedPreCommitTransportAbort(
+    error: unknown
+  ): boolean {
+    return (
+      isP2TRPostgresTransactionConfirmedAbortError(error) &&
+      this.ownConfirmedAborts.has(error) &&
+      error.reason === "pre-commit-transport-abort"
+    )
+  }
+
+  isP2TRSignatureFraudWatchtowerTransactionActive(): boolean {
+    return this.transaction.getStore() !== undefined
+  }
+
   assertP2TRSignatureFraudWatchtowerSharedStore(dependencies: {
     persistence: unknown
     transactionSource: unknown
@@ -465,102 +562,244 @@ export class PostgresP2TRCanonicalIndexStore
   }
 
   async runInP2TRSignatureFraudWatchtowerTransaction<T>(
-    operation: () => Promise<T>
+    operation: () => Promise<T>,
+    options: {
+      readinessFence?: "shared" | "exclusive"
+    } = {}
   ): Promise<T> {
+    const readinessFence = options.readinessFence ?? "shared"
     const active = this.transaction.getStore()
-    if (active !== undefined) return operation()
+    if (active !== undefined) {
+      if (
+        readinessFence === "exclusive" &&
+        active.readinessFence !== "exclusive"
+      ) {
+        throw new Error(
+          "Exclusive readiness fence must be acquired before the transaction begins"
+        )
+      }
+      return operation()
+    }
 
     const rawClient = await this.pool.connect()
-    const attempt: P2TRPostgresTransactionAttempt = {}
-    const client = observeRetryablePostgresAborts(rawClient, attempt)
+    let readinessFenceLocked = false
+    let readinessFenceAcquisitionAttempted = false
     let transactionPhase: "begin" | "active" | "commit" | "finished" = "begin"
     let releaseError: Error | boolean | undefined
+    let operationFailed = false
+    let operationError: unknown
+    let unlockError: Error | undefined
+    let result!: T
     try {
-      await client.query("BEGIN ISOLATION LEVEL SERIALIZABLE")
-      transactionPhase = "active"
-      await client.query("SELECT set_config('statement_timeout', $1, true)", [
-        `${this.statementTimeoutMs}ms`,
-      ])
-      await this.assertDatabaseReady(client)
-      const context: TransactionContext = {
-        client,
-        readinessSnapshotLocked: false,
-        mutationStarted: false,
-      }
-      const result = await this.transaction.run(context, async () => {
-        const operationResult = await operation()
-        // A callback may catch or wrap a database error. Do not allow an
-        // aborted PostgreSQL transaction to appear successful or hide its
-        // original retryable SQLSTATE behind a later 25P02 error.
-        throwRecordedPostgresAbort(attempt)
-        if (context.mutationStarted) {
-          await this.commitCanonicalGenerationIfReady(client)
-        }
-        throwRecordedPostgresAbort(attempt)
-        return operationResult
-      })
-      transactionPhase = "commit"
-      const commit = await client.query("COMMIT")
-      transactionPhase = "finished"
-      if (normalizePostgresCommandTag(commit.command) === "ROLLBACK") {
-        throw confirmedPostgresAbortError(
-          attempt,
-          "rollback-command",
-          undefined
+      // PostgreSQL fixes a SERIALIZABLE snapshot at the first statement that
+      // needs one. A transaction-scoped advisory lock is therefore too late:
+      // it can wait behind a writer while retaining a snapshot from before
+      // that writer committed. Acquire the session fence before BEGIN so a
+      // readiness transaction cannot establish its snapshot until every
+      // earlier writer has committed, and later writers remain blocked until
+      // readiness has committed. This lock is taken before the transaction's
+      // LOCAL statement timeout exists, so install a bounded session lock
+      // timeout and restore the pool client's prior setting before BEGIN.
+      try {
+        const lockTimeout = await rawClient.query<{ lock_timeout: string }>(
+          "SELECT current_setting('lock_timeout') AS lock_timeout"
         )
-      }
-      return result
-    } catch (error) {
-      if (transactionPhase === "active") {
+        if (lockTimeout.rows.length !== 1) {
+          throw new Error("PostgreSQL lock timeout setting is unavailable")
+        }
+        const priorLockTimeout = boundedString(
+          lockTimeout.rows[0].lock_timeout,
+          64,
+          "PostgreSQL lock timeout setting"
+        )
+        await rawClient.query("SELECT set_config('lock_timeout', $1, false)", [
+          `${this.statementTimeoutMs}ms`,
+        ])
         try {
-          await client.query("ROLLBACK")
-          transactionPhase = "finished"
-        } catch (rollbackError) {
-          // The session may still be inside an aborted or even ambiguous
-          // transaction. Preserve the original operation error, but ensure pg
-          // destroys this client instead of returning it to the pool.
-          releaseError = postgresClientError(
-            rollbackError,
-            "PostgreSQL ROLLBACK failed"
+          readinessFenceAcquisitionAttempted = true
+          await rawClient.query(
+            readinessFence === "exclusive"
+              ? "SELECT pg_advisory_lock(hashtextextended('p2tr-readiness-pre-snapshot-fence', 0))"
+              : "SELECT pg_advisory_lock_shared(hashtextextended('p2tr-readiness-pre-snapshot-fence', 0))"
           )
-          throw error
-        }
-        if (attempt.confirmedAbort !== undefined) {
-          throw confirmedPostgresAbortError(
-            attempt,
-            "retryable-sqlstate",
-            error
+          readinessFenceLocked = true
+        } finally {
+          await rawClient.query(
+            "SELECT set_config('lock_timeout', $1, false)",
+            [priorLockTimeout]
           )
         }
-      } else if (transactionPhase === "begin") {
-        // A failed BEGIN response cannot prove whether the server entered the
-        // transaction before the connection failed.
-        releaseError = postgresClientError(error, "PostgreSQL BEGIN failed")
-      } else if (transactionPhase === "commit") {
-        // A PostgreSQL SQLSTATE proves the server aborted. Without that
-        // response, the server may have committed before the response was
-        // lost, so destroy the session and surface the unknown outcome.
-        if (attempt.confirmedAbort !== undefined) {
-          transactionPhase = "finished"
-          throw confirmedPostgresAbortError(
-            attempt,
-            "retryable-sqlstate",
-            error
-          )
-        }
-        const commitError = postgresClientError(
+      } catch (error) {
+        const clientError = postgresClientError(
           error,
-          "PostgreSQL COMMIT failed"
+          "PostgreSQL readiness fence acquisition failed"
         )
-        releaseError = commitError
-        throw new Error(
-          `PostgreSQL COMMIT failed; transaction outcome is unknown: ${commitError.message}`
-        )
+        // Errors before the advisory-lock statement and lock_timeout's 55P03
+        // prove no session fence was acquired. An interrupt such as 57014 can
+        // arrive after PostgreSQL grants the session lock but before the query
+        // response reaches this client, so every other acquisition failure
+        // leaves session state uncertain and must destroy the pooled client.
+        const responseSQLState = postgresSQLState(error)
+        const fenceWasDefinitelyNotGranted =
+          !readinessFenceAcquisitionAttempted || responseSQLState === "55P03"
+        if (readinessFenceLocked || !fenceWasDefinitelyNotGranted) {
+          releaseError = clientError
+        }
+        const sqlState = retryablePostgresSQLState(error)
+        if (sqlState !== undefined) {
+          const attempt: P2TRPostgresTransactionAttempt = {
+            confirmedAbort: { sqlState, error },
+          }
+          throw this.ownConfirmedAbort(
+            confirmedPostgresAbortError(
+              attempt,
+              "pre-transaction-retryable-sqlstate",
+              clientError
+            )
+          )
+        }
+        throw clientError
       }
-      throw error
+
+      const attempt: P2TRPostgresTransactionAttempt = {}
+      const client = observeRetryablePostgresAborts(rawClient, attempt)
+      try {
+        await client.query("BEGIN ISOLATION LEVEL SERIALIZABLE")
+        transactionPhase = "active"
+        await client.query("SELECT set_config('statement_timeout', $1, true)", [
+          `${this.statementTimeoutMs}ms`,
+        ])
+        await this.assertDatabaseReady(client)
+        const context: TransactionContext = {
+          client,
+          readinessFence,
+          readinessSnapshotLocked: false,
+          mutationStarted: false,
+        }
+        result = await this.transaction.run(context, async () => {
+          const operationResult = await operation()
+          // A callback may catch or wrap a database error. Do not allow an
+          // aborted PostgreSQL transaction to appear successful or hide its
+          // original retryable SQLSTATE behind a later 25P02 error.
+          throwRecordedPostgresAbort(attempt)
+          if (context.mutationStarted) {
+            await this.commitCanonicalGenerationIfReady(client)
+          }
+          throwRecordedPostgresAbort(attempt)
+          return operationResult
+        })
+        transactionPhase = "commit"
+        const commit = await client.query("COMMIT")
+        transactionPhase = "finished"
+        if (normalizePostgresCommandTag(commit.command) === "ROLLBACK") {
+          throw this.ownConfirmedAbort(
+            confirmedPostgresAbortError(attempt, "rollback-command", undefined)
+          )
+        }
+      } catch (error) {
+        if (transactionPhase === "active") {
+          try {
+            await client.query("ROLLBACK")
+            transactionPhase = "finished"
+          } catch (rollbackError) {
+            // The session may still be inside an aborted or even ambiguous
+            // transaction. Preserve the original operation error, but ensure pg
+            // destroys this client instead of returning it to the pool.
+            releaseError = postgresClientError(
+              rollbackError,
+              "PostgreSQL ROLLBACK failed"
+            )
+            if (attempt.preCommitTransportAbort !== undefined) {
+              throw this.ownConfirmedAbort(
+                confirmedPostgresAbortError(
+                  attempt,
+                  "pre-commit-transport-abort",
+                  error
+                )
+              )
+            }
+            throw error
+          }
+          if (attempt.confirmedAbort !== undefined) {
+            throw this.ownConfirmedAbort(
+              confirmedPostgresAbortError(attempt, "retryable-sqlstate", error)
+            )
+          }
+          if (attempt.preCommitTransportAbort !== undefined) {
+            throw this.ownConfirmedAbort(
+              confirmedPostgresAbortError(
+                attempt,
+                "pre-commit-transport-abort",
+                error
+              )
+            )
+          }
+        } else if (transactionPhase === "begin") {
+          // A failed BEGIN response cannot prove whether the server entered the
+          // transaction before the connection failed.
+          releaseError = postgresClientError(error, "PostgreSQL BEGIN failed")
+        } else if (transactionPhase === "commit") {
+          // A PostgreSQL SQLSTATE proves the server aborted. Without that
+          // response, the server may have committed before the response was
+          // lost, so destroy the session and surface the unknown outcome.
+          if (attempt.confirmedAbort !== undefined) {
+            transactionPhase = "finished"
+            throw this.ownConfirmedAbort(
+              confirmedPostgresAbortError(
+                attempt,
+                confirmedPostgresCommitAbortReason(attempt),
+                error
+              )
+            )
+          }
+          const commitError = postgresClientError(
+            error,
+            "PostgreSQL COMMIT failed"
+          )
+          releaseError = commitError
+          throw this.ownUnknownOutcome(
+            new P2TRPostgresTransactionUnknownOutcomeError(commitError)
+          )
+        }
+        throw error
+      }
+    } catch (error) {
+      operationFailed = true
+      operationError = error
     } finally {
+      if (readinessFenceLocked && releaseError === undefined) {
+        try {
+          const unlocked = await rawClient.query<{ unlocked: boolean }>(
+            readinessFence === "exclusive"
+              ? "SELECT pg_advisory_unlock(hashtextextended('p2tr-readiness-pre-snapshot-fence', 0)) AS unlocked"
+              : "SELECT pg_advisory_unlock_shared(hashtextextended('p2tr-readiness-pre-snapshot-fence', 0)) AS unlocked"
+          )
+          if (
+            unlocked.rows.length !== 1 ||
+            unlocked.rows[0].unlocked !== true
+          ) {
+            throw new Error(
+              "PostgreSQL readiness fence release was not confirmed"
+            )
+          }
+        } catch (error) {
+          unlockError = postgresClientError(
+            error,
+            "PostgreSQL readiness fence release failed"
+          )
+          releaseError = unlockError
+        }
+      }
       rawClient.release(releaseError)
     }
+    if (operationFailed) throw operationError
+    // COMMIT is the transaction outcome boundary. A later session-level fence
+    // release failure destroys the client, but must not report already-
+    // committed work as failed and discard its returned durable identity.
+    if (unlockError !== undefined && transactionPhase !== "finished") {
+      throw unlockError
+    }
+    return result
   }
 
   async loadBitcoinCursor(): Promise<P2TRCanonicalBitcoinCursor | undefined> {
@@ -2830,7 +3069,7 @@ export class PostgresP2TRCanonicalIndexStore
       const bindingTxHash =
         provenance.bindingKind === "wallet"
           ? "00".repeat(32)
-          : provenance.fundingTxid
+          : Buffer.from(provenance.fundingTxid, "hex").reverse().toString("hex")
       const bindingOutputIndex =
         provenance.bindingKind === "wallet" ? 0 : provenance.fundingVout
 
@@ -5983,6 +6222,20 @@ export class PostgresP2TRCanonicalIndexStore
       throw new Error("PostgreSQL mutation requires an active transaction")
     }
     return context.client
+  }
+
+  private ownConfirmedAbort(
+    error: P2TRPostgresTransactionConfirmedAbortError
+  ): P2TRPostgresTransactionConfirmedAbortError {
+    this.ownConfirmedAborts.add(error)
+    return error
+  }
+
+  private ownUnknownOutcome(
+    error: P2TRPostgresTransactionUnknownOutcomeError
+  ): P2TRPostgresTransactionUnknownOutcomeError {
+    this.ownUnknownOutcomes.add(error)
+    return error
   }
 }
 
@@ -9305,12 +9558,35 @@ const postgresClientError = (value: unknown, context: string): Error =>
 const retryablePostgresSQLState = (
   value: unknown
 ): P2TRRetryablePostgresSQLState | undefined => {
-  if (typeof value !== "object" || value === null || !("code" in value)) {
-    return undefined
-  }
-  const code = (value as { code?: unknown }).code
-  return code === "40001" || code === "40P01" ? code : undefined
+  return retryablePostgresSQLStateCode(postgresSQLState(value))
 }
+
+const retryablePostgresSQLStateCode = (
+  code: string | undefined
+): P2TRRetryablePostgresSQLState | undefined => {
+  return code === "40001" ||
+    code === "40P01" ||
+    code === "55P03" ||
+    code === "57014"
+    ? code
+    : undefined
+}
+
+const definitivePostgresCommitAbortSQLState = (
+  value: unknown
+): string | undefined => {
+  const code = postgresSQLState(value)
+  return code !== undefined && (code.startsWith("23") || code === "P0001")
+    ? code
+    : undefined
+}
+
+const confirmedPostgresCommitAbortReason = (
+  attempt: P2TRPostgresTransactionAttempt
+): P2TRPostgresTransactionConfirmedAbortReason =>
+  retryablePostgresSQLStateCode(attempt.confirmedAbort?.sqlState) === undefined
+    ? "definitive-commit-sqlstate"
+    : "retryable-sqlstate"
 
 const observeRetryablePostgresAborts = (
   client: P2TRPostgresClient,
@@ -9323,9 +9599,40 @@ const observeRetryablePostgresAborts = (
     try {
       return await client.query<Row>(text, values)
     } catch (error) {
-      const sqlState = retryablePostgresSQLState(error)
-      if (sqlState !== undefined && attempt.confirmedAbort === undefined) {
-        attempt.confirmedAbort = { sqlState, error }
+      // A server response to an ordinary statement proves the transaction can
+      // be rolled back and retried. Keep COMMIT's stricter outcome boundary:
+      // serialization/deadlock plus definitive integrity/trigger rejections
+      // establish abort semantics there; cancellation and lock errors remain
+      // unknown because they need not describe the completed transaction.
+      const command = text.trim().toUpperCase()
+      const commit = command === "COMMIT"
+      const retryableSQLState = retryablePostgresSQLState(error)
+      const confirmedCommitSQLState = commit
+        ? definitivePostgresCommitAbortSQLState(error)
+        : undefined
+      const confirmedSQLState = commit
+        ? retryableSQLState === "40001" || retryableSQLState === "40P01"
+          ? retryableSQLState
+          : confirmedCommitSQLState
+        : retryableSQLState
+      if (
+        confirmedSQLState !== undefined &&
+        attempt.confirmedAbort === undefined
+      ) {
+        attempt.confirmedAbort = { sqlState: confirmedSQLState, error }
+      }
+      if (
+        command !== "COMMIT" &&
+        command !== "ROLLBACK" &&
+        postgresSQLState(error) === undefined &&
+        postgresClientReportedTransportFailure(client) &&
+        attempt.preCommitTransportAbort === undefined
+      ) {
+        // An ordinary statement that loses its transport before COMMIT cannot
+        // commit. Remember that provenance even if the callback catches or
+        // wraps the raw client error; a successful ROLLBACK or destroyed
+        // session then proves the whole attempt is safe to retry.
+        attempt.preCommitTransportAbort = error
       }
       throw error
     }
@@ -9339,6 +9646,9 @@ const throwRecordedPostgresAbort = (
   if (attempt.confirmedAbort !== undefined) {
     throw attempt.confirmedAbort.error
   }
+  if (attempt.preCommitTransportAbort !== undefined) {
+    throw attempt.preCommitTransportAbort
+  }
 }
 
 const confirmedPostgresAbortError = (
@@ -9349,9 +9659,32 @@ const confirmedPostgresAbortError = (
   new P2TRPostgresTransactionConfirmedAbortError(
     reason,
     attempt.confirmedAbort?.sqlState,
-    attempt.confirmedAbort?.error,
+    attempt.confirmedAbort?.error ?? attempt.preCommitTransportAbort,
     operationError
   )
+
+const postgresSQLState = (value: unknown): string | undefined => {
+  if (typeof value !== "object" || value === null || !("code" in value)) {
+    return undefined
+  }
+  const code = (value as { code?: unknown }).code
+  return typeof code === "string" && /^[0-9A-Z]{5}$/.test(code)
+    ? code
+    : undefined
+}
+
+const postgresClientReportedTransportFailure = (
+  client: P2TRPostgresClient
+): boolean => {
+  // node-postgres flips this state only when its connection emits an error.
+  // Query timeouts, closed-client queries and parameter serialization errors
+  // reject without changing it. Treat clients that do not expose the state
+  // conservatively so an uncoded driver error cannot masquerade as transport.
+  return (
+    (client as P2TRPostgresClient & { _queryable?: unknown })._queryable ===
+    false
+  )
+}
 
 const normalizePostgresCommandTag = (value: unknown): string | undefined =>
   typeof value === "string" ? value.trim().toUpperCase() : undefined

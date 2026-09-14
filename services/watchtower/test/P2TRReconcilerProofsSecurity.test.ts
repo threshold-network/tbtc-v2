@@ -41,6 +41,14 @@ import {
   type P2TRSignedReconcilerCandidateAttestation,
   type P2TRVerifiedReconcilerCandidateAttestation,
 } from "../src/P2TRReconcilerAttestation.js"
+import {
+  P2TRSignatureFraudVerifiedIrreversibleBoundaryAuthorizer,
+  type P2TRSignatureFraudVerifiedBoundaryEvidence,
+} from "../src/P2TRSignatureFraudIrreversibleBoundaryAuthorization.js"
+import type {
+  P2TRSignatureFraudIrreversibleBoundaryAuthorization,
+  P2TRSignatureFraudIrreversibleBoundaryBinding,
+} from "../src/P2TRSignatureFraudChallengeOutbox.js"
 
 const NOW = 1_800_000_000_000
 const hex32 = (digit: string): string => digit.repeat(64)
@@ -85,7 +93,15 @@ type ProofFixture = {
   decoded: P2TRDecodedReconcilerExport
 }
 
-function makeProofFixture(): ProofFixture {
+function makeProofFixture(
+  options: {
+    requestBinding?: Partial<
+      P2TRReconcilerCandidateAttestationChallenge["requestBinding"]
+    >
+    exportFence?: number
+    provenanceFingerprint?: string
+  } = {}
+): ProofFixture {
   const { publicKey, privateKey } = generateKeyPairSync("ed25519")
   const signerPublicKeySpki = publicKey
     .export({ format: "der", type: "spki" })
@@ -132,20 +148,32 @@ function makeProofFixture(): ProofFixture {
   const candidate = {
     identity,
     inputProvenance,
-    provenanceFingerprint: hex32("c"),
+    provenanceFingerprint: options.provenanceFingerprint ?? hex32("c"),
   }
-  const requestBinding = {
-    recordID: hex32("d"),
-    recordGeneration: 11,
-    recordVersion: 4,
-    reservationID: hex32("e"),
-    sender: `0x${"34".repeat(20)}`,
-    transactionNonce: 19,
-    stage: "prepare" as const,
-    attempt: 2,
+  const requestBinding: P2TRReconcilerCandidateAttestationChallenge["requestBinding"] =
+    {
+      recordID: hex32("d"),
+      recordGeneration: 11,
+      recordVersion: 4,
+      reservationID: hex32("e"),
+      sender: `0x${"34".repeat(20)}`,
+      transactionNonce: 19,
+      stage: "prepare" as const,
+      attempt: 2,
+      provenanceFingerprint: options.provenanceFingerprint ?? hex32("c"),
+      activationManifestHash: hex32("1"),
+      signingRequestDigest: hex32("2"),
+      ...options.requestBinding,
+    }
+  if (requestBinding.signingRequestDigest === undefined) {
+    delete requestBinding.signingRequestDigest
   }
+  if (requestBinding.preparedTransactionHash === undefined) {
+    delete requestBinding.preparedTransactionHash
+  }
+  const exportFence = options.exportFence ?? 7
   const challenge: P2TRReconcilerCandidateAttestationChallenge = {
-    schema: "tbtc-p2tr-reconciler-complete-candidate-challenge/v2",
+    schema: "tbtc-p2tr-reconciler-complete-candidate-challenge/v3",
     requestNonce: hex32("f"),
     manifestHash: hex32("1"),
     requestBinding,
@@ -189,7 +217,7 @@ function makeProofFixture(): ProofFixture {
     allocators: {
       nextCandidateProvenanceGeneration: 8,
       nextInvalidationID: 3,
-      nextExportFence: 8,
+      nextExportFence: exportFence + 1,
     },
     bitcoin: {
       checkpoint: { height: 839_900, hash: hex32("6") },
@@ -270,7 +298,7 @@ function makeProofFixture(): ProofFixture {
     schema: "tbtc-p2tr-readiness-export-handle/v1",
     requestNonce: challenge.requestNonce,
     requestDigest: computeP2TRReconcilerChallengeRequestDigest(challenge),
-    exportFence: 7,
+    exportFence,
     snapshotRoot: snapshot.root,
     snapshotSemanticRoot: snapshot.semanticRoot,
     snapshotGeneration: snapshot.generation,
@@ -287,7 +315,7 @@ function makeProofFixture(): ProofFixture {
     attestationKeyHash,
   }
   const payload: P2TRReconcilerCandidateAttestationPayload = {
-    schema: "tbtc-p2tr-reconciler-complete-candidate-attestation/v2",
+    schema: "tbtc-p2tr-reconciler-complete-candidate-attestation/v3",
     requestNonce: challenge.requestNonce,
     manifestHash: challenge.manifestHash,
     requestBinding,
@@ -301,7 +329,7 @@ function makeProofFixture(): ProofFixture {
   const policy: P2TRReconcilerCandidateAttestationVerificationPolicy = {
     expectedSource: source,
     trustedSignerKeyHash: attestationKeyHash,
-    minimumExportFenceExclusive: 6,
+    minimumExportFenceExclusive: exportFence - 1,
     maximumLifetimeMs: 20_000,
     maximumClockSkewMs: 250,
     maximumExportBytes: stream.length,
@@ -452,6 +480,75 @@ function makeLiveProvider(
       return mutate ? mutate(receipt) : receipt
     },
   }
+}
+
+async function makeVerifiedBoundaryEvidence(
+  fixture: ProofFixture
+): Promise<P2TRSignatureFraudVerifiedBoundaryEvidence> {
+  const reconcilerAttestation = await verifyFixture(fixture)
+  const source = makeLiveSource()
+  const liveCoreEvidence = await verifyP2TRLiveCoreCandidateEvidence(
+    makeLiveProvider(reconcilerAttestation, source),
+    reconcilerAttestation,
+    fixture.challenge.bridgeDomain,
+    {
+      expectedSource: source,
+      minimumConfirmations: 6,
+      maximumReceiptLifetimeMs: 10_000,
+      maximumClockSkewMs: 250,
+      nowUnixMs: () => NOW,
+    }
+  )
+  return {
+    reconcilerAttestation,
+    liveCoreEvidence,
+    minimumExportFenceExclusive:
+      reconcilerAttestation.payload.export.exportFence - 1,
+  }
+}
+
+function irreversibleBinding(
+  fixture: ProofFixture,
+  preparedTransactionHash?: string
+): P2TRSignatureFraudIrreversibleBoundaryBinding {
+  const request = fixture.challenge.requestBinding
+  return {
+    recordID: request.recordID,
+    generation: request.recordGeneration,
+    recordVersion: request.recordVersion,
+    reservationID: request.reservationID,
+    sender: request.sender,
+    transactionNonce: request.transactionNonce,
+    stage: request.stage,
+    attempt: request.attempt,
+    provenanceFingerprint: request.provenanceFingerprint,
+    activationManifestHash: request.activationManifestHash,
+    signingRequestDigest: request.signingRequestDigest,
+    preparedTransactionHash:
+      preparedTransactionHash ?? request.preparedTransactionHash,
+  }
+}
+
+function boundaryAuthorizer(
+  evidence: P2TRSignatureFraudVerifiedBoundaryEvidence,
+  now: () => number = () => NOW
+): P2TRSignatureFraudVerifiedIrreversibleBoundaryAuthorizer {
+  return new P2TRSignatureFraudVerifiedIrreversibleBoundaryAuthorizer(
+    {
+      async acquireVerifiedP2TRSignatureFraudBoundaryEvidence(
+        _binding,
+        requestNonce
+      ) {
+        assert.equal(
+          requestNonce,
+          evidence.reconcilerAttestation.payload.requestNonce
+        )
+        return evidence
+      },
+    },
+    now,
+    () => evidence.reconcilerAttestation.payload.requestNonce
+  )
 }
 
 describe("signed COMPLETE-v2 reconciler proofs", () => {
@@ -840,5 +937,220 @@ describe("independent live-Core candidate proof", () => {
         label
       )
     }
+  })
+})
+
+describe("irreversible outbox boundary authorization", () => {
+  it("accepts generation zero in the exact reconciler request binding", async () => {
+    const fixture = makeProofFixture({
+      requestBinding: { recordGeneration: 0 },
+    })
+    assert.equal(fixture.challenge.requestBinding.recordGeneration, 0)
+    await verifyFixture(fixture)
+  })
+
+  it("mints and synchronously consumes one exact process-local capability", async () => {
+    const fixture = makeProofFixture()
+    const evidence = await makeVerifiedBoundaryEvidence(fixture)
+    const authorizer = boundaryAuthorizer(evidence)
+    const binding = irreversibleBinding(fixture)
+    const authorization =
+      await authorizer.authorizeP2TRSignatureFraudIrreversibleBoundary(binding)
+    authorizer.assertAndConsumeP2TRSignatureFraudIrreversibleBoundaryAuthorization(
+      authorization,
+      binding,
+      NOW
+    )
+    assert.throws(
+      () =>
+        authorizer.assertAndConsumeP2TRSignatureFraudIrreversibleBoundaryAuthorization(
+          authorization,
+          binding,
+          NOW
+        ),
+      /forged, copied, or replayed/
+    )
+  })
+
+  it("rejects a cached attestation that does not echo the boundary nonce", async () => {
+    const fixture = makeProofFixture()
+    const evidence = await makeVerifiedBoundaryEvidence(fixture)
+    const binding = irreversibleBinding(fixture)
+    let requestedNonce: string | undefined
+    const authorizer =
+      new P2TRSignatureFraudVerifiedIrreversibleBoundaryAuthorizer(
+        {
+          async acquireVerifiedP2TRSignatureFraudBoundaryEvidence(
+            _binding,
+            requestNonce
+          ) {
+            requestedNonce = requestNonce
+            return evidence
+          },
+        },
+        () => NOW,
+        () => hex32("0")
+      )
+
+    await assert.rejects(
+      authorizer.authorizeP2TRSignatureFraudIrreversibleBoundary(binding),
+      /stale or for another attempt/
+    )
+    assert.equal(requestedNonce, hex32("0"))
+    assert.notEqual(
+      requestedNonce,
+      evidence.reconcilerAttestation.payload.requestNonce
+    )
+  })
+
+  it("rejects forged, wrong-stage, wrong-attempt, and stale capabilities", async () => {
+    const fixture = makeProofFixture()
+    const evidence = await makeVerifiedBoundaryEvidence(fixture)
+    const binding = irreversibleBinding(fixture)
+
+    const forgedAuthorizer = boundaryAuthorizer(evidence)
+    assert.throws(
+      () =>
+        forgedAuthorizer.assertAndConsumeP2TRSignatureFraudIrreversibleBoundaryAuthorization(
+          {} as P2TRSignatureFraudIrreversibleBoundaryAuthorization,
+          binding,
+          NOW
+        ),
+      /forged, copied, or replayed/
+    )
+
+    for (const changed of [
+      { ...binding, stage: "replacement" as const },
+      { ...binding, attempt: binding.attempt + 1 },
+    ]) {
+      const authorizer = boundaryAuthorizer(evidence)
+      const authorization =
+        await authorizer.authorizeP2TRSignatureFraudIrreversibleBoundary(
+          binding
+        )
+      assert.throws(
+        () =>
+          authorizer.assertAndConsumeP2TRSignatureFraudIrreversibleBoundaryAuthorization(
+            authorization,
+            changed,
+            NOW
+          ),
+        /another durable attempt/
+      )
+    }
+
+    const staleAuthorizer = boundaryAuthorizer(evidence)
+    const stale =
+      await staleAuthorizer.authorizeP2TRSignatureFraudIrreversibleBoundary(
+        binding
+      )
+    assert.throws(
+      () =>
+        staleAuthorizer.assertAndConsumeP2TRSignatureFraudIrreversibleBoundaryAuthorization(
+          stale,
+          binding,
+          NOW + 6_000
+        ),
+      /stale|another attempt/
+    )
+  })
+
+  it("binds provenance, activation manifest, and exact broadcast bytes", async () => {
+    const preparedTransactionHash = hex32("9")
+    const fixture = makeProofFixture({
+      requestBinding: {
+        stage: "broadcast",
+        signingRequestDigest: undefined,
+        preparedTransactionHash,
+      },
+    })
+    const evidence = await makeVerifiedBoundaryEvidence(fixture)
+    const binding = irreversibleBinding(fixture)
+    const exactAuthorizer = boundaryAuthorizer(evidence)
+    const exact =
+      await exactAuthorizer.authorizeP2TRSignatureFraudIrreversibleBoundary(
+        binding
+      )
+    exactAuthorizer.assertAndConsumeP2TRSignatureFraudIrreversibleBoundaryAuthorization(
+      exact,
+      binding,
+      NOW
+    )
+
+    for (const changed of [
+      { ...binding, provenanceFingerprint: hex32("8") },
+      { ...binding, activationManifestHash: hex32("7") },
+      { ...binding, preparedTransactionHash: hex32("6") },
+    ]) {
+      await assert.rejects(
+        boundaryAuthorizer(
+          evidence
+        ).authorizeP2TRSignatureFraudIrreversibleBoundary(changed),
+        /another durable outbox boundary|another attempt/
+      )
+    }
+    await assert.rejects(
+      boundaryAuthorizer(
+        evidence
+      ).authorizeP2TRSignatureFraudIrreversibleBoundary({
+        ...binding,
+        preparedTransactionHash: undefined,
+      }),
+      /Signer authorizations require an exact request digest|broadcast authorizations require exact prepared bytes/
+    )
+  })
+
+  it("rejects an older pending capability after a newer export fence", async () => {
+    const firstFixture = makeProofFixture({ exportFence: 7 })
+    const secondFixture = makeProofFixture({
+      exportFence: 8,
+      requestBinding: {
+        recordVersion: 5,
+        stage: "replacement",
+        attempt: 3,
+      },
+    })
+    const firstEvidence = await makeVerifiedBoundaryEvidence(firstFixture)
+    const secondEvidence = await makeVerifiedBoundaryEvidence(secondFixture)
+    const authorizer =
+      new P2TRSignatureFraudVerifiedIrreversibleBoundaryAuthorizer(
+        {
+          async acquireVerifiedP2TRSignatureFraudBoundaryEvidence(binding) {
+            return binding.recordVersion === 4 ? firstEvidence : secondEvidence
+          },
+        },
+        () => NOW,
+        (() => {
+          const nonces = [
+            firstEvidence.reconcilerAttestation.payload.requestNonce,
+            secondEvidence.reconcilerAttestation.payload.requestNonce,
+          ]
+          return () => nonces.shift() ?? hex32("0")
+        })()
+      )
+    const firstBinding = irreversibleBinding(firstFixture)
+    const secondBinding = irreversibleBinding(secondFixture)
+    const first =
+      await authorizer.authorizeP2TRSignatureFraudIrreversibleBoundary(
+        firstBinding
+      )
+    const second =
+      await authorizer.authorizeP2TRSignatureFraudIrreversibleBoundary(
+        secondBinding
+      )
+    assert.throws(
+      () =>
+        authorizer.assertAndConsumeP2TRSignatureFraudIrreversibleBoundaryAuthorization(
+          first,
+          firstBinding,
+          NOW
+        ),
+      /superseded/
+    )
+    authorizer.assertAndConsumeP2TRSignatureFraudIrreversibleBoundaryAuthorization(
+      second,
+      secondBinding,
+      NOW
+    )
   })
 })

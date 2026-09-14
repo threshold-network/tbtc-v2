@@ -74,12 +74,12 @@ const journalOptions = {
 }
 
 /**
- * The coordinator asserts migration 3 of `canonical-evidence-index`; the
+ * The coordinator asserts migration 4 of `canonical-evidence-index`; the
  * Ethereum journal adapter asserts migration 1 of `canonical-ethereum-journal`.
  * They are independent components, so the fixture answers each query with the
  * version its own owner requires.
  */
-const CANONICAL_EVIDENCE_SCHEMA_VERSION = 3
+const CANONICAL_EVIDENCE_SCHEMA_VERSION = 4
 const CANONICAL_ETHEREUM_JOURNAL_SCHEMA_VERSION = 1
 
 function coordinatorFor(client: P2TRPostgresClient) {
@@ -136,6 +136,9 @@ class ReadinessClient implements P2TRPostgresClient {
     values?: readonly unknown[]
   ): Promise<P2TRPostgresQueryResult<Row>> {
     this.queries.push(text)
+    if (text.includes("current_setting('lock_timeout')")) {
+      return { rows: [{ lock_timeout: "0" }] as Row[], rowCount: 1 }
+    }
     if (text.includes("server_version_num")) {
       return {
         rows: [{ server_version_num: "160000" }] as Row[],
@@ -147,6 +150,9 @@ class ReadinessClient implements P2TRPostgresClient {
         ? CANONICAL_ETHEREUM_JOURNAL_SCHEMA_VERSION
         : CANONICAL_EVIDENCE_SCHEMA_VERSION
       return { rows: [{ version }] as Row[], rowCount: 1 }
+    }
+    if (text.includes("pg_advisory_unlock")) {
+      return { rows: [{ unlocked: true }] as Row[], rowCount: 1 }
     }
     // Reproduce the persisted-digest SQL assertions the coordinator issues
     // before every transaction, exactly as the stored functions compute them.

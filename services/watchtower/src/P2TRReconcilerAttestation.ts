@@ -28,6 +28,10 @@ export type P2TRReconcilerRequestBinding = {
   transactionNonce: number
   stage: "prepare" | "replacement" | "broadcast"
   attempt: number
+  provenanceFingerprint: string
+  activationManifestHash: string
+  signingRequestDigest?: string
+  preparedTransactionHash?: string
 }
 
 export type P2TRReconcilerCandidateRequest = {
@@ -37,7 +41,7 @@ export type P2TRReconcilerCandidateRequest = {
 }
 
 export type P2TRReconcilerCandidateAttestationChallenge = {
-  schema: "tbtc-p2tr-reconciler-complete-candidate-challenge/v2"
+  schema: "tbtc-p2tr-reconciler-complete-candidate-challenge/v3"
   requestNonce: string
   manifestHash: string
   requestBinding: P2TRReconcilerRequestBinding
@@ -180,7 +184,7 @@ export type P2TRReconcilerAttestationSource = {
 }
 
 export type P2TRReconcilerCandidateAttestationPayload = {
-  schema: "tbtc-p2tr-reconciler-complete-candidate-attestation/v2"
+  schema: "tbtc-p2tr-reconciler-complete-candidate-attestation/v3"
   requestNonce: string
   manifestHash: string
   requestBinding: P2TRReconcilerRequestBinding
@@ -271,7 +275,7 @@ export function computeP2TRReconcilerRequestBindingDigest(
   value: P2TRReconcilerRequestBinding
 ): string {
   return sha256({
-    schema: "tbtc-p2tr-reconciler-request-binding/v1",
+    schema: "tbtc-p2tr-reconciler-request-binding/v2",
     binding: normalizeRequestBinding(value),
   })
 }
@@ -289,7 +293,7 @@ export function computeP2TRReconcilerChallengeRequestDigest(
   value: P2TRReconcilerCandidateAttestationChallenge
 ): string {
   return sha256({
-    schema: "tbtc-p2tr-reconciler-complete-request/v2",
+    schema: "tbtc-p2tr-reconciler-complete-request/v3",
     challenge: normalizeChallenge(value),
   })
 }
@@ -506,7 +510,7 @@ export async function verifyP2TRReconcilerCandidateAttestation(
     payload: deepFreeze(structuredClone(payload)),
     completeIdentity,
     attestationDigest: sha256({
-      schema: "tbtc-p2tr-signed-reconciler-complete-attestation/v2",
+      schema: "tbtc-p2tr-signed-reconciler-complete-attestation/v3",
       envelope,
     }),
   }) as P2TRVerifiedReconcilerCandidateAttestation
@@ -590,7 +594,7 @@ function assertManifestBounds(
 function normalizeChallenge(
   value: P2TRReconcilerCandidateAttestationChallenge
 ): P2TRReconcilerCandidateAttestationChallenge {
-  if (value.schema !== "tbtc-p2tr-reconciler-complete-candidate-challenge/v2") {
+  if (value.schema !== "tbtc-p2tr-reconciler-complete-candidate-challenge/v3") {
     throw new Error("Reconciler challenge schema is unsupported")
   }
   const requestBinding = normalizeRequestBinding(value.requestBinding)
@@ -633,7 +637,7 @@ function normalizeEnvelope(
     value.signatureAlgorithm !== "ed25519" ||
     !isPlainObject(value.payload) ||
     value.payload.schema !==
-      "tbtc-p2tr-reconciler-complete-candidate-attestation/v2"
+      "tbtc-p2tr-reconciler-complete-candidate-attestation/v3"
   ) {
     throw new Error("Signed reconciler attestation is malformed")
   }
@@ -1094,7 +1098,10 @@ function normalizeCandidateRequest(
         evidence.bindingTxHash !== zero ||
         evidence.bindingOutputIndex !== 0
       : evidence.signingKey === evidence.walletID ||
-        evidence.bindingTxHash !== inputProvenance.fundingTxid ||
+        evidence.bindingTxHash !==
+          Buffer.from(inputProvenance.fundingTxid, "hex")
+            .reverse()
+            .toString("hex") ||
         evidence.bindingOutputIndex !== inputProvenance.fundingVout)
   ) {
     throw new Error(
@@ -1153,9 +1160,25 @@ function normalizeRequestBinding(
   ) {
     throw new Error("Reconciler request stage is invalid")
   }
+  const preparedTransactionHash =
+    value.preparedTransactionHash === undefined
+      ? undefined
+      : bytes32(value.preparedTransactionHash, "prepared transaction hash")
+  const signingRequestDigest =
+    value.signingRequestDigest === undefined
+      ? undefined
+      : bytes32(value.signingRequestDigest, "signing request digest")
+  if (
+    (value.stage === "broadcast") !== (preparedTransactionHash !== undefined) ||
+    (value.stage !== "broadcast") !== (signingRequestDigest !== undefined)
+  ) {
+    throw new Error(
+      "Signer reconciler requests require an exact request digest and broadcast requests require exact prepared bytes"
+    )
+  }
   return {
     recordID: bytes32(value.recordID, "outbox record ID"),
-    recordGeneration: positiveInteger(
+    recordGeneration: nonNegativeInteger(
       value.recordGeneration,
       "record generation"
     ),
@@ -1168,6 +1191,18 @@ function normalizeRequestBinding(
     ),
     stage: value.stage,
     attempt: positiveInteger(value.attempt, "outbox attempt"),
+    provenanceFingerprint: bytes32(
+      value.provenanceFingerprint,
+      "request provenance fingerprint"
+    ),
+    activationManifestHash: bytes32(
+      value.activationManifestHash,
+      "request activation manifest hash"
+    ),
+    ...(signingRequestDigest === undefined ? {} : { signingRequestDigest }),
+    ...(preparedTransactionHash === undefined
+      ? {}
+      : { preparedTransactionHash }),
   }
 }
 
