@@ -11,7 +11,7 @@ const migrationURL = new URL(
 const migrationSource = readFileSync(migrationURL, "utf8")
 const migration = migrationSource.replace(/\s+/g, " ")
 const lateArtifactMigrationURL = new URL(
-  "015_p2tr_signer_boundary_late_artifact.sql",
+  "016_p2tr_signer_boundary_late_artifact.sql",
   migrationsURL
 )
 const lateArtifactMigrationSource = readFileSync(
@@ -20,7 +20,7 @@ const lateArtifactMigrationSource = readFileSync(
 )
 const lateArtifactMigration = lateArtifactMigrationSource.replace(/\s+/g, " ")
 const nonceFinalityMigrationURL = new URL(
-  "016_p2tr_signer_boundary_nonce_finality.sql",
+  "017_p2tr_signer_boundary_nonce_finality.sql",
   migrationsURL
 )
 const nonceFinalityMigrationSource = readFileSync(
@@ -29,7 +29,7 @@ const nonceFinalityMigrationSource = readFileSync(
 )
 const nonceFinalityMigration = nonceFinalityMigrationSource.replace(/\s+/g, " ")
 const exactGasMigrationURL = new URL(
-  "017_p2tr_signed_variant_exact_gas.sql",
+  "018_p2tr_signed_variant_exact_gas.sql",
   migrationsURL
 )
 const exactGasMigrationSource = readFileSync(exactGasMigrationURL, "utf8")
@@ -96,10 +96,10 @@ test("leaves transaction ownership to the ordered migration runner", () => {
     "003_p2tr_signature_fraud_challenge_outbox.sql"
   )
   const lateArtifactIndex = orderedMigrations.indexOf(
-    "015_p2tr_signer_boundary_late_artifact.sql"
+    "016_p2tr_signer_boundary_late_artifact.sql"
   )
   const nonceFinalityIndex = orderedMigrations.indexOf(
-    "016_p2tr_signer_boundary_nonce_finality.sql"
+    "017_p2tr_signer_boundary_nonce_finality.sql"
   )
   assert.notEqual(challengeOutboxIndex, -1)
   assert.notEqual(lateArtifactIndex, -1)

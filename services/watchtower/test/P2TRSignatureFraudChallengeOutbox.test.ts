@@ -83,7 +83,6 @@ import {
   computeP2TRSignatureFraudNonceReleaseResolutionEvidenceDigest,
   computeP2TRSignatureFraudResolutionEvidenceDigest,
   computeP2TRSignatureFraudSignerBoundaryResolutionEvidenceDigest,
-  invalidateP2TRSignatureFraudCanonicalProvenance,
   quarantineLegacyP2TRSignatureFraudSubmissions,
   validateP2TRSignatureFraudIndependentSignerBoundaryResolution,
   validateP2TRSignatureFraudLegacyV4SignerBoundaryResolutionReplay,
@@ -1922,8 +1921,7 @@ test("restores a provenance-invalidated series after challenge deposit rotation"
     observationID,
     1_000
   )
-  await invalidateP2TRSignatureFraudCanonicalProvenance(
-    store,
+  await store.invalidateCanonicalProvenance(
     provenanceInvalidationEvidence(first, 2_000, observationID)
   )
 
@@ -2771,8 +2769,7 @@ test("recovers an invalidated initial authorization without inventing signer I/O
   const authorizer = new FixedBoundaryAuthorizer()
   let now = 2_000
   authorizer.beforeAuthorize = async () => {
-    await invalidateP2TRSignatureFraudCanonicalProvenance(
-      store,
+    await store.invalidateCanonicalProvenance(
       provenanceInvalidationEvidence(record, now)
     )
   }
@@ -2831,8 +2828,7 @@ test("keeps prior signed state in reconciliation when replacement authorization 
   assert.equal(prepared.status, "prepared")
   authorizer.beforeAuthorize = async (binding) => {
     if (binding.stage !== "replacement") return
-    await invalidateP2TRSignatureFraudCanonicalProvenance(
-      store,
+    await store.invalidateCanonicalProvenance(
       provenanceInvalidationEvidence(record)
     )
   }
@@ -2984,8 +2980,7 @@ test("blocks a signer claim when canonical provenance invalidation wins the shar
   store.beforeProvenanceCAS = async (_current, next) => {
     if (!invalidated && next.status === "preparing") {
       invalidated = true
-      await invalidateP2TRSignatureFraudCanonicalProvenance(
-        store,
+      await store.invalidateCanonicalProvenance(
         provenanceInvalidationEvidence(record)
       )
     }
@@ -3008,8 +3003,7 @@ test("recovers and durably voids a crash after external nonce reservation", asyn
   let now = 2_000
   preparer.afterReservation = async () => {
     preparer.afterReservation = undefined
-    await invalidateP2TRSignatureFraudCanonicalProvenance(
-      store,
+    await store.invalidateCanonicalProvenance(
       provenanceInvalidationEvidence(record, now)
     )
     throw new Error("simulated crash before reservation persistence")
@@ -3435,8 +3429,7 @@ test("captures exact bytes when provenance invalidation wins after signer invoca
   const record = await enqueue(store)
   const preparer = new FixedPreparer()
   preparer.afterInitialSign = async () => {
-    await invalidateP2TRSignatureFraudCanonicalProvenance(
-      store,
+    await store.invalidateCanonicalProvenance(
       provenanceInvalidationEvidence(record)
     )
   }
@@ -3829,8 +3822,7 @@ test("restart recovery leaves an invalidated active initial signer boundary unre
     releaseAuthorization = resolve
   })
   authorizer.beforeAuthorize = async () => {
-    await invalidateP2TRSignatureFraudCanonicalProvenance(
-      store,
+    await store.invalidateCanonicalProvenance(
       provenanceInvalidationEvidence(record, now)
     )
     markInvalidated()
@@ -3931,8 +3923,7 @@ test("restart recovery leaves an invalidated active replacement boundary unresol
   })
   authorizer.beforeAuthorize = async (binding) => {
     if (binding.stage !== "replacement") return
-    await invalidateP2TRSignatureFraudCanonicalProvenance(
-      store,
+    await store.invalidateCanonicalProvenance(
       provenanceInvalidationEvidence(record, now)
     )
     markInvalidated()
@@ -3994,8 +3985,7 @@ test("captures a replacement returned after provenance invalidation", async () =
   const prepared = await outbox.prepare(record.recordID, "worker-a")
   assert.equal(prepared.status, "prepared")
   preparer.afterReplacementSign = async () => {
-    await invalidateP2TRSignatureFraudCanonicalProvenance(
-      store,
+    await store.invalidateCanonicalProvenance(
       provenanceInvalidationEvidence(record)
     )
   }
@@ -4020,8 +4010,7 @@ test("does not broadcast when provenance invalidation wins the send claim", asyn
   store.beforeProvenanceCAS = async (_current, next) => {
     if (!invalidated && next.status === "broadcast-pending") {
       invalidated = true
-      await invalidateP2TRSignatureFraudCanonicalProvenance(
-        store,
+      await store.invalidateCanonicalProvenance(
         provenanceInvalidationEvidence(record)
       )
     }
@@ -4038,8 +4027,7 @@ test("records the unavoidable external race when invalidation follows the send b
   const record = await enqueue(store)
   const broadcaster = new RecordingBroadcaster()
   broadcaster.inspectDurableBoundary = async () => {
-    await invalidateP2TRSignatureFraudCanonicalProvenance(
-      store,
+    await store.invalidateCanonicalProvenance(
       provenanceInvalidationEvidence(record)
     )
   }
@@ -5431,8 +5419,7 @@ test("captures wrong-echo bytes when provenance invalidation wins the completion
     requestDigest: invocation.requestDigest,
   })
   preparer.afterInitialSign = async () => {
-    await invalidateP2TRSignatureFraudCanonicalProvenance(
-      store,
+    await store.invalidateCanonicalProvenance(
       provenanceInvalidationEvidence(record)
     )
   }

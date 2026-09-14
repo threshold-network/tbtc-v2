@@ -344,7 +344,11 @@ describe("PostgresP2TRCanonicalIndexStore", () => {
       new Error("connection lost during statement"),
       { code: "ECONNRESET" }
     )
-    const client = new FakeClient({ "SELECT transport": transportError })
+    const client = new FakeClient(
+      { "SELECT transport": transportError },
+      {},
+      new Set(["SELECT transport"])
+    )
     const store = new PostgresP2TRCanonicalIndexStore(
       new FakePool(client),
       storeOptions()
@@ -378,13 +382,59 @@ describe("PostgresP2TRCanonicalIndexStore", () => {
     assert.equal(client.releaseArgument, undefined)
   })
 
+  it("does not brand uncoded driver failures as transport aborts", async () => {
+    const driverErrors = [
+      new Error("Query read timeout"),
+      new Error("Client was closed and is not queryable"),
+      new TypeError("PostgreSQL parameter serialization failed"),
+    ]
+
+    for (const driverError of driverErrors) {
+      const client = new FakeClient({ "SELECT driver_failure": driverError })
+      const store = new PostgresP2TRCanonicalIndexStore(
+        new FakePool(client),
+        storeOptions()
+      )
+      const adapter =
+        store.createP2TRSignatureFraudWatchtowerTransactionalAdapter(
+          (session) => ({
+            query: () => session.query("SELECT driver_failure"),
+          })
+        )
+
+      await assert.rejects(
+        store.runInP2TRSignatureFraudWatchtowerTransaction(() =>
+          adapter.query()
+        ),
+        (error) => {
+          assert.equal(error, driverError)
+          assert.equal(
+            store.isP2TRSignatureFraudWatchtowerTransactionConfirmedPreCommitTransportAbort(
+              error
+            ),
+            false
+          )
+          return true
+        }
+      )
+
+      assert.equal(lastTransactionCommand(client.statements), "ROLLBACK")
+      assert.equal(client.statements.includes("COMMIT"), false)
+      assert.equal(client.releaseArgument, undefined)
+    }
+  })
+
   it("keeps a pre-COMMIT transport abort retryable when ROLLBACK also loses its connection", async () => {
     const transportError = new Error("connection lost during statement")
     const rollbackError = new Error("connection lost during rollback")
-    const client = new FakeClient({
-      "SELECT transport": transportError,
-      ROLLBACK: rollbackError,
-    })
+    const client = new FakeClient(
+      {
+        "SELECT transport": transportError,
+        ROLLBACK: rollbackError,
+      },
+      {},
+      new Set(["SELECT transport"])
+    )
     const store = new PostgresP2TRCanonicalIndexStore(
       new FakePool(client),
       storeOptions()
@@ -881,12 +931,14 @@ class FakePool implements P2TRPostgresPool {
 
 class FakeClient implements P2TRPostgresClient {
   readonly statements: string[] = []
+  _queryable = true
   released = false
   releaseArgument?: Error | boolean
 
   constructor(
     private readonly failures: Record<string, Error> = {},
-    private readonly commandTags: Record<string, string> = {}
+    private readonly commandTags: Record<string, string> = {},
+    private readonly nonQueryableFailures: ReadonlySet<string> = new Set()
   ) {}
 
   async query<Row = Record<string, unknown>>(
@@ -895,7 +947,10 @@ class FakeClient implements P2TRPostgresClient {
   ): Promise<P2TRPostgresQueryResult<Row>> {
     this.statements.push(text)
     const failure = this.failures[text]
-    if (failure !== undefined) throw failure
+    if (failure !== undefined) {
+      if (this.nonQueryableFailures.has(text)) this._queryable = false
+      throw failure
+    }
     if (text.includes("server_version_num")) {
       return {
         rows: [{ server_version_num: "160000" } as Row],

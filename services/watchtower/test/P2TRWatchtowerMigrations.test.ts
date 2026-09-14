@@ -23,7 +23,7 @@ const postgresURL = process.env.P2TR_WATCHTOWER_TEST_POSTGRES_URL
 // accidental edits remain visible, while allowing intentional schema resets
 // before the first deployment.
 const CURRENT_PREPRODUCTION_OUTBOX_MIGRATION_CHECKSUM =
-  "1a6144232be452ac9966a865539e5419e4d63c4d6c52d5b093977a25c3ad8010"
+  "c7ac748db91d1fa560b41b6c2e5f45413cdc97c71f408c2651f3fdb17030902e"
 
 describe("P2TR watchtower migration bodies", () => {
   it("pins the current pre-production migration 003 checksum", async () => {
@@ -37,6 +37,89 @@ describe("P2TR watchtower migration bodies", () => {
     assert.equal(
       createHash("sha256").update(migration).digest("hex"),
       CURRENT_PREPRODUCTION_OUTBOX_MIGRATION_CHECKSUM
+    )
+  })
+
+  it("loads and validates the complete production migration directory", async () => {
+    const migrations = await loadP2TRWatchtowerMigrations(migrationsDirectory)
+
+    assert.deepEqual(
+      migrations.map(({ version, filename }) => ({ version, filename })),
+      [
+        {
+          version: 1,
+          filename: "001_p2tr_canonical_index.sql",
+        },
+        {
+          version: 2,
+          filename: "002_p2tr_canonical_ethereum.sql",
+        },
+        {
+          version: 3,
+          filename: "003_p2tr_signature_fraud_challenge_outbox.sql",
+        },
+        {
+          version: 4,
+          filename: "004_p2tr_candidate_enqueue_retry_alerts.sql",
+        },
+        {
+          version: 5,
+          filename: "005_p2tr_deposit_binding_byte_order.sql",
+        },
+        {
+          version: 6,
+          filename: "006_p2tr_candidate_enqueue_generation_authority.sql",
+        },
+        {
+          version: 7,
+          filename: "007_p2tr_candidate_enqueue_recovery_hardening.sql",
+        },
+        {
+          version: 8,
+          filename: "008_p2tr_candidate_enqueue_challenge_series.sql",
+        },
+        {
+          version: 9,
+          filename: "009_p2tr_candidate_enqueue_capacity_authority.sql",
+        },
+        {
+          version: 10,
+          filename: "010_p2tr_candidate_enqueue_transient_retries.sql",
+        },
+        {
+          version: 11,
+          filename:
+            "011_p2tr_candidate_enqueue_manifest_rotation_disposition.sql",
+        },
+        {
+          version: 12,
+          filename: "012_p2tr_provenance_alert_retirement.sql",
+        },
+        {
+          version: 13,
+          filename: "013_p2tr_fee_policy_feasibility.sql",
+        },
+        {
+          version: 14,
+          filename: "014_p2tr_candidate_enqueue_rotation_resolution.sql",
+        },
+        {
+          version: 15,
+          filename: "015_p2tr_candidate_enqueue_transport_exhaustion.sql",
+        },
+        {
+          version: 16,
+          filename: "016_p2tr_signer_boundary_late_artifact.sql",
+        },
+        {
+          version: 17,
+          filename: "017_p2tr_signer_boundary_nonce_finality.sql",
+        },
+        {
+          version: 18,
+          filename: "018_p2tr_signed_variant_exact_gas.sql",
+        },
+      ]
     )
   })
 
@@ -296,6 +379,23 @@ describe("P2TR watchtower migration bodies", () => {
     assert.match(
       migration,
       /p2tr_candidate_enqueue_rotation_resolution_immutable_trigger[\s\S]*?BEFORE UPDATE OR DELETE/
+    )
+  })
+
+  it("keeps transport-abort exhaustion blocking in the retry journal", async () => {
+    const migration = await readFile(
+      new URL(
+        "../migrations/015_p2tr_candidate_enqueue_transport_exhaustion.sql",
+        import.meta.url
+      ),
+      "utf8"
+    )
+
+    assert.doesNotThrow(() => validateP2TRWatchtowerMigrationBody(migration))
+    assert.match(migration, /ALTER COLUMN last_sqlstate DROP NOT NULL/)
+    assert.match(
+      migration,
+      /last_abort_reason = 'pre-commit-transport-abort'[\s\S]*?failure_digest IS NOT NULL/
     )
   })
 
@@ -1387,7 +1487,7 @@ describe("P2TR watchtower migrations apply to PostgreSQL", () => {
   })
 
   postgresIt(
-    "upgrades a checksum-tracked migration 003 database through migration 017",
+    "upgrades a checksum-tracked migration 003 database through migration 018",
     async () => {
       const migrationsURL = new URL("../migrations/", import.meta.url)
       const migrations = await loadP2TRWatchtowerMigrations(

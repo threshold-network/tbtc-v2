@@ -175,7 +175,7 @@ CHECK (
     (binding_kind = 'deposit' AND signing_key = output_key AND
      binding_tx_hash = p2tr_reverse_bytea(local_funding_txid) AND
      binding_output_index = local_funding_vout)
-);
+) NOT VALID;
 
 -- Legacy outbox identities may already own a nonce or signed envelope, so they
 -- cannot be rewritten. Mark those rows explicitly. A queued marked row is

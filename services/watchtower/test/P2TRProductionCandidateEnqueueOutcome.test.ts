@@ -28,8 +28,9 @@ const TOKEN_ID = `0x${"11".repeat(32)}`
 const MANIFEST_HASH = `0x${"22".repeat(32)}`
 const ENQUEUED_INTENT_ID = `0x${"33".repeat(32)}`
 const CAPPED_INTENT_ID = `0x${"44".repeat(32)}`
-type RetryableSQLState =
+type RetryableSQLState = NonNullable<
   P2TRProductionCandidateEnqueueRetryExhaustionAlert["lastSQLState"]
+>
 
 describe("production candidate enqueue outcomes", () => {
   it("commits a nested generation-cap alert and token disposition before rejecting", async () => {
@@ -471,13 +472,16 @@ describe("production candidate enqueue outcomes", () => {
     assert.equal(journal.nonRetryableFailures.length, 0)
   })
 
-  it("leaves the guard unresolved when pre-COMMIT transport retries exhaust", async () => {
+  it("keeps transport retry exhaustion activation-blocking and operator-resolvable", async () => {
     const coordinator = new RollbackAwareCoordinator()
     coordinator.failNextTransactionWithPreCommitTransportAbort(
       new Error("first connection loss before COMMIT")
     )
+    const finalTransportAbort = new Error(
+      "second connection loss before COMMIT"
+    )
     coordinator.failNextTransactionWithPreCommitTransportAbort(
-      new Error("second connection loss before COMMIT")
+      finalTransportAbort
     )
     const journal = emptyCandidateJournal()
     const stateStore = candidateStateStore(coordinator, [], journal)
@@ -499,13 +503,34 @@ describe("production candidate enqueue outcomes", () => {
 
     await assert.rejects(
       gate.consumeCandidateAuthorization(token, candidate),
-      /second connection loss/
+      (error: unknown) => {
+        assert.ok(
+          error instanceof P2TRProductionCandidateEnqueueRetryExhaustedError
+        )
+        assert.equal(error.activationBlocking, true)
+        assert.equal(error.alert.lastSQLState, undefined)
+        assert.equal(error.alert.lastAbortReason, "pre-commit-transport-abort")
+        assert.equal(error.cause, finalTransportAbort)
+        return true
+      }
     )
     assert.equal(enqueueAttempts, 2)
     assert.equal(journal.guards.length, 1)
     assert.equal(journal.resolutions.length, 0)
-    assert.equal(journal.exhaustionAlerts.length, 0)
+    assert.equal(journal.exhaustionAlerts.length, 1)
     assert.equal(journal.nonRetryableFailures.length, 0)
+    assert.equal(journal.exhaustionAlerts[0].tokenID, TOKEN_ID)
+    assert.equal(journal.exhaustionAlerts[0].manifestHash, MANIFEST_HASH)
+    assert.equal(
+      journal.exhaustionAlerts[0].candidateDigest,
+      journal.guards[0].candidateDigest
+    )
+    const alert = journal.exhaustionAlerts[0] as unknown as {
+      lastAbortReason: string
+      failureDigest: string
+    }
+    assert.equal(alert.lastAbortReason, "pre-commit-transport-abort")
+    assert.match(alert.failureDigest, /^0x[0-9a-f]{64}$/)
     assert.throws(
       () =>
         assertP2TRProductionRuntimeAlertHealth(
@@ -514,6 +539,8 @@ describe("production candidate enqueue outcomes", () => {
         ),
       /activation-blocking candidate enqueue alerts/
     )
+    assert.equal(coordinator.commits, 2)
+    assert.equal(coordinator.rollbacks, 2)
   })
 
   it("keeps an unresolved guard and durable alert after retry exhaustion", async () => {

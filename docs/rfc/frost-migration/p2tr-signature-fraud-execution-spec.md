@@ -257,6 +257,77 @@ compatibility for redemption safety checks, but they do not observe Taproot
 witnesses, reconstruct BIP-341 sighashes, submit signature-fraud challenges, or
 track defeat/timeout/slashing state for P2TR fraud.
 
+In addition to the per-cycle responsibilities above, the watchtower must
+durably guarantee the following invariants over the candidate-enqueue
+outbox, the challenge-series identity, and the provenance-alert journal
+for the lifetime of every record the watchtower accepts. These are
+state-machine invariants, not per-cycle checks: a configuration that
+satisfies them is a prerequisite for activation, and any change to the
+encoding of any of the fields below requires updating the Node, Rust,
+and Solidity vector gates before integration.
+
+- **Generation-bound candidate authorization.** For every candidate
+  the watchtower enqueues, the durable authorization must commit to the
+  exact outbox generation it is authorizing, not to the canonical
+  Bitcoin candidate forever. A finalized nonce disposition, a canonical
+  reappearance after cancellation, or a provenance restoration can each
+  require a new generation for the same canonical candidate, so the
+  authorization row must retain both the generation cause and the
+  immutable predecessor evidence (the prior nonce disposition, the prior
+  cancellation evidence, or the prior provenance-invalidation evidence)
+  that the new generation supersedes. A generation that loses its
+  predecessor evidence or shares a predecessor with another generation
+  is rejectable on the spot, regardless of how the predecessor was
+  reached, and the predecessor itself must be closed before its
+  successor can be authorized.
+- **Bounded challenge-series and evidence-generation limits.** Every
+  outbox record must be addressable by a series identity that
+  domain-separates the activation manifest, the COMPLETE_V2 evidence
+  protocol, the configured chain ID, the immutable domain chain ID, the
+  Bridge router address, the Bridge challenge key, the signing key, and
+  the funding-outpoint binding. The series identity is a single
+  function of those fields alone; it must not depend on the canonical
+  occurrence ID retained for provenance, and the same series identity
+  must hash and compare exactly the way the scheduler does so a
+  scheduler-side mismatch can never be papered over by a watchtower-side
+  recomputation. For any given series, the watchtower must produce at
+  most one outstanding head, and that head's expected successor must
+  carry an explicit generation, disposition, predecessor ID, and
+  evidence ID that the durable outbox row carries as well. The expected
+  generation must be capped at a fixed small bound (the durable schema
+  binds this to 32) and must reject any successor whose expected
+  generation exceeds that bound or whose disposition cannot be derived
+  from a closed predecessor. A non-head outbox row that lacks its
+  predecessor evidence, or any successor whose disposition is
+  unattributable, is fail-closed regardless of how the durable store was
+  populated.
+- **Provenance-alert retirement and signer-boundary resolution.** The
+  watchtower's activation-blocking critical-alert count is the union of
+  two independently admissible resolution paths. First, every
+  critical alert not classed as a provenance-reconciliation incident
+  is retired only by an explicit alert-resolution row keyed to that
+  alert ID. Second, every provenance-reconciliation critical alert is
+  retired only when the underlying provenance incident journal has
+  appended a matching resolution for every activation-blocking
+  incident on the same record. This means the alert table has no
+  independent admissible resolution path for provenance incidents:
+  the incident journal is the only path, and the journal is
+  append-only. A record whose incident journal is closed but whose
+  alert is not, or vice versa, blocks activation; the only way to
+  unblock is to close the journal entry and the alert together, in
+  that order. The same rule applies to signer-boundary resolution:
+  a signer-lane configuration that is quarantined by chain ID, lane
+  ID, signer identity, or expected sender must surface in the
+  activation revalidation as a quarantined-signer-lane count, and the
+  configuration cannot be promoted into the enabled set for the
+  activation manifest until that quarantine is resolved through the
+  dedicated signer-quarantine resolution path. Legacy deposit-binding
+  quarantine rows, nonce-release requests that have not reached a
+  terminal release, and outbox broadcast attempts that have neither
+  acknowledged nor been superseded must all be closed before the
+  watchtower's readiness gate is satisfied; a single open row in any
+  of those journals is enough to block.
+
 ## Watchtower Extraction And Idempotency Matrix
 
 The production watchtower slice is not complete until it has an implementation

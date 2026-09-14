@@ -9625,6 +9625,7 @@ const observeRetryablePostgresAborts = (
         command !== "COMMIT" &&
         command !== "ROLLBACK" &&
         postgresSQLState(error) === undefined &&
+        postgresClientReportedTransportFailure(client) &&
         attempt.preCommitTransportAbort === undefined
       ) {
         // An ordinary statement that loses its transport before COMMIT cannot
@@ -9670,6 +9671,19 @@ const postgresSQLState = (value: unknown): string | undefined => {
   return typeof code === "string" && /^[0-9A-Z]{5}$/.test(code)
     ? code
     : undefined
+}
+
+const postgresClientReportedTransportFailure = (
+  client: P2TRPostgresClient
+): boolean => {
+  // node-postgres flips this state only when its connection emits an error.
+  // Query timeouts, closed-client queries and parameter serialization errors
+  // reject without changing it. Treat clients that do not expose the state
+  // conservatively so an uncoded driver error cannot masquerade as transport.
+  return (
+    (client as P2TRPostgresClient & { _queryable?: unknown })._queryable ===
+    false
+  )
 }
 
 const normalizePostgresCommandTag = (value: unknown): string | undefined =>

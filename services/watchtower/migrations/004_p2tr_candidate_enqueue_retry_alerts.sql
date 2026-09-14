@@ -96,7 +96,7 @@ CREATE TABLE p2tr_candidate_enqueue_non_retryable_failure (
 -- This closes the cross-transaction gap
 -- between committing the crash marker and inserting the outbox generation:
 -- ordinary writers count every unresolved reservation, while the exact
--- manifest/candidate/observation-bound holder may consume its own slot. A
+-- manifest/candidate/observation-bound holder may consume its own slot.
 -- Any terminal disposition releases the reservation without mutating the
 -- append-only guard. Authorization expiry alone cannot erase crash evidence
 -- or release capacity that no restart path can replay.

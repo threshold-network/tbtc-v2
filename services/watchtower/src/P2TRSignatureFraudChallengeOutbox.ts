@@ -40,6 +40,11 @@ import {
 import { computeP2TRSignatureFraudSignerInvocationRequest } from "./P2TRSignatureFraudIrreversibleBoundaryAuthorization.js"
 import type { P2TRSignatureFraudWatchtowerStoreProfileProvider } from "./types.js"
 
+import {
+  normalizeAddress,
+  normalizeBytes32,
+} from "./P2TRDurableValueNormalization.js"
+
 export const P2TR_SIGNATURE_FRAUD_OUTBOX_MAX_PAGE_SIZE = 1_000
 export const P2TR_SIGNATURE_FRAUD_OUTBOX_MAX_LEASE_OWNER_LENGTH = 128
 export const P2TR_SIGNATURE_FRAUD_OUTBOX_MAX_TRUST_DOMAIN_ID_LENGTH = 128
@@ -1197,7 +1202,7 @@ export const computeP2TRSignatureFraudSignerBoundaryResolutionEvidenceDigest = (
   computeVersionedSignerBoundaryResolutionEvidenceDigest(resolution, 5)
 
 /**
- * Computes the digest accepted before migration 016. This must only be used to
+ * Computes the digest accepted before migration 017. This must only be used to
  * recognize an exact replay of immutable evidence that the migration marked as
  * version 4; new resolutions must always use the v5 helper above.
  */
@@ -1518,7 +1523,7 @@ export const validateP2TRSignatureFraudIndependentSignerBoundaryResolution = (
   validateVersionedIndependentSignerBoundaryResolution(resolution, 5)
 
 /**
- * Validates the exact evidence contract used before migration 016. The
+ * Validates the exact evidence contract used before migration 017. The
  * PostgreSQL adapter invokes this only after finding an immutable row that the
  * migration explicitly classified as version 4; it is never an insertion path.
  */
@@ -2141,14 +2146,6 @@ export const computeP2TRSignatureFraudCanonicalProvenanceInvalidationEvidenceHas
       domain: P2TR_SIGNATURE_FRAUD_PROVENANCE_INVALIDATION_DOMAIN,
       ...normalizeCanonicalProvenanceInvalidationEvidenceWithoutHash(evidence),
     })
-
-export const invalidateP2TRSignatureFraudCanonicalProvenance = async (
-  store: P2TRSignatureFraudChallengeOutboxStore,
-  evidence: P2TRSignatureFraudCanonicalProvenanceInvalidationEvidence
-): Promise<readonly P2TRSignatureFraudChallengeOutboxRecord[]> => {
-  validateCanonicalProvenanceInvalidationEvidence(evidence)
-  return store.invalidateCanonicalProvenance(evidence)
-}
 
 export type P2TRSignatureFraudChallengeOutboxSchedulerOptions = {
   submissionIntent: P2TRSignatureFraudSubmissionIntentOptions
@@ -10712,11 +10709,6 @@ const nextRecord = (
 const intentKey = (intent: P2TRSignatureFraudSubmissionIntent): string =>
   normalizeBytes32(intent.intentID, "Challenge outbox intent ID")
 
-const normalizeBytes32 = (
-  value: Hex | Buffer | string,
-  label: string
-): string => normalizeFixedBytes(value, 32, label)
-
 const reverseBytes32 = (value: Hex | Buffer | string, label: string): string =>
   `0x${Buffer.from(normalizeBytes32(value, label).slice(2), "hex")
     .reverse()
@@ -10754,17 +10746,6 @@ const normalizeFixedBytes = (
     throw new Error(`${label} must be ${length} bytes`)
   }
   return `0x${bytes.toString("hex")}`
-}
-
-const normalizeAddress = (value: string, label: string): string => {
-  if (
-    typeof value !== "string" ||
-    !/^0x[0-9a-fA-F]{40}$/.test(value) ||
-    /^0x0{40}$/i.test(value)
-  ) {
-    throw new Error(`${label} must be a non-zero Ethereum address`)
-  }
-  return value.toLowerCase()
 }
 
 const normalizeHexData = (value: string, label: string): string => {
@@ -10923,8 +10904,3 @@ const errorMessage = (error: unknown): string => {
   const normalized = message.trim() || "Unknown provider error"
   return normalized.slice(0, P2TR_SIGNATURE_FRAUD_OUTBOX_MAX_ERROR_LENGTH)
 }
-
-const isPreparedTransactionValidationFailure = (error: unknown): boolean =>
-  error instanceof Error &&
-  (error.message.includes("Prepared challenge transaction") ||
-    error.message.includes("submission intent"))

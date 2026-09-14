@@ -161,6 +161,7 @@ describe(
           "012_p2tr_provenance_alert_retirement.sql",
           "013_p2tr_fee_policy_feasibility.sql",
           "014_p2tr_candidate_enqueue_rotation_resolution.sql",
+          "015_p2tr_candidate_enqueue_transport_exhaustion.sql",
         ]) {
           const migration = await readFile(
             new URL(`../migrations/${filename}`, import.meta.url),
@@ -2072,6 +2073,7 @@ const withIntegrationStore = async (
       "012_p2tr_provenance_alert_retirement.sql",
       "013_p2tr_fee_policy_feasibility.sql",
       "014_p2tr_candidate_enqueue_rotation_resolution.sql",
+      "015_p2tr_candidate_enqueue_transport_exhaustion.sql",
     ]) {
       const migration = await readFile(
         new URL(`../migrations/${filename}`, import.meta.url),
