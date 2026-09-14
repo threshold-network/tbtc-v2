@@ -7,7 +7,8 @@ import { ArbitrumL2BitcoinRedeemer as L2BitcoinRedeemerTypechain } from "../../.
 import { ChainIdentifier, Chains, L2BitcoinRedeemer } from "../contracts"
 import { EthereumAddress } from "../ethereum"
 import { Hex } from "../utils"
-import { BigNumber, Contract } from "ethers"
+import { BigNumber } from "@ethersproject/bignumber"
+import { Contract } from "@ethersproject/contracts"
 
 import ArbitrumSepoliaL2BitcoinRedeemerDeployment from "./artifacts/arbitrumSepolia/ArbitrumL2BitcoinRedeemer.json"
 import ArbitrumSepoliaWormholeCoreDeployment from "./artifacts/arbitrumSepolia/WormholeCore.json"

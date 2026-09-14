@@ -151,6 +151,13 @@ abstract contract AbstractL1BTCDepositor is
         uint256 availableBalance
     );
 
+    /// @notice Emitted when a deferred initialization reimbursement call fails.
+    event DeferredReimbursementFailed(
+        uint256 indexed depositKey,
+        address receiver,
+        uint256 amount
+    );
+
     /// @dev This modifier comes from the `Reimbursable` base contract and
     ///      must be overridden to protect the `updateReimbursementPool` call.
     modifier onlyReimbursableAdmin() override {
@@ -326,8 +333,8 @@ abstract contract AbstractL1BTCDepositor is
             address(reimbursementPool) != address(0) &&
             reimbursementAuthorizations[msg.sender]
         ) {
-            uint256 gasSpent = (gasStart - gasleft()) +
-                initializeDepositGasOffset;
+            uint256 gasSpent =
+                (gasStart - gasleft()) + initializeDepositGasOffset;
 
             // Should not happen as long as initializeDepositGasOffset is
             // set to a reasonable value. If it happens, it's better to
@@ -368,10 +375,11 @@ abstract contract AbstractL1BTCDepositor is
     ///      - `initializeDeposit` was called for the given deposit before,
     ///      - ERC20 L1 tBTC was minted by tBTC Bridge to this contract,
     ///      - The function was not called for the given deposit before,
-    ///      - The call must carry a payment for the briding system that
+    ///      - The call must carry a payment for the bridging system that
     ///        is responsible for executing the deposit finalization on the
-    ///        corresponding destination chain. The payment must be greater than or
-    ///        equal to the value returned by the `quoteFinalizeDeposit` function.
+    ///        corresponding destination chain. The exact payment requirement
+    ///        (a minimum vs. an exact amount, and whether `quoteFinalizeDeposit`
+    ///        is even exposed) is defined by each concrete depositor.
     /// @dev When `reimburseTxMaxFee` is true, the deposit transaction max fee
     ///      reimbursement is applied only if this contract's tBTC balance can
     ///      cover the base deposit amount plus the reimbursement. Otherwise,
@@ -430,33 +438,45 @@ abstract contract AbstractL1BTCDepositor is
             tbtcAmount
         );
 
+        // Following the checks-effects-interactions pattern, the deferred
+        // gas reimbursement is read and deleted from storage before the
+        // external `_transferTbtc` call. The actual reimbursement payout
+        // happens after that call, as the last step of the deposit
+        // finalization.
+        // slither-disable-next-line uninitialized-local
+        GasReimbursement memory reimbursement;
+        if (address(reimbursementPool) != address(0)) {
+            reimbursement = gasReimbursements[depositKey];
+
+            if (reimbursement.receiver != address(0)) {
+                // slither-disable-next-line reentrancy-benign
+                delete gasReimbursements[depositKey];
+            }
+        }
+
         _transferTbtc(tbtcAmount, destinationChainDepositOwner);
 
         // `ReimbursementPool` calls the untrusted receiver address using a
         // low-level call. Reentrancy risk is mitigated by making sure that
-        // `ReimbursementPool.refund` is a non-reentrant function and executing
-        // reimbursements as the last step of the deposit finalization.
+        // `ReimbursementPool.refund` is a non-reentrant function, by deleting
+        // the deferred reimbursement from storage before the external
+        // `_transferTbtc` call (checks-effects-interactions), and by
+        // executing reimbursements as the last step of the deposit
+        // finalization.
         if (address(reimbursementPool) != address(0)) {
-            // If there is a deferred reimbursement for this deposit
-            // initialization, pay it out now. No need to check reimbursement
-            // authorization for the initialization caller. If the deferred
-            // reimbursement is here, that implies the caller was authorized
-            // to receive it.
-            GasReimbursement memory reimbursement = gasReimbursements[
-                depositKey
-            ];
-            if (reimbursement.receiver != address(0)) {
-                // slither-disable-next-line reentrancy-benign
-                delete gasReimbursements[depositKey];
-
-                reimbursementPool.refund(
-                    reimbursement.gasSpent,
-                    reimbursement.receiver
-                );
-            }
-
-            // Pay out the reimbursement for deposit finalization if the caller
-            // is authorized to receive reimbursements.
+            // Pay out the reimbursement for deposit finalization before the
+            // deferred initialization reimbursement. The latter calls an
+            // untrusted receiver that can consume arbitrary gas. Paying it
+            // first would count that gas again in the finalization refund.
+            //
+            // Two consequences of this order worth knowing:
+            // - The deferred call's own execution cost (previously inside
+            //   the finalizer's gas window) is no longer reimbursed to
+            //   anyone; `finalizeDepositGasOffset` may need retuning to
+            //   account for it.
+            // - If `reimbursementPool`'s balance cannot cover both refunds,
+            //   the finalizer now has first claim on it; the deferred
+            //   receiver absorbs the shortfall instead.
             if (reimbursementAuthorizations[msg.sender]) {
                 // As this call is payable and this transaction carries out a
                 // msg.value that covers the Bridging cost, we need to reimburse
@@ -471,6 +491,52 @@ abstract contract AbstractL1BTCDepositor is
                     msg.sender
                 );
             }
+
+            // If there is a deferred reimbursement for this deposit
+            // initialization, pay it out now. No need to check reimbursement
+            // authorization for the initialization caller. If the deferred
+            // reimbursement is here, that implies the caller was authorized
+            // to receive it.
+            if (reimbursement.receiver != address(0)) {
+                // Best-effort, matching the availableBalance check above:
+                // a deferred receiver that cannot be reimbursed within the
+                // gas stipend (whether malicious or merely gas-hungry) must
+                // not be able to block this deposit's finalization for
+                // everyone. The stipend still bounds the worst case a
+                // compromised-but-authorized receiver can consume.
+                /* solhint-disable avoid-low-level-calls */
+                // slither-disable-next-line unchecked-lowlevel,low-level-calls
+                (bool success, ) = address(reimbursementPool).call{
+                    gas: 2_000_000
+                }(
+                    abi.encodeWithSelector(
+                        reimbursementPool.refund.selector,
+                        reimbursement.gasSpent,
+                        reimbursement.receiver
+                    )
+                );
+                /* solhint-enable avoid-low-level-calls */
+
+                if (!success) {
+                    // A failed call rolls back its nested calls. This deposit
+                    // was marked Finalized before any external call, so its
+                    // reimbursement cannot be consumed or replaced by reentry.
+                    // The record is kept as an on-chain trace of the unpaid
+                    // reimbursement only; it is not re-claimable, since
+                    // `finalizeDeposit` is its sole reader and requires
+                    // `DepositState.Initialized`.
+                    // slither-disable-next-line reentrancy-no-eth
+                    gasReimbursements[depositKey] = reimbursement;
+                    // The event describes the reverted pool call; no nested
+                    // event from that call survives to be reordered with it.
+                    // slither-disable-next-line reentrancy-events
+                    emit DeferredReimbursementFailed(
+                        depositKey,
+                        reimbursement.receiver,
+                        reimbursement.gasSpent
+                    );
+                }
+            }
         }
     }
 
@@ -482,17 +548,14 @@ abstract contract AbstractL1BTCDepositor is
     /// @return Refund value as gas spent.
     /// @dev This function is the reverse of the logic used
     ///      within `ReimbursementPool.refund`.
-    function _refundToGasSpent(uint256 refund)
-        internal
-        virtual
-        returns (uint256)
-    {
+    function _refundToGasSpent(
+        uint256 refund
+    ) internal virtual returns (uint256) {
         uint256 maxGasPrice = reimbursementPool.maxGasPrice();
         uint256 staticGas = reimbursementPool.staticGas();
 
-        uint256 gasPrice = tx.gasprice < maxGasPrice
-            ? tx.gasprice
-            : maxGasPrice;
+        uint256 gasPrice =
+            tx.gasprice < maxGasPrice ? tx.gasprice : maxGasPrice;
 
         // Should not happen but check just in case of weird ReimbursementPool
         // configuration.
@@ -515,7 +578,8 @@ abstract contract AbstractL1BTCDepositor is
     /// @dev In child contracts, this can be LayerZero, Wormhole, or any bridging code.
     /// @param amount Amount of tBTC in 1e18 precision.
     /// @param destinationChainReceiver destination chain deposit owner (32 bytes format).
-    function _transferTbtc(uint256 amount, bytes32 destinationChainReceiver)
-        internal
-        virtual;
+    function _transferTbtc(
+        uint256 amount,
+        bytes32 destinationChainReceiver
+    ) internal virtual;
 }

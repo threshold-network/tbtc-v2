@@ -25,6 +25,9 @@ Wormhole-specific tBTC representation into the canonical `OptimismTBTC` token.
 
 === Updating Wormhole Gateway mapping
 
+For supported routes and the Sepolia/Solana deployment policy, see
+link:../wormhole-routing.adoc[Wormhole routing policy].
+
 The deployment scripts are responsible for managing updates of the tBTC gateway
 addresses across various chains. These addresses are stored in the `external/`
 directory for a specific network, such as `optimismSepolia/ArbitrumWormholeGateway.json.` 
@@ -48,6 +51,9 @@ Supported networks:
 Currently, this module does not deploy any contracts on L1. All the existing 
 Wormhole contract addresses that are used in this module are stored under 
 `external/<network>` dir.
+
+Historical Goerli-era deployment records are retained in `external/` for
+reference; those networks are no longer configured for deployment.
 
 If contracts haven't been built yet or changes occurred, `deploy` task will build
 the contracts before running the deployment script. This command produces

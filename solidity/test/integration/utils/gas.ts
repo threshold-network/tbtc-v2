@@ -1,21 +1,18 @@
 import chai, { expect } from "chai"
-import { waffle, ethers } from "hardhat"
+import { ethers } from "hardhat"
 
-import type { ContractTransaction } from "ethers"
-
-const { BigNumber } = ethers
-
-chai.use(waffle.solidity)
+import type { ContractTransactionResponse } from "ethers"
+import { requireValue } from "../../../helpers/require-value"
 
 // TODO: Move to @keep-network/hardhat-helpers
 // eslint-disable-next-line import/prefer-default-export
 export async function assertGasUsed(
-  tx: ContractTransaction,
+  tx: ContractTransactionResponse,
   expectedGasUsed: number,
   delta = 1000
 ): Promise<void> {
-  expect((await tx.wait()).gasUsed, "invalid gas used").to.be.closeTo(
-    BigNumber.from(expectedGasUsed),
-    delta
-  )
+  expect(
+    requireValue(await tx.wait(), "Transaction receipt").gasUsed,
+    "invalid gas used"
+  ).to.be.closeTo(BigInt(expectedGasUsed), BigInt(delta))
 }
