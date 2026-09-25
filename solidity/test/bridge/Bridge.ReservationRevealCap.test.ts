@@ -425,6 +425,16 @@ describe("Bridge - reserved refund-locktime cap", () => {
       expect(
         (await bridge.depositParameters()).depositRevealAheadPeriod
       ).to.equal(constants.depositRevealAheadPeriod)
+      // Any deadline before now + 15 d is too close, shown at its latest
+      // point; any deadline from now + 15 d on is past the empty-table cap of
+      // now + 24 h, shown at its earliest point.
+      const tooCloseRevealAt = await nextRevealTime()
+      await expect(
+        revealReservedAt(
+          tooCloseRevealAt,
+          constants.depositRevealAheadPeriod - 1
+        )
+      ).to.be.revertedWith(TOO_CLOSE_REVERT)
       const revealAt = await nextRevealTime()
       await expect(
         revealReservedAt(revealAt, constants.depositRevealAheadPeriod)
