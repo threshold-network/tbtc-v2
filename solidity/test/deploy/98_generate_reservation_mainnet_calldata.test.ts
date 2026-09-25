@@ -9,9 +9,32 @@ import fs from "fs"
 import path from "path"
 import func, {
   buildReservationActionDefinitions,
+  buildReservationTermActionDefinitions,
+  checkReservationTermTable,
   KNOWN_TIMELOCK,
   KNOWN_COUNCIL_SAFE,
 } from "../../deploy/98_generate_reservation_mainnet_calldata"
+import { RESERVATION_TERM_ENTRIES } from "../../deploy/97_set_reservation_parameters"
+
+const DAY = 24 * 60 * 60
+// The live mainnet `depositRevealAheadPeriod`.
+const MAINNET_REVEAL_AHEAD_PERIOD = 150 * DAY
+// `WalletProposalValidatorConstants.DEPOSIT_REFUND_SAFETY_MARGIN`.
+const DEPOSIT_REFUND_SAFETY_MARGIN = DAY
+
+// The bootstrap actions, then one begin/finalize pair per ruled term entry.
+const BOOTSTRAP_METHODS = [
+  "setReservationRouter",
+  "beginReservationCapsUpdate",
+  "beginReservationParametersUpdate",
+  "finalizeReservationCapsUpdate",
+  "finalizeReservationParametersUpdate",
+  "setVaultStatus",
+]
+const TERM_METHODS = RESERVATION_TERM_ENTRIES.flatMap(() => [
+  "beginReservationTermUpdate",
+  "finalizeReservationTermUpdate",
+])
 
 /**
  * Asserts that `promise` rejects with an error whose message matches
@@ -66,7 +89,7 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
     RESERVATION_MAX_ACTIVE: "5",
     RESERVATION_MIN_AMOUNT_SATS: "10000",
     RESERVATION_TX_MAX_FEE_SATS: "1000",
-    RESERVATION_TERM_SECONDS: "7776000", // 90 days = MIN_RESERVATION_TERM
+    RESERVATION_TERM_SECONDS: "7776000", // 90 days, above MIN_RESERVATION_TERM (30 days)
     RESERVATION_DISSOLUTION_DELAY_SECONDS: "86400",
     RESERVATION_MAX_TOTAL_AMOUNT_SATS: "500000", // 5 * 100000, satisfies Decision 1
     RESERVATION_MAX_PER_WALLET: "1",
@@ -110,6 +133,7 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
     routerOnChainCode?: string
     proxyAdminOwner?: string
     bridgeGovernanceOwner?: string
+    depositRevealAheadPeriod?: number
   }): { mockHre: any } {
     const liveWalletsCount = overrides?.liveWalletsCount ?? 10
     const liveWalletsCountAtFinalize =
@@ -121,6 +145,8 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
     const proxyAdminOwner = overrides?.proxyAdminOwner ?? KNOWN_TIMELOCK
     const bridgeGovernanceOwner =
       overrides?.bridgeGovernanceOwner ?? KNOWN_COUNCIL_SAFE
+    const depositRevealAheadPeriod =
+      overrides?.depositRevealAheadPeriod ?? MAINNET_REVEAL_AHEAD_PERIOD
 
     const addressMap: Record<string, string> = {
       Bridge: BRIDGE_ADDRESS,
@@ -177,6 +203,9 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
           }
           if (name === "Bridge" && method === "getReservationRouter") {
             return reservationRouterOnChain
+          }
+          if (name === "Bridge" && method === "depositParameters") {
+            return { depositRevealAheadPeriod }
           }
           throw new Error(`Unexpected read: ${name}.${method}`)
         },
@@ -332,7 +361,7 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
   })
 
   describe("calldata generation (full run)", () => {
-    it("should generate calldata for all 6 actions in point-of-no-return order", async () => {
+    it("should generate calldata for all 6 bootstrap actions, then the term entries, in point-of-no-return order", async () => {
       const { mockHre } = createMockHre()
       const capture = captureConsoleLog()
       let output: string
@@ -342,13 +371,12 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
         output = capture.restore()
       }
 
+      // Each term method's selector repeats per entry; its first occurrence
+      // must still follow setVaultStatus.
       const selectors = [
-        "setReservationRouter",
-        "beginReservationCapsUpdate",
-        "beginReservationParametersUpdate",
-        "finalizeReservationCapsUpdate",
-        "finalizeReservationParametersUpdate",
-        "setVaultStatus",
+        ...BOOTSTRAP_METHODS,
+        "beginReservationTermUpdate",
+        "finalizeReservationTermUpdate",
       ].map((method) => bridgeGovInterface.getSighash(method))
 
       const indices = selectors.map((sel) => output.indexOf(sel))
@@ -432,6 +460,23 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
       await expectRejection(func(mockHre), /MIN_AMOUNT_SATS/)
     })
 
+    it("should throw when RESERVATION_TERM_SECONDS is below the 30-day MIN_RESERVATION_TERM", async () => {
+      process.env.RESERVATION_TERM_SECONDS = String(30 * DAY - 1)
+      const { mockHre } = createMockHre()
+      await expectRejection(func(mockHre), /MIN_RESERVATION_TERM/)
+    })
+
+    it("should accept RESERVATION_TERM_SECONDS at the 30-day MIN_RESERVATION_TERM", async () => {
+      process.env.RESERVATION_TERM_SECONDS = String(30 * DAY)
+      const { mockHre } = createMockHre()
+      const capture = captureConsoleLog()
+      try {
+        await func(mockHre)
+      } finally {
+        capture.restore()
+      }
+    })
+
     it("should throw when RESERVATION_TERM_SECONDS exceeds MAX_RESERVATION_TERM", async () => {
       process.env.RESERVATION_TERM_SECONDS = "63072001" // 730 days + 1s
       const { mockHre } = createMockHre()
@@ -455,6 +500,139 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
       process.env.RESERVATION_ACTION_TIMEOUT_SECONDS = "7200" // exactly the margin
       const { mockHre } = createMockHre()
       await expectRejection(func(mockHre), /ACTION_TIMEOUT_SECONDS/)
+    })
+  })
+
+  describe("checkReservationTermTable (pure)", () => {
+    const entry = (termId: number, termDays: number, custodyBps = 5) => ({
+      termId,
+      termSeconds: termDays * DAY,
+      custodyBps,
+      enabled: true,
+    })
+
+    it("should accept the ruled entries at the live reveal-ahead period and a 7-day window", () => {
+      checkReservationTermTable(
+        RESERVATION_TERM_ENTRIES,
+        MAINNET_REVEAL_AHEAD_PERIOD,
+        7 * DAY
+      )
+    })
+
+    it("should accept a largest entry of 149 days at the 150-day reveal-ahead period", () => {
+      checkReservationTermTable(
+        [entry(1, 149)],
+        MAINNET_REVEAL_AHEAD_PERIOD,
+        DAY
+      )
+    })
+
+    it("should refuse a largest entry one second under 149 days at the 150-day reveal-ahead period", () => {
+      expect(() =>
+        checkReservationTermTable(
+          [
+            {
+              termId: 1,
+              termSeconds: 149 * DAY - 1,
+              custodyBps: 5,
+              enabled: true,
+            },
+          ],
+          MAINNET_REVEAL_AHEAD_PERIOD,
+          DAY
+        )
+      ).to.throw(/depositRevealAheadPeriod/)
+    })
+
+    it("should refuse the ruled entries with the 30-day entry added first", () => {
+      const [longest, month, quarter] = RESERVATION_TERM_ENTRIES
+      expect(() =>
+        checkReservationTermTable(
+          [month, longest, quarter],
+          MAINNET_REVEAL_AHEAD_PERIOD,
+          7 * DAY
+        )
+      ).to.throw(/Reservation term 2 .*depositRevealAheadPeriod/)
+    })
+
+    it("should accept a short first entry while it covers the reveal-ahead period", () => {
+      checkReservationTermTable(
+        [entry(2, 30), entry(1, 365)],
+        30 * DAY + DEPOSIT_REFUND_SAFETY_MARGIN,
+        DAY
+      )
+    })
+
+    it("should refuse a renewal window equal to the smallest entry", () => {
+      expect(() =>
+        checkReservationTermTable(RESERVATION_TERM_ENTRIES, 0, 30 * DAY)
+      ).to.throw(/is not shorter than reservation term 2/)
+    })
+
+    it("should accept a renewal window one second below the smallest entry", () => {
+      checkReservationTermTable(RESERVATION_TERM_ENTRIES, 0, 30 * DAY - 1)
+    })
+  })
+
+  describe("buildReservationTermActionDefinitions (pure)", () => {
+    it("should return a begin/finalize pair per entry, in order", () => {
+      const actions = buildReservationTermActionDefinitions(
+        RESERVATION_TERM_ENTRIES
+      )
+      expect(actions.map((a) => a.method)).to.deep.equal(TERM_METHODS)
+      RESERVATION_TERM_ENTRIES.forEach((termEntry, index) => {
+        expect(actions[2 * index].args).to.deep.equal([
+          termEntry.termId,
+          termEntry.termSeconds,
+          termEntry.custodyBps,
+          termEntry.enabled,
+        ])
+        expect(actions[2 * index + 1].args).to.deep.equal([])
+      })
+    })
+
+    it("should encode every action against the real BridgeGovernance ABI", () => {
+      buildReservationTermActionDefinitions(RESERVATION_TERM_ENTRIES).forEach(
+        (action) => {
+          const calldata = bridgeGovInterface.encodeFunctionData(
+            action.method,
+            action.args
+          )
+          expect(
+            bridgeGovInterface.decodeFunctionData(action.method, calldata)
+          ).to.have.lengthOf(action.args.length)
+        }
+      )
+    })
+  })
+
+  describe("reservation term table checks (full run)", () => {
+    it("should throw when the live reveal-ahead period exceeds the largest entry plus 24 hours", async () => {
+      const { mockHre } = createMockHre({
+        depositRevealAheadPeriod: 365 * DAY + DEPOSIT_REFUND_SAFETY_MARGIN + 1,
+      })
+      await expectRejection(func(mockHre), /depositRevealAheadPeriod/)
+    })
+
+    it("should accept a live reveal-ahead period of exactly the largest entry plus 24 hours", async () => {
+      const { mockHre } = createMockHre({
+        depositRevealAheadPeriod: 365 * DAY + DEPOSIT_REFUND_SAFETY_MARGIN,
+      })
+      const capture = captureConsoleLog()
+      try {
+        await func(mockHre)
+      } finally {
+        capture.restore()
+      }
+    })
+
+    it("should throw when the renewal window is not shorter than the smallest entry", async () => {
+      process.env.RESERVATION_RENEWAL_WINDOW_SECONDS = String(30 * DAY)
+      const { mockHre } = createMockHre()
+      await expectRejection(
+        func(mockHre),
+        /is not shorter than reservation term/
+      )
     })
   })
 
@@ -538,18 +716,13 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
       cleanupSummaryFiles()
     })
 
-    it("should have governanceActions derived from the single action list, in order, with 6 entries", () => {
+    it("should have governanceActions derived from the single action list, in order, with 6 bootstrap entries and a pair per term entry", () => {
       expect(summary.governanceActions).to.be.an("array")
-      expect(summary.governanceActions).to.have.lengthOf(6)
+      expect(summary.governanceActions).to.have.lengthOf(12)
 
-      const expectedSelectors = [
-        "setReservationRouter",
-        "beginReservationCapsUpdate",
-        "beginReservationParametersUpdate",
-        "finalizeReservationCapsUpdate",
-        "finalizeReservationParametersUpdate",
-        "setVaultStatus",
-      ].map((method) => bridgeGovInterface.getSighash(method))
+      const expectedSelectors = [...BOOTSTRAP_METHODS, ...TERM_METHODS].map(
+        (method) => bridgeGovInterface.getSighash(method)
+      )
 
       summary.governanceActions.forEach((action: any, index: number) => {
         expect(action.to).to.equal(BRIDGE_GOVERNANCE_ADDRESS)
@@ -557,6 +730,26 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
         expect(action).to.have.property("description")
         expect(action).to.have.property("value")
       })
+    })
+
+    it("should stage the ruled term entries, 365 days first", () => {
+      const staged = summary.governanceActions
+        .slice(BOOTSTRAP_METHODS.length)
+        .filter((_: any, index: number) => index % 2 === 0)
+        .map((action: any) => {
+          const [termId, termSeconds, custodyBps, enabled] =
+            bridgeGovInterface.decodeFunctionData(
+              "beginReservationTermUpdate",
+              action.data
+            )
+          return { termId, termSeconds, custodyBps, enabled }
+        })
+
+      expect(staged).to.deep.equal([
+        { termId: 1, termSeconds: 365 * DAY, custodyBps: 20, enabled: true },
+        { termId: 2, termSeconds: 30 * DAY, custodyBps: 2, enabled: true },
+        { termId: 3, termSeconds: 91 * DAY, custodyBps: 5, enabled: true },
+      ])
     })
 
     it("should not have a separate exampleConfig representation", () => {

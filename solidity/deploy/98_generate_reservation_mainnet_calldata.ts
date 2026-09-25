@@ -3,6 +3,8 @@ import path from "path"
 import { HardhatRuntimeEnvironment } from "hardhat/types"
 import { DeployFunction } from "hardhat-deploy/types"
 import { utils, constants } from "ethers"
+import { RESERVATION_TERM_ENTRIES } from "./97_set_reservation_parameters"
+import type { ReservationTermEntry } from "./97_set_reservation_parameters"
 
 // Known mainnet Timelock Controller address. Owner of the ProxyAdmin,
 // used for scheduling and executing proxy upgrades with a 24h delay. This
@@ -29,10 +31,12 @@ const EIP_1967_ADMIN_SLOT =
 // value fails fast in this script rather than reverting on-chain at
 // finalize -- up to 48h after the begin calldata this script generates is
 // submitted and staged.
-const MIN_RESERVATION_TERM = 7_776_000 // 90 days
+const MIN_RESERVATION_TERM = 2_592_000 // 30 days
 const MAX_RESERVATION_TERM = 63_072_000 // 730 days
 // Mirrored from WalletProposalValidatorConstants.REQUEST_TIMEOUT_SAFETY_MARGIN.
 const REQUEST_TIMEOUT_SAFETY_MARGIN = 7_200 // 2 hours
+// Mirrored from WalletProposalValidatorConstants.DEPOSIT_REFUND_SAFETY_MARGIN.
+const DEPOSIT_REFUND_SAFETY_MARGIN = 86_400 // 24 hours
 
 /** A single governance action: an ABI method name plus its call args. */
 interface ActionDefinition {
@@ -185,6 +189,94 @@ export function buildReservationActionDefinitions(params: {
   ]
 }
 
+/**
+ * Checks the reservation term entries, in the order they will be added,
+ * against the relations the Bridge's `setReservationTerm` enforces on every
+ * addition, so a bad table fails here rather than reverting at a finalize
+ * up to 48h after its begin is staged. Throws on the first violation.
+ *
+ * - With each entry added, the largest entry so far plus
+ *   DEPOSIT_REFUND_SAFETY_MARGIN must be at least `depositRevealAheadPeriod`.
+ *   This is checked per addition, not only over the whole table, because
+ *   the setter checks it per addition: the first entry must cover the period
+ *   on its own.
+ * - The renewal window must be strictly shorter than every entry.
+ *
+ * @param entries Entries in the order their begin/finalize cycles run.
+ * @param depositRevealAheadPeriod The Bridge's reveal-ahead period, seconds.
+ * @param renewalWindowSeconds The renewal window in force when the entries
+ *        are finalized, seconds.
+ */
+export function checkReservationTermTable(
+  entries: readonly ReservationTermEntry[],
+  depositRevealAheadPeriod: number,
+  renewalWindowSeconds: number
+): void {
+  let largestTermSeconds = 0
+  entries.forEach((entry) => {
+    largestTermSeconds = Math.max(largestTermSeconds, entry.termSeconds)
+    if (
+      largestTermSeconds + DEPOSIT_REFUND_SAFETY_MARGIN <
+      depositRevealAheadPeriod
+    ) {
+      throw new Error(
+        `Reservation term ${entry.termId} (${entry.termSeconds}s) would be ` +
+          `added while the largest entry is ${largestTermSeconds}s, below ` +
+          `depositRevealAheadPeriod (${depositRevealAheadPeriod}s) minus ` +
+          `DEPOSIT_REFUND_SAFETY_MARGIN (${DEPOSIT_REFUND_SAFETY_MARGIN}s); ` +
+          "setReservationTerm would revert at finalize. Add an entry " +
+          "covering the period first."
+      )
+    }
+    if (renewalWindowSeconds >= entry.termSeconds) {
+      throw new Error(
+        `Renewal window (${renewalWindowSeconds}s) is not shorter than ` +
+          `reservation term ${entry.termId} (${entry.termSeconds}s); ` +
+          "setReservationTerm would revert at finalize"
+      )
+    }
+  })
+}
+
+/**
+ * Builds the begin/finalize governance action pair for each reservation
+ * term entry, in the given order. BridgeGovernance stages one term entry
+ * at a time, so each pair must complete (begin, governance delay, finalize)
+ * before the next begin: a begin overwrites the staged entry.
+ */
+export function buildReservationTermActionDefinitions(
+  entries: readonly ReservationTermEntry[]
+): ActionDefinition[] {
+  return entries.flatMap((entry) => [
+    {
+      method: "beginReservationTermUpdate",
+      args: [entry.termId, entry.termSeconds, entry.custodyBps, entry.enabled],
+      label: `beginReservationTermUpdate (stages reservation term ${entry.termId})`,
+      details: {
+        "Term id": entry.termId.toString(),
+        "Term (seconds)": entry.termSeconds.toString(),
+        "Custody fee (bps)": entry.custodyBps.toString(),
+        Enabled: entry.enabled.toString(),
+        "Governance delay": "172800s (48h)",
+        Note:
+          "One term entry is staged at a time: submit only after the " +
+          "previous term entry's finalize has executed.",
+      },
+    },
+    {
+      method: "finalizeReservationTermUpdate",
+      args: [],
+      label: `finalizeReservationTermUpdate (POINT OF NO RETURN - adds reservation term ${entry.termId}; entries are never rewritten)`,
+      details: {
+        Note:
+          "MUST execute AFTER setReservationRouter, and in the listed " +
+          "order: the Bridge checks the largest entry against " +
+          "depositRevealAheadPeriod on every addition.",
+      },
+    },
+  ])
+}
+
 /** Logs a single resolved governance calldata action with consistent formatting. */
 function logCalldataAction(action: CalldataAction): void {
   console.log(`\n  ${action.label}`)
@@ -203,7 +295,8 @@ function logCalldataSummary(actions: CalldataAction[]): void {
   console.log("=".repeat(80))
   console.log(
     "Ordering: router FIRST; finalizeReservationCapsUpdate BEFORE " +
-      "finalizeReservationParametersUpdate BEFORE setVaultStatus"
+      "finalizeReservationParametersUpdate BEFORE setVaultStatus; then " +
+      "one begin/finalize cycle per reservation term entry, in order"
   )
 
   actions.forEach((action, index) => {
@@ -415,7 +508,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   if (RES_TERM_SECONDS < MIN_RESERVATION_TERM) {
     throw new Error(
       `RESERVATION_TERM_SECONDS (${RES_TERM_SECONDS}) is below the on-chain ` +
-        `MIN_RESERVATION_TERM (${MIN_RESERVATION_TERM}s / 90 days) and would ` +
+        `MIN_RESERVATION_TERM (${MIN_RESERVATION_TERM}s / 30 days) and would ` +
         "revert on finalizeReservationParametersUpdate"
     )
   }
@@ -464,6 +557,24 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
         "exceed the safety margin' require)"
     )
   }
+
+  // Check the term table against the live reveal-ahead period and the
+  // renewal window staged above, which is in force at the term finalizes:
+  // they run after finalizeReservationParametersUpdate.
+  const depositParameters = await read("Bridge", "depositParameters")
+  const depositRevealAheadPeriod = Number(
+    depositParameters.depositRevealAheadPeriod
+  )
+  checkReservationTermTable(
+    RESERVATION_TERM_ENTRIES,
+    depositRevealAheadPeriod,
+    RES_RENEWAL_WINDOW
+  )
+  console.log(
+    "\nReservation term table OK against depositRevealAheadPeriod " +
+      `(${depositRevealAheadPeriod}s) and the renewal window ` +
+      `(${RES_RENEWAL_WINDOW}s)`
+  )
 
   // Verify Decision 1 invariant holds:
   // reservationMaxTotalAmount <= maxActiveReservations * reservationMaxSingleAmount
@@ -551,7 +662,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 
   // --- Generate governance calldata ---
   console.log(
-    "\n--- Generating governance calldata (router, then caps+params begin, then caps+params finalize, then activation) ---"
+    "\n--- Generating governance calldata (router, then caps+params begin, then caps+params finalize, then activation, then term entries) ---"
   )
 
   // Single ABI source: the compiled BridgeGovernance artifact, not a
@@ -578,7 +689,10 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     renewalWindowSeconds: RES_RENEWAL_WINDOW,
   })
 
-  const actions: CalldataAction[] = actionDefinitions.map((definition) => ({
+  const actions: CalldataAction[] = [
+    ...actionDefinitions,
+    ...buildReservationTermActionDefinitions(RESERVATION_TERM_ENTRIES),
+  ].map((definition) => ({
     ...definition,
     target: BridgeGovernance.address,
     targetName: "BridgeGovernance",
