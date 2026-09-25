@@ -35,7 +35,10 @@ const [TERM_365, TERM_30, TERM_91] = RESERVATION_TERM_ENTRIES
 const LARGEST_TERM_SECONDS = TERM_365.termSeconds
 const ENTRIES_BY_LENGTH = [TERM_30, TERM_91, TERM_365]
 
-const RESERVATION_TERM = 365 * DAY
+// The global term, kept distinct from every entry's length and below the
+// largest one, so a late window that read it instead of the largest entry
+// would close the window the late-settlement tests prove open.
+const RESERVATION_TERM = 90 * DAY
 const RESERVATION_GRACE = 30 * DAY
 const RESERVATION_MIN_AMOUNT = 10000
 const RESERVATION_TX_MAX_FEE = 2000
@@ -247,6 +250,12 @@ describe("Bridge - Reservation term carried to the position at proof", () => {
 
     const tbtcOwner = await impersonateContract(await tbtc.owner())
     await tbtc.connect(tbtcOwner).transferOwnership(tbtcVault.address)
+
+    // The global term differs from the largest entry (see RESERVATION_TERM).
+    expect(
+      (await reservationRouter.reservationParameters()).reservationTermSeconds
+    ).to.equal(RESERVATION_TERM)
+    expect(RESERVATION_TERM).to.be.lessThan(LARGEST_TERM_SECONDS)
 
     // The seeded table this file's expectations are written against.
     // eslint-disable-next-line no-restricted-syntax
