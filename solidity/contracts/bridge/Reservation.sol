@@ -61,13 +61,14 @@ library Reservation {
     using Wallets for BridgeState.Storage;
 
     /// @notice Hard protocol bounds on the custody term length. The
-    ///         governable term must stay within them; they bound the
-    ///         maximum owner lookahead (one term plus the renewal window)
-    ///         and keep the carry economics of a term meaningful.
-    // Bounds enforced by the governance term-update setter that ships in the
-    // bounded-renewal PR; unused in milestone 1.
+    ///         governable term and every reservation term entry must stay
+    ///         within them; they bound the maximum owner lookahead (one
+    ///         term plus the renewal window) and keep the carry economics
+    ///         of a term meaningful.
+    // Enforced by `updateReservationParameters` on the global term and by
+    // `setReservationTerm` on each term entry.
     // slither-disable-next-line unused-state
-    uint32 internal constant MIN_RESERVATION_TERM = 90 days;
+    uint32 internal constant MIN_RESERVATION_TERM = 30 days;
     // slither-disable-next-line unused-state
     uint32 internal constant MAX_RESERVATION_TERM = 730 days;
     /// @notice Represents the state of a reservation position.
