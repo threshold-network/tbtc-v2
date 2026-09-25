@@ -34,6 +34,7 @@ contract BridgeGovernance is Ownable {
     using BridgeGovernanceParameters for BridgeGovernanceParameters.FraudData;
     using BridgeGovernanceParameters for BridgeGovernanceParameters.ReservationData;
     using BridgeGovernanceParameters for BridgeGovernanceParameters.ReservationCapsData;
+    using BridgeGovernanceParameters for BridgeGovernanceParameters.ReservationTermData;
     using BridgeGovernanceParameters for BridgeGovernanceParameters.TreasuryData;
 
     BridgeGovernanceParameters.DepositData internal depositData;
@@ -43,6 +44,7 @@ contract BridgeGovernance is Ownable {
     BridgeGovernanceParameters.FraudData internal fraudData;
     BridgeGovernanceParameters.ReservationData internal reservationData;
     BridgeGovernanceParameters.ReservationCapsData internal reservationCapsData;
+    BridgeGovernanceParameters.ReservationTermData internal reservationTermData;
     BridgeGovernanceParameters.TreasuryData internal treasuryData;
     Bridge internal bridge;
 
@@ -291,6 +293,22 @@ contract BridgeGovernance is Ownable {
 
     event TreasuryUpdateStarted(address newTreasury, uint256 timestamp);
     event TreasuryUpdated(address treasury);
+
+    // Emitted by `BridgeGovernanceParameters`; declared here as well so the
+    // `BridgeGovernance` ABI can filter and decode them.
+    event ReservationTermUpdateStarted(
+        uint8 newReservationTermId,
+        uint32 newReservationTermSeconds,
+        uint16 newReservationTermCustodyBps,
+        bool newReservationTermEnabled,
+        uint256 timestamp
+    );
+    event ReservationTermUpdateFinalized(
+        uint8 reservationTermId,
+        uint32 reservationTermSeconds,
+        uint16 reservationTermCustodyBps,
+        bool reservationTermEnabled
+    );
 
     constructor(Bridge _bridge, uint256 _governanceDelay) {
         bridge = _bridge;
@@ -1924,6 +1942,48 @@ contract BridgeGovernance is Ownable {
             staged.newMaxReservationsAmountPerWallet,
             staged.newReservationMaxSingleAmount,
             staged.newMaxActiveReservations
+        );
+    }
+
+    /// @notice Begins the reservation term update process. Stages one entry
+    ///         of the Bridge's reservation term table: a new call
+    ///         overwrites the staged entry and restarts the governance
+    ///         delay. To flip an existing entry's `enabled` flag, pass its
+    ///         stored `termSeconds` and `custodyBps` unchanged.
+    /// @dev Can be called only by the contract owner. Values are validated
+    ///      by the Bridge at finalization, not here.
+    /// @param _termId Id of the entry.
+    /// @param _termSeconds Length of the custody term, in seconds.
+    /// @param _custodyBps Custody fee of the term, in basis points.
+    /// @param _enabled Whether new positions may select the term.
+    function beginReservationTermUpdate(
+        uint8 _termId,
+        uint32 _termSeconds,
+        uint16 _custodyBps,
+        bool _enabled
+    ) external onlyOwner {
+        reservationTermData.beginReservationTermUpdate(
+            _termId,
+            _termSeconds,
+            _custodyBps,
+            _enabled
+        );
+    }
+
+    /// @notice Finalizes the reservation term update process.
+    /// @dev Can be called only by the contract owner, after the governance
+    ///      delay elapses. Reads the staged entry, clears it, then forwards
+    ///      it to the Bridge's `setReservationTerm`. If the Bridge rejects
+    ///      the entry, the transaction reverts and the entry stays staged.
+    function finalizeReservationTermUpdate() external onlyOwner {
+        BridgeGovernanceParameters.ReservationTermData
+            memory staged = reservationTermData;
+        reservationTermData.finalizeReservationTermUpdate(governanceDelay());
+        IReservationBridge(address(bridge)).setReservationTerm(
+            staged.newReservationTermId,
+            staged.newReservationTermSeconds,
+            staged.newReservationTermCustodyBps,
+            staged.newReservationTermEnabled
         );
     }
 
