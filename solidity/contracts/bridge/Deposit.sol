@@ -239,8 +239,8 @@ library Deposit {
             // which blocks governance from changing `reservationVault` (see
             // `Reservation.updateReservationParameters`) until every pending
             // record clears. Cap the refund deadline so a reserved deposit
-            // that is never anchored is always able to self-clear via
-            // parking the guard indefinitely with a far-future locktime.
+            // that is never anchored cannot park the guard indefinitely
+            // with a far-future locktime.
             // The cap uses the largest term entry, not the position's term:
             // the term is chosen only at acceptance and starts at the anchor
             // proof, and the cap must stay at least
