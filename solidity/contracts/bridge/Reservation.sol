@@ -174,7 +174,8 @@ library Reservation {
         // UNIX timestamp the custody term expires at. Purely a contract
         // layer fact -- the anchor output carries no timelock.
         // XXX: Unsigned 32-bit int unix seconds. Computed as `acceptedAt +
-        // reservationTermSeconds`; Solidity's checked arithmetic reverts
+        // termSeconds` of the term entry selected at the acceptance request
+        // (`action.termSeconds`); Solidity's checked arithmetic reverts
         // this addition (rather than silently wrapping) once the sum would
         // exceed the uint32 ceiling - starting up to MAX_RESERVATION_TERM
         // (730 days) before the raw February 7th 2106 date, not at it.
