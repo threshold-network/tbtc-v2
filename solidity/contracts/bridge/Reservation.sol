@@ -43,9 +43,12 @@ import "./WalletProposalValidatorConstants.sol";
 ///         after the request can make the signed transaction unprovable.
 ///
 ///      2. The SPV *proof* settles the generation against the record's
-///         snapshotted authorization parameters; term and
-///         dissolution-delay grants at settlement additionally read live
-///         governance parameters current at that moment. A generation that
+///         snapshotted parameters, including the term and dissolution
+///         delay an acceptance grants. Two governance-set values are read
+///         live at settlement: the late-acceptance bound (the largest
+///         reservation term entry, which can only grow) and whether the
+///         deposit's vault is still trusted when an acceptance is
+///         credited. A generation that
 ///         times out leaves a terminal record that still accepts a late
 ///         proof (closing the anchor lineage without a second refund); a
 ///         generation vetoed by the redemption watchtower never accepts a
@@ -174,7 +177,8 @@ library Reservation {
         // UNIX timestamp the custody term expires at. Purely a contract
         // layer fact -- the anchor output carries no timelock.
         // XXX: Unsigned 32-bit int unix seconds. Computed as `acceptedAt +
-        // reservationTermSeconds`; Solidity's checked arithmetic reverts
+        // termSeconds` of the term entry selected at the acceptance request
+        // (`action.termSeconds`); Solidity's checked arithmetic reverts
         // this addition (rather than silently wrapping) once the sum would
         // exceed the uint32 ceiling - starting up to MAX_RESERVATION_TERM
         // (730 days) before the raw February 7th 2106 date, not at it.
@@ -216,7 +220,7 @@ library Reservation {
         // As of this milestone, this field's only on-chain reader —
         // re-anchor's `< dissolutionEligibleAt` gate in
         // `requestReservationReanchor` — has been removed. The field is
-        // written by `settleAcceptance` (ReservationProofs.sol:579) but
+        // written by `ReservationProofs.settleAcceptance` but
         // read by nothing in m1. It must continue to be written anyway:
         // storage-completeness for a milestone-2 field means written, not
         // merely declared, and this field is a commitment held in storage
@@ -252,9 +256,11 @@ library Reservation {
 
     /// @notice Represents one requested generation of a reservation action.
     ///         All fields the proof and settlement paths consult are
-    ///         snapshotted here at request time; live parameters are never
-    ///         read at settlement, with the exception of term and dissolution
-    ///         delay grants.
+    ///         snapshotted here at request time, including the term and
+    ///         dissolution delay an acceptance grants. The governance-set
+    ///         values read live at settlement are the late-acceptance bound
+    ///         (the largest reservation term entry) and the trust status of
+    ///         the vault an acceptance is credited through.
     struct ReservationAction {
         // 20-byte public key hash of the wallet the action's single
         // wallet-controlled output must pay to: the designated custodian
