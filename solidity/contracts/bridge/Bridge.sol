@@ -1345,7 +1345,12 @@ contract Bridge is
     /// @dev Requirements:
     ///      - Deposit dust threshold must be greater than zero,
     ///      - Deposit dust threshold must be greater than deposit TX max fee,
-    ///      - Deposit transaction max fee must be greater than zero.
+    ///      - Deposit transaction max fee must be greater than zero,
+    ///      - If the reservation term table is non-empty, deposit reveal
+    ///        ahead period must not exceed the largest term entry ever added
+    ///        plus `DEPOSIT_REFUND_SAFETY_MARGIN`. Otherwise every reserved
+    ///        reveal would revert, because the reserved refund-locktime cap
+    ///        in `Deposit` would fall below the reveal-ahead bound.
     function updateDepositParameters(
         uint64 depositDustThreshold,
         uint64 depositTreasuryFeeDivisor,
