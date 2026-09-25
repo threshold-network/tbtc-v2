@@ -120,7 +120,7 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
     ReservationVault.address, // reservationVault
     ethers.BigNumber.from("10000"), // reservationMinAmount
     ethers.BigNumber.from("1000"), // reservationTxMaxFee
-    ethers.BigNumber.from("7776000"), // reservationTermSeconds (90 days = MIN_RESERVATION_TERM)
+    ethers.BigNumber.from("7776000"), // reservationTermSeconds (90 days, above the 30-day MIN_RESERVATION_TERM)
     ethers.BigNumber.from("86400"), // reservationDissolutionDelay (1 day)
     ethers.BigNumber.from("10000000"), // reservationMaxTotalAmount
     // NOTE: 5, not the mainnet-required 1 (see the divergence note above

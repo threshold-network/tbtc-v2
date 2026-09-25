@@ -67,9 +67,7 @@ library Reservation {
     ///         of a term meaningful.
     // Enforced by `updateReservationParameters` on the global term and by
     // `setReservationTerm` on each term entry.
-    // slither-disable-next-line unused-state
     uint32 internal constant MIN_RESERVATION_TERM = 30 days;
-    // slither-disable-next-line unused-state
     uint32 internal constant MAX_RESERVATION_TERM = 730 days;
     /// @notice Largest reservation term id. Ids 1 to this value are a
     ///         lifetime budget: entries are never rewritten or removed, so
