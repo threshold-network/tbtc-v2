@@ -9,6 +9,7 @@ import type {
   BridgeGovernance,
   BridgeStub,
   ReservationRouter,
+  TBTCVault,
 } from "../../typechain"
 import bridgeFixture, {
   bridgeFixtureWithoutReservationTerms,
@@ -90,6 +91,7 @@ describe("Bridge - reserved refund-locktime cap", () => {
   let bridgeGovernance: BridgeGovernance
   let reservationRouter: ReservationRouter
   let reservationVault: string
+  let tbtcVault: TBTCVault
 
   async function impersonate(address: string): Promise<SignerWithAddress> {
     await ethers.provider.send("hardhat_impersonateAccount", [address])
@@ -146,11 +148,12 @@ describe("Bridge - reserved refund-locktime cap", () => {
       .finalizeDepositRevealAheadPeriodUpdate()
   }
 
-  // Reveals a fresh reserved deposit in a block mined at `revealAt`, with a
+  // Reveals a fresh deposit to `vault` in a block mined at `revealAt`, with a
   // refund locktime of `revealAt + deadlineOffset`. The gas limit is fixed
   // so a reverting reveal is mined at `revealAt` too, not estimated at some
   // other timestamp.
-  async function revealReservedAt(
+  async function revealToVaultAt(
+    vault: string,
     revealAt: number,
     deadlineOffset: number
   ): Promise<ContractTransaction> {
@@ -165,10 +168,17 @@ describe("Bridge - reserved refund-locktime cap", () => {
         walletPubKeyHash,
         refundPubKeyHash,
         refundLocktime,
-        vault: reservationVault,
+        vault,
       },
       { gasLimit: 1_000_000 }
     )
+  }
+
+  async function revealReservedAt(
+    revealAt: number,
+    deadlineOffset: number
+  ): Promise<ContractTransaction> {
+    return revealToVaultAt(reservationVault, revealAt, deadlineOffset)
   }
 
   async function nextRevealTime(): Promise<number> {
@@ -178,7 +188,7 @@ describe("Bridge - reserved refund-locktime cap", () => {
   describe("with the seeded term table", () => {
     before(async () => {
       // eslint-disable-next-line @typescript-eslint/no-extra-semi
-      ;({ governance, thirdParty, bridge, bridgeGovernance } =
+      ;({ governance, thirdParty, bridge, bridgeGovernance, tbtcVault } =
         await bridgeFixture())
       // Restored in `after`, so nothing set here outlives this suite.
       await createSnapshot()
@@ -240,6 +250,31 @@ describe("Bridge - reserved refund-locktime cap", () => {
             LARGEST_TERM + DEPOSIT_REFUND_SAFETY_MARGIN + 1
           )
         ).to.be.revertedWith(CAP_REVERT)
+      })
+
+      // The cap applies only to reserved reveals. A deadline the cap rejects
+      // for the reservation vault must still be accepted for a pooled
+      // reveal, with no vault or with a trusted vault that is not the
+      // reservation vault.
+      context("when the reveal is pooled", () => {
+        const pastCap = LARGEST_TERM + DEPOSIT_REFUND_SAFETY_MARGIN + 1
+
+        it("should accept a deadline past the cap with no vault", async () => {
+          const revealAt = await nextRevealTime()
+          await expect(
+            revealToVaultAt(ethers.constants.AddressZero, revealAt, pastCap)
+          ).to.not.be.reverted
+          expect(await reservationRouter.pendingReservedDeposits()).to.equal(0)
+        })
+
+        it("should accept a deadline past the cap with a trusted non-reservation vault", async () => {
+          expect(tbtcVault.address).to.not.equal(reservationVault)
+          expect(await bridge.isVaultTrusted(tbtcVault.address)).to.be.true
+          const revealAt = await nextRevealTime()
+          await expect(revealToVaultAt(tbtcVault.address, revealAt, pastCap)).to
+            .not.be.reverted
+          expect(await reservationRouter.pendingReservedDeposits()).to.equal(0)
+        })
       })
     })
 
