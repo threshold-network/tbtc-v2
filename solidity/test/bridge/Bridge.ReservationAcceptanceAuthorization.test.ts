@@ -240,12 +240,12 @@ async function liveWallet(pkh: string) {
 // tests already reserved. Found 2026-08-27.
 async function establishReservationPreconditions() {
   // Intervening `waffle.loadFixture` reverts can restore the shared
-  // governance account to a snapshot where it has no ETH. Re-fund the
-  // impersonated signer before using it here.
-  await ethers.provider.send("hardhat_setBalance", [
-    bridgeGovernanceSigner.address,
-    "0x8AC7230489E80000",
-  ])
+  // governance account to a snapshot where it has no ETH, and an
+  // intervening re-run of the seeded Bridge fixture stops the governance
+  // impersonation (the seeding helper stops it on exit, and impersonation
+  // is node state no snapshot revert restores). Re-impersonate and re-fund
+  // the governance before using it here.
+  bridgeGovernanceSigner = await impersonateContract(await bridge.governance())
   await liveWallet(walletPubKeyHash)
   await bridge
     .connect(bridgeGovernanceSigner)
