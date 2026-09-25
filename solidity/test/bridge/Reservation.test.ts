@@ -1025,6 +1025,130 @@ describe("Reservation", () => {
     })
   })
 
+  describe("requestReservationAcceptance term selection", () => {
+    // Requests acceptance of `reservationKey1` on `termId`.
+    async function requestOnTerm(termId: number) {
+      return testReservation
+        .connect(depositor)
+        .requestReservationAcceptance(reservationKey1, walletPubKeyHash, termId)
+    }
+
+    // Seeds `reservationKey1` with a refund deadline far enough out for a
+    // second generation after a timeout.
+    async function setupLongDeposit() {
+      const now = await lastBlockTime()
+      await setupValidDeposit(reservationKey1, walletPubKeyHash, {
+        refundDeadline: now + 4 * defaultActionTimeout + 2 * twentyFourHours,
+      })
+    }
+
+    describe("when the term id names no entry", () => {
+      // 0 and 9 are outside the id range; 4 and 8 are in range but unused
+      // (the harness table holds ids 1-3); 255 is the largest uint8.
+      const unknownTermIds = [0, 4, 8, 9, 255]
+
+      unknownTermIds.forEach((termId) => {
+        it(`should revert for id ${termId}`, async () => {
+          await setupLongDeposit()
+          await expect(requestOnTerm(termId)).to.be.revertedWith(
+            "Reservation term does not exist"
+          )
+        })
+      })
+    })
+
+    describe("when the term entry is disabled", () => {
+      it("should revert", async () => {
+        const entry = RESERVATION_TERM_ENTRIES[1]
+        await testReservation.setReservationTerm(
+          entry.termId,
+          entry.termSeconds,
+          entry.custodyBps,
+          false
+        )
+        await setupLongDeposit()
+
+        await expect(requestOnTerm(entry.termId)).to.be.revertedWith(
+          "Reservation term is disabled"
+        )
+      })
+
+      it("should accept the entry again once re-enabled", async () => {
+        const entry = RESERVATION_TERM_ENTRIES[1]
+        await testReservation.setReservationTerm(
+          entry.termId,
+          entry.termSeconds,
+          entry.custodyBps,
+          false
+        )
+        await testReservation.setReservationTerm(
+          entry.termId,
+          entry.termSeconds,
+          entry.custodyBps,
+          true
+        )
+        await setupLongDeposit()
+
+        await expect(requestOnTerm(entry.termId)).to.not.be.reverted
+      })
+    })
+
+    describe("when the term entry exists and is enabled", () => {
+      RESERVATION_TERM_ENTRIES.forEach((entry) => {
+        it(`should snapshot the ${entry.termSeconds} s entry (id ${entry.termId}), record its id and announce it`, async () => {
+          await setupLongDeposit()
+
+          const tx = await requestOnTerm(entry.termId)
+
+          const action = await testReservation.getAction(reservationKey1, 1)
+          expect(action.termSeconds).to.equal(entry.termSeconds)
+          expect(
+            await testReservation.reservationActionTermId(reservationKey1, 1)
+          ).to.equal(entry.termId)
+          await expect(tx)
+            .to.emit(testReservation, "ReservationTermSelected")
+            .withArgs(reservationKey1, 1, entry.termId)
+          await expect(tx).to.emit(
+            testReservation,
+            "ReservationAcceptanceRequested"
+          )
+        })
+      })
+    })
+
+    describe("when a timed-out generation is re-requested on another term", () => {
+      it("should record the new term under the new generation and leave the old one untouched", async () => {
+        const first = RESERVATION_TERM_ENTRIES[0]
+        const second = RESERVATION_TERM_ENTRIES[1]
+        await setupLongDeposit()
+
+        await requestOnTerm(first.termId)
+        await increaseTime(defaultActionTimeout + 1)
+        await testReservation.notifyReservationAcceptanceTimedOut(
+          reservationKey1
+        )
+
+        const tx = await requestOnTerm(second.termId)
+        await expect(tx)
+          .to.emit(testReservation, "ReservationTermSelected")
+          .withArgs(reservationKey1, 2, second.termId)
+
+        const newAction = await testReservation.getAction(reservationKey1, 2)
+        expect(newAction.termSeconds).to.equal(second.termSeconds)
+        expect(
+          await testReservation.reservationActionTermId(reservationKey1, 2)
+        ).to.equal(second.termId)
+
+        const oldAction = await testReservation.getAction(reservationKey1, 1)
+        expect(oldAction.state).to.equal(actionState.TimedOut)
+        expect(oldAction.termSeconds).to.equal(first.termSeconds)
+        expect(
+          await testReservation.reservationActionTermId(reservationKey1, 1)
+        ).to.equal(first.termId)
+      })
+    })
+  })
+
   describe("strandReservation", () => {
     it("should decrement counts, update state to Stranded, clear anchor UTXO mapping, and emit ReservationStranded", async () => {
       await setupValidDeposit(reservationKey1, walletPubKeyHash)
