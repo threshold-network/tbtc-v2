@@ -46,12 +46,19 @@ async function expectRejection(
   promise: Promise<unknown>,
   pattern: RegExp
 ): Promise<void> {
+  // The failure is raised outside the `try`: raised inside, the `catch`
+  // would match `pattern` against the failure's own message, which quotes
+  // the pattern, and pass whenever the promise resolves.
+  let rejection: Error | undefined
   try {
     await promise
-    expect.fail(`expected rejection matching ${pattern}`)
   } catch (error) {
-    expect((error as Error).message).to.match(pattern)
+    rejection = error as Error
   }
+  if (!rejection) {
+    expect.fail(`expected rejection matching ${pattern}`)
+  }
+  expect(rejection.message).to.match(pattern)
 }
 
 describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
