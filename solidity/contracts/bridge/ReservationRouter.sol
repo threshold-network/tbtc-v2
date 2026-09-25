@@ -181,6 +181,13 @@ contract ReservationRouter is Governable, Initializable {
         uint32 reservationRenewalWindowSeconds
     );
 
+    event ReservationTermUpdated(
+        uint8 indexed termId,
+        uint32 termSeconds,
+        uint16 custodyBps,
+        bool enabled
+    );
+
     event ReservationVaultUpdated(address reservationVault);
 
     event ReservationCapsUpdated(
@@ -377,6 +384,25 @@ contract ReservationRouter is Governable, Initializable {
         );
     }
 
+    /// @notice Adds a reservation term entry, or flips the `enabled` flag of
+    ///         an existing one. Entries are never rewritten or removed.
+    /// @param termId Id of the entry, in [1, 8].
+    /// @param termSeconds Length of the custody term in seconds.
+    /// @param custodyBps Custody fee of the term in basis points.
+    /// @param enabled Whether new positions may select the term.
+    /// @dev Requirements:
+    ///      - The caller must be the governance,
+    ///      - See `Reservation.setReservationTerm` for parameter
+    ///        requirements.
+    function setReservationTerm(
+        uint8 termId,
+        uint32 termSeconds,
+        uint16 custodyBps,
+        bool enabled
+    ) external onlyGovernance {
+        self.setReservationTerm(termId, termSeconds, custodyBps, enabled);
+    }
+
     /// @notice Marks a revealed reserved deposit as stale so it stops
     ///         counting against the pending-reserved-deposit guard and can
     ///         no longer be authorized for acceptance. See
@@ -545,6 +571,37 @@ contract ReservationRouter is Governable, Initializable {
             self.reservationActions[
                 Reservation.actionKey(reservationKey, requestNonce)
             ];
+    }
+
+    /// @notice Returns the reservation term entry of the given id. All
+    ///         fields are zero for an id that was never added.
+    /// @param termId Id of the entry.
+    function reservationTerm(uint8 termId)
+        external
+        view
+        returns (
+            uint32 termSeconds,
+            uint16 custodyBps,
+            bool enabled
+        )
+    {
+        Reservation.ReservationTerm storage term = self.reservationTerms[
+            termId
+        ];
+        termSeconds = term.termSeconds;
+        custodyBps = term.custodyBps;
+        enabled = term.enabled;
+    }
+
+    /// @notice Returns the term id of the given reservation position; zero
+    ///         when none is recorded.
+    /// @param reservationKey The key of the reservation.
+    function reservationTermId(uint256 reservationKey)
+        external
+        view
+        returns (uint8)
+    {
+        return self.reservationTermIds[reservationKey];
     }
 
     /// @notice Returns the current values of Bridge reservation parameters.
