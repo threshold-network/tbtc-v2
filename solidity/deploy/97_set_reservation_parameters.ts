@@ -1,6 +1,8 @@
 import type { HardhatRuntimeEnvironment } from "hardhat/types"
 import type { DeployFunction } from "hardhat-deploy/types"
+import { BigNumber } from "ethers"
 import type { Contract, Event, EventFilter } from "ethers"
+import type { Result } from "ethers/lib/utils"
 
 const DAY = 24 * 60 * 60
 
@@ -28,9 +30,11 @@ export const RESERVATION_TERM_ENTRIES: readonly ReservationTermEntry[] = [
   { termId: 3, termSeconds: 91 * DAY, custodyBps: 5, enabled: true },
 ]
 
-// eth_getLogs block ranges are capped by most RPC providers, so the scan for
-// a staged term entry is chunked and its lookback bounded, on the same
-// pattern and bounds as `14_set_deposit_parameters.ts`.
+// eth_getLogs block ranges are capped by most RPC providers, so the scans
+// for staged updates are chunked, on the pattern of
+// `14_set_deposit_parameters.ts`. A scan starts at the BridgeGovernance
+// deployment block; only when the deployment has no receipt is it bounded
+// by the fallback lookback instead.
 const EVENT_QUERY_CHUNK_BLOCKS = 2000
 const FALLBACK_LOOKBACK_BLOCKS = 200_000
 
@@ -55,6 +59,20 @@ async function queryEventsInChunks(
     events.push(...chunkEvents)
   }
   return events
+}
+
+/** Whether every named field of `live` equals the target at its position. */
+function liveMatches(
+  live: Result,
+  names: readonly string[],
+  targets: readonly unknown[]
+): boolean {
+  return names.every((name, index) =>
+    typeof targets[index] === "string"
+      ? String(live[name]).toLowerCase() ===
+        String(targets[index]).toLowerCase()
+      : BigNumber.from(live[name]).eq(targets[index] as BigNumber)
+  )
 }
 
 function isLaterEvent(a: Event, b: Event | undefined): boolean {
@@ -142,15 +160,74 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
     await helpers.time.increaseTime(governanceDelay.toNumber() + 1)
   }
 
+  // Router functions are reached through `Bridge.fallback()`, so the router
+  // ABI is bound to the Bridge address.
+  const Bridge = await get("Bridge")
+  const reservationRouter = await ethers.getContractAt(
+    "ReservationRouter",
+    Bridge.address
+  )
+
+  const queryEvents = async (
+    contract: Contract,
+    filter: EventFilter
+  ): Promise<Event[]> => {
+    const latestBlockNumber = await ethers.provider.getBlockNumber()
+    const fromBlock =
+      BridgeGovernance.receipt?.blockNumber ??
+      Math.max(latestBlockNumber - FALLBACK_LOOKBACK_BLOCKS, 0)
+    return queryEventsInChunks(contract, filter, fromBlock, latestBlockNumber)
+  }
+
+  // On live networks this script is re-run until the term table is complete
+  // (step 4), and a begin overwrites whatever is staged and restarts its
+  // delay. So there steps 1 and 2 begin only when their update is neither
+  // applied (the live values equal the targets) nor already staged (its last
+  // `...UpdateStarted` is not followed by the Bridge's `...Updated`). The
+  // caps and parameters staging events are emitted by the
+  // `BridgeGovernanceParameters` library, so its ABI is bound to the
+  // BridgeGovernance address to read them.
+  const stagingState = async (
+    update: "Caps" | "Parameters",
+    matchesTargets: () => Promise<boolean>
+  ): Promise<"begin" | "applied" | "staged"> => {
+    if (isLocalNetwork) {
+      return "begin"
+    }
+    if (await matchesTargets()) {
+      deployments.log(
+        `Reservation ${update.toLowerCase()} already hold this script's values; not staged again`
+      )
+      return "applied"
+    }
+    const bridgeGovernanceParameters = await ethers.getContractAt(
+      "BridgeGovernanceParameters",
+      BridgeGovernance.address
+    )
+    const started = await queryEvents(
+      bridgeGovernanceParameters,
+      bridgeGovernanceParameters.filters[`Reservation${update}UpdateStarted`]()
+    )
+    const applied = await queryEvents(
+      reservationRouter,
+      reservationRouter.filters[`Reservation${update}Updated`]()
+    )
+    const lastStarted = started[started.length - 1]
+    if (lastStarted && isLaterEvent(lastStarted, applied[applied.length - 1])) {
+      deployments.log(
+        `A reservation ${update.toLowerCase()} update is already staged; not staged again`
+      )
+      return "staged"
+    }
+    return "begin"
+  }
+
   // ----- Step 1: begin/finalize updateReservationCaps --------------------
   // Settle the setter-ordering hazard. Reservation.sol defaults
   // `reservationMaxTotalAmount` to 0, so the relational check in the
   // finalizer passes trivially.
   deployments.log("[1/4] beginReservationCapsUpdate")
-  await execute(
-    "BridgeGovernance",
-    { from: governance, log: true, waitConfirmations: 1 },
-    "beginReservationCapsUpdate",
+  const capsTargets = [
     // NOTE: these local/test values (maxReservationsAmountPerWallet=1e6,
     // maxActiveReservations=100) are an intentional divergence from the
     // M1-decided mainnet launch values that
@@ -162,8 +239,27 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
     // values per agent-docs/inventory/reservation-parameters.md
     ethers.BigNumber.from("1000000"), // maxReservationsAmountPerWallet
     ethers.BigNumber.from("100000"), // reservationMaxSingleAmount
-    ethers.BigNumber.from("100") // maxActiveReservations
+    ethers.BigNumber.from("100"), // maxActiveReservations
+  ]
+  const capsState = await stagingState("Caps", async () =>
+    liveMatches(
+      await reservationRouter.reservationCaps(),
+      [
+        "maxReservationsAmountPerWallet",
+        "reservationMaxSingleAmount",
+        "maxActiveReservations",
+      ],
+      capsTargets
+    )
   )
+  if (capsState === "begin") {
+    await execute(
+      "BridgeGovernance",
+      { from: governance, log: true, waitConfirmations: 1 },
+      "beginReservationCapsUpdate",
+      ...capsTargets
+    )
+  }
   if (isLocalNetwork) {
     await passGovernanceDelay()
     await execute(
@@ -171,7 +267,7 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
       { from: governance, log: true, waitConfirmations: 1 },
       "finalizeReservationCapsUpdate"
     )
-  } else {
+  } else if (capsState !== "applied") {
     const delay = await read("BridgeGovernance", "governanceDelays", 0)
     deployments.log(
       `[PENDING FINALIZE] Network: ${network.name} | Function: finalizeReservationCapsUpdate | ` +
@@ -186,10 +282,7 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
   // `maxActiveReservations * reservationMaxSingleAmount` product set in
   // step 1 (100 * 100000 = 10_000_000).
   deployments.log("[2/4] beginReservationParametersUpdate")
-  await execute(
-    "BridgeGovernance",
-    { from: governance, log: true, waitConfirmations: 1 },
-    "beginReservationParametersUpdate",
+  const parametersTargets = [
     ReservationVault.address, // reservationVault
     ethers.BigNumber.from("10000"), // reservationMinAmount
     ethers.BigNumber.from("1000"), // reservationTxMaxFee
@@ -200,8 +293,33 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
     // Step 1) -- deliberately larger for local/test throughput.
     ethers.BigNumber.from("5"), // maxReservationsPerWallet
     ethers.BigNumber.from("86400"), // reservationActionTimeout
-    ethers.BigNumber.from("86400") // reservationRenewalWindowSeconds
+    ethers.BigNumber.from("86400"), // reservationRenewalWindowSeconds
+  ]
+  const parametersState = await stagingState("Parameters", async () =>
+    liveMatches(
+      await reservationRouter.reservationParameters(),
+      [
+        "reservationVault",
+        "reservationMinAmount",
+        "reservationTxMaxFee",
+        "reservationTermSeconds",
+        "reservationDissolutionDelay",
+        "reservationMaxTotalAmount",
+        "maxReservationsPerWallet",
+        "reservationActionTimeout",
+        "reservationRenewalWindowSeconds",
+      ],
+      parametersTargets
+    )
   )
+  if (parametersState === "begin") {
+    await execute(
+      "BridgeGovernance",
+      { from: governance, log: true, waitConfirmations: 1 },
+      "beginReservationParametersUpdate",
+      ...parametersTargets
+    )
+  }
   if (isLocalNetwork) {
     await passGovernanceDelay()
     await execute(
@@ -209,7 +327,7 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
       { from: governance, log: true, waitConfirmations: 1 },
       "finalizeReservationParametersUpdate"
     )
-  } else {
+  } else if (parametersState !== "applied") {
     const delay = await read("BridgeGovernance", "governanceDelays", 0)
     deployments.log(
       `[PENDING FINALIZE] Network: ${network.name} | Function: finalizeReservationParametersUpdate | ` +
@@ -248,14 +366,7 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
   }
 
   // ----- Step 4: seed the reservation term table -------------------------
-  // Router functions are reached through `Bridge.fallback()`, so the router
-  // ABI is bound to the Bridge address.
   deployments.log("[4/4] Seeding the reservation term table")
-  const Bridge = await get("Bridge")
-  const reservationRouter = await ethers.getContractAt(
-    "ReservationRouter",
-    Bridge.address
-  )
 
   // An entry is never rewritten, so an id already holding other values
   // cannot be corrected by this script and must stop it.
@@ -317,29 +428,17 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
   // BridgeGovernance keeps the staged entry `internal`, so it is found from
   // events: the last `ReservationTermUpdateStarted` is staged unless a
   // `ReservationTermUpdateFinalized` follows it (finalize clears the slot).
-  // Externally-deployed artifacts lack a receipt; the fallback lookback is
-  // the bound in that case.
   const bridgeGovernanceContract = await ethers.getContractAt(
     "BridgeGovernance",
     BridgeGovernance.address
   )
-  const latestBlockNumber = await ethers.provider.getBlockNumber()
-  const fromBlock = Math.max(
-    BridgeGovernance.receipt?.blockNumber ?? 0,
-    latestBlockNumber - FALLBACK_LOOKBACK_BLOCKS,
-    0
-  )
-  const startedEvents = await queryEventsInChunks(
+  const startedEvents = await queryEvents(
     bridgeGovernanceContract,
-    bridgeGovernanceContract.filters.ReservationTermUpdateStarted(),
-    fromBlock,
-    latestBlockNumber
+    bridgeGovernanceContract.filters.ReservationTermUpdateStarted()
   )
-  const finalizedEvents = await queryEventsInChunks(
+  const finalizedEvents = await queryEvents(
     bridgeGovernanceContract,
-    bridgeGovernanceContract.filters.ReservationTermUpdateFinalized(),
-    fromBlock,
-    latestBlockNumber
+    bridgeGovernanceContract.filters.ReservationTermUpdateFinalized()
   )
   const lastStarted = startedEvents[startedEvents.length - 1]
   const lastFinalized = finalizedEvents[finalizedEvents.length - 1]

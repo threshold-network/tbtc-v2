@@ -80,7 +80,13 @@ describe("Deploy Script 97: reservation term table seeding", () => {
     const STARTED_AT = 1_800_000_000
 
     type StagingEvent = {
-      name: "Started" | "Finalized"
+      name:
+        | "Started"
+        | "Finalized"
+        | "CapsStarted"
+        | "CapsUpdated"
+        | "ParametersStarted"
+        | "ParametersUpdated"
       blockNumber: number
       logIndex: number
       args: any[]
@@ -89,17 +95,17 @@ describe("Deploy Script 97: reservation term table seeding", () => {
     const started = (
       entry: ReservationTermEntry,
       blockNumber: number,
-      timestamp = STARTED_AT
+      logIndex = 0
     ): StagingEvent => ({
       name: "Started",
       blockNumber,
-      logIndex: 0,
+      logIndex,
       args: [
         entry.termId,
         entry.termSeconds,
         entry.custodyBps,
         entry.enabled,
-        BigNumber.from(timestamp),
+        BigNumber.from(STARTED_AT),
       ],
     })
 
@@ -113,20 +119,80 @@ describe("Deploy Script 97: reservation term table seeding", () => {
       args: [entry.termId, entry.termSeconds, entry.custodyBps, entry.enabled],
     })
 
+    // A step 1 or step 2 staging event; only its name and position matter.
+    const stagingEvent = (
+      name: StagingEvent["name"],
+      blockNumber: number
+    ): StagingEvent => ({ name, blockNumber, logIndex: 0, args: [] })
+
+    // The live caps and parameters before any update is applied, and the
+    // values steps 1 and 2 stage.
+    const UNSET_CAPS = {
+      maxReservationsAmountPerWallet: 0,
+      reservationMaxSingleAmount: 0,
+      maxActiveReservations: 0,
+    }
+    const TARGET_CAPS = {
+      maxReservationsAmountPerWallet: 1_000_000,
+      reservationMaxSingleAmount: 100_000,
+      maxActiveReservations: 100,
+    }
+    const UNSET_PARAMETERS = {
+      reservationVault: "0x0000000000000000000000000000000000000000",
+      reservationMinAmount: 0,
+      reservationTxMaxFee: 0,
+      reservationTermSeconds: 0,
+      reservationDissolutionDelay: 0,
+      reservationMaxTotalAmount: 0,
+      maxReservationsPerWallet: 0,
+      reservationActionTimeout: 0,
+      reservationRenewalWindowSeconds: 0,
+    }
+    const TARGET_PARAMETERS = {
+      reservationVault: RESERVATION_VAULT,
+      reservationMinAmount: 10_000,
+      reservationTxMaxFee: 1_000,
+      reservationTermSeconds: 90 * DAY,
+      reservationDissolutionDelay: DAY,
+      reservationMaxTotalAmount: 10_000_000,
+      maxReservationsPerWallet: 5,
+      reservationActionTimeout: DAY,
+      reservationRenewalWindowSeconds: DAY,
+    }
+
     const [yearEntry, monthEntry, quarterEntry] = RESERVATION_TERM_ENTRIES
 
     /**
-     * Runs the script against a mock HRE holding the given table and
-     * staging events, and returns the term-table transactions it sent.
+     * Runs the script against a mock HRE holding the given table, live caps
+     * and parameters, and staging events, and returns the transactions it
+     * sent whose method matches `select` (by default, the term-table ones).
      */
-    async function run(options: {
-      table?: ReservationTermEntry[]
-      events?: StagingEvent[]
-      now?: number
-    }): Promise<{ method: string; args: any[] }[]> {
+    async function run(
+      options: {
+        table?: ReservationTermEntry[]
+        events?: StagingEvent[]
+        now?: number
+        caps?: Record<string, unknown>
+        parameters?: Record<string, unknown>
+        latestBlock?: number
+        withoutReceipt?: boolean
+      },
+      select = (method: string) => method.includes("ReservationTerm")
+    ): Promise<{ method: string; args: any[] }[]> {
       const table = options.table ?? []
       const events = options.events ?? []
       const executed: { method: string; args: any[] }[] = []
+      const queryFilter = async (
+        filter: string,
+        fromBlock: number,
+        toBlock: number
+      ) =>
+        events.filter(
+          (event) =>
+            event.name === filter &&
+            event.blockNumber >= fromBlock &&
+            event.blockNumber <= toBlock
+        )
 
       const mockHre: any = {
         network: { name: "sepolia" },
@@ -151,7 +217,9 @@ describe("Deploy Script 97: reservation term table seeding", () => {
             }
             return {
               address: addresses[name],
-              receipt: { blockNumber: DEPLOYMENT_BLOCK },
+              receipt: options.withoutReceipt
+                ? undefined
+                : { blockNumber: DEPLOYMENT_BLOCK },
             }
           },
           read: async (name: string, method: string) => {
@@ -173,7 +241,7 @@ describe("Deploy Script 97: reservation term table seeding", () => {
         ethers: {
           BigNumber,
           provider: {
-            getBlockNumber: async () => LATEST_BLOCK,
+            getBlockNumber: async () => options.latestBlock ?? LATEST_BLOCK,
             getBlock: async () => ({
               timestamp: options.now ?? STARTED_AT + GOVERNANCE_DELAY,
             }),
@@ -192,6 +260,24 @@ describe("Deploy Script 97: reservation term table seeding", () => {
                       }
                     : { termSeconds: 0, custodyBps: 0, enabled: false }
                 },
+                reservationCaps: async () => options.caps ?? UNSET_CAPS,
+                reservationParameters: async () =>
+                  options.parameters ?? UNSET_PARAMETERS,
+                filters: {
+                  ReservationCapsUpdated: () => "CapsUpdated",
+                  ReservationParametersUpdated: () => "ParametersUpdated",
+                },
+                queryFilter,
+              }
+            }
+            if (name === "BridgeGovernanceParameters") {
+              expect(address).to.equal(BRIDGE_GOVERNANCE)
+              return {
+                filters: {
+                  ReservationCapsUpdateStarted: () => "CapsStarted",
+                  ReservationParametersUpdateStarted: () => "ParametersStarted",
+                },
+                queryFilter,
               }
             }
             if (name === "BridgeGovernance") {
@@ -201,17 +287,7 @@ describe("Deploy Script 97: reservation term table seeding", () => {
                   ReservationTermUpdateStarted: () => "Started",
                   ReservationTermUpdateFinalized: () => "Finalized",
                 },
-                queryFilter: async (
-                  filter: string,
-                  fromBlock: number,
-                  toBlock: number
-                ) =>
-                  events.filter(
-                    (event) =>
-                      event.name === filter &&
-                      event.blockNumber >= fromBlock &&
-                      event.blockNumber <= toBlock
-                  ),
+                queryFilter,
               }
             }
             throw new Error(`Unexpected contract: ${name}`)
@@ -221,7 +297,7 @@ describe("Deploy Script 97: reservation term table seeding", () => {
 
       await func(mockHre)
 
-      return executed.filter((tx) => tx.method.includes("ReservationTerm"))
+      return executed.filter((tx) => select(tx.method))
     }
 
     const begin = (entry: ReservationTermEntry) => ({
@@ -302,6 +378,123 @@ describe("Deploy Script 97: reservation term table seeding", () => {
         error = e as Error
       }
       expect(error?.message).to.match(/Reservation term 2 holds/)
+    })
+
+    it("should find a staged entry exactly on a chunk boundary", async () => {
+      // The second chunk starts at the deployment block plus the chunk size.
+      expect(
+        await run({ events: [started(yearEntry, DEPLOYMENT_BLOCK + 2_000)] })
+      ).to.deep.equal([finalize, begin(monthEntry)])
+    })
+
+    it("should read a Started after a Finalized in the same block as staged", async () => {
+      expect(
+        await run({
+          table: [yearEntry],
+          events: [finalized(yearEntry, 3_000), started(monthEntry, 3_000, 1)],
+        })
+      ).to.deep.equal([finalize, begin(quarterEntry)])
+    })
+
+    it("should scan from the deployment block, past the fallback lookback, when the receipt exists", async () => {
+      expect(
+        await run({
+          events: [started(yearEntry, DEPLOYMENT_BLOCK + 50)],
+          latestBlock: 300_000,
+        })
+      ).to.deep.equal([finalize, begin(monthEntry)])
+    })
+
+    it("should bound the scan by the fallback lookback when there is no receipt", async () => {
+      // The staged entry is older than the lookback, so it is not seen and
+      // the first entry is begun again.
+      expect(
+        await run({
+          events: [started(yearEntry, DEPLOYMENT_BLOCK + 50)],
+          latestBlock: 300_000,
+          withoutReceipt: true,
+        })
+      ).to.deep.equal([begin(yearEntry)])
+    })
+
+    context("when the staged entry has the next id but other values", () => {
+      // eslint-disable-next-line no-restricted-syntax
+      for (const [label, staged] of [
+        ["seconds", { ...yearEntry, termSeconds: 30 * DAY }],
+        ["custody fee", { ...yearEntry, custodyBps: 2 }],
+        ["enabled flag", { ...yearEntry, enabled: false }],
+      ] as [string, ReservationTermEntry][]) {
+        it(`should refuse to finalize it (other ${label})`, async () => {
+          let error: Error | undefined
+          try {
+            await run({ events: [started(staged, 6_500)] })
+          } catch (e) {
+            error = e as Error
+          }
+          expect(error?.message).to.match(/is not the next missing entry/)
+        })
+      }
+    })
+
+    it("should refuse a disabled table entry with matching length and custody fee", async () => {
+      let error: Error | undefined
+      try {
+        await run({ table: [{ ...yearEntry, enabled: false }] })
+      } catch (e) {
+        error = e as Error
+      }
+      expect(error?.message).to.match(/Reservation term 1 holds/)
+    })
+
+    describe("steps 1 and 2 across re-runs", () => {
+      const isCapsOrParametersBegin = (method: string) =>
+        method === "beginReservationCapsUpdate" ||
+        method === "beginReservationParametersUpdate"
+      const bothBegins = [
+        "beginReservationCapsUpdate",
+        "beginReservationParametersUpdate",
+      ]
+      const methods = async (options: Parameters<typeof run>[0]) =>
+        (await run(options, isCapsOrParametersBegin)).map((tx) => tx.method)
+
+      it("should stage caps and parameters on the first run only, and not again while staged or once applied", async () => {
+        // First run: nothing applied, nothing staged.
+        expect(await methods({})).to.deep.equal(bothBegins)
+
+        // Second run: both updates staged by the first run.
+        const staging = [
+          stagingEvent("CapsStarted", 200),
+          stagingEvent("ParametersStarted", 200),
+        ]
+        expect(await methods({ events: staging })).to.deep.equal([])
+
+        // Third run: both finalized, so the live values equal the targets
+        // and the Bridge's update events follow the staging.
+        expect(
+          await methods({
+            events: [
+              ...staging,
+              stagingEvent("CapsUpdated", 300),
+              stagingEvent("ParametersUpdated", 301),
+            ],
+            caps: TARGET_CAPS,
+            parameters: TARGET_PARAMETERS,
+          })
+        ).to.deep.equal([])
+      })
+
+      it("should stage an update again once its staging was applied and the live values moved off the targets", async () => {
+        // Control for the staged check: an applied staging is not staged.
+        expect(
+          await methods({
+            events: [
+              stagingEvent("CapsStarted", 200),
+              stagingEvent("CapsUpdated", 300),
+            ],
+            parameters: TARGET_PARAMETERS,
+          })
+        ).to.deep.equal(["beginReservationCapsUpdate"])
+      })
     })
   })
 })
