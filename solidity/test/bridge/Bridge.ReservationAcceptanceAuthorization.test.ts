@@ -48,6 +48,7 @@ import type {
   TBTC,
 } from "../../typechain"
 import bridgeFixture from "../fixtures/bridge"
+import { RESERVATION_TERM_ENTRIES } from "../helpers/reservation-terms"
 import type { Mock } from "../helpers/mock"
 import { walletState } from "../fixtures"
 
@@ -57,6 +58,8 @@ const { lastBlockTime, increaseTime } = helpers.time
 const ZERO_BYTES32 = ethers.constants.HashZero
 
 const RESERVATION_TERM = 31536000 // 365 days
+// The seeded 365-day entry, so acceptances keep the term above.
+const ACCEPTANCE_TERM_ID = RESERVATION_TERM_ENTRIES[0].termId
 const RESERVATION_GRACE = 2592000 // 30 days
 const RESERVATION_MIN_AMOUNT = 10000
 const RESERVATION_TX_MAX_FEE = 2000
@@ -434,7 +437,7 @@ async function makeRequestedReservation(custodian = walletPubKeyHash) {
 
   await reservationRouter
     .connect(thirdParty)
-    .requestReservationAcceptance(reservationKey, custodian)
+    .requestReservationAcceptance(reservationKey, custodian, ACCEPTANCE_TERM_ID)
 
   const anchorTx = buildTx(
     [{ txHash: fundingTx.txHash, index: 0 }],
@@ -512,7 +515,11 @@ describe("capacity reserved before signing (fill-then-prove)", () => {
     )
     await reservationRouter
       .connect(thirdParty)
-      .requestReservationAcceptance(reservationKey, walletPubKeyHash)
+      .requestReservationAcceptance(
+        reservationKey,
+        walletPubKeyHash,
+        ACCEPTANCE_TERM_ID
+      )
 
     // The caps fill up after the authorization (a governance tightening
     // to the current usage level models any competing fill).
@@ -572,7 +579,8 @@ describe("capacity reserved before signing (fill-then-prove)", () => {
               [otherFundingTx.txHash, 0]
             )
           ),
-          walletPubKeyHash
+          walletPubKeyHash,
+          ACCEPTANCE_TERM_ID
         )
     ).to.be.revertedWith("Total reserved amount cap exceeded")
 
@@ -643,7 +651,11 @@ describe("acceptance authorization timeout", () => {
     )
     await reservationRouter
       .connect(thirdParty)
-      .requestReservationAcceptance(reservationKey, walletPubKeyHash)
+      .requestReservationAcceptance(
+        reservationKey,
+        walletPubKeyHash,
+        ACCEPTANCE_TERM_ID
+      )
 
     const totalBefore = (await reservationRouter.reservationParameters())
       .reservationTotalAmount
