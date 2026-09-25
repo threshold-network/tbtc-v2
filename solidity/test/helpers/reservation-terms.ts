@@ -58,42 +58,47 @@ export async function seedReservationTerms(
   const governance = await ethers.getSigner(governanceAddress)
 
   const written: number[] = []
-  // eslint-disable-next-line no-restricted-syntax
-  for (const entry of entries) {
-    // eslint-disable-next-line no-await-in-loop
-    const stored = await reservationRouter.reservationTerm(entry.termId)
+  // The stop runs in `finally` so a rejected entry does not leave the
+  // governance account impersonated for the rest of the run: impersonation
+  // is node state, which snapshot reverts do not undo.
+  try {
+    // eslint-disable-next-line no-restricted-syntax
+    for (const entry of entries) {
+      // eslint-disable-next-line no-await-in-loop
+      const stored = await reservationRouter.reservationTerm(entry.termId)
 
-    if (stored.termSeconds !== 0) {
-      if (
-        stored.termSeconds !== entry.termSeconds ||
-        stored.custodyBps !== entry.custodyBps ||
-        stored.enabled !== entry.enabled
-      ) {
-        throw new Error(
-          `Reservation term ${entry.termId} holds (${stored.termSeconds}, ` +
-            `${stored.custodyBps}, ${stored.enabled}), expected ` +
-            `(${entry.termSeconds}, ${entry.custodyBps}, ${entry.enabled})`
-        )
+      if (stored.termSeconds !== 0) {
+        if (
+          stored.termSeconds !== entry.termSeconds ||
+          stored.custodyBps !== entry.custodyBps ||
+          stored.enabled !== entry.enabled
+        ) {
+          throw new Error(
+            `Reservation term ${entry.termId} holds (${stored.termSeconds}, ` +
+              `${stored.custodyBps}, ${stored.enabled}), expected ` +
+              `(${entry.termSeconds}, ${entry.custodyBps}, ${entry.enabled})`
+          )
+        }
+        // eslint-disable-next-line no-continue
+        continue
       }
-      // eslint-disable-next-line no-continue
-      continue
+
+      // eslint-disable-next-line no-await-in-loop
+      await reservationRouter
+        .connect(governance)
+        .setReservationTerm(
+          entry.termId,
+          entry.termSeconds,
+          entry.custodyBps,
+          entry.enabled
+        )
+      written.push(entry.termId)
     }
-
-    // eslint-disable-next-line no-await-in-loop
-    await reservationRouter
-      .connect(governance)
-      .setReservationTerm(
-        entry.termId,
-        entry.termSeconds,
-        entry.custodyBps,
-        entry.enabled
-      )
-    written.push(entry.termId)
+  } finally {
+    await ethers.provider.send("hardhat_stopImpersonatingAccount", [
+      governanceAddress,
+    ])
   }
-
-  await ethers.provider.send("hardhat_stopImpersonatingAccount", [
-    governanceAddress,
-  ])
 
   return written
 }

@@ -624,11 +624,70 @@ describe("Bridge fixture - seeded reservation term table", () => {
       await reservationRouter
         .connect(governance)
         .setReservationTerm(2, 30 * DAY, 2, false)
+      await ethers.provider.send("hardhat_stopImpersonatingAccount", [
+        governanceAddress,
+      ])
 
       await expectRejection(
         seedReservationTerms(bridge),
         /Reservation term 2 holds/
       )
+    })
+
+    context("impersonation of the governance", () => {
+      // Hardhat sends an `eth_sendTransaction` from an address it holds no
+      // key for only while that address is impersonated, so a zero-value
+      // self-transfer from the governance address observes whether the
+      // helper left the impersonation on. The recipient is the zero
+      // address, which holds no code, so the transfer itself cannot revert.
+      async function sendFromGovernance(): Promise<unknown> {
+        const governanceAddress = await bridge.governance()
+        return ethers.provider.send("eth_sendTransaction", [
+          {
+            from: governanceAddress,
+            to: ethers.constants.AddressZero,
+            value: "0x0",
+          },
+        ])
+      }
+
+      it("should observe an active impersonation", async () => {
+        // Control for the checks below: the probe succeeds while the
+        // governance is impersonated, so its rejection there is not vacuous.
+        const governanceAddress = await bridge.governance()
+        await ethers.provider.send("hardhat_impersonateAccount", [
+          governanceAddress,
+        ])
+        await ethers.provider.send("hardhat_setBalance", [
+          governanceAddress,
+          "0x8AC7230489E80000",
+        ])
+        try {
+          await sendFromGovernance()
+        } finally {
+          await ethers.provider.send("hardhat_stopImpersonatingAccount", [
+            governanceAddress,
+          ])
+        }
+        await expectRejection(sendFromGovernance(), /unknown account/i)
+      })
+
+      it("should stop impersonating after seeding", async () => {
+        await seedReservationTerms(bridge)
+
+        await expectRejection(sendFromGovernance(), /unknown account/i)
+      })
+
+      it("should stop impersonating after a rejection", async () => {
+        await expectRejection(
+          seedReservationTerms(bridge, [
+            { termId: 2, termSeconds: 31 * DAY, custodyBps: 2, enabled: true },
+          ]),
+          /Reservation term 2 holds/
+        )
+
+        await expectRejection(sendFromGovernance(), /unknown account/i)
+      })
     })
   })
 })
