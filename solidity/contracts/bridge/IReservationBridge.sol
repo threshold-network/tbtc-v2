@@ -47,6 +47,19 @@ interface IReservationBridge {
         uint32 timeoutAt
     );
 
+    /// @notice Emitted beside `ReservationAcceptanceRequested` with the
+    ///         term entry the depositor selected for the generation. See
+    ///         `ReservationRouter.requestReservationAcceptance`.
+    /// @param reservationKey The deposit key of the revealed reserved
+    ///        deposit (doubles as the reservation key).
+    /// @param requestNonce The action generation created by the request.
+    /// @param termId Id of the selected reservation term entry.
+    event ReservationTermSelected(
+        uint256 indexed reservationKey,
+        uint64 requestNonce,
+        uint8 termId
+    );
+
     /// @notice Emitted when an acceptance-anchor SPV proof settles,
     ///         registering the reservation and crediting the owner's
     ///         balance. See
@@ -280,16 +293,20 @@ interface IReservationBridge {
     ///      this deposit does not exceed the per-wallet amount cap; the
     ///      active reservations count stays below the global occupancy
     ///      cap; and a valid signing window exists between the deposit's
-    ///      minimum age and its refund deadline. See
+    ///      minimum age and its refund deadline; and `termId` names an
+    ///      existing, enabled term entry. See
     ///      `Reservation.requestReservationAcceptance` for the full
     ///      requirement list.
     /// @param reservationKey The deposit key of the revealed reserved
     ///        deposit (doubles as the reservation key).
     /// @param walletPubKeyHash 20-byte public key hash of the wallet that
     ///        will anchor the deposit.
+    /// @param termId Id of the reservation term entry the position is
+    ///        opened on.
     function requestReservationAcceptance(
         uint256 reservationKey,
-        bytes20 walletPubKeyHash
+        bytes20 walletPubKeyHash,
+        uint8 termId
     ) external;
 
     /// @notice Requests the re-anchoring of a reservation to another

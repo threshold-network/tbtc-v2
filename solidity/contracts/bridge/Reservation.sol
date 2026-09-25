@@ -328,8 +328,9 @@ library Reservation {
         // redemption (1-input-1-output, closes the reservation) and for
         // every non-redemption action.
         bool isPartial;
-        // Snapshotted `reservationTermSeconds` at acceptance request time.
-        // Zero for every non-acceptance action type. Used by
+        // Snapshotted `termSeconds` of the term entry selected at
+        // acceptance request time (see `reservationActionTermIds` for the
+        // selected id). Zero for every non-acceptance action type. Used by
         // `settleAcceptance` to compute `expiresAt` from the generation
         // record instead of the live governance parameter, matching this
         // struct's snapshot-at-request invariant.
@@ -374,6 +375,12 @@ library Reservation {
         uint64 depositAmount,
         uint64 txMaxFee,
         uint32 timeoutAt
+    );
+
+    event ReservationTermSelected(
+        uint256 indexed reservationKey,
+        uint64 requestNonce,
+        uint8 termId
     );
 
     event ReservationReanchorRequested(
@@ -456,6 +463,20 @@ library Reservation {
         return self.reservationActions[actionKey(reservationKey, requestNonce)];
     }
 
+    /// @notice Records the term id selected for the given acceptance
+    ///         generation. Kept out of `requestReservationAcceptance` to
+    ///         keep that function within the stack limit.
+    function recordActionTermId(
+        BridgeState.Storage storage self,
+        uint256 reservationKey,
+        uint64 requestNonce,
+        uint8 termId
+    ) private {
+        self.reservationActionTermIds[
+            actionKey(reservationKey, requestNonce)
+        ] = termId;
+    }
+
     /// @notice Returns the canonical hash of a reservation anchor outpoint.
     ///         Action generations snapshot this value so a late proof can
     ///         only consume the exact anchor that generation authorized.
@@ -484,6 +505,10 @@ library Reservation {
     /// @param walletPubKeyHash 20-byte public key hash of the wallet that
     ///        will anchor the deposit. Must be the wallet the deposit was
     ///        revealed for.
+    /// @param termId Id of the reservation term entry the position is
+    ///        opened on. The entry's `termSeconds` is snapshotted into the
+    ///        generation's action record and the id into
+    ///        `reservationActionTermIds`.
     /// @dev Requirements:
     ///      - The reservation vault must be set,
     ///      - The deposit must be revealed to the reservation vault and not
@@ -493,6 +518,7 @@ library Reservation {
     ///      - Wallet must be the deposit's designated wallet,
     ///      - No reservation may already exist for the key,
     ///      - The wallet must be Live,
+    ///      - `termId` must name an existing, enabled term entry,
     ///      - The deposit amount must satisfy the reservation minimum plus
     ///        the transaction fee allowance, so a compliant anchor always
     ///        satisfies the minimum after fees,
@@ -520,7 +546,8 @@ library Reservation {
     function requestReservationAcceptance(
         BridgeState.Storage storage self,
         uint256 reservationKey,
-        bytes20 walletPubKeyHash
+        bytes20 walletPubKeyHash,
+        uint8 termId
     ) external {
         require(
             self.reservationVault != address(0),
@@ -574,6 +601,15 @@ library Reservation {
                 Wallets.WalletState.Live,
             "Wallet must be in Live state"
         );
+
+        // A zero `termSeconds` marks an id that was never added, including
+        // every id outside [1, MAX_RESERVATION_TERM_ID]. Scoped to keep the
+        // function within the stack limit.
+        {
+            ReservationTerm storage term = self.reservationTerms[termId];
+            require(term.termSeconds != 0, "Reservation term does not exist");
+            require(term.enabled, "Reservation term is disabled");
+        }
 
         uint64 txMaxFee = self.reservationTxMaxFee;
         uint64 minAmount = self.reservationMinAmount;
@@ -643,6 +679,8 @@ library Reservation {
 
         uint64 requestNonce = ++reservation.requestNonce;
 
+        recordActionTermId(self, reservationKey, requestNonce, termId);
+
         ReservationAction storage action = getAction(
             self,
             reservationKey,
@@ -657,7 +695,7 @@ library Reservation {
         action.minAmount = minAmount;
         action.targetWalletPubKeyHash = walletPubKeyHash;
         action.amount = deposit.amount;
-        action.termSeconds = self.reservationTermSeconds;
+        action.termSeconds = self.reservationTerms[termId].termSeconds;
         action.dissolutionDelay = self.reservationDissolutionDelay;
 
         emit ReservationAcceptanceRequested(
@@ -668,6 +706,7 @@ library Reservation {
             action.txMaxFee,
             timeoutAt
         );
+        emit ReservationTermSelected(reservationKey, requestNonce, termId);
     }
 
     /// @notice Permissionlessly reports a pending acceptance authorization

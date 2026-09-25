@@ -44,8 +44,8 @@
     },
     {
       "name": "requestReservationAcceptance",
-      "selector": "0xbc78a18e",
-      "inputs": ["uint256", "bytes20"],
+      "selector": "0x2ec42e62",
+      "inputs": ["uint256", "bytes20", "uint8"],
       "outputs": []
     },
     {
@@ -272,6 +272,11 @@
       "name": "ReservationStranded",
       "topic0": "0x95a304fee209cd8169392534093ab2cb9ee3b8c7031cf873b2f0c40a03b44d4d",
       "inputs": ["uint256", "bytes20", "address", "uint64"]
+    },
+    {
+      "name": "ReservationTermSelected",
+      "topic0": "0x2540d16bc873d134ab3ce589a275434cf0bdcd1ec640813e5530ddb6187fcdd6",
+      "inputs": ["uint256", "uint64", "uint8"]
     },
     {
       "name": "ReservationTermUpdated",

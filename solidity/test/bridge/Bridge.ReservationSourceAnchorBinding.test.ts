@@ -49,6 +49,7 @@ import type {
   TBTC,
 } from "../../typechain"
 import bridgeFixture from "../fixtures/bridge"
+import { RESERVATION_TERM_ENTRIES } from "../helpers/reservation-terms"
 import type { Mock } from "../helpers/mock"
 import { walletState } from "../fixtures"
 
@@ -58,6 +59,8 @@ const { lastBlockTime, increaseTime } = helpers.time
 const ZERO_BYTES32 = ethers.constants.HashZero
 
 const RESERVATION_TERM = 31536000 // 365 days
+// The seeded 365-day entry, so acceptances keep the term above.
+const ACCEPTANCE_TERM_ID = RESERVATION_TERM_ENTRIES[0].termId
 const RESERVATION_GRACE = 2592000 // 30 days
 const RESERVATION_MIN_AMOUNT = 10000
 const RESERVATION_TX_MAX_FEE = 2000
@@ -377,7 +380,11 @@ describe("Bridge - Reservation source-anchor binding", () => {
 
     await reservationRouter
       .connect(thirdParty)
-      .requestReservationAcceptance(reservationKey, custodian)
+      .requestReservationAcceptance(
+        reservationKey,
+        custodian,
+        ACCEPTANCE_TERM_ID
+      )
 
     const anchorTx = buildTx(
       [{ txHash: fundingTx.txHash, index: 0 }],
