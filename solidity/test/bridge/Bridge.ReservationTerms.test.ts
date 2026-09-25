@@ -123,6 +123,12 @@ describe("Bridge - reservation term table", () => {
       "ReservationRouter",
       bridge.address
     )
+    // The deploy scripts seed the table; the fixture clears it. Checked here
+    // so that no test below runs against a table it did not build.
+    for (let termId = 0; termId <= MAX_RESERVATION_TERM_ID; termId++) {
+      // eslint-disable-next-line no-await-in-loop
+      await expectTerm(termId, 0, 0, false)
+    }
     governanceSigner = await impersonate(await bridge.governance())
 
     const params = await reservationRouter.reservationParameters()
