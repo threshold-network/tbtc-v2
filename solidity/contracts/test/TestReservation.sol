@@ -36,6 +36,12 @@ contract TestReservation {
         uint32 timeoutAt
     );
 
+    event ReservationTermSelected(
+        uint256 indexed reservationKey,
+        uint64 requestNonce,
+        uint8 termId
+    );
+
     event ReservationStranded(
         uint256 indexed reservationKey,
         bytes20 indexed walletPubKeyHash,
@@ -273,12 +279,31 @@ contract TestReservation {
 
     function requestReservationAcceptance(
         uint256 reservationKey,
-        bytes20 walletPubKeyHash
+        bytes20 walletPubKeyHash,
+        uint8 termId
     ) external {
         Reservation.requestReservationAcceptance(
             state,
             reservationKey,
-            walletPubKeyHash
+            walletPubKeyHash,
+            termId
+        );
+    }
+
+    /// @notice Runs the production term setter, with all its checks,
+    ///         against the harness state.
+    function setReservationTerm(
+        uint8 termId,
+        uint32 termSeconds,
+        uint16 custodyBps,
+        bool enabled
+    ) external {
+        Reservation.setReservationTerm(
+            state,
+            termId,
+            termSeconds,
+            custodyBps,
+            enabled
         );
     }
 
@@ -325,6 +350,18 @@ contract TestReservation {
     {
         return
             state.reservationActions[
+                Reservation.actionKey(reservationKey, requestNonce)
+            ];
+    }
+
+    /// @notice Returns the term id recorded for the given acceptance
+    ///         generation; zero if none was recorded.
+    function reservationActionTermId(
+        uint256 reservationKey,
+        uint64 requestNonce
+    ) external view returns (uint8) {
+        return
+            state.reservationActionTermIds[
                 Reservation.actionKey(reservationKey, requestNonce)
             ];
     }

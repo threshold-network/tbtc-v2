@@ -111,6 +111,12 @@ contract ReservationRouter is Governable, Initializable {
         uint32 timeoutAt
     );
 
+    event ReservationTermSelected(
+        uint256 indexed reservationKey,
+        uint64 requestNonce,
+        uint8 termId
+    );
+
     event ReservationAccepted(
         uint256 indexed reservationKey,
         uint64 requestNonce,
@@ -215,11 +221,18 @@ contract ReservationRouter is Governable, Initializable {
     ///        deposit (doubles as the reservation key).
     /// @param walletPubKeyHash 20-byte public key hash of the wallet that
     ///        will anchor the deposit.
+    /// @param termId Id of an existing, enabled reservation term entry the
+    ///        position is opened on.
     function requestReservationAcceptance(
         uint256 reservationKey,
-        bytes20 walletPubKeyHash
+        bytes20 walletPubKeyHash,
+        uint8 termId
     ) external {
-        self.requestReservationAcceptance(reservationKey, walletPubKeyHash);
+        self.requestReservationAcceptance(
+            reservationKey,
+            walletPubKeyHash,
+            termId
+        );
     }
 
     /// @notice Requests the re-anchoring of a reservation to another

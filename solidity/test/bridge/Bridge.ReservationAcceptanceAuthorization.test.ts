@@ -48,6 +48,7 @@ import type {
   TBTC,
 } from "../../typechain"
 import bridgeFixture from "../fixtures/bridge"
+import { RESERVATION_TERM_ENTRIES } from "../helpers/reservation-terms"
 import type { Mock } from "../helpers/mock"
 import { walletState } from "../fixtures"
 
@@ -57,6 +58,8 @@ const { lastBlockTime, increaseTime } = helpers.time
 const ZERO_BYTES32 = ethers.constants.HashZero
 
 const RESERVATION_TERM = 31536000 // 365 days
+// The seeded 365-day entry, so acceptances keep the term above.
+const ACCEPTANCE_TERM_ID = RESERVATION_TERM_ENTRIES[0].termId
 const RESERVATION_GRACE = 2592000 // 30 days
 const RESERVATION_MIN_AMOUNT = 10000
 const RESERVATION_TX_MAX_FEE = 2000
@@ -394,8 +397,8 @@ const p2wpkhScript = (pkh: string): string => `0014${pkh.slice(2)}`
 const randomRedeemerScript = (): string =>
   `0x16${p2wpkhScript(ethers.utils.hexlify(ethers.utils.randomBytes(20)))}`
 
-// Reveals a fresh reserved deposit and requests acceptance (generation 1).
-async function makeRequestedReservation(custodian = walletPubKeyHash) {
+// Reveals a fresh reserved deposit without requesting its acceptance.
+async function revealReservedDeposit(custodian = walletPubKeyHash) {
   const fundingTx = buildTx(
     [
       {
@@ -432,9 +435,20 @@ async function makeRequestedReservation(custodian = walletPubKeyHash) {
     ethers.utils.solidityKeccak256(["bytes32", "uint32"], [fundingTx.txHash, 0])
   )
 
+  return { fundingTx, reservationKey }
+}
+
+// Reveals a fresh reserved deposit and requests acceptance (generation 1)
+// on the given term entry.
+async function makeRequestedReservation(
+  custodian = walletPubKeyHash,
+  termId = ACCEPTANCE_TERM_ID
+) {
+  const { fundingTx, reservationKey } = await revealReservedDeposit(custodian)
+
   await reservationRouter
     .connect(thirdParty)
-    .requestReservationAcceptance(reservationKey, custodian)
+    .requestReservationAcceptance(reservationKey, custodian, termId)
 
   const anchorTx = buildTx(
     [{ txHash: fundingTx.txHash, index: 0 }],
@@ -512,7 +526,11 @@ describe("capacity reserved before signing (fill-then-prove)", () => {
     )
     await reservationRouter
       .connect(thirdParty)
-      .requestReservationAcceptance(reservationKey, walletPubKeyHash)
+      .requestReservationAcceptance(
+        reservationKey,
+        walletPubKeyHash,
+        ACCEPTANCE_TERM_ID
+      )
 
     // The caps fill up after the authorization (a governance tightening
     // to the current usage level models any competing fill).
@@ -572,7 +590,8 @@ describe("capacity reserved before signing (fill-then-prove)", () => {
               [otherFundingTx.txHash, 0]
             )
           ),
-          walletPubKeyHash
+          walletPubKeyHash,
+          ACCEPTANCE_TERM_ID
         )
     ).to.be.revertedWith("Total reserved amount cap exceeded")
 
@@ -643,7 +662,11 @@ describe("acceptance authorization timeout", () => {
     )
     await reservationRouter
       .connect(thirdParty)
-      .requestReservationAcceptance(reservationKey, walletPubKeyHash)
+      .requestReservationAcceptance(
+        reservationKey,
+        walletPubKeyHash,
+        ACCEPTANCE_TERM_ID
+      )
 
     const totalBefore = (await reservationRouter.reservationParameters())
       .reservationTotalAmount
@@ -682,5 +705,67 @@ describe("acceptance authorization timeout", () => {
     expect(
       (await reservationRouter.reservations(reservationKey)).state
     ).to.equal(ReservationState.Active)
+  })
+})
+
+describe("term chosen at the acceptance request (router path)", () => {
+  before(async () => {
+    await establishReservationPreconditions()
+    await createSnapshot()
+  })
+
+  after(async () => {
+    await restoreSnapshot()
+  })
+
+  it("snapshots the selected entry and announces it", async () => {
+    // The seeded 30-day entry, so the snapshot differs from the global
+    // term (`RESERVATION_TERM`, 365 days) the request used to copy.
+    const entry = RESERVATION_TERM_ENTRIES[1]
+    const { reservationKey } = await makeRequestedReservation(
+      walletPubKeyHash,
+      entry.termId
+    )
+
+    const action = await reservationRouter.reservationActions(reservationKey, 1)
+    expect(action.termSeconds).to.equal(entry.termSeconds)
+
+    const [log] = await reservationRouter.queryFilter(
+      reservationRouter.filters.ReservationTermSelected(reservationKey)
+    )
+    expect(log.args.requestNonce).to.equal(1)
+    expect(log.args.termId).to.equal(entry.termId)
+  })
+
+  it("rejects an unknown term id", async () => {
+    const { reservationKey } = await revealReservedDeposit()
+    await expect(
+      reservationRouter
+        .connect(thirdParty)
+        .requestReservationAcceptance(reservationKey, walletPubKeyHash, 4)
+    ).to.be.revertedWith("Reservation term does not exist")
+  })
+
+  it("rejects a disabled term id", async () => {
+    const entry = RESERVATION_TERM_ENTRIES[2]
+    await reservationRouter
+      .connect(bridgeGovernanceSigner)
+      .setReservationTerm(
+        entry.termId,
+        entry.termSeconds,
+        entry.custodyBps,
+        false
+      )
+
+    const { reservationKey } = await revealReservedDeposit()
+    await expect(
+      reservationRouter
+        .connect(thirdParty)
+        .requestReservationAcceptance(
+          reservationKey,
+          walletPubKeyHash,
+          entry.termId
+        )
+    ).to.be.revertedWith("Reservation term is disabled")
   })
 })
