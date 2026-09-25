@@ -307,18 +307,6 @@ contract TestReservation {
         );
     }
 
-    /// @notice Returns the term id recorded for the given acceptance
-    ///         generation; zero if none was recorded.
-    function reservationActionTermId(
-        uint256 reservationKey,
-        uint64 requestNonce
-    ) external view returns (uint8) {
-        return
-            state.reservationActionTermIds[
-                Reservation.actionKey(reservationKey, requestNonce)
-            ];
-    }
-
     function strandReservation(uint256 reservationKey) external {
         Reservation.strandReservation(
             state,
@@ -362,6 +350,18 @@ contract TestReservation {
     {
         return
             state.reservationActions[
+                Reservation.actionKey(reservationKey, requestNonce)
+            ];
+    }
+
+    /// @notice Returns the term id recorded for the given acceptance
+    ///         generation; zero if none was recorded.
+    function reservationActionTermId(
+        uint256 reservationKey,
+        uint64 requestNonce
+    ) external view returns (uint8) {
+        return
+            state.reservationActionTermIds[
                 Reservation.actionKey(reservationKey, requestNonce)
             ];
     }
