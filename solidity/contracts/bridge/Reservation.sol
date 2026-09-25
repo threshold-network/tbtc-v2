@@ -71,6 +71,14 @@ library Reservation {
     uint32 internal constant MIN_RESERVATION_TERM = 30 days;
     // slither-disable-next-line unused-state
     uint32 internal constant MAX_RESERVATION_TERM = 730 days;
+    /// @notice Largest reservation term id. Ids 1 to this value are a
+    ///         lifetime budget: entries are never rewritten or removed, so
+    ///         each id is used at most once. Kept small so every reader
+    ///         looping the table stays cheap.
+    uint8 internal constant MAX_RESERVATION_TERM_ID = 8;
+    /// @notice Upper bound on a reservation term entry's custody fee, in
+    ///         basis points.
+    uint16 internal constant MAX_RESERVATION_TERM_CUSTODY_BPS = 500;
     /// @notice Represents the state of a reservation position.
     enum ReservationState {
         /// @dev The reservation is unknown to the Bridge. Acceptance
@@ -342,6 +350,25 @@ library Reservation {
         uint64 minAmount;
     }
 
+    /// @notice One entry of the governed reservation term menu.
+    struct ReservationTerm {
+        // Length of the custody term in seconds, within
+        // [MIN_RESERVATION_TERM, MAX_RESERVATION_TERM]. Zero only for an id
+        // that was never added. uint32 matches `reservationTermSeconds`
+        // and `ReservationAction.termSeconds`, which it is copied into.
+        uint32 termSeconds;
+        // Custody fee of the term in basis points, at most
+        // MAX_RESERVATION_TERM_CUSTODY_BPS; uint16 holds any basis-point
+        // value up to 10000.
+        uint16 custodyBps;
+        // False once governance disables the term: no new position may
+        // select it, and existing positions on it keep its values.
+        bool enabled;
+        // This struct doesn't contain `__gap` property as the structure is
+        // stored in a mapping, mappings store values in different slots and
+        // they are not contiguous with other values.
+    }
+
     event ReservationAcceptanceRequested(
         uint256 indexed reservationKey,
         uint64 requestNonce,
@@ -385,6 +412,13 @@ library Reservation {
         uint32 maxReservationsPerWallet,
         uint32 reservationActionTimeout,
         uint32 reservationRenewalWindowSeconds
+    );
+
+    event ReservationTermUpdated(
+        uint8 indexed termId,
+        uint32 termSeconds,
+        uint16 custodyBps,
+        bool enabled
     );
 
     event ReservationVaultUpdated(address reservationVault);
@@ -1244,6 +1278,9 @@ library Reservation {
     ///      - `reservationRenewalWindowSeconds` must be greater than zero
     ///        and strictly shorter than the term (written in milestone 1
     ///        for storage completeness; unread until renewal lands),
+    ///      - `reservationRenewalWindowSeconds` must be strictly shorter
+    ///        than the smallest reservation term entry ever added (skipped
+    ///        while the term table is empty),
     ///      - `reservationActionTimeout` must exceed the wallet
     ///        validator's final signing safety margin,
     ///      - `maxReservationsPerWallet` must be greater than zero, so the
@@ -1287,6 +1324,17 @@ library Reservation {
             reservationRenewalWindowSeconds > 0 &&
                 reservationRenewalWindowSeconds < reservationTermSeconds,
             "Renewal window must be shorter than the term"
+        );
+        // Mirror of the relation `setReservationTerm` enforces from the
+        // table side. Zero means the table is empty, where the relation is
+        // skipped.
+        uint32 smallestTermSeconds = BridgeState.smallestReservationTermSeconds(
+            self
+        );
+        require(
+            smallestTermSeconds == 0 ||
+                reservationRenewalWindowSeconds < smallestTermSeconds,
+            "Renewal window must be shorter than every term entry"
         );
         require(
             reservationActionTimeout >
@@ -1352,6 +1400,95 @@ library Reservation {
             reservationActionTimeout,
             reservationRenewalWindowSeconds
         );
+    }
+
+    /// @notice Adds a reservation term entry, or flips the `enabled` flag of
+    ///         an existing one. Entries are never rewritten or removed:
+    ///         positions hold their term id, so the values behind an id
+    ///         must not change after any position selects it.
+    /// @param termId Id of the entry, in [1, MAX_RESERVATION_TERM_ID].
+    /// @param termSeconds Length of the custody term in seconds. For an
+    ///        existing entry, must equal the stored value.
+    /// @param custodyBps Custody fee of the term in basis points. For an
+    ///        existing entry, must equal the stored value.
+    /// @param enabled Whether new positions may select the term. For an
+    ///        existing entry, must differ from the stored value.
+    /// @dev Requirements:
+    ///      - `termId` must be in [1, MAX_RESERVATION_TERM_ID],
+    ///      - For an existing entry (non-zero stored `termSeconds`):
+    ///        `termSeconds` and `custodyBps` must equal the stored values
+    ///        and `enabled` must differ from the stored flag,
+    ///      - For a new entry:
+    ///        - `termSeconds` must stay within
+    ///          [MIN_RESERVATION_TERM, MAX_RESERVATION_TERM],
+    ///        - `custodyBps` must not exceed
+    ///          MAX_RESERVATION_TERM_CUSTODY_BPS,
+    ///        - with the entry added, `reservationRenewalWindowSeconds`
+    ///          must be strictly shorter than the smallest entry, and the
+    ///          largest entry plus `DEPOSIT_REFUND_SAFETY_MARGIN` must be
+    ///          at least `depositRevealAheadPeriod`. Both run over every
+    ///          entry ever added, enabled or disabled.
+    ///
+    ///      A flag flip leaves every entry's length unchanged, so it cannot
+    ///      break either relation and does not re-check them; a disable must
+    ///      stay possible whatever the other parameters are.
+    function setReservationTerm(
+        BridgeState.Storage storage self,
+        uint8 termId,
+        uint32 termSeconds,
+        uint16 custodyBps,
+        bool enabled
+    ) external {
+        require(
+            termId >= 1 && termId <= MAX_RESERVATION_TERM_ID,
+            "Reservation term id out of range"
+        );
+
+        ReservationTerm storage term = self.reservationTerms[termId];
+
+        if (term.termSeconds != 0) {
+            require(
+                termSeconds == term.termSeconds &&
+                    custodyBps == term.custodyBps,
+                "Reservation term entry cannot be rewritten"
+            );
+            require(enabled != term.enabled, "Reservation term unchanged");
+
+            term.enabled = enabled;
+        } else {
+            require(
+                termSeconds >= MIN_RESERVATION_TERM &&
+                    termSeconds <= MAX_RESERVATION_TERM,
+                "Reservation term out of protocol bounds"
+            );
+            require(
+                custodyBps <= MAX_RESERVATION_TERM_CUSTODY_BPS,
+                "Reservation term custody fee too high"
+            );
+
+            term.termSeconds = termSeconds;
+            term.custodyBps = custodyBps;
+            term.enabled = enabled;
+
+            // Both relations are checked over the table with the new entry
+            // in place, so neither helper can return the empty-table zero
+            // here; the empty-table skip applies only to the
+            // renewal-window setter.
+            require(
+                self.reservationRenewalWindowSeconds <
+                    BridgeState.smallestReservationTermSeconds(self),
+                "Renewal window must be shorter than every term entry"
+            );
+            require(
+                BridgeState.largestReservationTermSeconds(self) +
+                    WalletProposalValidatorConstants
+                        .DEPOSIT_REFUND_SAFETY_MARGIN >=
+                    self.depositRevealAheadPeriod,
+                "Largest term must cover the deposit reveal ahead period"
+            );
+        }
+
+        emit ReservationTermUpdated(termId, termSeconds, custodyBps, enabled);
     }
 
     /// @notice Updates the amount-denominated reservation caps and the

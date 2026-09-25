@@ -223,6 +223,20 @@ interface IReservationBridge {
         uint32 reservationRenewalWindowSeconds
     );
 
+    /// @notice Emitted when governance adds a reservation term entry or
+    ///         flips an existing entry's `enabled` flag via
+    ///         `setReservationTerm`.
+    /// @param termId Id of the entry.
+    /// @param termSeconds Length of the custody term, in seconds.
+    /// @param custodyBps Custody fee of the term, in basis points.
+    /// @param enabled Whether new positions may select the term.
+    event ReservationTermUpdated(
+        uint8 indexed termId,
+        uint32 termSeconds,
+        uint16 custodyBps,
+        bool enabled
+    );
+
     /// @notice Emitted when governance changes the reservation vault
     ///         address via `updateReservationParameters`.
     /// @param reservationVault New reservation vault address. Deposits
@@ -398,7 +412,9 @@ interface IReservationBridge {
     ///      `reservationTermSeconds` stays within the protocol's
     ///      [MIN_RESERVATION_TERM, MAX_RESERVATION_TERM] bounds;
     ///      `reservationRenewalWindowSeconds` is greater than zero and
-    ///      strictly shorter than the term; `reservationActionTimeout`
+    ///      strictly shorter than the term and than the smallest reservation
+    ///      term entry ever added (skipped while the term table is empty);
+    ///      `reservationActionTimeout`
     ///      exceeds the wallet validator's final signing safety margin;
     ///      `maxReservationsPerWallet` is greater than zero;
     ///      `reservationMaxTotalAmount` does not exceed the slot capacity
@@ -437,6 +453,30 @@ interface IReservationBridge {
         uint32 maxReservationsPerWallet,
         uint32 reservationActionTimeout,
         uint32 reservationRenewalWindowSeconds
+    ) external;
+
+    /// @notice Adds a reservation term entry, or flips the `enabled` flag of
+    ///         an existing one. Entries are never rewritten or removed, so
+    ///         ids 1 to 8 are a lifetime budget of eight entries.
+    /// @dev Caller must be Bridge governance. Reverts unless `termId` is in
+    ///      [1, 8] and either: the entry exists, `termSeconds` and
+    ///      `custodyBps` equal its stored values and `enabled` differs from
+    ///      its stored flag; or the entry is new, `termSeconds` stays within
+    ///      [MIN_RESERVATION_TERM, MAX_RESERVATION_TERM], `custodyBps` is at
+    ///      most 500 and, with the entry added, the renewal window is
+    ///      strictly shorter than the smallest entry and the largest entry
+    ///      plus `DEPOSIT_REFUND_SAFETY_MARGIN` is at least
+    ///      `depositRevealAheadPeriod`, both over every entry ever added.
+    ///      See `Reservation.setReservationTerm`.
+    /// @param termId Id of the entry.
+    /// @param termSeconds Length of the custody term, in seconds.
+    /// @param custodyBps Custody fee of the term, in basis points.
+    /// @param enabled Whether new positions may select the term.
+    function setReservationTerm(
+        uint8 termId,
+        uint32 termSeconds,
+        uint16 custodyBps,
+        bool enabled
     ) external;
 
     /// @notice Marks a revealed reserved deposit as stale so it stops
@@ -555,6 +595,29 @@ interface IReservationBridge {
         external
         view
         returns (Reservation.ReservationAction memory);
+
+    /// @notice Returns the reservation term entry of the given id.
+    /// @param termId Id of the entry.
+    /// @return termSeconds Length of the custody term, in seconds; zero for
+    ///         an id that was never added.
+    /// @return custodyBps Custody fee of the term, in basis points.
+    /// @return enabled Whether new positions may select the term.
+    function reservationTerm(uint8 termId)
+        external
+        view
+        returns (
+            uint32 termSeconds,
+            uint16 custodyBps,
+            bool enabled
+        );
+
+    /// @notice Returns the term id of the given reservation position.
+    /// @param reservationKey The key of the reservation.
+    /// @return The position's term id; zero when none is recorded.
+    function reservationTermId(uint256 reservationKey)
+        external
+        view
+        returns (uint8);
 
     /// @notice Returns the current values of Bridge reservation parameters.
     /// @return reservationVault Address of the reservation vault. Deposits

@@ -482,6 +482,21 @@ library BridgeState {
         // must keep accepting late proofs of their confirmed Bitcoin
         // transactions.
         mapping(uint256 => Reservation.ReservationAction) reservationActions;
+        // Governed menu of reservation terms indexed by term id (1 to
+        // `Reservation.MAX_RESERVATION_TERM_ID`). An entry is written once
+        // by `Reservation.setReservationTerm` and never rewritten or
+        // removed; only its `enabled` flag can flip afterwards. A zero
+        // `termSeconds` marks an id that was never added.
+        mapping(uint8 => Reservation.ReservationTerm) reservationTerms;
+        // Term id selected for each acceptance generation, indexed by
+        // `keccak256(reservationKey | requestNonce)` like
+        // `reservationActions`. Kept beside the action record so the
+        // record's layout and ABI stay unchanged.
+        mapping(uint256 => uint8) reservationActionTermIds;
+        // Term id of each accepted reservation position, indexed by
+        // reservation key like `reservations`. Kept beside the position
+        // record so the record's layout and ABI stay unchanged.
+        mapping(uint256 => uint8) reservationTermIds;
         // Reserved storage space in case we need to add more variables.
         // The convention from OpenZeppelin suggests the storage space should
         // add up to 50 slots. Here we want to have more slots as there are
@@ -497,9 +512,11 @@ library BridgeState {
         // as unused/dead, freeing 6 slots via re-packing). The remaining 39
         // slots are shared budget for all future Bridge upgrades, not
         // reserved for reservations specifically - a later unrelated PR
-        // should not assume it can spend the rest.
+        // should not assume it can spend the rest. The multi-term
+        // reservation menu consumed 3 more (`reservationTerms`,
+        // `reservationActionTermIds`, `reservationTermIds`), leaving 36.
         // slither-disable-next-line unused-state
-        uint256[39] __gap;
+        uint256[36] __gap;
     }
 
     event DepositParametersUpdated(
@@ -1095,5 +1112,54 @@ library BridgeState {
 
         self.reservationRouter = _reservationRouter;
         emit ReservationRouterSet(_reservationRouter);
+    }
+
+    /// @notice Returns the largest `termSeconds` over every reservation term
+    ///         entry ever added, enabled or disabled.
+    /// @return largest Largest entry length in seconds; zero when the table
+    ///         is empty. Never reverts.
+    /// @dev Disabled entries count: their positions keep renewing, and
+    ///      entries are never removed, so a disabled long entry keeps
+    ///      bounding the relations it once satisfied.
+    function largestReservationTermSeconds(Storage storage self)
+        internal
+        view
+        returns (uint32 largest)
+    {
+        for (
+            uint8 termId = 1;
+            termId <= Reservation.MAX_RESERVATION_TERM_ID;
+            termId++
+        ) {
+            uint32 termSeconds = self.reservationTerms[termId].termSeconds;
+            if (termSeconds > largest) {
+                largest = termSeconds;
+            }
+        }
+    }
+
+    /// @notice Returns the smallest `termSeconds` over every reservation
+    ///         term entry ever added, enabled or disabled.
+    /// @return smallest Smallest entry length in seconds; zero when the
+    ///         table is empty. Never reverts. Every added entry has a
+    ///         non-zero length, so zero means exactly "no entry", and
+    ///         callers skip their relation to the smallest entry on it.
+    /// @dev Disabled entries count, for the same reason as in
+    ///      `largestReservationTermSeconds`.
+    function smallestReservationTermSeconds(Storage storage self)
+        internal
+        view
+        returns (uint32 smallest)
+    {
+        for (
+            uint8 termId = 1;
+            termId <= Reservation.MAX_RESERVATION_TERM_ID;
+            termId++
+        ) {
+            uint32 termSeconds = self.reservationTerms[termId].termSeconds;
+            if (termSeconds != 0 && (smallest == 0 || termSeconds < smallest)) {
+                smallest = termSeconds;
+            }
+        }
     }
 }
