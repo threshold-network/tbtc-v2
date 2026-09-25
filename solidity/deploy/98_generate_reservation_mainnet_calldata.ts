@@ -33,6 +33,8 @@ const EIP_1967_ADMIN_SLOT =
 // submitted and staged.
 const MIN_RESERVATION_TERM = 2_592_000 // 30 days
 const MAX_RESERVATION_TERM = 63_072_000 // 730 days
+const MAX_RESERVATION_TERM_ID = 8
+const MAX_RESERVATION_TERM_CUSTODY_BPS = 500
 // Mirrored from WalletProposalValidatorConstants.REQUEST_TIMEOUT_SAFETY_MARGIN.
 const REQUEST_TIMEOUT_SAFETY_MARGIN = 7_200 // 2 hours
 // Mirrored from WalletProposalValidatorConstants.DEPOSIT_REFUND_SAFETY_MARGIN.
@@ -55,7 +57,9 @@ interface CalldataAction extends ActionDefinition {
 
 /**
  * Builds the full ordered list of reservation bootstrap governance actions,
- * from the one-off router wiring through to the final vault activation.
+ * from the one-off router wiring, through the caps and parameters updates
+ * and one begin/finalize cycle per reservation term entry, to the final
+ * vault activation.
  * This is the single source of truth for the action set -- console output
  * and the JSON action-array output are both derived from it, rather than
  * each maintaining their own copy.
@@ -70,10 +74,13 @@ interface CalldataAction extends ActionDefinition {
  *      `updateReservationCaps` owns). The three begin* calls carry no such
  *      ordering constraint among themselves -- only the finalize* calls do
  *      -- so they may be submitted as a single batch.
+ *   3. The term cycles run one at a time, in the listed order (see
+ *      `buildReservationTermActionDefinitions`), and before setVaultStatus,
+ *      so the vault is activated only once the term table exists.
  * finalizeReservationCapsUpdate/finalizeReservationParametersUpdate/
- * setVaultStatus are each irreversible, point-of-no-return transactions:
- * once setVaultStatus(vault, true) executes, deposits can be revealed
- * against the vault.
+ * finalizeReservationTermUpdate/setVaultStatus are each irreversible,
+ * point-of-no-return transactions: once setVaultStatus(vault, true)
+ * executes, deposits can be revealed against the vault.
  */
 export function buildReservationActionDefinitions(params: {
   reservationRouter: string
@@ -89,6 +96,7 @@ export function buildReservationActionDefinitions(params: {
   maxReservationsPerWallet: number
   actionTimeout: number
   renewalWindowSeconds: number
+  reservationTerms: readonly ReservationTermEntry[]
 }): ActionDefinition[] {
   return [
     {
@@ -170,6 +178,7 @@ export function buildReservationActionDefinitions(params: {
         Note: "MUST execute AFTER finalizeReservationCapsUpdate.",
       },
     },
+    ...buildReservationTermActionDefinitions(params.reservationTerms),
     {
       method: "setVaultStatus",
       args: [params.reservationVault, true],
@@ -183,7 +192,9 @@ export function buildReservationActionDefinitions(params: {
           "been confirmed on-chain -- otherwise the vault is marked trusted " +
           "while reservationVault is still the zero address, letting " +
           "deposits routed to the vault be revealed as ordinary " +
-          "(non-reserved) deposits.",
+          "(non-reserved) deposits. Execute after the last " +
+          "finalizeReservationTermUpdate, so the vault is activated only " +
+          "once the term table exists.",
       },
     },
   ]
@@ -201,6 +212,10 @@ export function buildReservationActionDefinitions(params: {
  *   the setter checks it per addition: the first entry must cover the period
  *   on its own.
  * - The renewal window must be strictly shorter than every entry.
+ * - Each entry itself passes the setter's direct checks: its id is in
+ *   [1, MAX_RESERVATION_TERM_ID] and not repeated in the list, its length
+ *   is within [MIN_RESERVATION_TERM, MAX_RESERVATION_TERM], and its custody
+ *   fee is at most MAX_RESERVATION_TERM_CUSTODY_BPS.
  *
  * @param entries Entries in the order their begin/finalize cycles run.
  * @param depositRevealAheadPeriod The Bridge's reveal-ahead period, seconds.
@@ -213,7 +228,39 @@ export function checkReservationTermTable(
   renewalWindowSeconds: number
 ): void {
   let largestTermSeconds = 0
+  const seenTermIds = new Set<number>()
   entries.forEach((entry) => {
+    if (
+      entry.termId < 1 ||
+      entry.termId > MAX_RESERVATION_TERM_ID ||
+      seenTermIds.has(entry.termId)
+    ) {
+      throw new Error(
+        `Reservation term id ${entry.termId} is outside [1, ` +
+          `${MAX_RESERVATION_TERM_ID}] or repeated; setReservationTerm ` +
+          "would revert or reject it as a rewrite at finalize"
+      )
+    }
+    seenTermIds.add(entry.termId)
+    if (
+      entry.termSeconds < MIN_RESERVATION_TERM ||
+      entry.termSeconds > MAX_RESERVATION_TERM
+    ) {
+      throw new Error(
+        `Reservation term ${entry.termId} (${entry.termSeconds}s) is outside ` +
+          "[MIN_RESERVATION_TERM, MAX_RESERVATION_TERM] " +
+          `([${MIN_RESERVATION_TERM}s, ${MAX_RESERVATION_TERM}s]); ` +
+          "setReservationTerm would revert at finalize"
+      )
+    }
+    if (entry.custodyBps > MAX_RESERVATION_TERM_CUSTODY_BPS) {
+      throw new Error(
+        `Reservation term ${entry.termId} custody fee (${entry.custodyBps} ` +
+          "bps) exceeds MAX_RESERVATION_TERM_CUSTODY_BPS " +
+          `(${MAX_RESERVATION_TERM_CUSTODY_BPS}); setReservationTerm would ` +
+          "revert at finalize"
+      )
+    }
     largestTermSeconds = Math.max(largestTermSeconds, entry.termSeconds)
     if (
       largestTermSeconds + DEPOSIT_REFUND_SAFETY_MARGIN <
@@ -271,7 +318,10 @@ export function buildReservationTermActionDefinitions(
         Note:
           "MUST execute AFTER setReservationRouter, and in the listed " +
           "order: the Bridge checks the largest entry against " +
-          "depositRevealAheadPeriod on every addition.",
+          "depositRevealAheadPeriod on every addition. Re-run this " +
+          "script's checks before each term finalize: " +
+          "depositRevealAheadPeriod is read when this calldata is " +
+          "generated, not when it executes.",
       },
     },
   ])
@@ -295,8 +345,8 @@ function logCalldataSummary(actions: CalldataAction[]): void {
   console.log("=".repeat(80))
   console.log(
     "Ordering: router FIRST; finalizeReservationCapsUpdate BEFORE " +
-      "finalizeReservationParametersUpdate BEFORE setVaultStatus; then " +
-      "one begin/finalize cycle per reservation term entry, in order"
+      "finalizeReservationParametersUpdate; then one begin/finalize " +
+      "cycle per reservation term entry, in order; setVaultStatus LAST"
   )
 
   actions.forEach((action, index) => {
@@ -308,7 +358,7 @@ function logCalldataSummary(actions: CalldataAction[]): void {
     })
   })
   console.log(`\n${"=".repeat(80)}`)
-  // All six actions above target BridgeGovernance, owned by the Council
+  // Every action above targets BridgeGovernance, owned by the Council
   // Safe -- NOT the Timelock, which owns only the ProxyAdmin and is
   // unrelated to reservation governance. Routing through the Timelock
   // would make msg.sender the Timelock and revert on BridgeGovernance's
@@ -662,7 +712,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 
   // --- Generate governance calldata ---
   console.log(
-    "\n--- Generating governance calldata (router, then caps+params begin, then caps+params finalize, then activation, then term entries) ---"
+    "\n--- Generating governance calldata (router, then caps+params begin, then caps+params finalize, then term entries, then activation) ---"
   )
 
   // Single ABI source: the compiled BridgeGovernance artifact, not a
@@ -687,12 +737,10 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     maxReservationsPerWallet: MAX_RESERVATIONS_PER_WALLET,
     actionTimeout: RES_ACTION_TIMEOUT,
     renewalWindowSeconds: RES_RENEWAL_WINDOW,
+    reservationTerms: RESERVATION_TERM_ENTRIES,
   })
 
-  const actions: CalldataAction[] = [
-    ...actionDefinitions,
-    ...buildReservationTermActionDefinitions(RESERVATION_TERM_ENTRIES),
-  ].map((definition) => ({
+  const actions: CalldataAction[] = actionDefinitions.map((definition) => ({
     ...definition,
     target: BridgeGovernance.address,
     targetName: "BridgeGovernance",

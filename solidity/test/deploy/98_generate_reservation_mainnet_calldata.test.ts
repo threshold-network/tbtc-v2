@@ -22,19 +22,20 @@ const MAINNET_REVEAL_AHEAD_PERIOD = 150 * DAY
 // `WalletProposalValidatorConstants.DEPOSIT_REFUND_SAFETY_MARGIN`.
 const DEPOSIT_REFUND_SAFETY_MARGIN = DAY
 
-// The bootstrap actions, then one begin/finalize pair per ruled term entry.
-const BOOTSTRAP_METHODS = [
+// The router and the caps and parameters updates, then one begin/finalize
+// pair per ruled term entry, then the vault activation.
+const PRE_TERM_METHODS = [
   "setReservationRouter",
   "beginReservationCapsUpdate",
   "beginReservationParametersUpdate",
   "finalizeReservationCapsUpdate",
   "finalizeReservationParametersUpdate",
-  "setVaultStatus",
 ]
 const TERM_METHODS = RESERVATION_TERM_ENTRIES.flatMap(() => [
   "beginReservationTermUpdate",
   "finalizeReservationTermUpdate",
 ])
+const ALL_METHODS = [...PRE_TERM_METHODS, ...TERM_METHODS, "setVaultStatus"]
 
 /**
  * Asserts that `promise` rejects with an error whose message matches
@@ -282,19 +283,13 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
       maxReservationsPerWallet: 1,
       actionTimeout: 86_400,
       renewalWindowSeconds: 86_400,
+      reservationTerms: RESERVATION_TERM_ENTRIES,
     }
 
-    it("should return exactly 6 actions in the point-of-no-return order", () => {
+    it("should return 12 actions in the point-of-no-return order, the term cycles before setVaultStatus", () => {
       const actions = buildReservationActionDefinitions(params)
-      expect(actions).to.have.lengthOf(6)
-      expect(actions.map((a) => a.method)).to.deep.equal([
-        "setReservationRouter",
-        "beginReservationCapsUpdate",
-        "beginReservationParametersUpdate",
-        "finalizeReservationCapsUpdate",
-        "finalizeReservationParametersUpdate",
-        "setVaultStatus",
-      ])
+      expect(actions).to.have.lengthOf(12)
+      expect(actions.map((a) => a.method)).to.deep.equal(ALL_METHODS)
     })
 
     it("should pass through args for setReservationRouter", () => {
@@ -334,7 +329,10 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
 
     it("should call setVaultStatus with the vault address and true", () => {
       const actions = buildReservationActionDefinitions(params)
-      expect(actions[5].args).to.deep.equal([params.reservationVault, true])
+      expect(actions[actions.length - 1].args).to.deep.equal([
+        params.reservationVault,
+        true,
+      ])
     })
 
     it("should state the true finalize-order constraint, not a begin-order constraint", () => {
@@ -368,7 +366,7 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
   })
 
   describe("calldata generation (full run)", () => {
-    it("should generate calldata for all 6 bootstrap actions, then the term entries, in point-of-no-return order", async () => {
+    it("should generate calldata for the bootstrap actions and the term entries, activation last, in point-of-no-return order", async () => {
       const { mockHre } = createMockHre()
       const capture = captureConsoleLog()
       let output: string
@@ -379,11 +377,12 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
       }
 
       // Each term method's selector repeats per entry; its first occurrence
-      // must still follow setVaultStatus.
+      // must follow the parameters finalize and precede setVaultStatus.
       const selectors = [
-        ...BOOTSTRAP_METHODS,
+        ...PRE_TERM_METHODS,
         "beginReservationTermUpdate",
         "finalizeReservationTermUpdate",
+        "setVaultStatus",
       ].map((method) => bridgeGovInterface.getSighash(method))
 
       const indices = selectors.map((sel) => output.indexOf(sel))
@@ -518,6 +517,51 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
       enabled: true,
     })
 
+    context("direct setter checks (no reveal-ahead period, no window)", () => {
+      const check = (entries: ReturnType<typeof entry>[]) => () =>
+        checkReservationTermTable(entries, 0, 0)
+      const withSeconds = (termSeconds: number) => [
+        { termId: 1, termSeconds, custodyBps: 5, enabled: true },
+      ]
+
+      it("should refuse id 0 and accept id 1", () => {
+        expect(check([entry(0, 365)])).to.throw(/term id 0 is outside/)
+        expect(check([entry(1, 365)])).to.not.throw()
+      })
+
+      it("should accept id 8 and refuse id 9", () => {
+        expect(check([entry(8, 365)])).to.not.throw()
+        expect(check([entry(9, 365)])).to.throw(/term id 9 is outside/)
+      })
+
+      it("should refuse a repeated id", () => {
+        expect(check([entry(1, 365), entry(1, 365)])).to.throw(
+          /term id 1 is outside .* or repeated/
+        )
+      })
+
+      it("should refuse one second under 30 days and accept 30 days", () => {
+        expect(check(withSeconds(30 * DAY - 1))).to.throw(
+          /MIN_RESERVATION_TERM, MAX_RESERVATION_TERM/
+        )
+        expect(check(withSeconds(30 * DAY))).to.not.throw()
+      })
+
+      it("should accept 730 days and refuse one second over", () => {
+        expect(check(withSeconds(730 * DAY))).to.not.throw()
+        expect(check(withSeconds(730 * DAY + 1))).to.throw(
+          /MIN_RESERVATION_TERM, MAX_RESERVATION_TERM/
+        )
+      })
+
+      it("should accept a 500 bps custody fee and refuse 501", () => {
+        expect(check([entry(1, 365, 500)])).to.not.throw()
+        expect(check([entry(1, 365, 501)])).to.throw(
+          /exceeds MAX_RESERVATION_TERM_CUSTODY_BPS/
+        )
+      })
+    })
+
     it("should accept the ruled entries at the live reveal-ahead period and a 7-day window", () => {
       checkReservationTermTable(
         RESERVATION_TERM_ENTRIES,
@@ -595,6 +639,9 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
           termEntry.enabled,
         ])
         expect(actions[2 * index + 1].args).to.deep.equal([])
+        expect(actions[2 * index + 1].details.Note).to.include(
+          "Re-run this script's checks before each term finalize"
+        )
       })
     })
 
@@ -723,12 +770,12 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
       cleanupSummaryFiles()
     })
 
-    it("should have governanceActions derived from the single action list, in order, with 6 bootstrap entries and a pair per term entry", () => {
+    it("should have governanceActions derived from the single action list, in order, with a pair per term entry before setVaultStatus", () => {
       expect(summary.governanceActions).to.be.an("array")
       expect(summary.governanceActions).to.have.lengthOf(12)
 
-      const expectedSelectors = [...BOOTSTRAP_METHODS, ...TERM_METHODS].map(
-        (method) => bridgeGovInterface.getSighash(method)
+      const expectedSelectors = ALL_METHODS.map((method) =>
+        bridgeGovInterface.getSighash(method)
       )
 
       summary.governanceActions.forEach((action: any, index: number) => {
@@ -741,7 +788,10 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
 
     it("should stage the ruled term entries, 365 days first", () => {
       const staged = summary.governanceActions
-        .slice(BOOTSTRAP_METHODS.length)
+        .slice(
+          PRE_TERM_METHODS.length,
+          PRE_TERM_METHODS.length + TERM_METHODS.length
+        )
         .filter((_: any, index: number) => index % 2 === 0)
         .map((action: any) => {
           const [termId, termSeconds, custodyBps, enabled] =
