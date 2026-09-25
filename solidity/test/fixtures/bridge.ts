@@ -19,13 +19,11 @@ import type {
   IERC20,
 } from "../../typechain"
 import { createMock } from "../helpers/mock"
+import { seedReservationTerms } from "../helpers/reservation-terms"
 
 import type { Mock } from "../helpers/mock"
 
-/**
- * Common fixture for tests suites targeting the Bridge contract.
- */
-async function bridgeFixture(): Promise<{
+type BridgeFixture = {
   deployer: SignerWithAddress
   governance: SignerWithAddress
   spvMaintainer: SignerWithAddress
@@ -47,7 +45,13 @@ async function bridgeFixture(): Promise<{
   t: IERC20
   rebateStaking: RebateStaking
   deployBridge: (txProofDifficultyFactor: number) => Promise<any>
-}> {
+}
+
+/**
+ * Common fixture body for tests suites targeting the Bridge contract, without
+ * the reservation term table seeding.
+ */
+async function unseededBridgeFixture(): Promise<BridgeFixture> {
   await deployments.fixture()
 
   const {
@@ -181,6 +185,18 @@ async function bridgeFixture(): Promise<{
 }
 
 /**
+ * Common fixture for tests suites targeting the Bridge contract. Seeds the
+ * Bridge's reservation term table with the ruled entries
+ * (`RESERVATION_TERM_ENTRIES`) through the governance-only setter; ids that a
+ * deploy script already seeded with the same values are skipped.
+ */
+async function bridgeFixture(): Promise<BridgeFixture> {
+  const fixture = await unseededBridgeFixture()
+  await seedReservationTerms(fixture.bridge)
+  return fixture
+}
+
+/**
  * Built with `deployments.createFixture` rather than exported bare for
  * `waffle.loadFixture`, because the two snapshot stacks collide.
  *
@@ -202,3 +218,13 @@ async function bridgeFixture(): Promise<{
  * no `evm_revert` could remove them. Putting mocks on the chain made it fatal.
  */
 export default deployments.createFixture(bridgeFixture)
+
+/**
+ * The Bridge fixture without the reservation term table seeding, for tests of
+ * empty-table behaviour. Built with `deployments.createFixture` for the same
+ * reason as the default export. The table is empty only while no deploy
+ * script seeds it inside `deployments.fixture()`.
+ */
+export const bridgeFixtureWithoutReservationTerms = deployments.createFixture(
+  unseededBridgeFixture
+)

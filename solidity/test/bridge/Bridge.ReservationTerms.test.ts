@@ -9,7 +9,14 @@ import type {
   ReservationRouter,
   TestReservationTermTable,
 } from "../../typechain"
-import bridgeFixture from "../fixtures/bridge"
+import bridgeFixture, {
+  bridgeFixtureWithoutReservationTerms,
+} from "../fixtures/bridge"
+import {
+  RESERVATION_TERM_ENTRIES,
+  seedReservationTerms,
+} from "../helpers/reservation-terms"
+import type { ReservationTermEntry } from "../helpers/reservation-terms"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 
@@ -102,11 +109,12 @@ describe("Bridge - reservation term table", () => {
   }
 
   before(async () => {
+    // The unseeded fixture: these tests add entries to ids 1 to 8 and rely
+    // on the table starting empty.
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
-    ;({ bridge, thirdParty } = await bridgeFixture())
+    ;({ bridge, thirdParty } = await bridgeFixtureWithoutReservationTerms())
     // Restored in `after`, so no table entry or parameter set here outlives
-    // this suite: other suites set a 30-day renewal window on the shared
-    // Bridge and assume an empty table.
+    // this suite on the shared Bridge.
     await createSnapshot()
 
     // Router functions are reached through the Bridge fallback, so the
@@ -164,7 +172,7 @@ describe("Bridge - reservation term table", () => {
         await expectTerm(1, 365 * DAY, 20, false)
       })
 
-      it("should not write the term id maps", async () => {
+      it("should leave reservationTermId at zero for an unknown key", async () => {
         await setTerm(1, 365 * DAY, 20)
 
         expect(await reservationRouter.reservationTermId(1)).to.equal(0)
@@ -350,6 +358,25 @@ describe("Bridge - reservation term table", () => {
     })
   })
 
+  describe("reservationTerm", () => {
+    it("should start from an empty table", async () => {
+      for (let termId = 0; termId <= MAX_RESERVATION_TERM_ID; termId++) {
+        // eslint-disable-next-line no-await-in-loop
+        await expectTerm(termId, 0, 0, false)
+      }
+    })
+
+    it("should return all zeros for a term id that was never added", async () => {
+      await setTerm(2, 365 * DAY, 20)
+
+      // eslint-disable-next-line no-restricted-syntax
+      for (const termId of [0, 1, MAX_RESERVATION_TERM_ID, 255]) {
+        // eslint-disable-next-line no-await-in-loop
+        await expectTerm(termId, 0, 0, false)
+      }
+    })
+  })
+
   describe("updateReservationParameters", () => {
     context("when the term table is empty", () => {
       it("should skip the relation to the table", async () => {
@@ -464,6 +491,144 @@ describe("BridgeState - reservation term table helpers", () => {
 
       expect(await table.largestReservationTermSeconds()).to.equal(365 * DAY)
       expect(await table.smallestReservationTermSeconds()).to.equal(91 * DAY)
+    })
+  })
+})
+
+describe("Bridge fixture - seeded reservation term table", () => {
+  let bridge: Bridge & BridgeStub
+  let reservationRouter: ReservationRouter
+
+  async function expectRejection(
+    promise: Promise<unknown>,
+    pattern: RegExp
+  ): Promise<void> {
+    let error: Error | undefined
+    try {
+      await promise
+    } catch (e) {
+      error = e as Error
+    }
+    expect(error, `expected rejection matching ${pattern}`).to.not.equal(
+      undefined
+    )
+    expect((error as Error).message).to.match(pattern)
+  }
+
+  async function readTable(): Promise<ReservationTermEntry[]> {
+    const table: ReservationTermEntry[] = []
+    for (let termId = 0; termId <= MAX_RESERVATION_TERM_ID; termId++) {
+      // eslint-disable-next-line no-await-in-loop
+      const term = await reservationRouter.reservationTerm(termId)
+      table.push({
+        termId,
+        termSeconds: term.termSeconds,
+        custodyBps: term.custodyBps,
+        enabled: term.enabled,
+      })
+    }
+    return table
+  }
+
+  before(async () => {
+    // eslint-disable-next-line @typescript-eslint/no-extra-semi
+    ;({ bridge } = await bridgeFixture())
+    reservationRouter = await ethers.getContractAt(
+      "ReservationRouter",
+      bridge.address
+    )
+  })
+
+  beforeEach(async () => {
+    await createSnapshot()
+  })
+
+  afterEach(async () => {
+    await restoreSnapshot()
+  })
+
+  it("should hold exactly the three ruled entries", async () => {
+    expect(RESERVATION_TERM_ENTRIES).to.deep.equal([
+      { termId: 1, termSeconds: 365 * DAY, custodyBps: 20, enabled: true },
+      { termId: 2, termSeconds: 30 * DAY, custodyBps: 2, enabled: true },
+      { termId: 3, termSeconds: 91 * DAY, custodyBps: 5, enabled: true },
+    ])
+
+    const empty = (termId: number) => ({
+      termId,
+      termSeconds: 0,
+      custodyBps: 0,
+      enabled: false,
+    })
+    expect(await readTable()).to.deep.equal([
+      empty(0),
+      ...RESERVATION_TERM_ENTRIES,
+      empty(4),
+      empty(5),
+      empty(6),
+      empty(7),
+      empty(8),
+    ])
+  })
+
+  describe("seedReservationTerms", () => {
+    it("should skip ids that already hold identical values", async () => {
+      const tableBefore = await readTable()
+
+      expect(await seedReservationTerms(bridge)).to.deep.equal([])
+      expect(await readTable()).to.deep.equal(tableBefore)
+    })
+
+    it("should write only the ids not yet present", async () => {
+      const extra = {
+        termId: 4,
+        termSeconds: 182 * DAY,
+        custodyBps: 10,
+        enabled: true,
+      }
+
+      expect(
+        await seedReservationTerms(bridge, [...RESERVATION_TERM_ENTRIES, extra])
+      ).to.deep.equal([4])
+      expect((await readTable())[4]).to.deep.equal(extra)
+    })
+
+    it("should reject an id holding a different length", async () => {
+      await expectRejection(
+        seedReservationTerms(bridge, [
+          { termId: 2, termSeconds: 31 * DAY, custodyBps: 2, enabled: true },
+        ]),
+        /Reservation term 2 holds/
+      )
+    })
+
+    it("should reject an id holding a different custody fee", async () => {
+      await expectRejection(
+        seedReservationTerms(bridge, [
+          { termId: 3, termSeconds: 91 * DAY, custodyBps: 6, enabled: true },
+        ]),
+        /Reservation term 3 holds/
+      )
+    })
+
+    it("should reject an id holding a different enabled flag", async () => {
+      const governanceAddress = await bridge.governance()
+      await ethers.provider.send("hardhat_impersonateAccount", [
+        governanceAddress,
+      ])
+      await ethers.provider.send("hardhat_setBalance", [
+        governanceAddress,
+        "0x8AC7230489E80000",
+      ])
+      const governance = await ethers.getSigner(governanceAddress)
+      await reservationRouter
+        .connect(governance)
+        .setReservationTerm(2, 30 * DAY, 2, false)
+
+      await expectRejection(
+        seedReservationTerms(bridge),
+        /Reservation term 2 holds/
+      )
     })
   })
 })
