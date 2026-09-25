@@ -605,7 +605,12 @@ library BridgeState {
     /// @dev Requirements:
     ///      - Deposit dust threshold must be greater than zero,
     ///      - Deposit dust threshold must be greater than deposit TX max fee,
-    ///      - Deposit transaction max fee must be greater than zero.
+    ///      - Deposit transaction max fee must be greater than zero,
+    ///      - If the reservation term table is non-empty, deposit reveal
+    ///        ahead period must not exceed the largest term entry ever added
+    ///        plus `DEPOSIT_REFUND_SAFETY_MARGIN`. Otherwise every reserved
+    ///        reveal would revert, because the reserved refund-locktime cap
+    ///        in `Deposit` would fall below the reveal-ahead bound.
     function updateDepositParameters(
         Storage storage self,
         uint64 _depositDustThreshold,
@@ -626,6 +631,18 @@ library BridgeState {
         require(
             _depositTxMaxFee > 0,
             "Deposit transaction max fee must be greater than zero"
+        );
+
+        // Mirrors the relation `Reservation.setReservationTerm` enforces
+        // from the term side. An empty table imposes no constraint.
+        uint32 largestTermSeconds = largestReservationTermSeconds(self);
+        require(
+            largestTermSeconds == 0 ||
+                _depositRevealAheadPeriod <=
+                largestTermSeconds +
+                    WalletProposalValidatorConstants
+                        .DEPOSIT_REFUND_SAFETY_MARGIN,
+            "Deposit reveal ahead period must not exceed largest term"
         );
 
         self.depositDustThreshold = _depositDustThreshold;
