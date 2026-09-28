@@ -180,9 +180,9 @@ describe("ReservationVault", () => {
       before(async () => {
         await createSnapshot()
 
-        const initiationFeeBps = await vault.initiationFeeBps()
+        const mintFeeBps = await vault.mintFeeBps()
         const gross = satsToTbtc(depositedAmountSat)
-        fee = gross.mul(initiationFeeBps).div(10000)
+        fee = gross.mul(mintFeeBps).div(10000)
         net = gross.sub(fee)
 
         tx = await bank
@@ -227,9 +227,9 @@ describe("ReservationVault", () => {
       before(async () => {
         await createSnapshot()
 
-        const initiationFeeBps = await vault.initiationFeeBps()
+        const mintFeeBps = await vault.mintFeeBps()
         fees = depositedAmounts.map((amount) =>
-          satsToTbtc(amount).mul(initiationFeeBps).div(10000)
+          satsToTbtc(amount).mul(mintFeeBps).div(10000)
         )
         nets = depositedAmounts.map((amount, i) =>
           satsToTbtc(amount).sub(fees[i])
@@ -397,9 +397,9 @@ describe("ReservationVault", () => {
       before(async () => {
         await createSnapshot()
 
-        const initiationFeeBps = await vault.initiationFeeBps()
+        const mintFeeBps = await vault.mintFeeBps()
         const reserveTbtc = satsToTbtc(reserveDepositSat)
-          .mul(initiationFeeBps)
+          .mul(mintFeeBps)
           .div(10000)
         coverableSat = reserveTbtc.div(SATOSHI_MULTIPLIER)
         shortfallSat = BigNumber.from(feeSat).sub(coverableSat)
@@ -614,9 +614,9 @@ describe("ReservationVault", () => {
       before(async () => {
         await createSnapshot()
 
-        const initiationFeeBps = await vault.initiationFeeBps()
+        const mintFeeBps = await vault.mintFeeBps()
         const totalFeeSat = reserveTargetSat + extraSat
-        const depositSat = Math.ceil((totalFeeSat * 10000) / initiationFeeBps)
+        const depositSat = Math.ceil((totalFeeSat * 10000) / mintFeeBps)
 
         await bank
           .connect(bridge.wallet)
@@ -674,9 +674,9 @@ describe("ReservationVault", () => {
         await vault.connect(bridge.wallet).financeInKindFee(debtSat)
 
         // Fund the vault so the retained fee covers debt + target + extra.
-        const initiationFeeBps = await vault.initiationFeeBps()
+        const mintFeeBps = await vault.mintFeeBps()
         const totalFeeSat = debtSat + reserveTargetSat + extraSat
-        const depositSat = Math.ceil((totalFeeSat * 10000) / initiationFeeBps)
+        const depositSat = Math.ceil((totalFeeSat * 10000) / mintFeeBps)
 
         await bank
           .connect(bridge.wallet)
@@ -737,9 +737,9 @@ describe("ReservationVault", () => {
 
         // Fund the vault so the retained fee covers exactly debt + target,
         // leaving nothing above the reserve target after debt repayment.
-        const initiationFeeBps = await vault.initiationFeeBps()
+        const mintFeeBps = await vault.mintFeeBps()
         const totalFeeSat = debtSat + reserveTargetSat
-        const depositSat = Math.ceil((totalFeeSat * 10000) / initiationFeeBps)
+        const depositSat = Math.ceil((totalFeeSat * 10000) / mintFeeBps)
 
         await bank
           .connect(bridge.wallet)
@@ -785,7 +785,7 @@ describe("ReservationVault", () => {
     })
   })
 
-  describe("updateInitiationFee", () => {
+  describe("updateMintFee", () => {
     before(async () => {
       await createSnapshot()
     })
@@ -794,33 +794,37 @@ describe("ReservationVault", () => {
       await restoreSnapshot()
     })
 
+    it("should default to the 20 bps mint leg", async () => {
+      expect(await vault.mintFeeBps()).to.equal(20)
+    })
+
     it("should revert when called by a non-owner", async () => {
       await expect(
-        vault.connect(account1).updateInitiationFee(40)
+        vault.connect(account1).updateMintFee(40)
       ).to.be.revertedWith("Ownable: caller is not the owner")
     })
 
     it("should succeed when called by the owner with a valid fee and emit the event", async () => {
-      await expect(vault.updateInitiationFee(50))
+      await expect(vault.updateMintFee(50))
         .to.emit(vault, "FeesUpdated")
         .withArgs(50)
 
-      expect(await vault.initiationFeeBps()).to.equal(50)
+      expect(await vault.mintFeeBps()).to.equal(50)
     })
 
     it("should revert when the fee exceeds MAX_FEE_BASIS_POINTS", async () => {
-      await expect(vault.updateInitiationFee(501)).to.be.revertedWith(
+      await expect(vault.updateMintFee(501)).to.be.revertedWith(
         "Fee exceeds the maximum"
       )
     })
 
     it("should allow setting the fee to exactly MAX_FEE_BASIS_POINTS", async () => {
       const max = await vault.MAX_FEE_BASIS_POINTS()
-      await expect(vault.updateInitiationFee(max))
+      await expect(vault.updateMintFee(max))
         .to.emit(vault, "FeesUpdated")
         .withArgs(max)
 
-      expect(await vault.initiationFeeBps()).to.equal(max)
+      expect(await vault.mintFeeBps()).to.equal(max)
     })
   })
 
