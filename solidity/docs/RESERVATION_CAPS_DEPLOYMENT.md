@@ -50,7 +50,7 @@ The existing regression test `Bridge.ReservationCaps.test.ts` in the `describe("
 In Milestone 1, `maxActiveReservations` acts as an occupancy launch gate and capacity ceiling:
 
 - **Occupancy lifecycle and release paths in M1:** Once reservation requests are authorized and accepted on-chain, `activeReservationsCount` increments. Voluntary protocol-level exits from an accepted reservation position (such as dissolution, veto, and dedicated reservation redemptions) are deferred to Milestone 2. However, `activeReservationsCount` is decremented on the two variant-B release paths that exist in M1: acceptance timeout (when acceptance proofs expire) and stranding (when a wallet closes or terminates). Thus, while not a strictly monotonic one-way ratchet, capacity releases occur exclusively through non-voluntary timeout/stranding paths rather than depositor-initiated exits. Occupancy is not derivable from a single field or event: the `ReservationOccupancyChanged` event alone reports only the raw `activeReservationsCount` counter, not effective occupancy. Deriving effective occupancy from current on-chain views requires combining `IReservationBridge.activeReservationsCount()` with `reservationParameters()` (for `maxReservationsPerWallet`) and the live-wallet count. This yields two distinct quantities that should not be conflated: aggregate wallet-slot utilization (`activeReservationsCount` against `liveWalletsCount * maxReservationsPerWallet`) and governance-cap utilization (`activeReservationsCount` against the global `maxActiveReservations` ceiling).
-- **Underlying tBTC funds are not locked:** This occupancy accounting applies only to the position of the dedicated-UTXO reservation. Depositor funds are not locked: upon `settleAcceptance`, the depositor is already credited liquid tBTC via the standard Bridge/vault deposit-crediting (mint) path (this mint/credit flow is completely unrelated to the distinct `redeemReservation` feature, which is disabled in Milestone 1). Only the dedicated-UTXO reservation position itself lacks an early voluntary close mechanism in M1.
+- **Underlying tBTC funds are not locked:** This occupancy accounting applies only to the position of the dedicated-UTXO reservation. Depositor funds are not locked: upon `settleAcceptance`, the depositor is already credited liquid tBTC. The Bridge increases the reservation vault's Bank balance by the gross anchored amount and then calls the vault's Bridge-only `creditReservation(reservationKey)`; the vault mints tBTC gross and sends the owner gross minus min(`mintFeeBps` + `custodyBps`, 500) bps, where `custodyBps` is that of the position's term entry (22 / 25 / 40 bps for the ruled 30 / 91 / 365-day entries at the default 20 bps mint fee), and keeps the fee. A position stranded at credit (its wallet left Live before the proof) pays the mint fee only. If the vault is no longer trusted at proof time, the Bridge credits the depositor's Bank balance directly with no fee. This mint/credit flow is completely unrelated to the distinct `redeemReservation` feature, which is disabled in Milestone 1. Only the dedicated-UTXO reservation position itself lacks an early voluntary close mechanism in M1.
 - **Wallet-closing gate dependency:** The safety story for `maxActiveReservations` relies on wallets not being able to retire while they still hold live reservation anchors. The `walletReservationInfo[wallet].count == 0` precondition is enforced at the two points that can still block _before_ any Bitcoin funds have moved: `moveFunds`'s routing decision (a wallet with a nonzero reservation count is always routed through `MovingFunds`, never straight to `Closing`) and `notifyWalletClosingPeriodElapsed`. It is deliberately _absent_ from `beginWalletClosing` and `finalizeWalletClosing`: both are reached only after a moving-funds Bitcoin transaction has already been proven on-chain via SPV proof, and blocking wallet retirement at that point (with funds already gone) would leave the wallet stuck mid-closing while its `movingFundsTimeout` clock keeps running, eventually triggering operator slashing for a state the protocol itself created. A wallet can therefore complete closing while still holding a live reservation anchor if reservations were requested against it after the `moveFunds` decision was made; the anchor itself is separately recovered via `notifyReservationStranded` once the wallet reaches `Terminated`/`Closed`/dissolution-eligible-`Closing`.
 - **Procedure for raising capacity:** When active occupancy saturates or additional headroom is required, governance can raise the occupancy limit by calling `updateReservationCaps(maxReservationsAmountPerWallet, reservationMaxSingleAmount, newMaxActiveReservations)` with a higher `newMaxActiveReservations` value.
 - **Sizing constraint:** Any update to `maxActiveReservations` or `reservationMaxSingleAmount` must maintain the Decision 1 relational invariant:
@@ -206,6 +206,9 @@ Before milestone 2 ships, a short technical spike should be conducted to empiric
 After applying the upgrade on a live network:
 
 ```solidity
+// Operator-supplied inputs: bridgeAddress, expectedRouterAddress,
+// expectedVaultOwner, expectedTbtcVault (the canonical TBTCVault).
+
 // Spot-check the Decision 1 invariant via three views on the bridge.
 // reservationParameters() returns a 10-value tuple; the 1st value is reservationVault, the 6th is reservationMaxTotalAmount.
 (address reservationVault, , , , , uint64 reservationMaxTotalAmount, , , , ) =
@@ -221,12 +224,52 @@ require(router != address(0) && router == expectedRouterAddress, "Router mismatc
 require(reservationVault != address(0), "Vault not set");
 require(Ownable(reservationVault).owner() == expectedVaultOwner, "Vault ownership mismatch");
 require(Bridge(bridgeAddress).isVaultTrusted(reservationVault), "Vault not trusted");
+
+// Acceptance-credit invariant 1: TBTCVault owns the TBTC token (otherwise
+// the vault's mint reverts, and with it every acceptance proof).
+TBTCVault tbtcVault = ReservationVault(reservationVault).tbtcVault();
+require(
+    TBTC(address(ReservationVault(reservationVault).tbtcToken())).owner() == address(tbtcVault),
+    "TBTCVault does not own TBTC"
+);
+// Invariant 1 only proves the vault's own token is owned by its own
+// TBTCVault: a vault built against a separate TBTCVault/TBTC pair passes it
+// and would pay owners a non-canonical token. Pin it to the canonical one.
+require(
+    address(ReservationVault(reservationVault).tbtcVault()) == expectedTbtcVault,
+    "Vault bound to another TBTCVault"
+);
+
+// Acceptance-credit binding: the vault's constructor-set Bridge and Bank are
+// immutable and unchecked on-chain. A vault bound to another Bridge rejects
+// the real Bridge's credit call; one bound to another Bank cannot convert the
+// balance the Bridge credited. Either way every acceptance proof reverts.
+(Bank bridgeBank, , , ) = Bridge(bridgeAddress).contractReferences();
+require(
+    address(ReservationVault(reservationVault).bridge()) == bridgeAddress,
+    "Vault bound to another Bridge"
+);
+require(
+    address(ReservationVault(reservationVault).bank()) == address(bridgeBank),
+    "Vault bound to another Bank"
+);
 ```
 
 The three views together supply the three quantities the Decision 1 invariant is written in terms of:
 `reservationMaxTotalAmount <= maxActiveReservations * reservationMaxSingleAmount` (or `reservationMaxSingleAmount == 0`).
 
 > **Precondition note:** Setting a new non-zero `reservationVault` in `updateReservationParameters` also requires `maxActiveReservations > 0`; the call reverts otherwise, so the Decision 1 invariant check above is not sufficient on its own when activating the vault for the first time.
+
+**Acceptance-credit invariant 2: the configured reservation vault implements `creditReservation`** (selector `0x60bac298`); the Bridge calls it inside every acceptance proof. The function is not a view, so probe it with a call from a non-Bridge address, which the hook must reject with its caller check:
+
+```sh
+cast call <reservationVault> "creditReservation(uint256)" 0 --from <any non-Bridge address>
+# expected: execution reverted: "Caller is not the Bridge"
+```
+
+Any other result (a different revert reason, an empty revert, or success) means the vault does not implement the hook and must not be activated. This probe does not show which Bridge the vault answers to: a vault bound to another Bridge gives the same answer, which is why the binding checks in the block above are needed alongside it.
+
+**Escape if any of these checks fails after activation:** `setVaultStatus(reservationVault, false)` (through `BridgeGovernance`) makes the vault untrusted, and acceptance proofs then settle through the Bridge's direct-credit fallback: the depositor's Bank balance is credited with the gross anchored amount and no fee is taken. If the misconfigured reservation vault is the TBTCVault itself, untrusting it also stops pooled minting through it.
 
 Because setter transactions revert on an invariant violation, a rejected configuration modifies no storage. If governance encounters a revert with `Amount cap exceeds slot capacity` during configuration, the remedy is:
 

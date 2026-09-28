@@ -320,7 +320,11 @@ contract BridgeGovernance is Ownable {
     ///         Trusted vault must meet the following criteria:
     ///         - `IVault.receiveBalanceIncrease` must have a known, low gas
     ///           cost,
-    ///         - `IVault.receiveBalanceIncrease` must never revert.
+    ///         - `IVault.receiveBalanceIncrease` must never revert,
+    ///         - if the vault is also the reservation vault, it must
+    ///           implement `IReservationFeeFinancer.creditReservation`, which
+    ///           runs inside the acceptance proof and must never revert
+    ///           either.
     /// @param vault The address of the vault.
     /// @param isTrusted flag indicating whether the vault is trusted or not.
     function setVaultStatus(address vault, bool isTrusted) external onlyOwner {
