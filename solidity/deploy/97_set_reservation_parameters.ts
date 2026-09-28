@@ -61,18 +61,29 @@ async function queryEventsInChunks(
   return events
 }
 
-/** Whether every named field of `live` equals the target at its position. */
-function liveMatches(
-  live: Result,
+/**
+ * Names of the fields whose value differs from the target at the same
+ * position. Addresses compare case-insensitively, numbers by value.
+ */
+function differingFields(
+  values: readonly unknown[],
   names: readonly string[],
   targets: readonly unknown[]
-): boolean {
-  return names.every((name, index) =>
+): string[] {
+  return names.filter((_, index) =>
     typeof targets[index] === "string"
-      ? String(live[name]).toLowerCase() ===
+      ? String(values[index]).toLowerCase() !==
         String(targets[index]).toLowerCase()
-      : BigNumber.from(live[name]).eq(targets[index] as BigNumber)
+      : !BigNumber.from(values[index]).eq(targets[index] as BigNumber)
   )
+}
+
+/**
+ * Whether every value is its unset default: zero, or the zero address (an
+ * address string parses as the number it encodes).
+ */
+function isUnset(values: readonly unknown[]): boolean {
+  return values.every((value) => BigNumber.from(value).isZero())
 }
 
 function isLaterEvent(a: Event, b: Event | undefined): boolean {
@@ -181,20 +192,31 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
 
   // On live networks this script is re-run until the term table is complete
   // (step 4), and a begin overwrites whatever is staged and restarts its
-  // delay. So there steps 1 and 2 begin only when their update is neither
-  // applied (the live values equal the targets) nor already staged (its last
-  // `...UpdateStarted` is not followed by the Bridge's `...Updated`). The
-  // caps and parameters staging events are emitted by the
+  // delay. So there steps 1 and 2 bootstrap an unset update only:
+  // - "applied": the live values equal the targets; nothing to do.
+  // - "staged": the last `...UpdateStarted` is not followed by the Bridge's
+  //   `...Updated` and carries the targets; it awaits its finalize.
+  // - "refused": a staged update carries other values, or the live values
+  //   were set to other values (by governance, since this script only ever
+  //   stages its targets). Neither is this script's to stage over or to
+  //   finalize, so it neither begins nor prints a finalize instruction.
+  // - "begin": the live values are unset and nothing is staged.
+  // The caps and parameters staging events are emitted by the
   // `BridgeGovernanceParameters` library, so its ABI is bound to the
   // BridgeGovernance address to read them.
   const stagingState = async (
     update: "Caps" | "Parameters",
-    matchesTargets: () => Promise<boolean>
-  ): Promise<"begin" | "applied" | "staged"> => {
+    names: readonly string[],
+    targets: readonly unknown[],
+    readLive: () => Promise<Result>
+  ): Promise<"begin" | "applied" | "staged" | "refused"> => {
     if (isLocalNetwork) {
       return "begin"
     }
-    if (await matchesTargets()) {
+    const live = await readLive()
+    const liveValues = names.map((name) => live[name])
+    const liveDiffering = differingFields(liveValues, names, targets)
+    if (liveDiffering.length === 0) {
       deployments.log(
         `Reservation ${update.toLowerCase()} already hold this script's values; not staged again`
       )
@@ -214,10 +236,31 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
     )
     const lastStarted = started[started.length - 1]
     if (lastStarted && isLaterEvent(lastStarted, applied[applied.length - 1])) {
+      const stagedDiffering = differingFields(
+        names.map((_, index) => lastStarted.args?.[index]),
+        names,
+        targets
+      )
+      if (stagedDiffering.length > 0) {
+        deployments.log(
+          `[REFUSED] A reservation ${update.toLowerCase()} update staged with ` +
+            `other values (differing: ${stagedDiffering.join(", ")}) is not ` +
+            "this script's to finalize or overwrite; resolve it before re-running"
+        )
+        return "refused"
+      }
       deployments.log(
         `A reservation ${update.toLowerCase()} update is already staged; not staged again`
       )
       return "staged"
+    }
+    if (!isUnset(liveValues)) {
+      deployments.log(
+        `[REFUSED] Live reservation ${update.toLowerCase()} were set to other ` +
+          `values (differing: ${liveDiffering.join(", ")}); this script only ` +
+          "bootstraps unset values and does not stage over them"
+      )
+      return "refused"
     }
     return "begin"
   }
@@ -241,16 +284,15 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
     ethers.BigNumber.from("100000"), // reservationMaxSingleAmount
     ethers.BigNumber.from("100"), // maxActiveReservations
   ]
-  const capsState = await stagingState("Caps", async () =>
-    liveMatches(
-      await reservationRouter.reservationCaps(),
-      [
-        "maxReservationsAmountPerWallet",
-        "reservationMaxSingleAmount",
-        "maxActiveReservations",
-      ],
-      capsTargets
-    )
+  const capsState = await stagingState(
+    "Caps",
+    [
+      "maxReservationsAmountPerWallet",
+      "reservationMaxSingleAmount",
+      "maxActiveReservations",
+    ],
+    capsTargets,
+    () => reservationRouter.reservationCaps()
   )
   if (capsState === "begin") {
     await execute(
@@ -267,7 +309,7 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
       { from: governance, log: true, waitConfirmations: 1 },
       "finalizeReservationCapsUpdate"
     )
-  } else if (capsState !== "applied") {
+  } else if (capsState === "begin" || capsState === "staged") {
     const delay = await read("BridgeGovernance", "governanceDelays", 0)
     deployments.log(
       `[PENDING FINALIZE] Network: ${network.name} | Function: finalizeReservationCapsUpdate | ` +
@@ -295,22 +337,21 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
     ethers.BigNumber.from("86400"), // reservationActionTimeout
     ethers.BigNumber.from("86400"), // reservationRenewalWindowSeconds
   ]
-  const parametersState = await stagingState("Parameters", async () =>
-    liveMatches(
-      await reservationRouter.reservationParameters(),
-      [
-        "reservationVault",
-        "reservationMinAmount",
-        "reservationTxMaxFee",
-        "reservationTermSeconds",
-        "reservationDissolutionDelay",
-        "reservationMaxTotalAmount",
-        "maxReservationsPerWallet",
-        "reservationActionTimeout",
-        "reservationRenewalWindowSeconds",
-      ],
-      parametersTargets
-    )
+  const parametersState = await stagingState(
+    "Parameters",
+    [
+      "reservationVault",
+      "reservationMinAmount",
+      "reservationTxMaxFee",
+      "reservationTermSeconds",
+      "reservationDissolutionDelay",
+      "reservationMaxTotalAmount",
+      "maxReservationsPerWallet",
+      "reservationActionTimeout",
+      "reservationRenewalWindowSeconds",
+    ],
+    parametersTargets,
+    () => reservationRouter.reservationParameters()
   )
   if (parametersState === "begin") {
     await execute(
@@ -327,7 +368,7 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
       { from: governance, log: true, waitConfirmations: 1 },
       "finalizeReservationParametersUpdate"
     )
-  } else if (parametersState !== "applied") {
+  } else if (parametersState === "begin" || parametersState === "staged") {
     const delay = await read("BridgeGovernance", "governanceDelays", 0)
     deployments.log(
       `[PENDING FINALIZE] Network: ${network.name} | Function: finalizeReservationParametersUpdate | ` +

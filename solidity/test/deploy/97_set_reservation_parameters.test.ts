@@ -119,11 +119,28 @@ describe("Deploy Script 97: reservation term table seeding", () => {
       args: [entry.termId, entry.termSeconds, entry.custodyBps, entry.enabled],
     })
 
-    // A step 1 or step 2 staging event; only its name and position matter.
+    // A step 1 or step 2 staging event. A Started event carries the staged
+    // values, the script's targets unless given; an Updated event's values
+    // are not read.
     const stagingEvent = (
       name: StagingEvent["name"],
-      blockNumber: number
-    ): StagingEvent => ({ name, blockNumber, logIndex: 0, args: [] })
+      blockNumber: number,
+      values?: Record<string, unknown>
+    ): StagingEvent => {
+      const defaults: Partial<Record<string, Record<string, unknown>>> = {
+        CapsStarted: TARGET_CAPS,
+        ParametersStarted: TARGET_PARAMETERS,
+      }
+      const staged = values ?? defaults[name]
+      return {
+        name,
+        blockNumber,
+        logIndex: 0,
+        args: staged
+          ? [...Object.values(staged), BigNumber.from(STARTED_AT)]
+          : [],
+      }
+    }
 
     // The live caps and parameters before any update is applied, and the
     // values steps 1 and 2 stage.
@@ -162,6 +179,9 @@ describe("Deploy Script 97: reservation term table seeding", () => {
 
     const [yearEntry, monthEntry, quarterEntry] = RESERVATION_TERM_ENTRIES
 
+    // The script's log lines from the last `run`.
+    const logs: string[] = []
+
     /**
      * Runs the script against a mock HRE holding the given table, live caps
      * and parameters, and staging events, and returns the transactions it
@@ -182,6 +202,7 @@ describe("Deploy Script 97: reservation term table seeding", () => {
       const table = options.table ?? []
       const events = options.events ?? []
       const executed: { method: string; args: any[] }[] = []
+      logs.length = 0
       const queryFilter = async (
         filter: string,
         fromBlock: number,
@@ -205,7 +226,9 @@ describe("Deploy Script 97: reservation term table seeding", () => {
           },
         },
         deployments: {
-          log: () => undefined,
+          log: (message: string) => {
+            logs.push(message)
+          },
           get: async (name: string) => {
             const addresses: Record<string, string> = {
               Bridge: BRIDGE,
@@ -483,7 +506,7 @@ describe("Deploy Script 97: reservation term table seeding", () => {
         ).to.deep.equal([])
       })
 
-      it("should stage an update again once its staging was applied and the live values moved off the targets", async () => {
+      it("should not read an applied staging as staged", async () => {
         // Control for the staged check: an applied staging is not staged.
         expect(
           await methods({
@@ -494,6 +517,109 @@ describe("Deploy Script 97: reservation term table seeding", () => {
             parameters: TARGET_PARAMETERS,
           })
         ).to.deep.equal(["beginReservationCapsUpdate"])
+      })
+
+      it("should not report caps as applied when only a non-first field differs", async () => {
+        expect(
+          await methods({
+            caps: { ...TARGET_CAPS, maxActiveReservations: 99 },
+            parameters: TARGET_PARAMETERS,
+          })
+        ).to.deep.equal([])
+        expect(logs.join("\n")).to.not.match(/caps already hold/)
+        expect(logs.join("\n")).to.match(
+          /\[REFUSED\] Live reservation caps .*differing: maxActiveReservations\)/
+        )
+      })
+
+      it("should not report parameters as applied when only a non-first field differs", async () => {
+        expect(
+          await methods({
+            caps: TARGET_CAPS,
+            parameters: {
+              ...TARGET_PARAMETERS,
+              reservationActionTimeout: 7_201,
+            },
+          })
+        ).to.deep.equal([])
+        expect(logs.join("\n")).to.not.match(/parameters already hold/)
+        expect(logs.join("\n")).to.match(
+          /\[REFUSED\] Live reservation parameters .*differing: reservationActionTimeout\)/
+        )
+      })
+
+      it("should keep staged parameters staged when only caps were applied since", async () => {
+        expect(
+          await methods({
+            events: [
+              stagingEvent("CapsStarted", 150),
+              stagingEvent("ParametersStarted", 200),
+              stagingEvent("CapsUpdated", 300),
+            ],
+            caps: TARGET_CAPS,
+          })
+        ).to.deep.equal([])
+        expect(logs.join("\n")).to.match(
+          /reservation parameters update is already staged/
+        )
+      })
+
+      it("should refuse, without a begin or a finalize instruction, caps that governance set to other values", async () => {
+        expect(
+          await methods({
+            caps: { ...TARGET_CAPS, maxReservationsAmountPerWallet: 3_000_000 },
+            parameters: TARGET_PARAMETERS,
+          })
+        ).to.deep.equal([])
+        const output = logs.join("\n")
+        expect(output).to.match(
+          /\[REFUSED\] Live reservation caps .*differing: maxReservationsAmountPerWallet\)/
+        )
+        expect(output).to.not.match(/finalizeReservationCapsUpdate/)
+      })
+
+      it("should begin caps that are unset", async () => {
+        expect(
+          await methods({ caps: UNSET_CAPS, parameters: TARGET_PARAMETERS })
+        ).to.deep.equal(["beginReservationCapsUpdate"])
+        expect(logs.join("\n")).to.match(
+          /PENDING FINALIZE.*finalizeReservationCapsUpdate/
+        )
+      })
+
+      it("should refuse, without a finalize instruction, a staged caps update holding other values", async () => {
+        expect(
+          await methods({
+            events: [
+              stagingEvent("CapsStarted", 200, {
+                ...TARGET_CAPS,
+                reservationMaxSingleAmount: 200_000,
+              }),
+            ],
+            parameters: TARGET_PARAMETERS,
+          })
+        ).to.deep.equal([])
+        const output = logs.join("\n")
+        expect(output).to.match(
+          /\[REFUSED\] A reservation caps update staged with other values \(differing: reservationMaxSingleAmount\).*resolve it before re-running/
+        )
+        expect(output).to.not.match(/already staged/)
+        expect(output).to.not.match(/finalizeReservationCapsUpdate/)
+      })
+
+      it("should report a staged caps update holding the targets as staged, with a finalize instruction", async () => {
+        expect(
+          await methods({
+            events: [stagingEvent("CapsStarted", 200)],
+            parameters: TARGET_PARAMETERS,
+          })
+        ).to.deep.equal([])
+        const output = logs.join("\n")
+        expect(output).to.match(/reservation caps update is already staged/)
+        expect(output).to.match(
+          /PENDING FINALIZE.*finalizeReservationCapsUpdate/
+        )
+        expect(output).to.not.match(/REFUSED/)
       })
     })
   })
