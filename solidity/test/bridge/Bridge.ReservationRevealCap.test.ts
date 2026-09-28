@@ -373,9 +373,14 @@ describe("Bridge - reserved refund-locktime cap", () => {
       await createSnapshot()
       await setUp()
 
-      expect((await reservationRouter.reservationTerm(1)).termSeconds).to.equal(
-        0
-      )
+      // The deploy scripts seed the table; the fixture clears it.
+      for (let termId = 1; termId <= 8; termId++) {
+        // eslint-disable-next-line no-await-in-loop
+        const term = await reservationRouter.reservationTerm(termId)
+        expect(term.termSeconds).to.equal(0)
+        expect(term.custodyBps).to.equal(0)
+        expect(term.enabled).to.equal(false)
+      }
     })
 
     after(async () => {

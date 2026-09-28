@@ -20,6 +20,10 @@ import type {
 } from "../../typechain"
 import { createMock } from "../helpers/mock"
 import { seedReservationTerms } from "../helpers/reservation-terms"
+import {
+  bridgeStateEntry,
+  getBridgeStorageLayout,
+} from "./bridgeStorageLayoutSnapshot"
 
 import type { Mock } from "../helpers/mock"
 
@@ -47,11 +51,14 @@ type BridgeFixture = {
   deployBridge: (txProofDifficultyFactor: number) => Promise<any>
 }
 
+// `Reservation.MAX_RESERVATION_TERM_ID`: the setter writes no id above it.
+const MAX_RESERVATION_TERM_ID = 8
+
 /**
- * Common fixture body for tests suites targeting the Bridge contract, without
- * the reservation term table seeding.
+ * Common fixture body for tests suites targeting the Bridge contract. The
+ * reservation term table holds whatever the deploy scripts seeded.
  */
-async function unseededBridgeFixture(): Promise<BridgeFixture> {
+async function deployedBridgeFixture(): Promise<BridgeFixture> {
   await deployments.fixture()
 
   const {
@@ -185,14 +192,58 @@ async function unseededBridgeFixture(): Promise<BridgeFixture> {
 }
 
 /**
+ * Zeroes every entry of the Bridge's reservation term table, which the deploy
+ * scripts seed. Each entry occupies one storage slot and the table keeps no
+ * other state (its largest- and smallest-entry helpers loop the ids), so the
+ * result is the state of a table that was never written.
+ */
+async function clearReservationTerms(bridge: Bridge): Promise<void> {
+  const layout = await getBridgeStorageLayout()
+  const bridgeState = bridgeStateEntry(layout)
+  const member = layout.types[bridgeState.type].members?.find(
+    (entry) => entry.label === "reservationTerms"
+  )
+  const valueType = member && layout.types[member.type].value
+  if (!member || !valueType || layout.types[valueType].numberOfBytes !== "32") {
+    throw new Error("reservationTerms is not a mapping to one-slot entries")
+  }
+  const mappingSlot = ethers.BigNumber.from(bridgeState.slot).add(member.slot)
+
+  for (let termId = 1; termId <= MAX_RESERVATION_TERM_ID; termId++) {
+    const entrySlot = ethers.utils.keccak256(
+      ethers.utils.defaultAbiCoder.encode(
+        ["uint256", "uint256"],
+        [termId, mappingSlot]
+      )
+    )
+    // eslint-disable-next-line no-await-in-loop
+    await ethers.provider.send("hardhat_setStorageAt", [
+      bridge.address,
+      entrySlot,
+      ethers.constants.HashZero,
+    ])
+  }
+}
+
+/**
  * Common fixture for tests suites targeting the Bridge contract. Seeds the
  * Bridge's reservation term table with the ruled entries
  * (`RESERVATION_TERM_ENTRIES`) through the governance-only setter; ids that a
  * deploy script already seeded with the same values are skipped.
  */
 async function bridgeFixture(): Promise<BridgeFixture> {
-  const fixture = await unseededBridgeFixture()
+  const fixture = await deployedBridgeFixture()
   await seedReservationTerms(fixture.bridge)
+  return fixture
+}
+
+/**
+ * The Bridge fixture with an empty reservation term table: the deploy
+ * scripts' entries are cleared.
+ */
+async function unseededBridgeFixture(): Promise<BridgeFixture> {
+  const fixture = await deployedBridgeFixture()
+  await clearReservationTerms(fixture.bridge)
   return fixture
 }
 
@@ -220,10 +271,10 @@ async function bridgeFixture(): Promise<BridgeFixture> {
 export default deployments.createFixture(bridgeFixture)
 
 /**
- * The Bridge fixture without the reservation term table seeding, for tests of
+ * The Bridge fixture with an empty reservation term table, for tests of
  * empty-table behaviour. Built with `deployments.createFixture` for the same
- * reason as the default export. The table is empty only while no deploy
- * script seeds it inside `deployments.fixture()`.
+ * reason as the default export. Tests using it assert the table is empty
+ * before relying on it.
  */
 export const bridgeFixtureWithoutReservationTerms = deployments.createFixture(
   unseededBridgeFixture
