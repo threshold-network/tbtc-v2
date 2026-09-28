@@ -201,7 +201,7 @@ export interface RevealedReservation {
  * requesting acceptance.
  */
 export async function revealReservedDeposit(
-  ctx: ReservationProofContext
+  ctx: Omit<ReservationProofContext, "termId">
 ): Promise<RevealedReservation> {
   const fundingTx = buildTx(
     [
