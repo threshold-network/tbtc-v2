@@ -178,6 +178,15 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
     ///      does not allow (it requires an existing, enabled entry); should
     ///      it occur, entry 0 is never added (ids are 1-8), its custodyBps
     ///      reads as 0 and the position pays the mint fee only.
+    ///
+    ///      That revert-freedom rests on two deployment invariants this
+    ///      code cannot enforce: TBTCVault owns the TBTC token (otherwise
+    ///      `tbtcVault.mint` reverts, as every pooled mint does), and the
+    ///      vault set as `reservationVault` implements this hook (otherwise
+    ///      the Bridge's call to it reverts). In either case the escape is
+    ///      `setVaultStatus(vault, false)`, which routes acceptance credits
+    ///      to the Bridge's direct-credit fallback: the depositor's Bank
+    ///      balance is credited with the gross amount and no fee is taken.
     function creditReservation(uint256 reservationKey) external override {
         require(msg.sender == address(bridge), "Caller is not the Bridge");
 
