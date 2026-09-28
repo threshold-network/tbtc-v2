@@ -35,11 +35,12 @@ import "../token/TBTC.sol";
 ///         address are treated as UTXO reservations: instead of being swept
 ///         into the pooled supply, they are anchored by the wallet and
 ///         redeemable in-kind. When the Bridge proves a reservation's anchor
-///         transaction, it credits the gross anchored amount to this vault,
-///         which mints TBTC gross and forwards it to depositors minus the
-///         mint fee. The mint fee is retained in the vault as
-///         the in-kind fee reserve until `sweepFees` moves the excess over
-///         `feeReserveTarget` to governance's recipient.
+///         transaction, it credits the gross anchored amount to this vault
+///         and calls `creditReservation`, and the vault mints TBTC gross and
+///         forwards it to the owner minus the acceptance fee (the mint fee
+///         plus the custody fee of the position's term). The fee is retained
+///         in the vault as the in-kind fee reserve until `sweepFees` moves
+///         the excess over `feeReserveTarget` to governance's recipient.
 /// @dev The vault deliberately keeps no claim registry of its own -- the
 ///      Bridge's reservation records are the single source of truth and are
 ///      consulted for ownership checks.
@@ -53,6 +54,8 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
     uint256 public constant BASIS_POINTS = 10000;
 
     /// @notice Upper sanity bound for each fee parameter, in basis points.
+    ///         Also the cap on the combined acceptance fee (mint fee plus
+    ///         the term's custody fee) charged by `creditReservation`.
     uint256 public constant MAX_FEE_BASIS_POINTS = 500;
 
     Bank public immutable bank;
@@ -137,29 +140,97 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
         mintFeeBps = 20;
     }
 
-    /// @notice Called by the Bank when the Bridge proves a reservation's
-    ///         anchor transaction and credits the gross anchored amount to
-    ///         this vault. Mints TBTC gross and forwards it to depositors
-    ///         minus the mint fee. The mint fee is retained in the
-    ///         vault as the in-kind fee reserve until `sweepFees` moves the
-    ///         excess over `feeReserveTarget` to governance's recipient.
-    /// @dev The gross amount is always minted so the total TBTC supply
-    ///      created against the reservation equals the sats earmarked
-    ///      on-chain; depositors receive gross minus fee.
-    /// @dev KNOWN GAP (tracked, not fixed here): this function trusts every
-    ///      Bank-routed credit unconditionally -- it has no reservationKey
-    ///      parameter and cannot verify the credit corresponds to a
-    ///      Bridge-proven reservation anchor. The deploy pipeline
-    ///      (`97_set_reservation_parameters.ts`) marks this vault
-    ///      `isVaultTrusted` only after it is wired into the Bridge on
-    ///      non-local networks, so the scripted activation path cannot
-    ///      trigger this gap. That ordering is enforced by the deploy
-    ///      script, not by an on-chain check: governance retains the raw
-    ///      ability to call `setVaultStatus(vault, true)` directly through
-    ///      `BridgeGovernance`, bypassing the script's precondition. MUST
-    ///      be resolved (a dedicated Bridge-only credit entry point, or an
-    ///      ordinary-sweep guard in `DepositSweep`) before that direct-call
-    ///      path is treated as acceptable risk.
+    /// @notice Called by the Bridge when it proves a reservation's
+    ///         acceptance anchor, right after it increased this vault's Bank
+    ///         balance by the gross anchored amount. Mints TBTC gross and
+    ///         forwards it to the reservation owner minus the acceptance fee.
+    ///         The fee is retained in the vault as the in-kind fee reserve
+    ///         until `sweepFees` moves the excess over `feeReserveTarget` to
+    ///         governance's recipient.
+    /// @param reservationKey The key of the accepted reservation.
+    /// @dev Requirements:
+    ///      - The caller must be the Bridge.
+    ///
+    ///      The owner, the gross amount (`mintedAmount`), the state and the
+    ///      term id are read from the Bridge, which finalizes the position
+    ///      before calling. The acceptance fee is
+    ///      gross * min(`mintFeeBps` + `custodyBps`, `MAX_FEE_BASIS_POINTS`)
+    ///      / `BASIS_POINTS`, where `custodyBps` is that of the position's
+    ///      term entry. The entry is read whether or not it is still
+    ///      enabled: entries are never rewritten, so a position requested
+    ///      on an entry that was disabled before its proof still pays that
+    ///      entry's custody fee. A position the Bridge stranded in the same
+    ///      settlement (its wallet left Live before the proof) pays the mint
+    ///      fee only: it will never serve a custody term, and a stranded
+    ///      claim is an ordinary pooled claim.
+    ///
+    ///      The fee rounds down, so any remainder goes to the owner; the
+    ///      owner's amount plus the fee always equals the gross amount
+    ///      minted. With a satoshi-denominated gross, `grossTbtc * feeBps`
+    ///      is always a multiple of `BASIS_POINTS` (10^10 / 10^4 = 10^6), so
+    ///      the division is exact and no remainder arises.
+    ///
+    ///      This runs inside the acceptance proof, so, like the Bank callback
+    ///      of a trusted vault, it must never revert beyond the caller
+    ///      check: there is no pause, no owner gate and no check on the term
+    ///      id. A term id of 0 is only possible for a generation requested
+    ///      without a recorded term, which the Bridge's acceptance request
+    ///      does not allow (it requires an existing, enabled entry); should
+    ///      it occur, entry 0 is never added (ids are 1-8), its custodyBps
+    ///      reads as 0 and the position pays the mint fee only.
+    function creditReservation(uint256 reservationKey) external override {
+        require(msg.sender == address(bridge), "Caller is not the Bridge");
+
+        Reservation.ReservationRequest memory reservation = bridge.reservations(
+            reservationKey
+        );
+
+        uint256 feeBps = mintFeeBps;
+        if (reservation.state != Reservation.ReservationState.Stranded) {
+            (, uint16 custodyBps, ) = bridge.reservationTerm(
+                bridge.reservationTermId(reservationKey)
+            );
+            feeBps += custodyBps;
+            if (feeBps > MAX_FEE_BASIS_POINTS) {
+                feeBps = MAX_FEE_BASIS_POINTS;
+            }
+        }
+
+        uint256 grossSat = reservation.mintedAmount;
+        uint256 grossTbtc = grossSat * SATOSHI_MULTIPLIER;
+        uint256 fee = (grossTbtc * feeBps) / BASIS_POINTS;
+
+        // Convert the Bank balance the Bridge just credited into TBTC minted
+        // to this vault, then forward the owner's share.
+        bank.approveBalance(address(tbtcVault), grossSat);
+        tbtcVault.mint(grossTbtc);
+
+        IERC20(tbtcToken).safeTransfer(reservation.owner, grossTbtc - fee);
+
+        // slither-disable-next-line reentrancy-events
+        emit ReservationCreditProcessed(reservation.owner, grossSat, fee);
+
+        // The fee stays in the vault: all fee revenue accumulates here as
+        // the in-kind fee reserve, and only the excess over
+        // `feeReserveTarget` can be swept to the treasury.
+    }
+
+    /// @notice Called by the Bank when a Bridge-routed credit (a deposit
+    ///         sweep to this vault) increases this vault's balance. Mints
+    ///         TBTC gross and forwards it to the depositors in full, as
+    ///         TBTCVault does, charging no reservation fee.
+    /// @dev Reservation acceptance credits do not come through here: the
+    ///      Bridge credits them through `creditReservation`, which reads the
+    ///      position by key. This callback carries no reservation key and
+    ///      cannot tell a Bridge-proven reservation from any other
+    ///      Bank-routed credit, so it applies no reservation fee logic. A
+    ///      non-reserved deposit revealed to this vault is minted like a
+    ///      pooled one, with the pooled treasury fee already taken by the
+    ///      sweep. It does not revert on such a credit either: a trusted
+    ///      vault's callback runs inside the sweep proof, and a revert would
+    ///      make the whole sweep unprovable. The two reachable routes here
+    ///      are a vault trusted before it is wired as the reservation vault,
+    ///      and a vault change with no reservations outstanding.
     function receiveBalanceIncrease(
         address[] calldata depositors,
         uint256[] calldata depositedAmounts
@@ -175,27 +246,16 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
         }
 
         // Convert the whole Bank balance credited by the Bridge into TBTC
-        // minted to this vault in a single mint, then distribute it.
+        // minted to this vault in a single mint, then distribute it gross.
         bank.approveBalance(address(tbtcVault), totalSat);
         tbtcVault.mint(totalSat * SATOSHI_MULTIPLIER);
 
         for (uint256 i = 0; i < depositors.length; i++) {
-            uint256 grossTbtc = depositedAmounts[i] * SATOSHI_MULTIPLIER;
-            uint256 fee = (grossTbtc * mintFeeBps) / BASIS_POINTS;
-
-            IERC20(tbtcToken).safeTransfer(depositors[i], grossTbtc - fee);
-
-            // slither-disable-next-line reentrancy-events
-            emit ReservationCreditProcessed(
+            IERC20(tbtcToken).safeTransfer(
                 depositors[i],
-                depositedAmounts[i],
-                fee
+                depositedAmounts[i] * SATOSHI_MULTIPLIER
             );
         }
-
-        // The mint fee stays in the vault: all custody-fee revenue
-        // accumulates here as the in-kind fee reserve, and only the excess
-        // over `feeReserveTarget` can be swept to the treasury.
     }
 
     /// @notice Finances an in-kind Bitcoin miner fee of a settled

@@ -622,17 +622,22 @@ library ReservationProofs {
         // interim. The per-deposit treasury fee computed at reveal time is
         // deliberately ignored: reservation claims are minted gross and all
         // protocol fees are charged as explicit transfers by the vault. All
-        // reservation-position state above is finalized before this external
-        // call, matching the checks-effects-interactions pattern.
-        address[] memory depositors = new address[](1);
-        depositors[0] = depositor;
-        uint256[] memory amounts = new uint256[](1);
-        amounts[0] = anchorAmount;
-
+        // reservation-position state above (owner, minted amount, state and
+        // term id) is finalized before these external calls, matching the
+        // checks-effects-interactions pattern: the vault reads the position
+        // back from the Bridge by key. The trusted vault is credited through
+        // its Bridge-only `creditReservation`, not the Bank callback, so the
+        // vault applies reservation fees only to a Bridge-proven position.
         address vault = deposit.vault;
         if (vault != address(0) && self.isVaultTrusted[vault]) {
-            self.bank.increaseBalanceAndCall(vault, depositors, amounts);
+            self.bank.increaseBalance(vault, anchorAmount);
+            IReservationFeeFinancer(vault).creditReservation(reservationKey);
         } else {
+            address[] memory depositors = new address[](1);
+            depositors[0] = depositor;
+            uint256[] memory amounts = new uint256[](1);
+            amounts[0] = anchorAmount;
+
             self.bank.increaseBalances(depositors, amounts);
         }
     }
