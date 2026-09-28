@@ -203,6 +203,8 @@ Before milestone 2 ships, a short technical spike should be conducted to empiric
 
 ## Verification
 
+**Before the Bridge implementation upgrade** on a network that already runs reservations from a deployment without the term table, untrust the old `ReservationVault` (`setVaultStatus(vault, false)`). Replacing `reservationVault` is not enough: a proof credits the vault the deposit was revealed to, and the old vault has no `creditReservation`, so while it stays trusted every proof of a deposit revealed to it reverts. Any acceptance generation requested before the upgrade and proven after it carries term id 0 and pays no custody fee. That covers a pending one, and also a timed-out one that is still inside its late window, even after a stale notice; once the table is seeded, that window runs up to the largest entry after the timeout. If its vault is untrusted, the Bridge credits the depositor directly and takes no fee; if its vault already runs this code, it pays the mint fee only. The vault can only be replaced while no reservation is active (see "Irreversible Vault Activation Warning").
+
 After applying the upgrade on a live network:
 
 ```solidity

@@ -366,9 +366,16 @@ library BridgeState {
         // wallet in a 1-input-1-output spend instead of being swept, and
         // are redeemable in-kind. See the `Reservation` library for details.
         uint64 reservationMinAmount;
-        // The custody term length in seconds applied to new and extended
-        // reservations. The term is a contract-layer fact only; anchor
-        // outputs carry no timelock.
+        // The global reservation term in seconds. Kept readable for
+        // decoders (additive ABI: it stays in `reservationParameters()`),
+        // still bounded by [MIN_RESERVATION_TERM, MAX_RESERVATION_TERM] and
+        // still an upper bound on the renewal window. No position's
+        // lifecycle reads it: the acceptance request copies the chosen term
+        // entry's seconds, and the reserved reveal cap and the late
+        // acceptance window use the largest entry of `reservationTerms`.
+        // A position's term is read through `reservationTerm(id)` and
+        // `reservationTermId(key)`. Terms are a contract-layer fact only;
+        // anchor outputs carry no timelock.
         uint32 reservationTermSeconds;
         // Address of the reservation vault. Deposits revealed with this
         // vault address are treated as UTXO reservations.

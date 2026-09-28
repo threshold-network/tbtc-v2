@@ -359,8 +359,9 @@ library Reservation {
     struct ReservationTerm {
         // Length of the custody term in seconds, within
         // [MIN_RESERVATION_TERM, MAX_RESERVATION_TERM]. Zero only for an id
-        // that was never added. uint32 matches `reservationTermSeconds`
-        // and `ReservationAction.termSeconds`, which it is copied into.
+        // that was never added. uint32 matches
+        // `ReservationAction.termSeconds`, which it is copied into, and the
+        // global `reservationTermSeconds`.
         uint32 termSeconds;
         // Custody fee of the term in basis points, at most
         // MAX_RESERVATION_TERM_CUSTODY_BPS; uint16 holds any basis-point
