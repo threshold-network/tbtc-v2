@@ -3715,6 +3715,137 @@ describe("WalletProposalValidator", () => {
         expect(result).to.be.true
       })
     })
+
+    context(
+      "when the live reservation minimum was raised after the action was authorized",
+      () => {
+        before(async () => {
+          await createSnapshot()
+
+          deposit = createTestDeposit(walletPubKeyHash, vault)
+
+          const now = await lastBlockTime()
+
+          await bridge.wallets
+            .whenCalledWith(walletPubKeyHash)
+            .returns(buildWallet(walletState.Live))
+          // Live minimum raised well above the snapshot's. The validator
+          // must keep validating against the snapshotted `minAmount` so a
+          // governance parameter change cannot invalidate an already
+          // authorized, broadcast anchor transaction.
+          await reservationBridge.reservationParameters.returns([
+            vault,
+            reservationMinAmount * 2,
+            reservationTxMaxFee,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+          ])
+          await reservationBridge.reservationActions.returns(
+            buildReservationAction({
+              timeoutAt: now + day,
+              txMaxFee: reservationTxMaxFee,
+              minAmount: reservationMinAmount,
+            })
+          )
+          await bridge.deposits.returns({
+            ...deposit.request,
+            amount: depositAmount,
+          })
+          await bridge.isReservedDeposit.returns(true)
+        })
+
+        after(async () => {
+          await bridge.wallets.reset()
+          await reservationBridge.reservationParameters.reset()
+          await reservationBridge.reservationActions.reset()
+          await bridge.deposits.reset()
+          await bridge.isReservedDeposit.reset()
+
+          await restoreSnapshot()
+        })
+
+        it("should pass validation against the snapshotted minimum", async () => {
+          const result =
+            await walletProposalValidator.validateReservationAnchorProposal(
+              buildProposal(),
+              deposit.extraInfo
+            )
+
+          // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+          expect(result).to.be.true
+        })
+      }
+    )
+
+    context(
+      "when the anchor amount falls below the action's snapshotted minimum",
+      () => {
+        before(async () => {
+          await createSnapshot()
+
+          deposit = createTestDeposit(walletPubKeyHash, vault)
+
+          const now = await lastBlockTime()
+
+          await bridge.wallets
+            .whenCalledWith(walletPubKeyHash)
+            .returns(buildWallet(walletState.Live))
+          // Live minimum left low; the snapshotted minimum is what must
+          // still be enforced at signing time.
+          await reservationBridge.reservationParameters.returns([
+            vault,
+            reservationMinAmount / 2,
+            reservationTxMaxFee,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+          ])
+          await reservationBridge.reservationActions.returns(
+            buildReservationAction({
+              timeoutAt: now + day,
+              txMaxFee: reservationTxMaxFee,
+              minAmount: reservationMinAmount,
+            })
+          )
+          // Amount passes the check against the (lower) live minimum but
+          // fails it against the action's snapshotted minimum, which is
+          // the bound that must be enforced at signing time.
+          await bridge.deposits.returns({
+            ...deposit.request,
+            amount: reservationMinAmount + anchorTxFee - 1,
+          })
+          await bridge.isReservedDeposit.returns(true)
+        })
+
+        after(async () => {
+          await bridge.wallets.reset()
+          await reservationBridge.reservationParameters.reset()
+          await reservationBridge.reservationActions.reset()
+          await bridge.deposits.reset()
+          await bridge.isReservedDeposit.reset()
+
+          await restoreSnapshot()
+        })
+
+        it("should revert", async () => {
+          await expect(
+            walletProposalValidator.validateReservationAnchorProposal(
+              buildProposal(),
+              deposit.extraInfo
+            )
+          ).to.be.revertedWith("Anchor amount below the reservation minimum")
+        })
+      }
+    )
   })
 
   describe("validateReservationReanchorProposal", () => {

@@ -957,9 +957,9 @@ contract WalletProposalValidator {
     ///        has not timed out,
     ///      - The deposit must be revealed, old enough, not swept, and
     ///        routed to the reservation vault,
-    ///      - The proposed fee must be positive, within the authorized
-    ///        action's snapshotted max fee, and must leave an anchor amount
-    ///        above the reservation minimum,
+    ///      - The proposed fee must be positive and within the authorized
+    ///        action's snapshotted max fee, and the resulting anchor amount
+    ///        must stay above the action's snapshotted reservation minimum,
     ///      - The deposit extra info must be valid and preserve the refund
     ///        safety margin,
     ///      - The deposit must be controlled by the proposal wallet.
@@ -967,11 +967,9 @@ contract WalletProposalValidator {
         ReservationAnchorProposal calldata proposal,
         DepositExtraInfo calldata depositExtraInfo
     ) external view returns (bool) {
-        (
-            address reservationVault,
-            uint64 reservationMinAmount,
-
-        ) = reservationVaultAndFees();
+        (address reservationVault, , , , , , , , , ) = IReservationBridge(
+            address(bridge)
+        ).reservationParameters();
 
         require(reservationVault != address(0), "Reservations are disabled");
 
@@ -1051,8 +1049,7 @@ contract WalletProposalValidator {
         // (yielding the clear message below) for every case that would
         // have underflowed.
         require(
-            depositRequest.amount >=
-                reservationMinAmount + proposal.anchorTxFee,
+            depositRequest.amount >= action.minAmount + proposal.anchorTxFee,
             "Anchor amount below the reservation minimum"
         );
 
@@ -1079,35 +1076,6 @@ contract WalletProposalValidator {
         );
 
         return true;
-    }
-
-    /// @notice Fetches the reservation vault address and fee parameters
-    ///         shared by the reservation anchor and re-anchor proposal
-    ///         validators.
-    /// @return reservationVault The reservation vault address.
-    /// @return reservationMinAmount The minimum reservation amount.
-    /// @return reservationTxMaxFee The maximum reservation transaction fee.
-    function reservationVaultAndFees()
-        internal
-        view
-        returns (
-            address reservationVault,
-            uint64 reservationMinAmount,
-            uint64 reservationTxMaxFee
-        )
-    {
-        (
-            reservationVault,
-            reservationMinAmount,
-            reservationTxMaxFee,
-            ,
-            ,
-            ,
-            ,
-            ,
-            ,
-
-        ) = IReservationBridge(address(bridge)).reservationParameters();
     }
 
     /// @notice View function encapsulating the main rules of a valid

@@ -25,11 +25,29 @@ import type { DeployFunction } from "hardhat-deploy/types"
  *
  *   3. `setVaultStatus(vault, true)` via `BridgeGovernance` — marks the
  *      vault as trusted. Until this runs, deposits cannot be revealed
- *      with the vault.
+ *      with the vault. C-4 gate: on a real network this must execute at
+ *      or after the activation block a keep-core release with the
+ *      network's `reservationsActivationBlocks` entry is live on, or
+ *      reveals are enabled on-chain while no client schedules
+ *      acceptance or re-anchor coordination.
  *
  * The `reservationVault` is set as the first argument of
  * `beginReservationParametersUpdate` — there is no separate
  * `setReservationVault` setter.
+ *
+ * F-3: this script does NOT configure the vault's fee reserve target.
+ * The vault deploys with `feeReserveTarget == 0` and none of the three
+ * steps above sets it, so governance must run a separate
+ * `ReservationVault.updateFeeReserveTarget(target)` step (or explicitly
+ * accept the zero reserve, which lets `sweepFees` drain the whole
+ * balance and pushes any underfunded in-kind miner fee onto
+ * `inKindFeeDebtSat`). Verify via the `feeReserveTarget()` getter and
+ * the `FeeReserveTargetUpdated` event.
+ *
+ * E-2: if governance later revokes trust with `setVaultStatus(vault,
+ * false)`, in-flight late acceptances settle by direct credit to the
+ * depositors with no initiation fee (the fee reserve is not accrued
+ * for those settlements); plan the fee accounting around that branch.
  *
  * Test-network shortcut: on local development networks (hardhat,
  * localhost, development, system_tests) where the timelock is bypassed,
@@ -156,6 +174,11 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
   // revealed as ordinary (non-reserved) deposits. Step 2's finalize only
   // runs synchronously here on local networks; on live non-mainnet
   // networks it is deferred, so this step must be deferred too.
+  // C-4 gate: on a real network this must execute at or after the block
+  // at which a keep-core release containing this network's
+  // `reservationsActivationBlocks` entry is live on all maintainers;
+  // otherwise reveals are enabled on-chain while no client schedules
+  // acceptance or re-anchor coordination.
   if (isLocalNetwork) {
     deployments.log("[3/3] Activating vault via setVaultStatus")
     await execute(
@@ -171,6 +194,22 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
         `Args: (${ReservationVault.address}, true) | ` +
         "Run separately after finalizeReservationParametersUpdate has been executed " +
         "and confirmed on-chain (do not activate while reservationVault is still zero)"
+    )
+    deployments.log(
+      "C-4 gate: setVaultStatus(vault, true) must execute at or after the " +
+        "activation block of a released keep-core build whose " +
+        "reservationsActivationBlocks contains this network's entry, or " +
+        "reveals are enabled on-chain while no client schedules acceptance " +
+        "or re-anchor coordination"
+    )
+    deployments.log(
+      "F-3: this script does not set the vault's fee reserve target " +
+        "(feeReserveTarget deploys at 0). Run a governance step " +
+        "ReservationVault.updateFeeReserveTarget(target) or explicitly " +
+        "accept the zero reserve; verify with feeReserveTarget() and the " +
+        "FeeReserveTargetUpdated event. E-2: revoking trust later with " +
+        "setVaultStatus(vault, false) makes in-flight late acceptances " +
+        "settle by direct credit to depositors with no initiation fee"
     )
   }
 }

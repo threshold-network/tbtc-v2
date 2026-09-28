@@ -206,11 +206,15 @@ library Reservation {
         // sum would exceed the uint32 ceiling - starting somewhat before
         // February 7th 2106, proportional to the delay applied on top of
         // expiresAt's own margin.
-        // As of this milestone, this field's only on-chain reader —
-        // re-anchor's `< dissolutionEligibleAt` gate in
-        // `requestReservationReanchor` — has been removed. The field is
-        // written by `settleAcceptance` (ReservationProofs.sol:579) but
-        // read by nothing in m1. It must continue to be written anyway:
+        // As of this milestone, this field's single on-chain reader is
+        // the Closing-wallet branch of
+        // `notifyReservationStranded` (line 1110), which strands a
+        // reservation only once its custodying wallet is Closing and
+        // `block.timestamp >= dissolutionEligibleAt`. Re-anchor no
+        // longer reads it: the `< dissolutionEligibleAt` gate in
+        // `requestReservationReanchor` was removed. The field is written
+        // by `settleAcceptance` (ReservationProofs.sol:570) on every
+        // acceptance. It must continue to be written anyway:
         // storage-completeness for a milestone-2 field means written, not
         // merely declared, and this field is a commitment held in storage
         // for m2's dissolution feature to honour. m2 must independently

@@ -291,9 +291,15 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
     /// @dev Requirements:
     ///      - The caller must be the vault owner (governance).
     ///
-    ///      If the balance (after satisfying outstanding debt) does not
-    ///      exceed the reserve target, the call returns without reverting,
-    ///      so a debt repayment performed above is still persisted.
+    ///      Milestone-1 decision (D-3, no floor): outstanding in-kind fee
+    ///      debt is repaid from the vault's full current TBTC balance,
+    ///      including TBTC that `feeReserveTarget` would otherwise keep in
+    ///      the vault; `feeReserveTarget` bounds only the sweepable
+    ///      surplus (the amount above it moved to the recipient) and is
+    ///      not a floor protecting debt repayment. If the balance (after
+    ///      satisfying outstanding debt) does not exceed the reserve
+    ///      target, the call returns without reverting, so a debt
+    ///      repayment performed above is still persisted.
     function sweepFees(address recipient) external onlyOwner {
         require(recipient != address(0), "Recipient must not be zero");
 
