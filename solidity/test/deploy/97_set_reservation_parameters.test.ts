@@ -575,7 +575,9 @@ describe("Deploy Script 97: reservation term table seeding", () => {
         expect(output).to.match(
           /\[REFUSED\] Live reservation caps .*differing: maxReservationsAmountPerWallet\)/
         )
-        expect(output).to.not.match(/finalizeReservationCapsUpdate/)
+        expect(output).to.not.match(
+          /PENDING FINALIZE.*finalizeReservationCapsUpdate/
+        )
       })
 
       it("should begin caps that are unset", async () => {
@@ -604,7 +606,9 @@ describe("Deploy Script 97: reservation term table seeding", () => {
           /\[REFUSED\] A reservation caps update staged with other values \(differing: reservationMaxSingleAmount\).*resolve it before re-running/
         )
         expect(output).to.not.match(/already staged/)
-        expect(output).to.not.match(/finalizeReservationCapsUpdate/)
+        expect(output).to.not.match(
+          /PENDING FINALIZE.*finalizeReservationCapsUpdate/
+        )
       })
 
       it("should report a staged caps update holding the targets as staged, with a finalize instruction", async () => {
@@ -620,6 +624,133 @@ describe("Deploy Script 97: reservation term table seeding", () => {
           /PENDING FINALIZE.*finalizeReservationCapsUpdate/
         )
         expect(output).to.not.match(/REFUSED/)
+      })
+
+      context("when the live values are partly zero", () => {
+        const OTHER_VAULT = "0x0000000000000000000000000000000000000004"
+        // eslint-disable-next-line no-restricted-syntax
+        for (const [label, kind, options] of [
+          [
+            "caps with only the first field zero",
+            "caps",
+            {
+              caps: { ...TARGET_CAPS, maxReservationsAmountPerWallet: 0 },
+              parameters: TARGET_PARAMETERS,
+            },
+          ],
+          [
+            "caps with only the last field zero",
+            "caps",
+            {
+              caps: { ...TARGET_CAPS, maxActiveReservations: 0 },
+              parameters: TARGET_PARAMETERS,
+            },
+          ],
+          [
+            "caps with only the last field set",
+            "caps",
+            {
+              caps: { ...UNSET_CAPS, maxActiveReservations: 100 },
+              parameters: TARGET_PARAMETERS,
+            },
+          ],
+          [
+            "parameters with a zero vault and the other fields set",
+            "parameters",
+            {
+              caps: TARGET_CAPS,
+              parameters: {
+                ...TARGET_PARAMETERS,
+                reservationVault: UNSET_PARAMETERS.reservationVault,
+              },
+            },
+          ],
+          [
+            "parameters with a set vault and zero other fields",
+            "parameters",
+            {
+              caps: TARGET_CAPS,
+              parameters: {
+                ...UNSET_PARAMETERS,
+                reservationVault: OTHER_VAULT,
+              },
+            },
+          ],
+        ] as [string, string, Parameters<typeof run>[0]][]) {
+          it(`should refuse ${label}, without a begin`, async () => {
+            expect(await methods(options)).to.deep.equal([])
+            expect(logs.join("\n")).to.match(
+              new RegExp(`\\[REFUSED\\] Live reservation ${kind} `)
+            )
+          })
+        }
+      })
+
+      it("should refuse live parameters differing only in the vault, without a finalize instruction", async () => {
+        expect(
+          await methods({
+            caps: TARGET_CAPS,
+            parameters: {
+              ...TARGET_PARAMETERS,
+              reservationVault: "0x0000000000000000000000000000000000000004",
+            },
+          })
+        ).to.deep.equal([])
+        const output = logs.join("\n")
+        expect(output).to.not.match(/parameters already hold/)
+        expect(output).to.match(
+          /\[REFUSED\] Live reservation parameters .*differing: reservationVault\)/
+        )
+        expect(output).to.not.match(
+          /PENDING FINALIZE.*finalizeReservationParametersUpdate/
+        )
+      })
+
+      it("should refuse staged parameters differing only in the vault, without a finalize instruction", async () => {
+        expect(
+          await methods({
+            events: [
+              stagingEvent("ParametersStarted", 200, {
+                ...TARGET_PARAMETERS,
+                reservationVault: "0x0000000000000000000000000000000000000004",
+              }),
+            ],
+            caps: TARGET_CAPS,
+          })
+        ).to.deep.equal([])
+        const output = logs.join("\n")
+        expect(output).to.match(
+          /\[REFUSED\] A reservation parameters update staged with other values \(differing: reservationVault\)/
+        )
+        expect(output).to.not.match(/already staged/)
+        expect(output).to.not.match(
+          /PENDING FINALIZE.*finalizeReservationParametersUpdate/
+        )
+      })
+
+      it("should refuse, without a finalize instruction, the targets staged over caps governance applied", async () => {
+        expect(
+          await methods({
+            events: [
+              stagingEvent("CapsStarted", 200, {
+                ...TARGET_CAPS,
+                maxReservationsAmountPerWallet: 7_000_000,
+              }),
+              stagingEvent("CapsUpdated", 300),
+              stagingEvent("CapsStarted", 400),
+            ],
+            caps: { ...TARGET_CAPS, maxReservationsAmountPerWallet: 7_000_000 },
+            parameters: TARGET_PARAMETERS,
+          })
+        ).to.deep.equal([])
+        const output = logs.join("\n")
+        expect(output).to.match(
+          /\[REFUSED\] Live reservation caps .*differing: maxReservationsAmountPerWallet\)/
+        )
+        expect(output).to.not.match(/already staged/)
+        expect(output).to.not.match(
+          /PENDING FINALIZE.*finalizeReservationCapsUpdate/
+        )
       })
     })
   })

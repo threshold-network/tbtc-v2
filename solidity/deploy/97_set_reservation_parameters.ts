@@ -192,15 +192,18 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
 
   // On live networks this script is re-run until the term table is complete
   // (step 4), and a begin overwrites whatever is staged and restarts its
-  // delay. So there steps 1 and 2 bootstrap an unset update only:
-  // - "applied": the live values equal the targets; nothing to do.
-  // - "staged": the last `...UpdateStarted` is not followed by the Bridge's
-  //   `...Updated` and carries the targets; it awaits its finalize.
-  // - "refused": a staged update carries other values, or the live values
-  //   were set to other values (by governance, since this script only ever
-  //   stages its targets). Neither is this script's to stage over or to
-  //   finalize, so it neither begins nor prints a finalize instruction.
-  // - "begin": the live values are unset and nothing is staged.
+  // delay. So there steps 1 and 2 bootstrap an unset update only, deciding
+  // in this order, first match wins:
+  // 1. "applied": the live values equal the targets; nothing to do.
+  // 2. "refused": the live values were set to other values (by governance,
+  //    since this script only ever stages its targets). Whatever is staged,
+  //    finalizing it or staging over it is not this script's call.
+  // 3. The live values are unset. If the last `...UpdateStarted` is not
+  //    followed by the Bridge's `...Updated`, an update is staged:
+  //    "refused" if it carries other values, "staged" (awaiting its
+  //    finalize) if it carries the targets.
+  // 4. "begin": the live values are unset and nothing is staged.
+  // A refusal neither begins nor prints a finalize instruction.
   // The caps and parameters staging events are emitted by the
   // `BridgeGovernanceParameters` library, so its ABI is bound to the
   // BridgeGovernance address to read them.
@@ -221,6 +224,14 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
         `Reservation ${update.toLowerCase()} already hold this script's values; not staged again`
       )
       return "applied"
+    }
+    if (!isUnset(liveValues)) {
+      deployments.log(
+        `[REFUSED] Live reservation ${update.toLowerCase()} were set to other ` +
+          `values (differing: ${liveDiffering.join(", ")}); this script only ` +
+          "bootstraps unset values and does not stage over them"
+      )
+      return "refused"
     }
     const bridgeGovernanceParameters = await ethers.getContractAt(
       "BridgeGovernanceParameters",
@@ -253,14 +264,6 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
         `A reservation ${update.toLowerCase()} update is already staged; not staged again`
       )
       return "staged"
-    }
-    if (!isUnset(liveValues)) {
-      deployments.log(
-        `[REFUSED] Live reservation ${update.toLowerCase()} were set to other ` +
-          `values (differing: ${liveDiffering.join(", ")}); this script only ` +
-          "bootstraps unset values and does not stage over them"
-      )
-      return "refused"
     }
     return "begin"
   }
