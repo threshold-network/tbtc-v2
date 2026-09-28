@@ -206,6 +206,9 @@ Before milestone 2 ships, a short technical spike should be conducted to empiric
 After applying the upgrade on a live network:
 
 ```solidity
+// Operator-supplied inputs: bridgeAddress, expectedRouterAddress,
+// expectedVaultOwner, expectedTbtcVault (the canonical TBTCVault).
+
 // Spot-check the Decision 1 invariant via three views on the bridge.
 // reservationParameters() returns a 10-value tuple; the 1st value is reservationVault, the 6th is reservationMaxTotalAmount.
 (address reservationVault, , , , , uint64 reservationMaxTotalAmount, , , , ) =
@@ -228,6 +231,13 @@ TBTCVault tbtcVault = ReservationVault(reservationVault).tbtcVault();
 require(
     TBTC(address(ReservationVault(reservationVault).tbtcToken())).owner() == address(tbtcVault),
     "TBTCVault does not own TBTC"
+);
+// Invariant 1 only proves the vault's own token is owned by its own
+// TBTCVault: a vault built against a separate TBTCVault/TBTC pair passes it
+// and would pay owners a non-canonical token. Pin it to the canonical one.
+require(
+    address(ReservationVault(reservationVault).tbtcVault()) == expectedTbtcVault,
+    "Vault bound to another TBTCVault"
 );
 
 // Acceptance-credit binding: the vault's constructor-set Bridge and Bank are
