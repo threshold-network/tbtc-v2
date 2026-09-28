@@ -213,8 +213,9 @@ interface IReservationBridge {
     ///        satoshi.
     /// @param reservationTxMaxFee New reservation transaction max fee, in
     ///        satoshi.
-    /// @param reservationTermSeconds New reservation custody term length,
-    ///        in seconds.
+    /// @param reservationTermSeconds New value of the global reservation
+    ///        term, in seconds; no position's lifecycle reads it (see
+    ///        `updateReservationParameters`).
     /// @param reservationDissolutionDelay New post-expiry dissolution
     ///        delay, in seconds.
     /// @param reservationMaxTotalAmount New cap on the total amount, in
@@ -447,9 +448,14 @@ interface IReservationBridge {
     ///        amount, in satoshi.
     /// @param reservationTxMaxFee New value of the reservation transaction
     ///        max fee, in satoshi.
-    /// @param reservationTermSeconds New value of the reservation custody
-    ///        term length, in seconds, within the protocol bounds. Applies
-    ///        to future term grants; never alters an existing expiry.
+    /// @param reservationTermSeconds New value of the global reservation
+    ///        term, in seconds, within the protocol bounds. Kept readable
+    ///        for decoders (additive ABI) and still an upper bound on the
+    ///        renewal window; no position's lifecycle reads it. A new
+    ///        position takes the seconds of the term entry chosen at its
+    ///        acceptance request (`reservationTerm(id)`,
+    ///        `reservationTermId(key)`), and the reveal cap and late
+    ///        acceptance window use the largest entry.
     /// @param reservationDissolutionDelay New value of the post-expiry
     ///        dissolution delay, in seconds. Snapshotted per granted term.
     /// @param reservationMaxTotalAmount New cap on the total amount, in
@@ -642,8 +648,10 @@ interface IReservationBridge {
     /// @return reservationMinAmount Minimum reservation amount, in satoshi.
     /// @return reservationTxMaxFee Reservation transaction max fee, in
     ///         satoshi.
-    /// @return reservationTermSeconds Reservation custody term length, in
-    ///         seconds.
+    /// @return reservationTermSeconds The global reservation term, in
+    ///         seconds. Kept readable for decoders; it is not the length
+    ///         positions get. A position's term is its entry's seconds, read
+    ///         through `reservationTermId(key)` and `reservationTerm(id)`.
     /// @return reservationDissolutionDelay Post-expiry dissolution delay,
     ///         in seconds.
     /// @return reservationMaxTotalAmount Cap on the total amount, in

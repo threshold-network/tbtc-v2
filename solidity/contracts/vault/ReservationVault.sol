@@ -174,10 +174,13 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
     ///      of a trusted vault, it must never revert beyond the caller
     ///      check: there is no pause, no owner gate and no check on the term
     ///      id. A term id of 0 is only possible for a generation requested
-    ///      without a recorded term, which the Bridge's acceptance request
-    ///      does not allow (it requires an existing, enabled entry); should
-    ///      it occur, entry 0 is never added (ids are 1-8), its custodyBps
-    ///      reads as 0 and the position pays the mint fee only.
+    ///      without a recorded term. Under this implementation the Bridge's
+    ///      acceptance request does not allow that (it requires an
+    ///      existing, enabled entry), but a generation requested before an
+    ///      upgrade from a deployment without the term table, and settled
+    ///      after it, carries id 0. Entry 0 is never added (ids are 1-8),
+    ///      so its custodyBps reads as 0 and such a position pays the mint
+    ///      fee only.
     ///
     ///      That revert-freedom rests on three deployment invariants this
     ///      code cannot enforce: TBTCVault owns the TBTC token (otherwise

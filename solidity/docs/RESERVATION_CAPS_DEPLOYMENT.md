@@ -203,6 +203,8 @@ Before milestone 2 ships, a short technical spike should be conducted to empiric
 
 ## Verification
 
+**Before the Bridge implementation upgrade** on a network that already runs reservations from a deployment without the term table: no acceptance generation may be pending, and the old `ReservationVault` must be replaced or untrusted (`setVaultStatus(vault, false)`). A generation requested before the upgrade and settled after it carries term id 0 and is charged the mint fee only, and the old vault has no `creditReservation`, so while it stays trusted every acceptance proof reverts. The vault can only be replaced while no reservation is active (see the warning above).
+
 After applying the upgrade on a live network:
 
 ```solidity

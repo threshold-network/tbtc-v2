@@ -356,9 +356,14 @@ contract ReservationRouter is Governable, Initializable {
     ///        amount in satoshis.
     /// @param reservationTxMaxFee New value of the reservation transaction
     ///        max fee in satoshis.
-    /// @param reservationTermSeconds New value of the reservation custody
-    ///        term length in seconds, within the protocol bounds. Applies
-    ///        to future term grants; never alters an existing expiry.
+    /// @param reservationTermSeconds New value of the global reservation
+    ///        term in seconds, within the protocol bounds. Kept readable for
+    ///        decoders (additive ABI) and still an upper bound on the
+    ///        renewal window; no position's lifecycle reads it. A new
+    ///        position takes the seconds of the term entry chosen at its
+    ///        acceptance request (`reservationTerm(id)`,
+    ///        `reservationTermId(key)`), and the reveal cap and late
+    ///        acceptance window use the largest entry.
     /// @param reservationDissolutionDelay New value of the post-expiry
     ///        dissolution delay in seconds. Snapshotted per granted term.
     /// @param reservationMaxTotalAmount New cap on the total amount in
