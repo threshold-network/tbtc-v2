@@ -3,6 +3,8 @@
 // The term chosen at the acceptance request, carried to the position when
 // the acceptance proof settles, and the late-acceptance window, which is
 // bounded by the largest term entry rather than the generation's own term.
+// Also the vault credit at acceptance, which charges the mint fee plus the
+// position's entry custody fee, clamped at 500 bps.
 // Driven through the production router entry points on the seeded Bridge
 // fixture (ids 1-3: 365, 30 and 91 days), so the term id recorded at the
 // request and the one read at settlement meet under the real action key.
@@ -12,6 +14,7 @@ import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { BigNumber, ContractTransaction } from "ethers"
 import { expect } from "chai"
 import type {
+  Bank,
   Bridge,
   BridgeStub,
   IRelay,
@@ -54,7 +57,13 @@ const PROOF_GAS_LIMIT = 3_000_000
 const ReservationState = {
   Unknown: 0,
   Active: 1,
+  Stranded: 4,
 }
+
+const SATOSHI_MULTIPLIER = BigNumber.from(10).pow(10)
+
+// The vault's mint fee at its default.
+const MINT_FEE_BPS = 20
 
 const ActionType = {
   Acceptance: 1,
@@ -76,6 +85,7 @@ describe("Bridge - Reservation term carried to the position at proof", () => {
   let reservationRouter: ReservationRouter
   let tbtc: TBTC
   let tbtcVault: TBTCVault
+  let bank: Bank
   let reservationVault: ReservationVault
   let bridgeGovernanceSigner: SignerWithAddress
 
@@ -195,7 +205,7 @@ describe("Bridge - Reservation term carried to the position at proof", () => {
 
   before(async () => {
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
-    ;({ spvMaintainer, thirdParty, relay, bridge, tbtc, tbtcVault } =
+    ;({ spvMaintainer, thirdParty, relay, bridge, tbtc, tbtcVault, bank } =
       await bridgeFixture())
 
     // Router functions are reached through the Bridge's fallback.
@@ -553,6 +563,269 @@ describe("Bridge - Reservation term carried to the position at proof", () => {
         (await reservationRouter.reservationActions(reservationKey, newerNonce))
           .state
       ).to.equal(ActionState.Superseded)
+    })
+  })
+  describe("vault credit at acceptance", () => {
+    const grossTbtc = anchorAmount.mul(SATOSHI_MULTIPLIER)
+
+    const feeAt = (bps: number): BigNumber => grossTbtc.mul(bps).div(10000)
+
+    type Funds = {
+      owner: BigNumber
+      vault: BigNumber
+      supply: BigNumber
+      ownerBank: BigNumber
+      vaultBank: BigNumber
+    }
+
+    async function readFunds(): Promise<Funds> {
+      return {
+        owner: await tbtc.balanceOf(thirdParty.address),
+        vault: await tbtc.balanceOf(reservationVault.address),
+        supply: await tbtc.totalSupply(),
+        ownerBank: await bank.balanceOf(thirdParty.address),
+        vaultBank: await bank.balanceOf(reservationVault.address),
+      }
+    }
+
+    // Checks the split of the anchor between the owner and the vault since
+    // `before`, to the TBTC unit.
+    async function expectSplit(
+      before: Funds,
+      expectedFeeBps: number,
+      tx: ContractTransaction
+    ) {
+      const after = await readFunds()
+      const fee = feeAt(expectedFeeBps)
+      const ownerDelta = after.owner.sub(before.owner)
+      const vaultDelta = after.vault.sub(before.vault)
+      expect(ownerDelta).to.equal(grossTbtc.sub(fee))
+      expect(vaultDelta).to.equal(fee)
+      // The minted total equals the anchor: owner plus vault fee, exactly.
+      expect(ownerDelta.add(vaultDelta)).to.equal(grossTbtc)
+      expect(after.supply.sub(before.supply)).to.equal(grossTbtc)
+      // The Bank balance the Bridge credited is fully converted.
+      expect(after.vaultBank).to.equal(before.vaultBank)
+      expect(after.ownerBank).to.equal(before.ownerBank)
+      await expect(tx)
+        .to.emit(reservationVault, "ReservationCreditProcessed")
+        .withArgs(thirdParty.address, anchorAmount, fee)
+    }
+
+    // Settles an on-time acceptance of a fresh deposit on `termId`, running
+    // `beforeProof` between the request and the proof, and checks the split
+    // of the anchor between the owner and the vault, to the TBTC unit.
+    async function expectAcceptanceCharge(
+      termId: number,
+      expectedFeeBps: number,
+      expectedState: number,
+      beforeProof: () => Promise<void> = async () => {}
+    ) {
+      const { reservationKey, anchorTx } = await revealReservedDeposit()
+      const requestNonce = await requestAcceptance(reservationKey, termId)
+      await beforeProof()
+
+      const before = await readFunds()
+      const tx = await submitProofAt(anchorTx, reservationKey, requestNonce)
+
+      const position = await reservationRouter.reservations(reservationKey)
+      expect(position.state).to.equal(expectedState)
+      expect(position.mintedAmount).to.equal(anchorAmount)
+      expect(
+        await reservationRouter.reservationTermId(reservationKey)
+      ).to.equal(termId)
+
+      await expectSplit(before, expectedFeeBps, tx)
+      expect(await bank.balanceOf(thirdParty.address)).to.equal(0)
+    }
+
+    before(async () => {
+      expect(await reservationVault.mintFeeBps()).to.equal(MINT_FEE_BPS)
+    })
+
+    ENTRIES_BY_LENGTH.forEach((entry) => {
+      const feeBps = MINT_FEE_BPS + entry.custodyBps
+      it(`charges ${feeBps} bps on a ${
+        entry.termSeconds / DAY
+      }-day acceptance`, async () => {
+        await expectAcceptanceCharge(
+          entry.termId,
+          feeBps,
+          ReservationState.Active
+        )
+      })
+    })
+
+    it("charges a disabled entry's custody fee to a position requested before the disable", async () => {
+      await expectAcceptanceCharge(
+        TERM_91.termId,
+        MINT_FEE_BPS + TERM_91.custodyBps,
+        ReservationState.Active,
+        async () => {
+          await reservationRouter
+            .connect(bridgeGovernanceSigner)
+            .setReservationTerm(
+              TERM_91.termId,
+              TERM_91.termSeconds,
+              TERM_91.custodyBps,
+              false
+            )
+          expect(
+            (await reservationRouter.reservationTerm(TERM_91.termId)).enabled
+          ).to.be.false
+        }
+      )
+    })
+
+    context("at the 500 bps clamp", () => {
+      const CLAMP_TERM_SECONDS = 60 * DAY
+
+      async function addEntry(termId: number, custodyBps: number) {
+        await reservationRouter
+          .connect(bridgeGovernanceSigner)
+          .setReservationTerm(termId, CLAMP_TERM_SECONDS, custodyBps, true)
+      }
+
+      it("charges 500 bps when mint plus custody is exactly 500", async () => {
+        await addEntry(4, 500 - MINT_FEE_BPS)
+        await expectAcceptanceCharge(4, 500, ReservationState.Active)
+      })
+
+      it("clamps to 500 bps when mint plus custody is 501", async () => {
+        await addEntry(5, 500 - MINT_FEE_BPS + 1)
+        await expectAcceptanceCharge(5, 500, ReservationState.Active)
+      })
+    })
+
+    it("charges the mint fee only to a position stranded at credit", async () => {
+      await expectAcceptanceCharge(
+        TERM_365.termId,
+        MINT_FEE_BPS,
+        ReservationState.Stranded,
+        async () => {
+          // The wallet leaves Live between the request and the proof, so
+          // the settlement strands the position before the credit runs.
+          const wallet = await bridge.wallets(walletPubKeyHash)
+          await bridge.setWallet(walletPubKeyHash, {
+            ...wallet,
+            state: walletState.Closing,
+          })
+        }
+      )
+    })
+
+    context("on the late and fallback paths", () => {
+      it("charges 22 bps on a late 30-day acceptance", async () => {
+        const { reservationKey, anchorTx } = await revealReservedDeposit()
+        const requestNonce = await requestAcceptance(
+          reservationKey,
+          TERM_30.termId
+        )
+        const timeoutAt = await timeOut(reservationKey, requestNonce)
+
+        const before = await readFunds()
+        const tx = await submitProofAt(
+          anchorTx,
+          reservationKey,
+          requestNonce,
+          timeoutAt + LARGEST_TERM_SECONDS
+        )
+        await expect(tx)
+          .to.emit(reservationRouter, "ReservationLateSettled")
+          .withArgs(reservationKey, requestNonce, ActionType.Acceptance)
+        expect(
+          (await reservationRouter.reservations(reservationKey)).state
+        ).to.equal(ReservationState.Active)
+        await expectSplit(before, MINT_FEE_BPS + TERM_30.custodyBps, tx)
+      })
+
+      it("charges generation n's entry when a late proof unwinds generation n+1, and credits once", async () => {
+        const { reservationKey, anchorTx } = await revealReservedDeposit()
+        const olderNonce = await requestAcceptance(
+          reservationKey,
+          TERM_30.termId
+        )
+        await timeOut(reservationKey, olderNonce)
+        // The newer generation is on the 91-day entry, whose charge (25
+        // bps) differs from the older generation's (22 bps).
+        const newerNonce = await requestAcceptance(
+          reservationKey,
+          TERM_91.termId
+        )
+
+        const before = await readFunds()
+        const tx = await submitProofAt(anchorTx, reservationKey, olderNonce)
+        await expect(tx)
+          .to.emit(reservationRouter, "ReservationActionSuperseded")
+          .withArgs(reservationKey, newerNonce)
+        await expectSplit(before, MINT_FEE_BPS + TERM_30.custodyBps, tx)
+
+        // Neither generation can settle again, so there is no second credit.
+        await expect(
+          submitProofAt(anchorTx, reservationKey, newerNonce)
+        ).to.be.revertedWith("Action is not settleable")
+        await expect(
+          submitProofAt(anchorTx, reservationKey, olderNonce)
+        ).to.be.revertedWith("Action is not settleable")
+      })
+
+      it("charges the mint fee only on a late proof whose wallet was Terminated", async () => {
+        const { reservationKey, anchorTx } = await revealReservedDeposit()
+        const requestNonce = await requestAcceptance(
+          reservationKey,
+          TERM_365.termId
+        )
+        const timeoutAt = await timeOut(reservationKey, requestNonce)
+        const wallet = await bridge.wallets(walletPubKeyHash)
+        await bridge.setWallet(walletPubKeyHash, {
+          ...wallet,
+          state: walletState.Terminated,
+        })
+
+        const before = await readFunds()
+        const tx = await submitProofAt(
+          anchorTx,
+          reservationKey,
+          requestNonce,
+          timeoutAt + 10 * DAY
+        )
+        await expect(tx)
+          .to.emit(reservationRouter, "ReservationLateSettled")
+          .withArgs(reservationKey, requestNonce, ActionType.Acceptance)
+        await expect(tx).to.emit(reservationRouter, "ReservationStranded")
+        expect(
+          (await reservationRouter.reservations(reservationKey)).state
+        ).to.equal(ReservationState.Stranded)
+        await expectSplit(before, MINT_FEE_BPS, tx)
+      })
+
+      it("credits the depositor's Bank balance directly, minting nothing, when the vault is untrusted at proof", async () => {
+        const { reservationKey, anchorTx } = await revealReservedDeposit()
+        const requestNonce = await requestAcceptance(
+          reservationKey,
+          TERM_91.termId
+        )
+        await bridge
+          .connect(bridgeGovernanceSigner)
+          .setVaultStatus(reservationVault.address, false)
+
+        const before = await readFunds()
+        const tx = await submitProofAt(anchorTx, reservationKey, requestNonce)
+        const after = await readFunds()
+
+        expect(after.ownerBank.sub(before.ownerBank)).to.equal(anchorAmount)
+        expect(after.vaultBank).to.equal(before.vaultBank)
+        expect(after.owner).to.equal(before.owner)
+        expect(after.vault).to.equal(before.vault)
+        expect(after.supply).to.equal(before.supply)
+        await expect(tx).to.not.emit(
+          reservationVault,
+          "ReservationCreditProcessed"
+        )
+        expect(
+          (await reservationRouter.reservations(reservationKey)).state
+        ).to.equal(ReservationState.Active)
+      })
     })
   })
 })

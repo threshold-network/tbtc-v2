@@ -93,6 +93,78 @@ describe("ReservationVault", () => {
     return ethers.getSigner(bank.address)
   }
 
+  const ReservationState = {
+    Active: 1,
+    Stranded: 4,
+  }
+
+  // Sequential keys, so every position configured on the Bridge mock is
+  // answered by its own exact-calldata entry.
+  let nextReservationKey = 1
+
+  type AcceptanceCredit = {
+    termId?: number
+    custodyBps?: number
+    enabled?: boolean
+    state?: number
+  }
+
+  /** The Bridge mock answers each position's key and term id by exact
+   *  calldata and every other argument with zeros, so a vault that read the
+   *  wrong key or the wrong term id would see custody 0 and the fee
+   *  assertions below would fail.
+   *
+   *  Configures one accepted position on the Bridge mock, then credits it
+   *  the way the Bridge does at acceptance: the Bank balance increase first,
+   *  then `creditReservation(key)` from the Bridge. */
+  async function creditAcceptance(
+    owner: string,
+    grossSat: number | BigNumber,
+    {
+      termId = 0,
+      custodyBps = 0,
+      enabled = true,
+      state = ReservationState.Active,
+    }: AcceptanceCredit = {}
+  ): Promise<{ reservationKey: BigNumber; tx: ContractTransaction }> {
+    const reservationKey = BigNumber.from(nextReservationKey)
+    nextReservationKey += 1
+
+    await bridge.reservations.whenCalledWith(reservationKey).returns({
+      owner,
+      mintedAmount: grossSat,
+      acceptedAt: 0,
+      walletPubKeyHash: `0x${"00".repeat(20)}`,
+      anchorAmount: grossSat,
+      expiresAt: 0,
+      anchorTxHash: ethers.constants.HashZero,
+      anchorTxOutputIndex: 0,
+      state,
+      requestNonce: 1,
+      retryCredit: false,
+      dissolutionEligibleAt: 0,
+      cumulativeReanchorFee: 0,
+      reanchorCooldownUntil: 0,
+    })
+    await bridge.reservationTermId
+      .whenCalledWith(reservationKey)
+      .returns(termId)
+    await bridge.reservationTerm
+      .whenCalledWith(termId)
+      .returns({ termSeconds: 30 * 86400, custodyBps, enabled })
+
+    await bank.connect(bridge.wallet).increaseBalance(vault.address, grossSat)
+    const tx = await vault
+      .connect(bridge.wallet)
+      .creditReservation(reservationKey)
+    return { reservationKey, tx }
+  }
+
+  /** Acceptance fee in TBTC units at the given basis points. */
+  function feeAt(grossSat: number | BigNumber, bps: number): BigNumber {
+    return satsToTbtc(grossSat).mul(bps).div(10000)
+  }
+
   describe("constructor", () => {
     it("should revert when bank is the zero address", async () => {
       const ReservationVault = await ethers.getContractFactory(
@@ -174,16 +246,9 @@ describe("ReservationVault", () => {
     context("when called with a single depositor", () => {
       const depositedAmountSat = 100_000
       let tx: ContractTransaction
-      let fee: BigNumber
-      let net: BigNumber
 
       before(async () => {
         await createSnapshot()
-
-        const initiationFeeBps = await vault.initiationFeeBps()
-        const gross = satsToTbtc(depositedAmountSat)
-        fee = gross.mul(initiationFeeBps).div(10000)
-        net = gross.sub(fee)
 
         tx = await bank
           .connect(bridge.wallet)
@@ -198,12 +263,20 @@ describe("ReservationVault", () => {
         await restoreSnapshot()
       })
 
-      it("should transfer the net amount (gross minus fee) to the depositor", async () => {
-        expect(await tbtc.balanceOf(account1.address)).to.equal(net)
+      it("should transfer the gross amount to the depositor, with no reservation fee", async () => {
+        expect(await tbtc.balanceOf(account1.address)).to.equal(
+          satsToTbtc(depositedAmountSat)
+        )
       })
 
-      it("should retain the fee in the vault", async () => {
-        expect(await tbtc.balanceOf(vault.address)).to.equal(fee)
+      it("should retain nothing in the vault", async () => {
+        expect(await tbtc.balanceOf(vault.address)).to.equal(0)
+      })
+
+      it("should mint exactly the gross amount", async () => {
+        expect(await tbtc.totalSupply()).to.equal(
+          satsToTbtc(depositedAmountSat)
+        )
       })
 
       it("should leave no residual Bank balance for the vault or depositor", async () => {
@@ -211,29 +284,17 @@ describe("ReservationVault", () => {
         expect(await bank.balanceOf(account1.address)).to.equal(0)
       })
 
-      it("should emit ReservationCreditProcessed with the correct values", async () => {
-        await expect(tx)
-          .to.emit(vault, "ReservationCreditProcessed")
-          .withArgs(account1.address, depositedAmountSat, fee)
+      it("should not emit ReservationCreditProcessed", async () => {
+        await expect(tx).to.not.emit(vault, "ReservationCreditProcessed")
       })
     })
 
     context("when called with multiple depositors", () => {
       const depositedAmounts = [100_000, 250_000]
       let tx: ContractTransaction
-      let fees: BigNumber[]
-      let nets: BigNumber[]
 
       before(async () => {
         await createSnapshot()
-
-        const initiationFeeBps = await vault.initiationFeeBps()
-        fees = depositedAmounts.map((amount) =>
-          satsToTbtc(amount).mul(initiationFeeBps).div(10000)
-        )
-        nets = depositedAmounts.map((amount, i) =>
-          satsToTbtc(amount).sub(fees[i])
-        )
 
         tx = await bank
           .connect(bridge.wallet)
@@ -248,25 +309,188 @@ describe("ReservationVault", () => {
         await restoreSnapshot()
       })
 
-      it("should transfer each depositor's net amount", async () => {
-        expect(await tbtc.balanceOf(account1.address)).to.equal(nets[0])
-        expect(await tbtc.balanceOf(account2.address)).to.equal(nets[1])
-      })
-
-      it("should retain the sum of fees in the vault", async () => {
-        expect(await tbtc.balanceOf(vault.address)).to.equal(
-          fees[0].add(fees[1])
+      it("should transfer each depositor's gross amount", async () => {
+        expect(await tbtc.balanceOf(account1.address)).to.equal(
+          satsToTbtc(depositedAmounts[0])
+        )
+        expect(await tbtc.balanceOf(account2.address)).to.equal(
+          satsToTbtc(depositedAmounts[1])
         )
       })
 
-      it("should emit ReservationCreditProcessed for each depositor", async () => {
-        await expect(tx)
-          .to.emit(vault, "ReservationCreditProcessed")
-          .withArgs(account1.address, depositedAmounts[0], fees[0])
-        await expect(tx)
-          .to.emit(vault, "ReservationCreditProcessed")
-          .withArgs(account2.address, depositedAmounts[1], fees[1])
+      it("should retain nothing in the vault", async () => {
+        expect(await tbtc.balanceOf(vault.address)).to.equal(0)
       })
+
+      it("should not emit ReservationCreditProcessed", async () => {
+        await expect(tx).to.not.emit(vault, "ReservationCreditProcessed")
+      })
+    })
+  })
+
+  describe("creditReservation", () => {
+    const grossSat = 3_000_000
+
+    // The seeded entries (id: custodyBps) and the acceptance fee each gives
+    // at the default 20 bps mint fee.
+    const SEEDED = [
+      { termId: 1, custodyBps: 20, feeBps: 40 },
+      { termId: 2, custodyBps: 2, feeBps: 22 },
+      { termId: 3, custodyBps: 5, feeBps: 25 },
+    ]
+
+    beforeEach(async () => {
+      await createSnapshot()
+    })
+
+    afterEach(async () => {
+      await restoreSnapshot()
+    })
+
+    /** Credits one position and checks the whole split: the owner's share,
+     *  the vault's fee, the supply minted and the Bank balances. */
+    async function expectCreditAt(
+      credit: AcceptanceCredit,
+      expectedFeeBps: number,
+      sat: number = grossSat
+    ) {
+      const ownerBefore = await tbtc.balanceOf(account1.address)
+      const vaultBefore = await tbtc.balanceOf(vault.address)
+      const supplyBefore = await tbtc.totalSupply()
+
+      const { tx } = await creditAcceptance(account1.address, sat, credit)
+
+      const fee = feeAt(sat, expectedFeeBps)
+      const ownerDelta = (await tbtc.balanceOf(account1.address)).sub(
+        ownerBefore
+      )
+      const vaultDelta = (await tbtc.balanceOf(vault.address)).sub(vaultBefore)
+
+      expect(ownerDelta).to.equal(satsToTbtc(sat).sub(fee))
+      expect(vaultDelta).to.equal(fee)
+      // Owner plus vault fee equals the gross amount, to the unit.
+      expect(ownerDelta.add(vaultDelta)).to.equal(satsToTbtc(sat))
+      expect((await tbtc.totalSupply()).sub(supplyBefore)).to.equal(
+        satsToTbtc(sat)
+      )
+      expect(await bank.balanceOf(vault.address)).to.equal(0)
+      expect(await bank.balanceOf(account1.address)).to.equal(0)
+      await expect(tx)
+        .to.emit(vault, "ReservationCreditProcessed")
+        .withArgs(account1.address, sat, fee)
+    }
+
+    context("when called by a non-bridge address", () => {
+      it("should revert", async () => {
+        await bank.connect(bridge.wallet).increaseBalance(vault.address, 1000)
+        await expect(
+          vault.connect(account1).creditReservation(1)
+        ).to.be.revertedWith("Caller is not the Bridge")
+      })
+
+      it("should revert when called by the Bank", async () => {
+        const bankSigner = await impersonateBank()
+        await expect(
+          vault.connect(bankSigner).creditReservation(1)
+        ).to.be.revertedWith("Caller is not the Bridge")
+      })
+    })
+
+    SEEDED.forEach(({ termId, custodyBps, feeBps }) => {
+      it(`should charge ${feeBps} bps for entry ${termId} (${custodyBps} bps custody)`, async () => {
+        await expectCreditAt({ termId, custodyBps }, feeBps)
+      })
+    })
+
+    it("should charge a disabled entry's custody fee", async () => {
+      await expectCreditAt({ termId: 3, custodyBps: 5, enabled: false }, 25)
+    })
+
+    it("should charge the live mint fee, not a default", async () => {
+      await vault.updateMintFee(30)
+      await expectCreditAt({ termId: 2, custodyBps: 2 }, 32)
+    })
+
+    context("at the 500 bps clamp", () => {
+      it("should charge 499 bps when mint plus custody is 499", async () => {
+        await expectCreditAt({ termId: 4, custodyBps: 479 }, 499)
+      })
+
+      it("should charge 500 bps when mint plus custody is exactly 500", async () => {
+        await expectCreditAt({ termId: 4, custodyBps: 480 }, 500)
+      })
+
+      it("should clamp to 500 bps when mint plus custody is 501", async () => {
+        await expectCreditAt({ termId: 4, custodyBps: 481 }, 500)
+      })
+
+      it("should clamp to 500 bps at both maxima (1000 bps unclamped)", async () => {
+        await vault.updateMintFee(500)
+        await expectCreditAt({ termId: 4, custodyBps: 500 }, 500)
+      })
+    })
+
+    context("when the position is Stranded at credit", () => {
+      it("should charge the mint fee only", async () => {
+        await expectCreditAt(
+          { termId: 1, custodyBps: 20, state: ReservationState.Stranded },
+          20
+        )
+      })
+
+      it("should charge the mint fee only even when mint plus custody would clamp", async () => {
+        await vault.updateMintFee(500)
+        await expectCreditAt(
+          { termId: 4, custodyBps: 500, state: ReservationState.Stranded },
+          500
+        )
+        await vault.updateMintFee(20)
+        await expectCreditAt(
+          { termId: 4, custodyBps: 500, state: ReservationState.Stranded },
+          20
+        )
+      })
+    })
+
+    context("when the position carries no term id", () => {
+      it("should charge the mint fee only and not revert", async () => {
+        // Entry 0 is never added (ids are 1-8), so it reads as zeroed.
+        await expectCreditAt({ termId: 0, custodyBps: 0, enabled: false }, 20)
+      })
+    })
+
+    context("rounding", () => {
+      it("should split an odd amount exactly, owner plus fee equal to gross", async () => {
+        // 1 sat at 22 bps: fee 0.0022 sat = 22 * 10^6 TBTC units, exact.
+        await expectCreditAt({ termId: 2, custodyBps: 2 }, 22, 1)
+        await expectCreditAt({ termId: 3, custodyBps: 5 }, 25, 12_345_679)
+        await expectCreditAt({ termId: 4, custodyBps: 481 }, 500, 7)
+      })
+    })
+
+    it("should credit consecutive positions, keeping every fee in the vault", async () => {
+      // A second credit would revert on a leftover Bank allowance
+      // ("Non-atomic allowance change not allowed"); none is left.
+      await creditAcceptance(account1.address, grossSat, {
+        termId: 1,
+        custodyBps: 20,
+      })
+      expect(await bank.allowance(vault.address, tbtcVault.address)).to.equal(0)
+      await creditAcceptance(account2.address, grossSat, {
+        termId: 2,
+        custodyBps: 2,
+      })
+      expect(await tbtc.balanceOf(vault.address)).to.equal(
+        feeAt(grossSat, 40).add(feeAt(grossSat, 22))
+      )
+      expect(await tbtc.balanceOf(account2.address)).to.equal(
+        satsToTbtc(grossSat).sub(feeAt(grossSat, 22))
+      )
+    })
+
+    it("should not be gated by the vault owner", async () => {
+      await vault.transferOwnership(account2.address)
+      await expectCreditAt({ termId: 2, custodyBps: 2 }, 22)
     })
   })
 
@@ -311,13 +535,7 @@ describe("ReservationVault", () => {
       before(async () => {
         await createSnapshot()
 
-        await bank
-          .connect(bridge.wallet)
-          .increaseBalanceAndCall(
-            vault.address,
-            [account1.address],
-            [reserveDepositSat]
-          )
+        await creditAcceptance(account1.address, reserveDepositSat)
       })
 
       after(async () => {
@@ -397,20 +615,14 @@ describe("ReservationVault", () => {
       before(async () => {
         await createSnapshot()
 
-        const initiationFeeBps = await vault.initiationFeeBps()
+        const mintFeeBps = await vault.mintFeeBps()
         const reserveTbtc = satsToTbtc(reserveDepositSat)
-          .mul(initiationFeeBps)
+          .mul(mintFeeBps)
           .div(10000)
         coverableSat = reserveTbtc.div(SATOSHI_MULTIPLIER)
         shortfallSat = BigNumber.from(feeSat).sub(coverableSat)
 
-        await bank
-          .connect(bridge.wallet)
-          .increaseBalanceAndCall(
-            vault.address,
-            [account1.address],
-            [reserveDepositSat]
-          )
+        await creditAcceptance(account1.address, reserveDepositSat)
       })
 
       after(async () => {
@@ -466,7 +678,8 @@ describe("ReservationVault", () => {
         // Create debt: finance a fee against an empty reserve.
         await vault.connect(bridge.wallet).financeInKindFee(debtSat)
 
-        // Fund account1 with plenty of TBTC (net of fee) to repay with.
+        // Fund account1 with plenty of TBTC to repay with (minted gross
+        // through the fee-free Bank callback).
         await bank
           .connect(bridge.wallet)
           .increaseBalanceAndCall(
@@ -565,9 +778,7 @@ describe("ReservationVault", () => {
     })
 
     it("should allow setting the target equal to the current balance, after which sweepFees is a no-op", async () => {
-      await bank
-        .connect(bridge.wallet)
-        .increaseBalanceAndCall(vault.address, [account1.address], [100_000])
+      await creditAcceptance(account1.address, 100_000)
 
       const currentBalance = await tbtc.balanceOf(vault.address)
       await vault.updateFeeReserveTarget(currentBalance)
@@ -614,17 +825,11 @@ describe("ReservationVault", () => {
       before(async () => {
         await createSnapshot()
 
-        const initiationFeeBps = await vault.initiationFeeBps()
+        const mintFeeBps = await vault.mintFeeBps()
         const totalFeeSat = reserveTargetSat + extraSat
-        const depositSat = Math.ceil((totalFeeSat * 10000) / initiationFeeBps)
+        const depositSat = Math.ceil((totalFeeSat * 10000) / mintFeeBps)
 
-        await bank
-          .connect(bridge.wallet)
-          .increaseBalanceAndCall(
-            vault.address,
-            [account2.address],
-            [depositSat]
-          )
+        await creditAcceptance(account2.address, depositSat)
 
         const currentBalance = await tbtc.balanceOf(vault.address)
         await vault.updateFeeReserveTarget(
@@ -674,17 +879,11 @@ describe("ReservationVault", () => {
         await vault.connect(bridge.wallet).financeInKindFee(debtSat)
 
         // Fund the vault so the retained fee covers debt + target + extra.
-        const initiationFeeBps = await vault.initiationFeeBps()
+        const mintFeeBps = await vault.mintFeeBps()
         const totalFeeSat = debtSat + reserveTargetSat + extraSat
-        const depositSat = Math.ceil((totalFeeSat * 10000) / initiationFeeBps)
+        const depositSat = Math.ceil((totalFeeSat * 10000) / mintFeeBps)
 
-        await bank
-          .connect(bridge.wallet)
-          .increaseBalanceAndCall(
-            vault.address,
-            [account2.address],
-            [depositSat]
-          )
+        await creditAcceptance(account2.address, depositSat)
 
         await vault.updateFeeReserveTarget(satsToTbtc(reserveTargetSat))
       })
@@ -737,17 +936,11 @@ describe("ReservationVault", () => {
 
         // Fund the vault so the retained fee covers exactly debt + target,
         // leaving nothing above the reserve target after debt repayment.
-        const initiationFeeBps = await vault.initiationFeeBps()
+        const mintFeeBps = await vault.mintFeeBps()
         const totalFeeSat = debtSat + reserveTargetSat
-        const depositSat = Math.ceil((totalFeeSat * 10000) / initiationFeeBps)
+        const depositSat = Math.ceil((totalFeeSat * 10000) / mintFeeBps)
 
-        await bank
-          .connect(bridge.wallet)
-          .increaseBalanceAndCall(
-            vault.address,
-            [account2.address],
-            [depositSat]
-          )
+        await creditAcceptance(account2.address, depositSat)
 
         await vault.updateFeeReserveTarget(satsToTbtc(reserveTargetSat))
       })
@@ -785,7 +978,7 @@ describe("ReservationVault", () => {
     })
   })
 
-  describe("updateInitiationFee", () => {
+  describe("updateMintFee", () => {
     before(async () => {
       await createSnapshot()
     })
@@ -794,33 +987,37 @@ describe("ReservationVault", () => {
       await restoreSnapshot()
     })
 
+    it("should default to the 20 bps mint leg", async () => {
+      expect(await vault.mintFeeBps()).to.equal(20)
+    })
+
     it("should revert when called by a non-owner", async () => {
       await expect(
-        vault.connect(account1).updateInitiationFee(40)
+        vault.connect(account1).updateMintFee(40)
       ).to.be.revertedWith("Ownable: caller is not the owner")
     })
 
     it("should succeed when called by the owner with a valid fee and emit the event", async () => {
-      await expect(vault.updateInitiationFee(50))
+      await expect(vault.updateMintFee(50))
         .to.emit(vault, "FeesUpdated")
         .withArgs(50)
 
-      expect(await vault.initiationFeeBps()).to.equal(50)
+      expect(await vault.mintFeeBps()).to.equal(50)
     })
 
     it("should revert when the fee exceeds MAX_FEE_BASIS_POINTS", async () => {
-      await expect(vault.updateInitiationFee(501)).to.be.revertedWith(
+      await expect(vault.updateMintFee(501)).to.be.revertedWith(
         "Fee exceeds the maximum"
       )
     })
 
     it("should allow setting the fee to exactly MAX_FEE_BASIS_POINTS", async () => {
       const max = await vault.MAX_FEE_BASIS_POINTS()
-      await expect(vault.updateInitiationFee(max))
+      await expect(vault.updateMintFee(max))
         .to.emit(vault, "FeesUpdated")
         .withArgs(max)
 
-      expect(await vault.initiationFeeBps()).to.equal(max)
+      expect(await vault.mintFeeBps()).to.equal(max)
     })
   })
 
