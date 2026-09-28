@@ -1277,7 +1277,11 @@ contract Bridge is
     ///         Trusted vault must meet the following criteria:
     ///         - `IVault.receiveBalanceIncrease` must have a known, low gas
     ///           cost,
-    ///         - `IVault.receiveBalanceIncrease` must never revert.
+    ///         - `IVault.receiveBalanceIncrease` must never revert,
+    ///         - if the vault is also the reservation vault, it must
+    ///           implement `IReservationFeeFinancer.creditReservation`, which
+    ///           runs inside the acceptance proof and must never revert
+    ///           either.
     /// @dev Without restricting reveal only to trusted vaults, malicious
     ///      vaults not meeting the criteria would be able to nuke sweep proof
     ///      transactions executed by ECDSA wallet with  deposits routed to
