@@ -229,7 +229,26 @@ require(
     TBTC(address(ReservationVault(reservationVault).tbtcToken())).owner() == address(tbtcVault),
     "TBTCVault does not own TBTC"
 );
+
+// Acceptance-credit binding: the vault's constructor-set Bridge and Bank are
+// immutable and unchecked on-chain. A vault bound to another Bridge rejects
+// the real Bridge's credit call; one bound to another Bank cannot convert the
+// balance the Bridge credited. Either way every acceptance proof reverts.
+(Bank bridgeBank, , , ) = Bridge(bridgeAddress).contractReferences();
+require(
+    address(ReservationVault(reservationVault).bridge()) == bridgeAddress,
+    "Vault bound to another Bridge"
+);
+require(
+    address(ReservationVault(reservationVault).bank()) == address(bridgeBank),
+    "Vault bound to another Bank"
+);
 ```
+
+The three views together supply the three quantities the Decision 1 invariant is written in terms of:
+`reservationMaxTotalAmount <= maxActiveReservations * reservationMaxSingleAmount` (or `reservationMaxSingleAmount == 0`).
+
+> **Precondition note:** Setting a new non-zero `reservationVault` in `updateReservationParameters` also requires `maxActiveReservations > 0`; the call reverts otherwise, so the Decision 1 invariant check above is not sufficient on its own when activating the vault for the first time.
 
 **Acceptance-credit invariant 2: the configured reservation vault implements `creditReservation`** (selector `0x60bac298`); the Bridge calls it inside every acceptance proof. The function is not a view, so probe it with a call from a non-Bridge address, which the hook must reject with its caller check:
 
@@ -238,14 +257,9 @@ cast call <reservationVault> "creditReservation(uint256)" 0 --from <any non-Brid
 # expected: execution reverted: "Caller is not the Bridge"
 ```
 
-Any other result (a different revert reason, an empty revert, or success) means the vault does not implement the hook and must not be activated.
+Any other result (a different revert reason, an empty revert, or success) means the vault does not implement the hook and must not be activated. This probe does not show which Bridge the vault answers to: a vault bound to another Bridge gives the same answer, which is why the binding checks in the block above are needed alongside it.
 
-**Escape if either invariant is broken after activation:** `setVaultStatus(reservationVault, false)` (through `BridgeGovernance`) makes the vault untrusted, and acceptance proofs then settle through the Bridge's direct-credit fallback: the depositor's Bank balance is credited with the gross anchored amount and no fee is taken. If the misconfigured reservation vault is the TBTCVault itself, untrusting it also stops pooled minting through it.
-
-The three views together supply the three quantities the Decision 1 invariant is written in terms of:
-`reservationMaxTotalAmount <= maxActiveReservations * reservationMaxSingleAmount` (or `reservationMaxSingleAmount == 0`).
-
-> **Precondition note:** Setting a new non-zero `reservationVault` in `updateReservationParameters` also requires `maxActiveReservations > 0`; the call reverts otherwise, so the Decision 1 invariant check above is not sufficient on its own when activating the vault for the first time.
+**Escape if any of these checks fails after activation:** `setVaultStatus(reservationVault, false)` (through `BridgeGovernance`) makes the vault untrusted, and acceptance proofs then settle through the Bridge's direct-credit fallback: the depositor's Bank balance is credited with the gross anchored amount and no fee is taken. If the misconfigured reservation vault is the TBTCVault itself, untrusting it also stops pooled minting through it.
 
 Because setter transactions revert on an invariant violation, a rejected configuration modifies no storage. If governance encounters a revert with `Amount cap exceeds slot capacity` during configuration, the remedy is:
 

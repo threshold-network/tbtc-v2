@@ -179,11 +179,15 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
     ///      it occur, entry 0 is never added (ids are 1-8), its custodyBps
     ///      reads as 0 and the position pays the mint fee only.
     ///
-    ///      That revert-freedom rests on two deployment invariants this
+    ///      That revert-freedom rests on three deployment invariants this
     ///      code cannot enforce: TBTCVault owns the TBTC token (otherwise
-    ///      `tbtcVault.mint` reverts, as every pooled mint does), and the
-    ///      vault set as `reservationVault` implements this hook (otherwise
-    ///      the Bridge's call to it reverts). In either case the escape is
+    ///      `tbtcVault.mint` reverts, as every pooled mint does); the vault
+    ///      set as `reservationVault` implements this hook (otherwise the
+    ///      Bridge's call to it reverts); and that vault is bound to this
+    ///      Bridge and its Bank, that is its immutable `bridge` and `bank`
+    ///      are the Bridge and the Bridge's Bank (otherwise the caller check
+    ///      rejects the real Bridge, or the approval and mint run against a
+    ///      Bank the Bridge did not credit). In each case the escape is
     ///      `setVaultStatus(vault, false)`, which routes acceptance credits
     ///      to the Bridge's direct-credit fallback: the depositor's Bank
     ///      balance is credited with the gross amount and no fee is taken.
