@@ -570,6 +570,48 @@ describe("Bridge - Reservation term carried to the position at proof", () => {
 
     const feeAt = (bps: number): BigNumber => grossTbtc.mul(bps).div(10000)
 
+    type Funds = {
+      owner: BigNumber
+      vault: BigNumber
+      supply: BigNumber
+      ownerBank: BigNumber
+      vaultBank: BigNumber
+    }
+
+    async function readFunds(): Promise<Funds> {
+      return {
+        owner: await tbtc.balanceOf(thirdParty.address),
+        vault: await tbtc.balanceOf(reservationVault.address),
+        supply: await tbtc.totalSupply(),
+        ownerBank: await bank.balanceOf(thirdParty.address),
+        vaultBank: await bank.balanceOf(reservationVault.address),
+      }
+    }
+
+    // Checks the split of the anchor between the owner and the vault since
+    // `before`, to the TBTC unit.
+    async function expectSplit(
+      before: Funds,
+      expectedFeeBps: number,
+      tx: ContractTransaction
+    ) {
+      const after = await readFunds()
+      const fee = feeAt(expectedFeeBps)
+      const ownerDelta = after.owner.sub(before.owner)
+      const vaultDelta = after.vault.sub(before.vault)
+      expect(ownerDelta).to.equal(grossTbtc.sub(fee))
+      expect(vaultDelta).to.equal(fee)
+      // The minted total equals the anchor: owner plus vault fee, exactly.
+      expect(ownerDelta.add(vaultDelta)).to.equal(grossTbtc)
+      expect(after.supply.sub(before.supply)).to.equal(grossTbtc)
+      // The Bank balance the Bridge credited is fully converted.
+      expect(after.vaultBank).to.equal(before.vaultBank)
+      expect(after.ownerBank).to.equal(before.ownerBank)
+      await expect(tx)
+        .to.emit(reservationVault, "ReservationCreditProcessed")
+        .withArgs(thirdParty.address, anchorAmount, fee)
+    }
+
     // Settles an on-time acceptance of a fresh deposit on `termId`, running
     // `beforeProof` between the request and the proof, and checks the split
     // of the anchor between the owner and the vault, to the TBTC unit.
@@ -583,11 +625,7 @@ describe("Bridge - Reservation term carried to the position at proof", () => {
       const requestNonce = await requestAcceptance(reservationKey, termId)
       await beforeProof()
 
-      const ownerBefore = await tbtc.balanceOf(thirdParty.address)
-      const vaultBefore = await tbtc.balanceOf(reservationVault.address)
-      const supplyBefore = await tbtc.totalSupply()
-      const vaultBankBefore = await bank.balanceOf(reservationVault.address)
-
+      const before = await readFunds()
       const tx = await submitProofAt(anchorTx, reservationKey, requestNonce)
 
       const position = await reservationRouter.reservations(reservationKey)
@@ -597,26 +635,8 @@ describe("Bridge - Reservation term carried to the position at proof", () => {
         await reservationRouter.reservationTermId(reservationKey)
       ).to.equal(termId)
 
-      const fee = feeAt(expectedFeeBps)
-      const ownerDelta = (await tbtc.balanceOf(thirdParty.address)).sub(
-        ownerBefore
-      )
-      const vaultDelta = (await tbtc.balanceOf(reservationVault.address)).sub(
-        vaultBefore
-      )
-      expect(ownerDelta).to.equal(grossTbtc.sub(fee))
-      expect(vaultDelta).to.equal(fee)
-      // The minted total equals the anchor: owner plus vault fee, exactly.
-      expect(ownerDelta.add(vaultDelta)).to.equal(grossTbtc)
-      expect((await tbtc.totalSupply()).sub(supplyBefore)).to.equal(grossTbtc)
-      // The Bank balance the Bridge credited is fully converted.
-      expect(await bank.balanceOf(reservationVault.address)).to.equal(
-        vaultBankBefore
-      )
+      await expectSplit(before, expectedFeeBps, tx)
       expect(await bank.balanceOf(thirdParty.address)).to.equal(0)
-      await expect(tx)
-        .to.emit(reservationVault, "ReservationCreditProcessed")
-        .withArgs(thirdParty.address, anchorAmount, fee)
     }
 
     before(async () => {
@@ -692,6 +712,120 @@ describe("Bridge - Reservation term carried to the position at proof", () => {
           })
         }
       )
+    })
+
+    context("on the late and fallback paths", () => {
+      it("charges 22 bps on a late 30-day acceptance", async () => {
+        const { reservationKey, anchorTx } = await revealReservedDeposit()
+        const requestNonce = await requestAcceptance(
+          reservationKey,
+          TERM_30.termId
+        )
+        const timeoutAt = await timeOut(reservationKey, requestNonce)
+
+        const before = await readFunds()
+        const tx = await submitProofAt(
+          anchorTx,
+          reservationKey,
+          requestNonce,
+          timeoutAt + LARGEST_TERM_SECONDS
+        )
+        await expect(tx)
+          .to.emit(reservationRouter, "ReservationLateSettled")
+          .withArgs(reservationKey, requestNonce, ActionType.Acceptance)
+        expect(
+          (await reservationRouter.reservations(reservationKey)).state
+        ).to.equal(ReservationState.Active)
+        await expectSplit(before, MINT_FEE_BPS + TERM_30.custodyBps, tx)
+      })
+
+      it("charges generation n's entry when a late proof unwinds generation n+1, and credits once", async () => {
+        const { reservationKey, anchorTx } = await revealReservedDeposit()
+        const olderNonce = await requestAcceptance(
+          reservationKey,
+          TERM_30.termId
+        )
+        await timeOut(reservationKey, olderNonce)
+        // The newer generation is on the 91-day entry, whose charge (25
+        // bps) differs from the older generation's (22 bps).
+        const newerNonce = await requestAcceptance(
+          reservationKey,
+          TERM_91.termId
+        )
+
+        const before = await readFunds()
+        const tx = await submitProofAt(anchorTx, reservationKey, olderNonce)
+        await expect(tx)
+          .to.emit(reservationRouter, "ReservationActionSuperseded")
+          .withArgs(reservationKey, newerNonce)
+        await expectSplit(before, MINT_FEE_BPS + TERM_30.custodyBps, tx)
+
+        // Neither generation can settle again, so there is no second credit.
+        await expect(
+          submitProofAt(anchorTx, reservationKey, newerNonce)
+        ).to.be.revertedWith("Action is not settleable")
+        await expect(
+          submitProofAt(anchorTx, reservationKey, olderNonce)
+        ).to.be.revertedWith("Action is not settleable")
+      })
+
+      it("charges the mint fee only on a late proof whose wallet was Terminated", async () => {
+        const { reservationKey, anchorTx } = await revealReservedDeposit()
+        const requestNonce = await requestAcceptance(
+          reservationKey,
+          TERM_365.termId
+        )
+        const timeoutAt = await timeOut(reservationKey, requestNonce)
+        const wallet = await bridge.wallets(walletPubKeyHash)
+        await bridge.setWallet(walletPubKeyHash, {
+          ...wallet,
+          state: walletState.Terminated,
+        })
+
+        const before = await readFunds()
+        const tx = await submitProofAt(
+          anchorTx,
+          reservationKey,
+          requestNonce,
+          timeoutAt + 10 * DAY
+        )
+        await expect(tx)
+          .to.emit(reservationRouter, "ReservationLateSettled")
+          .withArgs(reservationKey, requestNonce, ActionType.Acceptance)
+        await expect(tx).to.emit(reservationRouter, "ReservationStranded")
+        expect(
+          (await reservationRouter.reservations(reservationKey)).state
+        ).to.equal(ReservationState.Stranded)
+        await expectSplit(before, MINT_FEE_BPS, tx)
+      })
+
+      it("credits the depositor's Bank balance directly, minting nothing, when the vault is untrusted at proof", async () => {
+        const { reservationKey, anchorTx } = await revealReservedDeposit()
+        const requestNonce = await requestAcceptance(
+          reservationKey,
+          TERM_91.termId
+        )
+        await bridge
+          .connect(bridgeGovernanceSigner)
+          .setVaultStatus(reservationVault.address, false)
+
+        const before = await readFunds()
+        const tx = await submitProofAt(anchorTx, reservationKey, requestNonce)
+        const after = await readFunds()
+
+        expect(after.ownerBank.sub(before.ownerBank)).to.equal(anchorAmount)
+        expect(after.vaultBank).to.equal(before.vaultBank)
+        expect(after.owner).to.equal(before.owner)
+        expect(after.vault).to.equal(before.vault)
+        expect(after.supply).to.equal(before.supply)
+        await expect(tx).to.not.emit(
+          reservationVault,
+          "ReservationCreditProcessed"
+        )
+        expect(
+          (await reservationRouter.reservations(reservationKey)).state
+        ).to.equal(ReservationState.Active)
+      })
     })
   })
 })
