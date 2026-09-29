@@ -179,11 +179,10 @@ export function buildReservationActionDefinitions(params: {
           "been confirmed on-chain -- otherwise the vault is marked trusted " +
           "while reservationVault is still the zero address, letting " +
           "deposits routed to the vault be revealed as ordinary " +
-          "(non-reserved) deposits. C-4 gate: also execute at or after the " +
-          "activation block chosen in the keep-core release's " +
-          "reservationsActivationBlocks table for this network -- ship that " +
-          "client release first, or reveals are enabled on-chain while no " +
-          "client schedules acceptance or re-anchor coordination.",
+          "(non-reserved) deposits. Activation-ordering gate: also execute " +
+          "at or after this network's keep-core activation block; see " +
+          "solidity/docs/RESERVATION_CAPS_DEPLOYMENT.md, " +
+          "'Client Activation Ordering Gate'.",
       },
     },
   ]
@@ -235,28 +234,31 @@ function logCalldataSummary(actions: CalldataAction[]): void {
       "172800s (48h), read from governanceDelays(0); setReservationRouter " +
       "and setVaultStatus carry no staging delay (one-off actions)."
   )
-  // F-3: none of the six actions above configures the vault's fee reserve
-  // target. The vault deploys with feeReserveTarget == 0 and script 97
-  // does not set it either, so a separate governance step is required
-  // (or an explicit decision to keep a zero reserve, which lets sweepFees
-  // drain the whole balance and pushes any underfunded in-kind miner fee
-  // onto inKindFeeDebtSat).
+  // Fee-reserve notice: none of the six actions above configures the
+  // vault's fee reserve target; governance must run a separate
+  // ReservationVault.updateFeeReserveTarget(target) step (or explicitly
+  // accept a zero reserve) before activation; see
+  // solidity/docs/RESERVATION_CAPS_DEPLOYMENT.md, "Fee-Reserve Target
+  // Governance Step".
   console.log(
-    "F-3 fee-reserve step NOT in this action set: execute " +
+    "Fee-reserve notice: no action in this set configures the vault's " +
+      "fee reserve target; governance must run " +
       "ReservationVault.updateFeeReserveTarget(target) as a separate " +
-      "governance action (or explicitly accept a zero reserve); verify " +
-      "via the feeReserveTarget() getter and the FeeReserveTargetUpdated " +
-      "event."
+      "action before activation, or explicitly accept a zero reserve; " +
+      "see solidity/docs/RESERVATION_CAPS_DEPLOYMENT.md, " +
+      "'Fee-Reserve Target Governance Step'."
   )
-  // E-2: if governance later revokes the vault's trust with
-  // setVaultStatus(vault, false), in-flight late acceptances settle by
-  // direct credit to depositors (no initiation fee charged), so plan
-  // the fee accounting around that branch.
+  // Trust-revocation notice: after setVaultStatus(vault, false), every
+  // acceptance settled while the vault is untrusted (on time or late)
+  // settles by direct credit to the depositor with no initiation fee;
+  // see solidity/docs/RESERVATION_CAPS_DEPLOYMENT.md, "Fee Fallback When
+  // Vault Trust Is Revoked".
   console.log(
-    "E-2 note: revoking the vault's trust with setVaultStatus(vault, false) " +
-      "makes in-flight late acceptances settle by direct credit to the " +
-      "depositors with no initiation fee (fee reserve not accrued for " +
-      "those settlements)."
+    "Trust-revocation notice: after setVaultStatus(vault, false), every " +
+      "acceptance settled while the vault is untrusted (on time or late) " +
+      "settles by direct credit to the depositor with no initiation fee; " +
+      "see solidity/docs/RESERVATION_CAPS_DEPLOYMENT.md, " +
+      "'Fee Fallback When Vault Trust Is Revoked'."
   )
   console.log("=".repeat(80))
 }

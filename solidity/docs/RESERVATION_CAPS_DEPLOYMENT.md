@@ -43,30 +43,35 @@ The existing regression test `Bridge.ReservationCaps.test.ts` in the `describe("
 >
 > Setting a non-zero `reservationVault` in `updateReservationParameters` and accepting the first reservation permanently locks in that vault contract for the entire lifetime of live reservations. Explicit governance and deployer sign-off acknowledging this irreversibility is **required** prior to the activation ceremony.
 
-## Client Activation Ordering Gate (C-4)
+## Client Activation Ordering Gate
 
 On-chain activation (`setVaultStatus(vault, true)`) and client activation (keep-core's reservation task scheduling) are two independent axes that MUST be coupled in this order:
 
 1. **Ship the keep-core release first.** Release and deploy a keep-core binary whose `reservationsActivationBlocks` table contains the chosen entry for the target network (see `keep-core pkg/tbtc/coordination.go`: `ReservationsActivationBlock`). All maintainers, orchestrators, and tBTCpg coordinators on that network must run that release before the on-chain activation block is reached.
 2. **Choose the activation block at or after the release is live on every node.** The value written into `reservationsActivationBlocks` for the network is the block height at which clients start proposing acceptance and re-anchor actions. The `setVaultStatus(vault, true)` transaction must execute at or after that block.
 
-Consequence of the wrong order (activating on-chain before the released clients are live at that block): the Bridge immediately accepts reserved reveals and acceptance requests, but no keep-core node schedules acceptance or re-anchor coordination for that network (a network with no table entry falls through to `math.MaxUint64` in `ReservationsActivationBlock` and never activates the feature). Deposits can therefore be revealed and accepted on-chain while no client ever produces the anchor proof, strand-recovery paths become the only way out, and late-settlement races are left unresolved. This gate is runbook discipline; nothing on-chain enforces it.
+Consequence of the wrong order (activating on-chain before the released clients are live): the Bridge immediately accepts reserved reveals and acceptance requests, but no keep-core client coordinates acceptance or re-anchor until the network's activation block is reached. keep-core starts coordinating a network only once the chain's block height reaches the activation block configured for that network in `reservationsActivationBlocks` (see `keep-core pkg/tbtc/coordination.go`: `ReservationsActivationBlock`), so the gap has two distinct shapes:
 
-## Late-Settlement Fee Fallback When Vault Trust Is Revoked (E-2)
+- **(a) Network with a configured activation block:** the wrong order opens a temporary gap - reserved deposits can be revealed and accepted on-chain while no client produces the anchor proof or handles strand recovery, and the gap lasts only until the configured block, after which coordination starts and the positions settle normally.
+- **(b) Network with no entry in `reservationsActivationBlocks`:** `ReservationsActivationBlock` falls through to `math.MaxUint64` and the client never activates reservation coordination for that network. Deposits can be revealed and accepted on-chain while no client will ever coordinate them; the strand-recovery paths become the only way out, and late-settlement races are left unresolved permanently.
 
-Governance can revoke the reveal-time vault's trust at any point, including while acceptance actions are still proof-settleable (pending or after their `timeoutAt`, within the late-settlement window). If governance executes `setVaultStatus(vault, false)` before a late acceptance proof settles, the settlement takes a direct-credit fallback: instead of routing the gross anchored amount through `ReservationVault.receiveBalanceIncrease` (which would mint TBTC and retain the initiation fee as in-kind fee reserve), the Bridge credits the depositor directly through `Bank.increaseBalances`. The reservation position is still registered and the anchor is still indexed, but **no initiation fee is charged** and no fee reserve accumulates in the vault for that settlement.
+This gate is runbook discipline; nothing on-chain enforces it.
+
+## Fee Fallback When Vault Trust Is Revoked
+
+Governance can revoke the reveal-time vault's trust at any point, including while acceptance actions are still proof-settleable (pending or after their `timeoutAt`, within the late-settlement window). Once governance executes `setVaultStatus(vault, false)`, every acceptance that settles against that vault while it is untrusted - on time or late - takes a direct-credit fallback: instead of routing the gross anchored amount through `ReservationVault.receiveBalanceIncrease` (which would mint TBTC and retain the initiation fee as in-kind fee reserve), the Bridge credits the depositor directly through `Bank.increaseBalances`. The reservation position is still registered and the anchor is still indexed, but **no initiation fee is charged** and no fee reserve accumulates in the vault for that settlement. The `settleAcceptance` branch checks `isVaultTrusted[vault]` without checking lateness, so the fallback does not discriminate between on-time and late proofs.
 
 Operational consequences:
 
-- Fee revenue accounting must not assume every settled acceptance retains its initiation fee in the vault. A late settlement against a since-untrusted vault produces zero vault-side fee income for that position.
+- Fee revenue accounting must not assume every settled acceptance retains its initiation fee in the vault. Any settlement against a since-untrusted vault - on time or late - produces zero vault-side fee income for that position.
 - This is the intended M1 behavior: a confirmed Bitcoin anchor must settle even if the vault lost trust, so the fallback credits the depositor directly rather than reverting the already-confirmed BTC spend. Re-trusting the vault does not retroactively charge the skipped fee.
-- Before revoking trust, governance should verify that no pending or recently timed-out acceptance actions remain on that vault, or accept the fee loss on the late settlements that race the revocation.
+- Before revoking trust, governance should verify that no pending or timed-out acceptance actions remain on that vault, or accept the fee loss on the settlements that race the revocation.
 
-## Fee-Reserve Target Governance Step (F-3)
+## Fee-Reserve Target Governance Step
 
-`ReservationVault` deploys with `feeReserveTarget == 0`. Nothing in the activation flow (scripts 95/96/97 or the mainnet calldata script 98) calls `updateFeeReserveTarget`: script 97 performs only the caps update, the parameters update, and `setVaultStatus(vault, true)`. A zero reserve target means `sweepFees` may sweep the vault's entire TBTC balance to the recipient, including the TBTC that in-kind fee financing needs: if a re-anchor (milestone 2) or late fee event consumes more than the vault holds, the shortfall is recorded as `inKindFeeDebtSat` and the system runs over-supplied by that amount until `repayInKindFeeDebt` or a later `sweepFees` burns it back down. This does not block any milestone-1 settlement, but the fee debt must be consciously owned.
+`ReservationVault` deploys with `feeReserveTarget == 0`. Nothing in the activation flow (scripts 95/96/97 or the mainnet calldata script 98) calls `updateFeeReserveTarget`: script 97 performs only the caps update, the parameters update, and `setVaultStatus(vault, true)`. Re-anchor settlement already finances miner fees in kind in milestone 1, so the reserve-target decision cannot wait for a later milestone: a zero reserve target means `sweepFees` may sweep the vault's entire TBTC balance to the recipient, including the TBTC that in-kind fee financing needs: if a re-anchor hop or late fee event consumes more than the vault holds, the shortfall is recorded as `inKindFeeDebtSat` and the system runs over-supplied by that amount until `repayInKindFeeDebt` or a later `sweepFees` burns it back down. This does not block any milestone-1 settlement, but the fee debt must be consciously owned.
 
-Explicit governance step to add to the activation runbook (before milestone-2 in-kind fee financing is expected to be exercised):
+Explicit governance step to add to the activation runbook, to be completed before on-chain activation (`setVaultStatus(vault, true)`), i.e. before the first M1 re-anchor settlement can land in kind:
 
 1. Choose the target: a TBTC amount (18 decimals) large enough to cover the expected in-kind miner-fee pipeline, or deliberately accept a zero reserve.
 2. Execute `ReservationVault.updateFeeReserveTarget(target)` via the Council Safe (`onlyOwner`-gated; the vault owner is governance).
