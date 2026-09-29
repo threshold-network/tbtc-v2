@@ -74,8 +74,11 @@ library Reservation {
     uint32 internal constant MAX_RESERVATION_TERM = 730 days;
     /// @notice Largest reservation term id. Ids 1 to this value are a
     ///         lifetime budget: entries are never rewritten or removed, so
-    ///         each id is used at most once. Kept small so every reader
-    ///         looping the table stays cheap.
+    ///         each id is used at most once. No reader loops the table (the
+    ///         largest and smallest lengths are cached by
+    ///         `BridgeState.addReservationTerm`), so the bound is a menu
+    ///         budget, not a gas one, and raising it is a one-constant
+    ///         change.
     uint8 internal constant MAX_RESERVATION_TERM_ID = 8;
     /// @notice Upper bound on a reservation term entry's custody fee, in
     ///         basis points.
@@ -1474,8 +1477,9 @@ library Reservation {
     ///          entry ever added, enabled or disabled.
     ///
     ///      A flag flip leaves every entry's length unchanged, so it cannot
-    ///      break either relation and does not re-check them; a disable must
-    ///      stay possible whatever the other parameters are.
+    ///      break either relation and does not re-check them, and it leaves
+    ///      the cached largest and smallest lengths untouched; a disable
+    ///      must stay possible whatever the other parameters are.
     function setReservationTerm(
         BridgeState.Storage storage self,
         uint8 termId,
@@ -1510,14 +1514,21 @@ library Reservation {
                 "Reservation term custody fee too high"
             );
 
-            term.termSeconds = termSeconds;
-            term.custodyBps = custodyBps;
-            term.enabled = enabled;
+            // The single write path for a new entry: it also folds the
+            // length into the cached largest and smallest entry lengths.
+            BridgeState.addReservationTerm(
+                self,
+                termId,
+                termSeconds,
+                custodyBps,
+                enabled
+            );
 
-            // Both relations are checked over the table with the new entry
-            // in place, so neither helper can return the empty-table zero
-            // here; the empty-table skip applies only to the
-            // renewal-window setter.
+            // Both relations are checked with the new entry in place, so
+            // neither aggregate can be the empty-table zero here; the
+            // empty-table skip belongs to `updateReservationParameters` and
+            // `updateDepositParameters`, whose relations are the mirrors of
+            // these two.
             require(
                 self.reservationRenewalWindowSeconds <
                     BridgeState.smallestReservationTermSeconds(self),

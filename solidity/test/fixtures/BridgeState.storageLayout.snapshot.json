@@ -567,11 +567,25 @@
       "numberOfBytes": "32"
     },
     {
-      "label": "__gap",
+      "label": "largestReservationTerm",
       "slot": "42",
       "offset": 0,
-      "type": "uint256[36]",
-      "numberOfBytes": "1152"
+      "type": "uint32",
+      "numberOfBytes": "4"
+    },
+    {
+      "label": "smallestReservationTerm",
+      "slot": "42",
+      "offset": 4,
+      "type": "uint32",
+      "numberOfBytes": "4"
+    },
+    {
+      "label": "__gap",
+      "slot": "43",
+      "offset": 0,
+      "type": "uint256[35]",
+      "numberOfBytes": "1120"
     }
   ],
   "structMembers": {

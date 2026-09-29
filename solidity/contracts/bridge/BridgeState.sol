@@ -504,6 +504,16 @@ library BridgeState {
         // reservation key like `reservations`. Kept beside the position
         // record so the record's layout and ABI stay unchanged.
         mapping(uint256 => uint8) reservationTermIds;
+        // Largest and smallest `termSeconds` over every reservation term
+        // entry ever added, enabled or disabled; both zero while the table
+        // is empty. Written only by `addReservationTerm`: entries are never
+        // rewritten or removed, so the largest only ever grows and the
+        // smallest only ever shrinks, and a flag flip changes neither. The
+        // reveal cap, the late-acceptance window and the parameter setters
+        // read these instead of scanning the table. The two pack into one
+        // slot.
+        uint32 largestReservationTerm;
+        uint32 smallestReservationTerm;
         // Reserved storage space in case we need to add more variables.
         // The convention from OpenZeppelin suggests the storage space should
         // add up to 50 slots. Here we want to have more slots as there are
@@ -520,10 +530,12 @@ library BridgeState {
         // slots are shared budget for all future Bridge upgrades, not
         // reserved for reservations specifically - a later unrelated PR
         // should not assume it can spend the rest. The multi-term
-        // reservation menu consumed 3 more (`reservationTerms`,
-        // `reservationActionTermIds`, `reservationTermIds`), leaving 36.
+        // reservation menu consumed 4 more (`reservationTerms`,
+        // `reservationActionTermIds`, `reservationTermIds`, and one slot
+        // packing `largestReservationTerm` with `smallestReservationTerm`),
+        // leaving 35.
         // slither-disable-next-line unused-state
-        uint256[36] __gap;
+        uint256[35] __gap;
     }
 
     event DepositParametersUpdated(
@@ -1138,52 +1150,70 @@ library BridgeState {
         emit ReservationRouterSet(_reservationRouter);
     }
 
+    /// @notice Writes a new reservation term entry and folds its length
+    ///         into the cached largest and smallest entry lengths. This is
+    ///         the only write path for a new entry; every reader of the two
+    ///         aggregates relies on it.
+    /// @dev Validates nothing. `Reservation.setReservationTerm` checks the
+    ///      id range, that the id is unused, the protocol bounds and the
+    ///      custody cap before calling this. Writing an id that is already
+    ///      in use would leave the aggregates describing an entry that no
+    ///      longer exists, which is why the setter never does.
+    function addReservationTerm(
+        Storage storage self,
+        uint8 termId,
+        uint32 termSeconds,
+        uint16 custodyBps,
+        bool enabled
+    ) internal {
+        self.reservationTerms[termId] = Reservation.ReservationTerm(
+            termSeconds,
+            custodyBps,
+            enabled
+        );
+
+        if (termSeconds > self.largestReservationTerm) {
+            self.largestReservationTerm = termSeconds;
+        }
+        if (
+            self.smallestReservationTerm == 0 ||
+            termSeconds < self.smallestReservationTerm
+        ) {
+            self.smallestReservationTerm = termSeconds;
+        }
+    }
+
     /// @notice Returns the largest `termSeconds` over every reservation term
     ///         entry ever added, enabled or disabled.
-    /// @return largest Largest entry length in seconds; zero when the table
-    ///         is empty. Never reverts.
+    /// @return Largest entry length in seconds; zero when the table is
+    ///         empty. Never reverts.
     /// @dev Disabled entries count: their positions keep renewing, and
     ///      entries are never removed, so a disabled long entry keeps
-    ///      bounding the relations it once satisfied.
+    ///      bounding the relations it once satisfied. Read from the cache
+    ///      `addReservationTerm` maintains, so this costs one storage read
+    ///      on every reserved reveal and acceptance proof.
     function largestReservationTermSeconds(Storage storage self)
         internal
         view
-        returns (uint32 largest)
+        returns (uint32)
     {
-        for (
-            uint8 termId = 1;
-            termId <= Reservation.MAX_RESERVATION_TERM_ID;
-            termId++
-        ) {
-            uint32 termSeconds = self.reservationTerms[termId].termSeconds;
-            if (termSeconds > largest) {
-                largest = termSeconds;
-            }
-        }
+        return self.largestReservationTerm;
     }
 
     /// @notice Returns the smallest `termSeconds` over every reservation
     ///         term entry ever added, enabled or disabled.
-    /// @return smallest Smallest entry length in seconds; zero when the
-    ///         table is empty. Never reverts. Every added entry has a
-    ///         non-zero length, so zero means exactly "no entry", and
-    ///         callers skip their relation to the smallest entry on it.
+    /// @return Smallest entry length in seconds; zero when the table is
+    ///         empty. Never reverts. Every added entry has a non-zero
+    ///         length, so zero means exactly "no entry", and callers skip
+    ///         their relation to the smallest entry on it.
     /// @dev Disabled entries count, for the same reason as in
-    ///      `largestReservationTermSeconds`.
+    ///      `largestReservationTermSeconds`. Read from the cache
+    ///      `addReservationTerm` maintains.
     function smallestReservationTermSeconds(Storage storage self)
         internal
         view
-        returns (uint32 smallest)
+        returns (uint32)
     {
-        for (
-            uint8 termId = 1;
-            termId <= Reservation.MAX_RESERVATION_TERM_ID;
-            termId++
-        ) {
-            uint32 termSeconds = self.reservationTerms[termId].termSeconds;
-            if (termSeconds != 0 && (smallest == 0 || termSeconds < smallest)) {
-                smallest = termSeconds;
-            }
-        }
+        return self.smallestReservationTerm;
     }
 }

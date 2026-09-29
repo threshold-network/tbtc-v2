@@ -466,8 +466,8 @@ describe("BridgeState - reservation term table helpers", () => {
 
   context("over a populated table", () => {
     beforeEach(async () => {
-      await table.setRawTerm(2, 91 * DAY, 5, true)
-      await table.setRawTerm(5, 365 * DAY, 20, true)
+      await table.addTerm(2, 91 * DAY, 5, true)
+      await table.addTerm(5, 365 * DAY, 20, true)
     })
 
     it("should return the largest and the smallest entry", async () => {
@@ -475,28 +475,51 @@ describe("BridgeState - reservation term table helpers", () => {
       expect(await table.smallestReservationTermSeconds()).to.equal(91 * DAY)
     })
 
+    it("should not depend on the order entries were added in", async () => {
+      const reversed = (await (
+        await ethers.getContractFactory("TestReservationTermTable")
+      ).deploy()) as TestReservationTermTable & Contract
+      await reversed.addTerm(5, 365 * DAY, 20, true)
+      await reversed.addTerm(2, 91 * DAY, 5, true)
+
+      expect(await reversed.largestReservationTermSeconds()).to.equal(365 * DAY)
+      expect(await reversed.smallestReservationTermSeconds()).to.equal(91 * DAY)
+    })
+
+    it("should leave both unchanged by an entry strictly between them", async () => {
+      await table.addTerm(3, 180 * DAY, 10, true)
+
+      expect(await table.largestReservationTermSeconds()).to.equal(365 * DAY)
+      expect(await table.smallestReservationTermSeconds()).to.equal(91 * DAY)
+    })
+
     it("should count disabled entries", async () => {
-      await table.setRawTerm(3, 30 * DAY, 2, false)
-      await table.setRawTerm(4, 400 * DAY, 20, false)
+      await table.addTerm(3, 30 * DAY, 2, false)
+      await table.addTerm(4, 400 * DAY, 20, false)
 
       expect(await table.largestReservationTermSeconds()).to.equal(400 * DAY)
       expect(await table.smallestReservationTermSeconds()).to.equal(30 * DAY)
     })
 
-    it("should read ids 1 and 8", async () => {
-      await table.setRawTerm(1, 31 * DAY, 2, true)
-      await table.setRawTerm(MAX_RESERVATION_TERM_ID, 700 * DAY, 20, true)
-
-      expect(await table.largestReservationTermSeconds()).to.equal(700 * DAY)
-      expect(await table.smallestReservationTermSeconds()).to.equal(31 * DAY)
-    })
-
-    it("should ignore ids 0 and 9", async () => {
-      await table.setRawTerm(0, 1, 2, true)
-      await table.setRawTerm(MAX_RESERVATION_TERM_ID + 1, 1000 * DAY, 20, true)
+    it("should not change on a flag flip", async () => {
+      await table.setEnabled(5, false)
+      await table.setEnabled(2, false)
 
       expect(await table.largestReservationTermSeconds()).to.equal(365 * DAY)
       expect(await table.smallestReservationTermSeconds()).to.equal(91 * DAY)
+
+      await table.setEnabled(5, true)
+
+      expect(await table.largestReservationTermSeconds()).to.equal(365 * DAY)
+      expect(await table.smallestReservationTermSeconds()).to.equal(91 * DAY)
+    })
+
+    it("should read ids 1 and 8", async () => {
+      await table.addTerm(1, 31 * DAY, 2, true)
+      await table.addTerm(MAX_RESERVATION_TERM_ID, 700 * DAY, 20, true)
+
+      expect(await table.largestReservationTermSeconds()).to.equal(700 * DAY)
+      expect(await table.smallestReservationTermSeconds()).to.equal(31 * DAY)
     })
   })
 })

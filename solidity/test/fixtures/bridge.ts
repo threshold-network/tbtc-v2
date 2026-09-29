@@ -193,8 +193,9 @@ async function deployedBridgeFixture(): Promise<BridgeFixture> {
 
 /**
  * Zeroes every entry of the Bridge's reservation term table, which the deploy
- * scripts seed. Each entry occupies one storage slot and the table keeps no
- * other state (its largest- and smallest-entry helpers loop the ids), so the
+ * scripts seed, and the slot holding the cached largest and smallest entry
+ * lengths that `BridgeState.addReservationTerm` maintains beside it. Each
+ * entry occupies one storage slot and the two aggregates share one, so the
  * result is the state of a table that was never written.
  */
 async function clearReservationTerms(bridge: Bridge): Promise<void> {
@@ -223,6 +224,23 @@ async function clearReservationTerms(bridge: Bridge): Promise<void> {
       ethers.constants.HashZero,
     ])
   }
+
+  const members = layout.types[bridgeState.type].members ?? []
+  const largest = members.find((e) => e.label === "largestReservationTerm")
+  const smallest = members.find((e) => e.label === "smallestReservationTerm")
+  if (!largest || !smallest || largest.slot !== smallest.slot) {
+    throw new Error(
+      "largestReservationTerm and smallestReservationTerm must share a slot"
+    )
+  }
+  await ethers.provider.send("hardhat_setStorageAt", [
+    bridge.address,
+    ethers.utils.hexZeroPad(
+      ethers.BigNumber.from(bridgeState.slot).add(largest.slot).toHexString(),
+      32
+    ),
+    ethers.constants.HashZero,
+  ])
 }
 
 /**
