@@ -313,6 +313,11 @@ const config: HardhatUserConfig = {
   },
   mocha: {
     timeout: 60_000,
+    // Parallel mocha workers on PRs; push/schedule/dispatch keep the
+    // full serial suite as a guardrail (set HARDHAT_MOCHA_PARALLEL=false
+    // in the workflow). The integration suite (NODE_ENV=integration-test)
+    // mutates shared in-process state and must stay serial.
+    parallel: process.env.HARDHAT_MOCHA_PARALLEL !== "false",
   },
   typechain: {
     outDir: "typechain",
