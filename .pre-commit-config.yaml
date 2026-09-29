@@ -8,7 +8,7 @@ repos:
       - id: root-format
         name: "Check root directory code formatting"
         entry: /usr/bin/env bash -c "yarn format"
-        exclude: '^solidity\/|^yearn\/|^typescript\/|^monitoring\/'
+        exclude: '^solidity\/|^typescript\/|^monitoring\/'
         language: script
         description: "Checks root directory code according to the formatting configuration"
       - id: solidity-format
@@ -17,12 +17,6 @@ repos:
         files: "^solidity/"
         language: script
         description: "Checks solidity directory code according to the formatting configuration"
-      - id: yearn-format
-        name: "Check yearn directory code formatting"
-        entry: /usr/bin/env bash -c "cd yearn && yarn format"
-        files: "^yearn/"
-        language: script
-        description: "Checks yearn directory code according to the formatting configuration"
       - id: typescript-format
         name: "Check typescript directory code formatting"
         entry: /usr/bin/env bash -c "cd typescript && yarn format"

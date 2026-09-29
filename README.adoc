@@ -4,7 +4,6 @@
 
 https://github.com/keep-network/tbtc-v2/actions/workflows/contracts.yml[image:https://img.shields.io/github/actions/workflow/status/keep-network/tbtc-v2/contracts.yml?branch=main&event=push&label=Core%20contracts%20build[Core contracts build status]]
 https://github.com/keep-network/tbtc-v2/actions/workflows/typescript.yml[image:https://img.shields.io/github/actions/workflow/status/keep-network/tbtc-v2/typescript.yml?branch=main&event=push&label=SDK%20build[SDK build status]]
-https://github.com/keep-network/tbtc-v2/actions/workflows/yearn.yml[image:https://img.shields.io/github/actions/workflow/status/keep-network/tbtc-v2/yearn.yml?branch=main&vent=push&label=Yearn%20contracts%20build[Yearn contracts build status]]
 https://github.com/keep-network/tbtc-v2/actions/workflows/system-tests.yml[image:https://img.shields.io/github/actions/workflow/status/keep-network/tbtc-v2/system-tests.yml?branch=main&event=schedule&label=System%20tests[System tests status]]
 https://github.com/keep-network/tbtc-v2/actions/workflows/monitoring.yml[image:https://img.shields.io/github/actions/workflow/status/keep-network/tbtc-v2/monitoring.yml?branch=main&event=push&label=Monitoring%20build[Monitoring build status]]
 
@@ -63,7 +62,7 @@ This repository contains the following modules:
 - link:typescript/[SDK TypeScript library],
 - link:system-tests/[System tests]
 - link:docs/[Documentation],
-- link:yearn/[Yearn vault smart contracts],
+- link:yearn/[Deprecated Yearn vault smart contracts (archived)],
 - link:monitoring/[Monitoring tool],
 - link:cross-chain/[Cross-chain smart contracts].
 
