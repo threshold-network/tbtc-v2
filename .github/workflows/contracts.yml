@@ -86,6 +86,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "24.11.1"
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.11.1"
           cache: yarn
           cache-dependency-path: solidity/yarn.lock
 
@@ -137,6 +144,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.11.1"
+
+      - name: Enable Corepack
+        run: corepack enable
 
       - uses: actions/setup-node@v4
         with:
@@ -195,6 +209,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "24.11.1"
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.11.1"
           cache: yarn
           cache-dependency-path: solidity/yarn.lock
 
@@ -220,6 +241,14 @@ jobs:
         working-directory: ./solidity
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.11.1"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Enable Corepack
+        run: corepack enable
 
       - uses: actions/setup-node@v4
         with:
@@ -321,6 +350,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "24.11.1"
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.11.1"
           cache: yarn
           cache-dependency-path: solidity/yarn.lock
 
@@ -362,6 +398,14 @@ jobs:
         working-directory: ./solidity
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.11.1"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Enable Corepack
+        run: corepack enable
 
       - uses: actions/setup-node@v4
         with:
@@ -433,6 +477,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "24.11.1"
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.11.1"
           cache: yarn
           cache-dependency-path: |
             yarn.lock
@@ -478,6 +529,13 @@ jobs:
         working-directory: ./solidity
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.11.1"
+
+      - name: Enable Corepack
+        run: corepack enable
 
       - uses: actions/setup-node@v4
         with:

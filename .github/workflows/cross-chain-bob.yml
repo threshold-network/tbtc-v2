@@ -58,6 +58,13 @@ jobs:
       - uses: actions/setup-node@v3
         with:
           node-version: "22.x"
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - uses: actions/setup-node@v3
+        with:
+          node-version: "22.x"
           cache: yarn
           cache-dependency-path: cross-chain/bob/yarn.lock
 
@@ -65,9 +72,6 @@ jobs:
       # prefix instead of the recommended https://
       - name: Configure git to not use unauthenticated protocol
         run: git config --global url."https://".insteadOf git://
-
-      - name: Enable Corepack
-        run: corepack enable
 
       - name: Install dependencies
         run: yarn install
@@ -95,6 +99,13 @@ jobs:
       - uses: actions/setup-node@v3
         with:
           node-version: "22.x"
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - uses: actions/setup-node@v3
+        with:
+          node-version: "22.x"
           cache: yarn
           cache-dependency-path: cross-chain/bob/yarn.lock
 
@@ -102,9 +113,6 @@ jobs:
       # prefix instead of the recommended https://
       - name: Configure git to not use unauthenticated protocol
         run: git config --global url."https://".insteadOf git://
-
-      - name: Enable Corepack
-        run: corepack enable
 
       - name: Install dependencies
         run: yarn install --frozen-lockfile
@@ -127,6 +135,13 @@ jobs:
       - uses: actions/setup-node@v3
         with:
           node-version: "22.x"
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - uses: actions/setup-node@v3
+        with:
+          node-version: "22.x"
           cache: yarn
           cache-dependency-path: cross-chain/bob/yarn.lock
 
@@ -134,9 +149,6 @@ jobs:
       # prefix instead of the recommended https://
       - name: Configure git to not use unauthenticated protocol
         run: git config --global url."https://".insteadOf git://
-
-      - name: Enable Corepack
-        run: corepack enable
 
       - name: Install dependencies
         run: yarn install
@@ -158,6 +170,13 @@ jobs:
         working-directory: ./cross-chain/bob
     steps:
       - uses: actions/checkout@v3
+
+      - uses: actions/setup-node@v3
+        with:
+          node-version: "22.x"
+
+      - name: Enable Corepack
+        run: corepack enable
 
       - uses: actions/setup-node@v3
         with:
@@ -186,9 +205,6 @@ jobs:
       # prefix instead of the recommended https://
       - name: Configure git to not use unauthenticated protocol
         run: git config --global url."https://".insteadOf git://
-
-      - name: Enable Corepack
-        run: corepack enable
 
       - name: Install dependencies
         run: yarn install

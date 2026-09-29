@@ -14,13 +14,17 @@ jobs:
       - uses: actions/setup-node@v3
         with:
           node-version: "22.x"
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - uses: actions/setup-node@v3
+        with:
+          node-version: "22.x"
           cache: yarn
           cache-dependency-path: |
             solidity/yarn.lock
             system-tests/yarn.lock
-
-      - name: Enable Corepack
-        run: corepack enable
 
       - name: Configure git to not use unauthenticated protocol
         run: git config --global url."https://".insteadOf git://
@@ -75,13 +79,17 @@ jobs:
       - uses: actions/setup-node@v3
         with:
           node-version: "22.x"
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - uses: actions/setup-node@v3
+        with:
+          node-version: "22.x"
           cache: yarn
           cache-dependency-path: |
             solidity/yarn.lock
             system-tests/yarn.lock
-
-      - name: Enable Corepack
-        run: corepack enable
 
       - name: Configure git to not use unauthenticated protocol
         run: git config --global url."https://".insteadOf git://
