@@ -2898,10 +2898,12 @@ describe("WalletProposalValidator", () => {
     const otherVault = `0x${"88".repeat(20)}`
 
     const requestNonce = 1
-    // Every mocked set in this describe block must be reachable on-chain:
+    // Lifecycle regression fixtures here are reachable on-chain:
     // governance requires `reservationMinAmount > reservationTxMaxFee > 0`
     // (Reservation.updateReservationParameters) and authorization requires
     // `deposit.amount >= minAmount + txMaxFee` (reservation acceptance).
+    // The below-snapshot-floor case is an explicit mock-only test of the
+    // validator's defensive invariant.
     const reservationMinAmount = 15000
     const reservationTxMaxFee = 10000
     const anchorTxFee = 6000
