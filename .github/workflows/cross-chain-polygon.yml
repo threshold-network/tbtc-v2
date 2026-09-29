@@ -68,8 +68,6 @@ jobs:
         run: yarn build
 
       - name: Run tests
-        env:
-          HARDHAT_MOCHA_PARALLEL: ${{ github.event_name == 'pull_request' && 'true' || 'false' }}
         run: yarn test
 
   contracts-deployment-dry-run:

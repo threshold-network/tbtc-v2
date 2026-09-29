@@ -135,9 +135,6 @@ const config: HardhatUserConfig = {
   },
   mocha: {
     timeout: 60_000,
-    // Serial by default; PR jobs opt in with HARDHAT_MOCHA_PARALLEL=true
-    // (set in cross-chain-optimism.yml).
-    parallel: process.env.HARDHAT_MOCHA_PARALLEL === "true",
   },
   typechain: {
     outDir: "typechain",
