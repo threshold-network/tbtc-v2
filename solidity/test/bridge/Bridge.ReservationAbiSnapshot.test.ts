@@ -40,10 +40,6 @@ describe("Reservation ABI surface snapshot", () => {
   })
 
   it("tuple-input selectors are EVM-canonical (independent of the JSON)", () => {
-    // The live snapshot computes selectors by recursively canonicalizing
-    // tuple components. Assert the four known values directly so that a
-    // regression to hashing the raw `tuple` placeholder fails here even
-    // if the checked-in JSON were regenerated with the same wrong code.
     const byName: Record<string, string> = {}
     liveSnapshot.functions.forEach((f) => {
       byName[f.name] = f.selector

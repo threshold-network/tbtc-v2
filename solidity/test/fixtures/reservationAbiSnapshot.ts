@@ -53,41 +53,6 @@ async function getContractAbi(contractName: string): Promise<AbiFragment[]> {
 }
 
 /**
- * Canonicalize a single ABI parameter type for the EVM selector hash.
- *
- * The EVM computes a function selector as keccak256 over the *canonical*
- * signature, in which a struct parameter expands to its parenthesized
- * component types (e.g. `tuple(bytes4,bytes,bytes,bytes4)` becomes
- * `(bytes4,bytes,bytes,bytes4)`). Hashing the raw JSON placeholder `tuple`
- * (as the pre-fix code did) therefore produced a selector that would hit
- * the Bridge fallback with no matching method, even though the on-chain
- * bytecode and the keep-core Go bindings agree on the real value. This
- * recursion re-expands every tuple layer down to its primitive component
- * types, matching what `ethers.utils.Interface#getSighash` hashes.
- */
-function canonicalType(param: AbiParameter): string {
-  if (param.type === "tuple" || param.type.startsWith("tuple")) {
-    const inner = (param.components ?? []).map(canonicalType).join(",")
-    // Keep any array suffix (e.g. `tuple[]` -> `[]`); drop the `tuple` /
-    // inline-`tuple(...)` head so the result is pure `(c1,c2,...)suffix`.
-    const suffix = param.type.replace(/^tuple(\(.+\))?/, "")
-    return `(${inner})${suffix}`
-  }
-  return param.type
-}
-
-/**
- * Compute the 4-byte selector for a function fragment by hashing the
- * canonical signature (tuples expanded to their component types).
- */
-function getSelector(func: Extract<AbiFragment, { type: "function" }>): string {
-  const signature = `${func.name}(${func.inputs
-    .map((i) => canonicalType(i))
-    .join(",")})`
-  return ethers.utils.id(signature).slice(0, 10)
-}
-
-/**
  * Extract struct field name/type pairs from a tuple-typed parameter (input or output) of a function.
  */
 function getStructFields(
@@ -129,6 +94,14 @@ export async function getReservationAbiSnapshot(): Promise<ReservationAbiSnapsho
   const bridgeAbi = await getContractAbi("IReservationBridge")
   const validatorAbi = await getContractAbi("WalletProposalValidator")
 
+  // Selectors and event topics must be EVM-canonical: the EVM expands a
+  // struct (tuple) parameter to its parenthesized component types when
+  // hashing a signature, so hashing the literal JSON `tuple` placeholder
+  // would yield a wrong value. Build an ethers Interface per artifact ABI
+  // and let it canonicalize.
+  const bridgeIface = new ethers.utils.Interface(bridgeAbi)
+  const validatorIface = new ethers.utils.Interface(validatorAbi)
+
   // Collect functions: all from IReservationBridge and the two validator entry points
   const bridgeFunctions = bridgeAbi
     .filter(
@@ -137,7 +110,7 @@ export async function getReservationAbiSnapshot(): Promise<ReservationAbiSnapsho
     )
     .map((f) => ({
       name: f.name,
-      selector: getSelector(f),
+      selector: bridgeIface.getSighash(ethers.utils.FunctionFragment.from(f)),
       inputs: f.inputs.map((i) => i.type),
       outputs: f.outputs.map((o) => o.type),
     }))
@@ -157,7 +130,9 @@ export async function getReservationAbiSnapshot(): Promise<ReservationAbiSnapsho
     }
     return {
       name: fn.name,
-      selector: getSelector(fn),
+      selector: validatorIface.getSighash(
+        ethers.utils.FunctionFragment.from(fn)
+      ),
       inputs: fn.inputs.map((i) => i.type),
       outputs: fn.outputs.map((o) => o.type),
     }
@@ -172,9 +147,7 @@ export async function getReservationAbiSnapshot(): Promise<ReservationAbiSnapsho
     )
     .map((e) => ({
       name: e.name,
-      topic0: ethers.utils.id(
-        `${e.name}(${e.inputs.map((i) => canonicalType(i)).join(",")})`
-      ),
+      topic0: bridgeIface.getEventTopic(ethers.utils.EventFragment.from(e)),
       inputs: e.inputs.map((i) => i.type),
     }))
 
