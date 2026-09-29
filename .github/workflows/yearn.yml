@@ -54,9 +54,18 @@ jobs:
       - name: Build contracts
         run: yarn build
 
+      - name: Verify mainnet RPC secret is configured
+        env:
+          FORKING_URL: ${{ secrets.ETHEREUM_MAINNET_RPC_URL }}
+        run: |
+          if [ -z "$FORKING_URL" ]; then
+            echo "::error::ETHEREUM_MAINNET_RPC_URL is empty - system tests cannot fork mainnet without it. Add/verify the org secret before this job can pass."
+            exit 1
+          fi
+
       - name: Run system tests
         env:
-          FORKING_URL: ${{ secrets.MAINNET_ETH_HOSTNAME }}
+          FORKING_URL: ${{ secrets.ETHEREUM_MAINNET_RPC_URL }}
         run: yarn test:system
 
   yearn-format:
