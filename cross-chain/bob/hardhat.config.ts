@@ -167,10 +167,9 @@ const config: HardhatUserConfig = {
   },
   mocha: {
     timeout: 60_000,
-    // Parallel mocha workers on PRs; push/schedule/dispatch keep the
-    // full serial suite as a guardrail (set HARDHAT_MOCHA_PARALLEL=false
-    // in the workflow). The mainnet-fork suite benefits from parallelism.
-    parallel: process.env.HARDHAT_MOCHA_PARALLEL !== "false",
+    // Serial by default; PR jobs opt in with HARDHAT_MOCHA_PARALLEL=true
+    // (set in cross-chain-bob.yml).
+    parallel: process.env.HARDHAT_MOCHA_PARALLEL === "true",
   },
   typechain: {
     outDir: "typechain",
