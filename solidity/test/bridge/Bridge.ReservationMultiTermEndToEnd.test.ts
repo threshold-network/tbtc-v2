@@ -16,6 +16,7 @@ import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { BigNumber, ContractTransaction } from "ethers"
 import { expect } from "chai"
 import type {
+  Bank,
   Bridge,
   BridgeGovernance,
   BridgeStub,
@@ -88,6 +89,7 @@ describe("Bridge - Reservation multi-term acceptance, end to end", () => {
   let depositors: SignerWithAddress[]
 
   let relay: Mock<IRelay>
+  let bank: Bank
   let bridge: Bridge & BridgeStub
   let bridgeGovernance: BridgeGovernance
   let reservationRouter: ReservationRouter
@@ -105,6 +107,7 @@ describe("Bridge - Reservation multi-term acceptance, end to end", () => {
       governance,
       spvMaintainer,
       relay,
+      bank,
       bridge,
       bridgeGovernance,
       tbtc,
@@ -335,6 +338,7 @@ describe("Bridge - Reservation multi-term acceptance, end to end", () => {
       const ownerBefore = await tbtc.balanceOf(owner)
       const vaultBefore = await tbtc.balanceOf(reservationVault.address)
       const supplyBefore = await tbtc.totalSupply()
+      const vaultBankBefore = await bank.balanceOf(reservationVault.address)
 
       const tx = await submitProof(ctx, revealed[i])
       const settledAt = await blockTimeOf(tx)
@@ -360,6 +364,11 @@ describe("Bridge - Reservation multi-term acceptance, end to end", () => {
       expect(vaultDelta).to.equal(fee)
       expect(ownerDelta.add(vaultDelta)).to.equal(grossTbtc)
       expect((await tbtc.totalSupply()).sub(supplyBefore)).to.equal(grossTbtc)
+      // The Bank balance the Bridge credited to the vault is exactly what
+      // the vault converted, so none of it is left stranded there.
+      expect(await bank.balanceOf(reservationVault.address)).to.equal(
+        vaultBankBefore
+      )
       await expect(tx)
         .to.emit(reservationVault, "ReservationCreditProcessed")
         .withArgs(owner, ctx.anchorAmount, fee)
