@@ -58,6 +58,7 @@ jobs:
       - uses: actions/setup-node@v3
         with:
           node-version: "22.x"
+          cache: yarn
           cache-dependency-path: cross-chain/bob/yarn.lock
 
       # A workaround for transitive dependencies that use the obsolete git://
@@ -75,6 +76,8 @@ jobs:
         run: yarn build
 
       - name: Run tests
+        env:
+          HARDHAT_MOCHA_PARALLEL: ${{ github.event_name == 'pull_request' && 'true' || 'false' }}
         run: yarn test
 
   contracts-deployment-dry-run:
@@ -92,6 +95,7 @@ jobs:
       - uses: actions/setup-node@v3
         with:
           node-version: "22.x"
+          cache: yarn
           cache-dependency-path: cross-chain/bob/yarn.lock
 
       # A workaround for transitive dependencies that use the obsolete git://
@@ -123,6 +127,7 @@ jobs:
       - uses: actions/setup-node@v3
         with:
           node-version: "22.x"
+          cache: yarn
           cache-dependency-path: cross-chain/bob/yarn.lock
 
       # A workaround for transitive dependencies that use the obsolete git://
@@ -157,6 +162,7 @@ jobs:
       - uses: actions/setup-node@v3
         with:
           node-version: "22.x"
+          cache: yarn
           cache-dependency-path: cross-chain/bob/yarn.lock
 
       - uses: actions/setup-python@v4
