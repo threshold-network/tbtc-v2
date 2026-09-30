@@ -38,7 +38,8 @@ import "../token/TBTC.sol";
 ///         transaction, it credits the gross anchored amount to this vault
 ///         and calls `creditReservation`, and the vault mints TBTC gross and
 ///         forwards it to the owner minus the acceptance fee (the mint fee
-///         plus the custody fee of the position's term). The fee is retained
+///         plus, unless the position was stranded at settlement, the custody
+///         fee of the position's term). The fee is retained
 ///         in the vault as the in-kind fee reserve until `sweepFees` moves
 ///         the excess over `feeReserveTarget` to governance's recipient.
 /// @dev The vault deliberately keeps no claim registry of its own -- the
