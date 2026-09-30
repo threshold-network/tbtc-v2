@@ -109,13 +109,13 @@
     },
     {
       "name": "submitReservationAcceptanceProof",
-      "selector": "0x903bb9bf",
+      "selector": "0xe24ad1ae",
       "inputs": ["tuple", "tuple", "uint256", "uint64"],
       "outputs": []
     },
     {
       "name": "submitReservationReanchorProof",
-      "selector": "0xf647aaab",
+      "selector": "0x6af550d1",
       "inputs": ["tuple", "tuple", "uint256", "uint64"],
       "outputs": []
     },
@@ -161,13 +161,13 @@
     },
     {
       "name": "validateReservationAnchorProposal",
-      "selector": "0x675b4015",
+      "selector": "0xf9179ad2",
       "inputs": ["tuple", "tuple"],
       "outputs": ["bool"]
     },
     {
       "name": "validateReservationReanchorProposal",
-      "selector": "0x08ecc320",
+      "selector": "0xa57f734f",
       "inputs": ["tuple"],
       "outputs": ["bool"]
     }

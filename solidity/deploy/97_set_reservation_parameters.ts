@@ -25,11 +25,28 @@ import type { DeployFunction } from "hardhat-deploy/types"
  *
  *   3. `setVaultStatus(vault, true)` via `BridgeGovernance` — marks the
  *      vault as trusted. Until this runs, deposits cannot be revealed
- *      with the vault.
+ *      with the vault. Activation-ordering gate: on a real network this
+ *      must execute at or after this network's keep-core activation
+ *      block; see solidity/docs/RESERVATION_CAPS_DEPLOYMENT.md,
+ *      "Client Activation Ordering Gate".
  *
  * The `reservationVault` is set as the first argument of
  * `beginReservationParametersUpdate` — there is no separate
  * `setReservationVault` setter.
+ *
+ * Fee-reserve notice: this script does not set the vault's fee reserve
+ * target (it deploys at 0); governance must run
+ * `ReservationVault.updateFeeReserveTarget(target)` - or explicitly
+ * accept a zero reserve - before on-chain activation; see
+ * solidity/docs/RESERVATION_CAPS_DEPLOYMENT.md, "Fee-Reserve Target
+ * Governance Step".
+ *
+ * Trust-revocation notice: if governance later revokes trust with
+ * `setVaultStatus(vault, false)`, every acceptance settled while the
+ * vault is untrusted (on time or late) settles by direct credit to the
+ * depositor with no initiation fee; see
+ * solidity/docs/RESERVATION_CAPS_DEPLOYMENT.md, "Fee Fallback When
+ * Vault Trust Is Revoked".
  *
  * Test-network shortcut: on local development networks (hardhat,
  * localhost, development, system_tests) where the timelock is bypassed,
@@ -156,6 +173,10 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
   // revealed as ordinary (non-reserved) deposits. Step 2's finalize only
   // runs synchronously here on local networks; on live non-mainnet
   // networks it is deferred, so this step must be deferred too.
+  // Activation-ordering gate: on a real network this must execute at or
+  // after this network's keep-core activation block; see
+  // solidity/docs/RESERVATION_CAPS_DEPLOYMENT.md, "Client Activation
+  // Ordering Gate".
   if (isLocalNetwork) {
     deployments.log("[3/3] Activating vault via setVaultStatus")
     await execute(
@@ -171,6 +192,27 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
         `Args: (${ReservationVault.address}, true) | ` +
         "Run separately after finalizeReservationParametersUpdate has been executed " +
         "and confirmed on-chain (do not activate while reservationVault is still zero)"
+    )
+    deployments.log(
+      "Activation-ordering gate: setVaultStatus(vault, true) must execute " +
+        "at or after this network's keep-core activation block; see " +
+        "solidity/docs/RESERVATION_CAPS_DEPLOYMENT.md, " +
+        "'Client Activation Ordering Gate'"
+    )
+    deployments.log(
+      "Fee-reserve notice: this script does not set the vault's fee " +
+        "reserve target (it deploys at 0); governance must run " +
+        "ReservationVault.updateFeeReserveTarget(target), or explicitly " +
+        "accept a zero reserve, before activation; see " +
+        "solidity/docs/RESERVATION_CAPS_DEPLOYMENT.md, " +
+        "'Fee-Reserve Target Governance Step'"
+    )
+    deployments.log(
+      "Trust-revocation notice: after setVaultStatus(vault, false), " +
+        "every acceptance settled while the vault is untrusted (on time " +
+        "or late) settles by direct credit to the depositor with no " +
+        "initiation fee; see solidity/docs/RESERVATION_CAPS_DEPLOYMENT.md, " +
+        "'Fee Fallback When Vault Trust Is Revoked'"
     )
   }
 }
