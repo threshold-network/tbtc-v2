@@ -1154,11 +1154,19 @@ library BridgeState {
     ///         into the cached largest and smallest entry lengths. This is
     ///         the only write path for a new entry; every reader of the two
     ///         aggregates relies on it.
-    /// @dev Validates nothing. `Reservation.setReservationTerm` checks the
-    ///      id range, that the id is unused, the protocol bounds and the
-    ///      custody cap before calling this. Writing an id that is already
-    ///      in use would leave the aggregates describing an entry that no
-    ///      longer exists, which is why the setter never does.
+    /// @dev Validates nothing; the caller guarantees two preconditions.
+    ///      `Reservation.setReservationTerm` checks the id range, that the
+    ///      id is unused, the protocol bounds and the custody cap before
+    ///      calling this. Writing an id that is already in use would leave
+    ///      the aggregates describing an entry that no longer exists, and a
+    ///      zero `termSeconds` would reset the smallest length to the
+    ///      empty-table sentinel while the table is non-empty; the setter's
+    ///      unused-id and `MIN_RESERVATION_TERM` checks rule both out.
+    ///      The aggregates are populated only by entries added through
+    ///      this function: nothing re-derives them from the table, so a
+    ///      table seeded by an implementation without them must not be
+    ///      upgraded to this one without a re-derivation (see
+    ///      `docs/RESERVATION_CAPS_DEPLOYMENT.md`, "Verification").
     function addReservationTerm(
         Storage storage self,
         uint8 termId,

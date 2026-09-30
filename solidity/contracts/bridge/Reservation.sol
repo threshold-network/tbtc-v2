@@ -77,8 +77,8 @@ library Reservation {
     ///         each id is used at most once. No reader loops the table (the
     ///         largest and smallest lengths are cached by
     ///         `BridgeState.addReservationTerm`), so the bound is a menu
-    ///         budget, not a gas one, and raising it is a one-constant
-    ///         change.
+    ///         budget, not a gas one. Raising it changes this constant and
+    ///         the test, fixture and deploy-script mirrors of its value.
     uint8 internal constant MAX_RESERVATION_TERM_ID = 8;
     /// @notice Upper bound on a reservation term entry's custody fee, in
     ///         basis points.
