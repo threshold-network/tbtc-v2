@@ -8,6 +8,8 @@ on:
       - main
     paths:
       - "typescript/**"
+      - "config/**"
+      - ".github/workflows/typescript.yml"
   pull_request:
   workflow_dispatch:
     inputs:
@@ -38,6 +40,8 @@ jobs:
           filters: |
             path-filter:
               - './typescript/**'
+              - './config/**'
+              - './.github/workflows/typescript.yml'
 
   typescript-build-and-test:
     needs: typescript-detect-changes
@@ -54,6 +58,14 @@ jobs:
       - uses: actions/setup-node@v3
         with:
           node-version: "22.x"
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - uses: actions/setup-node@v3
+        with:
+          node-version: "22.x"
+          cache: yarn
           cache-dependency-path: typescript/yarn.lock
 
       # We need this step because the `@keep-network/tbtc-v2` which we update in
@@ -64,9 +76,6 @@ jobs:
       - name: Configure git to don't use unauthenticated protocol
         run: git config --global url."https://".insteadOf git://
 
-      - name: Enable Corepack
-        run: corepack enable
-
       - name: Install dependencies
         run: yarn install
 
@@ -75,6 +84,55 @@ jobs:
 
       - name: Tests
         run: yarn test
+
+  typescript-package:
+    needs: typescript-detect-changes
+    if: |
+      github.event_name != 'pull_request'
+        || needs.typescript-detect-changes.outputs.path-filter == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # D15: PRs verify only the declared floor (typescript/package.json
+        # engines: node >=22.12.0); schedule/push restore the latest-Node
+        # arm too. This also dedupes "Check package consumer imports" below,
+        # which used to run once per arm (twice per PR) - PRs now run it
+        # exactly once, on the floor.
+        node-version: >-
+          ${{ github.event_name == 'pull_request'
+            && fromJson('["22.12.0"]')
+            || fromJson('["22.12.0", "22.x"]') }}
+    defaults:
+      run:
+        working-directory: ./typescript
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: actions/setup-node@v3
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - uses: actions/setup-node@v3
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: yarn
+          cache-dependency-path: typescript/yarn.lock
+
+      - name: Use HTTPS for git dependencies
+        run: git config --global url."https://".insteadOf git://
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Build
+        run: yarn build
+
+      - name: Check package consumer imports
+        run: yarn test:package
 
   typescript-format:
     needs: typescript-detect-changes
@@ -91,8 +149,15 @@ jobs:
       - uses: actions/setup-node@v3
         with:
           node-version: "22.x"
-          cache-dependency-path: typescript/yarn.lock
 
+      - name: Enable Corepack
+        run: corepack enable
+
+      - uses: actions/setup-node@v3
+        with:
+          node-version: "22.x"
+          cache: yarn
+          cache-dependency-path: typescript/yarn.lock
       # We need this step because the `@keep-network/tbtc-v2` which we update in
       # next step has an indirect dependency to `@summa-tx/relay-sol@2.0.2`
       # package, which downloads one of its sub-dependencies via unathenticated
@@ -100,9 +165,6 @@ jobs:
       # step `https://` is used instead of `git://`.
       - name: Configure git to don't use unauthenticated protocol
         run: git config --global url."https://".insteadOf git://
-
-      - name: Enable Corepack
-        run: corepack enable
 
       - name: Install dependencies
         run: yarn install
@@ -125,13 +187,17 @@ jobs:
       - uses: actions/setup-node@v3
         with:
           node-version: "22.x"
-          cache-dependency-path: typescript/yarn.lock
-
-      - name: Configure git to don't use unauthenticated protocol
-        run: git config --global url."https://".insteadOf git://
 
       - name: Enable Corepack
         run: corepack enable
+
+      - uses: actions/setup-node@v3
+        with:
+          node-version: "22.x"
+          cache: yarn
+          cache-dependency-path: typescript/yarn.lock
+      - name: Configure git to don't use unauthenticated protocol
+        run: git config --global url."https://".insteadOf git://
 
       - name: Install dependencies
         run: yarn install

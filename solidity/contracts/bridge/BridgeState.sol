@@ -556,8 +556,8 @@ library BridgeState {
         self.redemptionTxMaxTotalFee = _redemptionTxMaxTotalFee;
         self.redemptionTimeout = _redemptionTimeout;
         self.redemptionTimeoutSlashingAmount = _redemptionTimeoutSlashingAmount;
-        self
-            .redemptionTimeoutNotifierRewardMultiplier = _redemptionTimeoutNotifierRewardMultiplier;
+        self.redemptionTimeoutNotifierRewardMultiplier =
+            _redemptionTimeoutNotifierRewardMultiplier;
 
         emit RedemptionParametersUpdated(
             _redemptionDustThreshold,
@@ -695,17 +695,17 @@ library BridgeState {
         self.movingFundsDustThreshold = _movingFundsDustThreshold;
         self.movingFundsTimeoutResetDelay = _movingFundsTimeoutResetDelay;
         self.movingFundsTimeout = _movingFundsTimeout;
-        self
-            .movingFundsTimeoutSlashingAmount = _movingFundsTimeoutSlashingAmount;
-        self
-            .movingFundsTimeoutNotifierRewardMultiplier = _movingFundsTimeoutNotifierRewardMultiplier;
+        self.movingFundsTimeoutSlashingAmount =
+            _movingFundsTimeoutSlashingAmount;
+        self.movingFundsTimeoutNotifierRewardMultiplier =
+            _movingFundsTimeoutNotifierRewardMultiplier;
         self.movingFundsCommitmentGasOffset = _movingFundsCommitmentGasOffset;
         self.movedFundsSweepTxMaxTotalFee = _movedFundsSweepTxMaxTotalFee;
         self.movedFundsSweepTimeout = _movedFundsSweepTimeout;
-        self
-            .movedFundsSweepTimeoutSlashingAmount = _movedFundsSweepTimeoutSlashingAmount;
-        self
-            .movedFundsSweepTimeoutNotifierRewardMultiplier = _movedFundsSweepTimeoutNotifierRewardMultiplier;
+        self.movedFundsSweepTimeoutSlashingAmount =
+            _movedFundsSweepTimeoutSlashingAmount;
+        self.movedFundsSweepTimeoutNotifierRewardMultiplier =
+            _movedFundsSweepTimeoutNotifierRewardMultiplier;
 
         emit MovingFundsParametersUpdated(
             _movingFundsTxMaxTotalFee,
@@ -879,9 +879,10 @@ library BridgeState {
     ///      initialization of the rebate staking contract. Changing
     ///      the rebate staking address after it is set requires a
     ///      dedicated upgrade path.
-    function setRebateStaking(Storage storage self, address _rebateStaking)
-        internal
-    {
+    function setRebateStaking(
+        Storage storage self,
+        address _rebateStaking
+    ) internal {
         require(self.rebateStaking == address(0), "Rebate staking already set");
 
         require(

@@ -1,7 +1,0 @@
-{
-  "files": [
-    "./hardhat.config.ts",
-    "node_modules/@keep-network/hardhat-local-networks-config/src/type-extensions.d.ts"
-  ],
-  "include": ["./deploy"]
-}

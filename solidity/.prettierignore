@@ -2,10 +2,15 @@
 artifacts/
 build/
 cache/
+cache_forge/
+forge-artifacts/
+lib/
 deployments/
 export/
 hardhat-dependency-compiler/
 typechain/
 docgen-templates/
 export.json
+# L1BTCDepositorNttWithExecutor.sol stays byte-frozen: its deployment record is
+# reconstructed from on-chain state and verification depends on the exact source.
 contracts/cross-chain/wormhole/L1BTCDepositorNttWithExecutor.sol

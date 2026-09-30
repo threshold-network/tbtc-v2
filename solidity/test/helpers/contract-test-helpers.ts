@@ -1,25 +1,27 @@
-import { BigNumber } from "@ethersproject/bignumber"
+import { toBigInt } from "ethers"
 import { ethers } from "hardhat"
+import { requireValue } from "../../helpers/require-value"
 
 // TODO: It is deprecated and `to1ePrecision` from the
 // https://github.com/keep-network/hardhat-helpers/blob/main/src/number.ts should
 // be used instead.
-export function to1ePrecision(n: number, precision: number): BigNumber {
-  const decimalMultiplier = ethers.BigNumber.from(10).pow(precision)
-  return ethers.BigNumber.from(n).mul(decimalMultiplier)
+export function to1ePrecision(n: number, precision: number): bigint {
+  const decimalMultiplier = BigInt(10) ** toBigInt(precision)
+  return BigInt(n) * decimalMultiplier
 }
 
-export function to1e18(n: number): BigNumber {
-  const decimalMultiplier = ethers.BigNumber.from(10).pow(18)
-  return ethers.BigNumber.from(n).mul(decimalMultiplier)
+export function to1e18(n: number): bigint {
+  const decimalMultiplier = BigInt(10) ** 18n
+  return BigInt(n) * decimalMultiplier
 }
 
-export function toSatoshis(amountInBtc: number): BigNumber {
+export function toSatoshis(amountInBtc: number): bigint {
   return to1ePrecision(amountInBtc, 8)
 }
 
 export async function getBlockTime(blockNumber: number): Promise<number> {
-  return (await ethers.provider.getBlock(blockNumber)).timestamp
+  return requireValue(await ethers.provider.getBlock(blockNumber), "Block")
+    .timestamp
 }
 
 export function strip0xPrefix(hexString: string): string {
@@ -32,4 +34,32 @@ export function concatenateHexStrings(strs: Array<string>): string {
     current = `${current}${strip0xPrefix(strs[i])}`
   }
   return current
+}
+
+/** Materialize named wallet fields before spreading a decoded ethers v6 tuple. */
+export function walletToStruct(
+  wallet: import("../../typechain/contracts/bridge/Bridge").Wallets.WalletStructOutput
+): import("../../typechain/contracts/bridge/Bridge").Wallets.WalletStruct {
+  const {
+    ecdsaWalletID,
+    mainUtxoHash,
+    pendingRedemptionsValue,
+    createdAt,
+    movingFundsRequestedAt,
+    closingStartedAt,
+    pendingMovedFundsSweepRequestsCount,
+    state,
+    movingFundsTargetWalletsCommitmentHash,
+  } = wallet
+  return {
+    ecdsaWalletID,
+    mainUtxoHash,
+    pendingRedemptionsValue,
+    createdAt,
+    movingFundsRequestedAt,
+    closingStartedAt,
+    pendingMovedFundsSweepRequestsCount,
+    state,
+    movingFundsTargetWalletsCommitmentHash,
+  }
 }

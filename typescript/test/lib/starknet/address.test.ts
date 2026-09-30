@@ -2,6 +2,9 @@ import { expect } from "chai"
 import { StarkNetAddress } from "../../../src/lib/starknet/address"
 
 describe("StarkNetAddress", () => {
+  const maxValidAddress =
+    "0x0800000000000011000000000000000000000000000000000000000000000000"
+
   describe("from", () => {
     it("should create address from valid hex string with 0x prefix", () => {
       const address = "0x1234567890abcdef"
@@ -38,9 +41,23 @@ describe("StarkNetAddress", () => {
     })
 
     it("should accept maximum length addresses (64 hex chars)", () => {
-      const address = "0x" + "f".repeat(64)
+      const address = "0x07" + "f".repeat(62)
       const starknetAddress = StarkNetAddress.from(address)
-      expect(starknetAddress.identifierHex).to.equal("f".repeat(64))
+      expect(starknetAddress.identifierHex).to.equal("07" + "f".repeat(62))
+    })
+
+    it("should accept the maximum StarkNet field element address", () => {
+      const starknetAddress = StarkNetAddress.from(maxValidAddress)
+      expect(starknetAddress.identifierHex).to.equal(maxValidAddress.slice(2))
+    })
+
+    it("should reject addresses outside the StarkNet field prime", () => {
+      const invalidAddress =
+        "0x0800000000000011000000000000000000000000000000000000000000000001"
+
+      expect(() => StarkNetAddress.from(invalidAddress)).to.throw(
+        `StarkNet address exceeds field prime range: ${invalidAddress}`
+      )
     })
 
     it("should throw error for invalid hex characters", () => {
@@ -116,9 +133,9 @@ describe("StarkNetAddress", () => {
     })
 
     it("should return properly formatted bytes32 for full address", () => {
-      const address = StarkNetAddress.from("0x" + "a".repeat(64))
+      const address = StarkNetAddress.from("0x07" + "a".repeat(62))
       const bytes32 = address.toBytes32()
-      expect(bytes32).to.equal("0x" + "a".repeat(64))
+      expect(bytes32).to.equal("0x07" + "a".repeat(62))
     })
   })
 

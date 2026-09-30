@@ -16,7 +16,8 @@ import {
   BitcoinTxOutput,
   BitcoinUtxo,
 } from "../../lib/bitcoin"
-import { BigNumber, BigNumberish, BytesLike } from "ethers"
+import { BigNumber, BigNumberish } from "@ethersproject/bignumber"
+import { BytesLike } from "@ethersproject/bytes"
 import { amountToSatoshi, ApiUrl, endpointUrl, Hex } from "../../lib/utils"
 import { RedeemerProxy } from "./redeemer-proxy"
 import {
@@ -89,52 +90,57 @@ export class RedemptionsService {
     targetChainTxHash: Hex
     walletPublicKey: Hex
   }> {
+    let walletPublicKey: Hex
+    let mainUtxo: BitcoinUtxo
+    let redeemerOutputScript: Hex
+
     try {
       const candidateWallets = await this.fetchWalletsForRedemption()
-      const { walletPublicKey, mainUtxo, redeemerOutputScript } =
-        await this.determineValidRedemptionWallet(
-          amountToSatoshi(amount),
-          candidateWallets,
-          bitcoinRedeemerAddress
-        )
+      const validWallet = await this.determineValidRedemptionWallet(
+        amountToSatoshi(amount),
+        candidateWallets,
+        bitcoinRedeemerAddress
+      )
 
-      if (!walletPublicKey || !mainUtxo || !redeemerOutputScript) {
+      if (
+        !validWallet.walletPublicKey ||
+        !validWallet.mainUtxo ||
+        !validWallet.redeemerOutputScript
+      ) {
         throw new Error(
           "Could not find a valid redemption wallet with enough funds"
         )
       }
 
-      const txHash = await this.tbtcContracts.tbtcToken.requestRedemption(
-        walletPublicKey,
-        mainUtxo,
-        redeemerOutputScript,
-        amount
-      )
-
-      return {
-        targetChainTxHash: txHash,
-        walletPublicKey: walletPublicKey,
-      }
+      walletPublicKey = validWallet.walletPublicKey
+      mainUtxo = validWallet.mainUtxo
+      redeemerOutputScript = validWallet.redeemerOutputScript
     } catch (error) {
       console.warn(
         "Error requesting redemption with candidate wallets. Falling back to manual redemption data:",
         error
       )
 
-      const { walletPublicKey, mainUtxo, redeemerOutputScript } =
-        await this.determineRedemptionData(bitcoinRedeemerAddress, amount)
-
-      const txHash = await this.tbtcContracts.tbtcToken.requestRedemption(
-        walletPublicKey,
-        mainUtxo,
-        redeemerOutputScript,
+      const fallbackData = await this.determineRedemptionData(
+        bitcoinRedeemerAddress,
         amount
       )
 
-      return {
-        targetChainTxHash: txHash,
-        walletPublicKey: walletPublicKey,
-      }
+      walletPublicKey = fallbackData.walletPublicKey
+      mainUtxo = fallbackData.mainUtxo
+      redeemerOutputScript = fallbackData.redeemerOutputScript
+    }
+
+    const txHash = await this.tbtcContracts.tbtcToken.requestRedemption(
+      walletPublicKey,
+      mainUtxo,
+      redeemerOutputScript,
+      amount
+    )
+
+    return {
+      targetChainTxHash: txHash,
+      walletPublicKey: walletPublicKey,
     }
   }
 

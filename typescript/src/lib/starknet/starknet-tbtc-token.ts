@@ -1,5 +1,5 @@
 import { DestinationChainTBTCToken, ChainIdentifier } from "../contracts"
-import { BigNumber } from "ethers"
+import { BigNumber } from "@ethersproject/bignumber"
 import { StarkNetAddress } from "./address"
 import { Contract } from "starknet"
 import { tbtcABI } from "./abi"

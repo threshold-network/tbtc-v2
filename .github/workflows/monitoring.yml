@@ -8,6 +8,7 @@ on:
       - main
     paths:
       - "monitoring/**"
+      - "config/**"
   pull_request:
   workflow_dispatch:
     inputs:
@@ -37,6 +38,7 @@ jobs:
           filters: |
             path-filter:
               - './monitoring/**'
+              - './config/**'
 
   monitoring-build:
     needs: monitoring-detect-changes
@@ -53,19 +55,27 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22.x"
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.x"
+          cache: yarn
           cache-dependency-path: monitoring/yarn.lock
 
       - name: Configure git to don't use unauthenticated protocol
         run: git config --global url."https://".insteadOf git://
-
-      - name: Enable Corepack
-        run: corepack enable
 
       - name: Install dependencies
         run: yarn install --frozen-lockfile
 
       - name: Build
         run: yarn build
+
+      - name: Test
+        run: yarn test
 
   monitoring-docker:
     needs: [monitoring-detect-changes, monitoring-build]
@@ -138,13 +148,18 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22.x"
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.x"
+          cache: yarn
           cache-dependency-path: monitoring/yarn.lock
 
       - name: Configure git to don't use unauthenticated protocol
         run: git config --global url."https://".insteadOf git://
-
-      - name: Enable Corepack
-        run: corepack enable
 
       - name: Install dependencies
         run: yarn install --frozen-lockfile

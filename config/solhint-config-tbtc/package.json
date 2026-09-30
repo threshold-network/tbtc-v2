@@ -1,0 +1,7 @@
+{
+  "name": "solhint-config-tbtc",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Repository-local Solhint shareable configuration used by the migrated tBTC Solidity workspaces.",
+  "main": "index.json"
+}

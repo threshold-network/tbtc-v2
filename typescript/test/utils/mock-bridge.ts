@@ -7,6 +7,8 @@ import {
   Wallet,
   RedemptionRequest,
   RedemptionRequestedEvent,
+  RedemptionsCompletedEvent,
+  RedemptionTimedOutEvent,
   DepositReceipt,
   DepositRevealedEvent,
   DepositRequest,
@@ -402,6 +404,18 @@ export class MockBridge implements Bridge {
     options?: GetChainEvents.Options,
     ...filterArgs: Array<any>
   ): Promise<RedemptionRequestedEvent[]> {
+    throw new Error("not implemented")
+  }
+
+  getRedemptionsCompletedEvents(): Promise<RedemptionsCompletedEvent[]> {
+    throw new Error("not implemented")
+  }
+
+  getRedemptionTimedOutEvents(): Promise<RedemptionTimedOutEvent[]> {
+    throw new Error("not implemented")
+  }
+
+  getRedemptionTimeout(): Promise<number> {
     throw new Error("not implemented")
   }
 

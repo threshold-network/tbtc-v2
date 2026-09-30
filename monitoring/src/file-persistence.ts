@@ -4,15 +4,22 @@ import { context } from "./context"
 
 import type { SupplyMonitorPersistence } from "./supply-monitor"
 import type {
+  BlockRange,
   Persistence as SystemEventPersistence,
   ReceiverId as SystemEventReceiverId,
   SystemEvent,
 } from "./system-event"
 
+const maxHandledSystemEventsPerReceiver = 5000
+
 export class SystemEventFilePersistence implements SystemEventPersistence {
   private readonly checkpointBlockPath = "/checkpointBlock"
 
   private readonly handledSystemEventsPath = "/handledSystemEvents"
+
+  private readonly pendingBlockRangePath = "/pendingBlockRange"
+
+  private readonly pendingSystemEventsPath = "/pendingSystemEvents"
 
   private db: JsonDB
 
@@ -34,6 +41,37 @@ export class SystemEventFilePersistence implements SystemEventPersistence {
     await this.db.push(this.checkpointBlockPath, block)
   }
 
+  async pendingBlockRange(): Promise<BlockRange | null> {
+    // Existing data directories have no pending range until their first run.
+    if (!(await this.db.exists(this.pendingBlockRangePath))) {
+      return null
+    }
+
+    return this.db.getObject<BlockRange | null>(this.pendingBlockRangePath)
+  }
+
+  async updatePendingBlockRange(range: BlockRange | null): Promise<void> {
+    await this.db.push(this.pendingBlockRangePath, range)
+  }
+
+  async pendingSystemEvents(): Promise<
+    Record<SystemEventReceiverId, SystemEvent[]>
+  > {
+    if (!(await this.db.exists(this.pendingSystemEventsPath))) {
+      return {}
+    }
+    return this.db.getObject<Record<SystemEventReceiverId, SystemEvent[]>>(
+      this.pendingSystemEventsPath
+    )
+  }
+
+  async updatePendingSystemEvents(
+    systemEvents: Record<SystemEventReceiverId, SystemEvent[]>
+  ): Promise<void> {
+    // Pending notifications must not be truncated like the handled-event cache.
+    await this.db.push(this.pendingSystemEventsPath, systemEvents)
+  }
+
   async handledSystemEvents(): Promise<
     Record<SystemEventReceiverId, SystemEvent[]>
   > {
@@ -46,7 +84,6 @@ export class SystemEventFilePersistence implements SystemEventPersistence {
     )
   }
 
-  // TODO: Consider deleting old events to optimize database file size.
   async storeHandledSystemEvents(
     systemEvents: Record<SystemEventReceiverId, SystemEvent[]>
   ): Promise<void> {
@@ -55,6 +92,9 @@ export class SystemEventFilePersistence implements SystemEventPersistence {
     Object.keys(systemEvents).forEach((receiverId) => {
       handledSystemEvents[receiverId] = handledSystemEvents[receiverId] ?? []
       handledSystemEvents[receiverId].push(...systemEvents[receiverId])
+      handledSystemEvents[receiverId] = handledSystemEvents[receiverId].slice(
+        -maxHandledSystemEventsPerReceiver
+      )
     })
 
     await this.db.push(this.handledSystemEventsPath, handledSystemEvents)

@@ -7,7 +7,7 @@ import {
 } from "../../lib/contracts"
 import { BitcoinRawTxVectors } from "../../lib/bitcoin"
 import { Hex } from "../../lib/utils"
-import { TransactionReceipt } from "@ethersproject/providers"
+import { TransactionReceipt } from "@ethersproject/abstract-provider"
 import { SuiTransactionBlockResponse } from "@mysten/sui/client"
 
 /**

@@ -1,6 +1,6 @@
 import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
-import { BigNumber } from "ethers"
+
 import type {
   L1BTCDepositorNttWithExecutor,
   MockTBTCBridge,
@@ -32,7 +32,7 @@ describe("L1BTCDepositorNttWithExecutor - Core Functions", () => {
       "contracts/test/MockTBTCVault.sol:MockTBTCVault"
     )
     tbtcVault = (await MockTBTCVaultFactory.deploy()) as MockTBTCVault
-    await tbtcVault.setTbtcToken(tbtcToken.address)
+    await tbtcVault.setTbtcToken(tbtcToken.target)
 
     // Mock NTT managers with simple objects (following working pattern)
     const nttManagerWithExecutor = {
@@ -47,26 +47,25 @@ describe("L1BTCDepositorNttWithExecutor - Core Functions", () => {
       "L1BTCDepositorNttWithExecutor"
     )
     const depositorImpl = await L1BTCDepositorFactory.deploy()
-    await depositorImpl.deployed()
+    await depositorImpl.waitForDeployment()
 
     // Deploy proxy
     const ProxyFactory = await ethers.getContractFactory("ERC1967Proxy")
     const initData = depositorImpl.interface.encodeFunctionData("initialize", [
-      bridge.address,
-      tbtcVault.address,
+      bridge.target,
+      tbtcVault.target,
       nttManagerWithExecutor.address,
       underlyingNttManager.address,
     ])
-    const proxy = await ProxyFactory.deploy(depositorImpl.address, initData)
+    const proxy = await ProxyFactory.deploy(depositorImpl.target, initData)
 
     depositor = L1BTCDepositorFactory.attach(
-      proxy.address
+      proxy.target
     ) as L1BTCDepositorNttWithExecutor
 
     // Set up supported chains
     await depositor.setSupportedChain(WORMHOLE_CHAIN_DESTINATION, true)
     await depositor.setSupportedChain(WORMHOLE_CHAIN_BASE, true)
-    await depositor.setDefaultSupportedChain(WORMHOLE_CHAIN_DESTINATION)
   })
 
   beforeEach(async () => {
@@ -79,15 +78,15 @@ describe("L1BTCDepositorNttWithExecutor - Core Functions", () => {
 
   describe("Initialization", () => {
     it("should initialize with correct parameters", async () => {
-      expect(await depositor.bridge()).to.equal(bridge.address)
-      expect(await depositor.tbtcVault()).to.equal(tbtcVault.address)
+      expect(await depositor.bridge()).to.equal(bridge.target)
+      expect(await depositor.tbtcVault()).to.equal(tbtcVault.target)
     })
 
     it("should have correct default parameters", async () => {
       expect(await depositor.defaultDestinationGasLimit()).to.equal(500000)
       expect(await depositor.defaultExecutorFeeBps()).to.equal(0)
       expect(await depositor.defaultExecutorFeeRecipient()).to.equal(
-        ethers.constants.AddressZero
+        ethers.ZeroAddress
       )
     })
 
@@ -95,9 +94,6 @@ describe("L1BTCDepositorNttWithExecutor - Core Functions", () => {
       expect(await depositor.supportedChains(WORMHOLE_CHAIN_DESTINATION)).to.be
         .true
       expect(await depositor.supportedChains(WORMHOLE_CHAIN_BASE)).to.be.true
-      expect(await depositor.defaultSupportedChain()).to.equal(
-        WORMHOLE_CHAIN_DESTINATION
-      )
     })
   })
 
@@ -110,21 +106,6 @@ describe("L1BTCDepositorNttWithExecutor - Core Functions", () => {
 
       await depositor.setSupportedChain(newChainId, false)
       expect(await depositor.supportedChains(newChainId)).to.be.false
-    })
-
-    it("should update default supported chain", async () => {
-      await depositor.setDefaultSupportedChain(WORMHOLE_CHAIN_BASE)
-      expect(await depositor.defaultSupportedChain()).to.equal(
-        WORMHOLE_CHAIN_BASE
-      )
-    })
-
-    it("should reject setting default chain that is not supported", async () => {
-      const unsupportedChain = 99
-
-      await expect(
-        depositor.setDefaultSupportedChain(unsupportedChain)
-      ).to.be.revertedWith("Chain must be supported before setting as default")
     })
   })
 
@@ -141,20 +122,14 @@ describe("L1BTCDepositorNttWithExecutor - Core Functions", () => {
         50, // executorFeeBps
         user.address, // executorFeeRecipient
         0, // platformFeeBps
-        ethers.constants.AddressZero // platformFeeRecipient
+        ethers.ZeroAddress // platformFeeRecipient
       )
 
       // Non-owner cannot update
       await expect(
         depositor
           .connect(user)
-          .setDefaultParameters(
-            600000,
-            50,
-            user.address,
-            0,
-            ethers.constants.AddressZero
-          )
+          .setDefaultParameters(600000, 50, user.address, 0, ethers.ZeroAddress)
       ).to.be.revertedWith("Ownable: caller is not the owner")
     })
 
@@ -178,15 +153,15 @@ describe("L1BTCDepositorNttWithExecutor - Core Functions", () => {
       const [, , user] = await ethers.getSigners()
 
       // Send some tokens to the contract
-      const amount = ethers.utils.parseEther("1")
-      await tbtcToken.mint(depositor.address, amount)
+      const amount = ethers.parseEther("1")
+      await tbtcToken.mint(depositor.target, amount)
 
       const initialBalance = await tbtcToken.balanceOf(user.address)
 
-      await depositor.retrieveTokens(tbtcToken.address, user.address, amount)
+      await depositor.retrieveTokens(tbtcToken.target, user.address, amount)
 
       const finalBalance = await tbtcToken.balanceOf(user.address)
-      expect(finalBalance.sub(initialBalance)).to.equal(amount)
+      expect(finalBalance - initialBalance).to.equal(amount)
     })
 
     it("should allow owner to retrieve native tokens", async () => {
@@ -199,7 +174,7 @@ describe("L1BTCDepositorNttWithExecutor - Core Functions", () => {
       // For testing purposes, we'll just verify the function doesn't revert
       // when called with zero amount (no ETH to retrieve)
       await expect(
-        depositor.retrieveTokens(ethers.constants.AddressZero, user.address, 0)
+        depositor.retrieveTokens(ethers.ZeroAddress, user.address, 0)
       ).to.not.be.reverted
     })
 
@@ -209,7 +184,7 @@ describe("L1BTCDepositorNttWithExecutor - Core Functions", () => {
       await expect(
         depositor
           .connect(user)
-          .retrieveTokens(tbtcToken.address, user.address, 100)
+          .retrieveTokens(tbtcToken.target, user.address, 100)
       ).to.be.revertedWith("Ownable: caller is not the owner")
     })
   })

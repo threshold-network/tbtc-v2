@@ -36,4 +36,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 export default func
 
 func.tags = ["SetSolanaGatewayAddress"]
+
+// Solana is outside the supported Sepolia routing topology.
+func.skip = async (hre) => hre.network.name === "arbitrumSepolia"
 func.dependencies = ["ArbitrumWormholeGateway", "SolanaWormholeGateway"]

@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unused-expressions */
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -6,6 +5,7 @@ import { expect } from "chai"
 import hre, { ethers, deployments } from "hardhat"
 import fs from "fs"
 import path from "path"
+import { requireValue } from "../../helpers/require-value"
 import func, {
   encodeRebateStakingUpgrade,
   encodeBridgeUpgradeAndCall,
@@ -99,15 +99,15 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
       ethers: {
         ...ethers,
         provider: {
-          getStorageAt: async () => paddedAdmin,
+          getStorage: async () => paddedAdmin,
         },
-        utils: ethers.utils,
-        constants: ethers.constants,
+        utils: ethers,
+        constants: ethers,
       },
       deployments: {
         deploy: async (name: string, opts: any) => {
           deployCalls.push({ name, options: opts })
-          const address = deployAddressMap[name] || ethers.constants.AddressZero
+          const address = deployAddressMap[name] || ethers.ZeroAddress
           return { address, newlyDeployed: true }
         },
         get: async (name: string) => {
@@ -281,7 +281,7 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
 
         expectedLibKeys.forEach((key) => {
           expect(libraries).to.have.property(key)
-          expect(libraries[key]).to.not.equal(ethers.constants.AddressZero)
+          expect(libraries[key]).to.not.equal(ethers.ZeroAddress)
         })
 
         // Verify correct address mapping (not swapped)
@@ -332,28 +332,20 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
         await func(hre)
 
         const depositArtifact = await deployments.get("Deposit")
-        expect(depositArtifact.address).to.not.equal(
-          ethers.constants.AddressZero
-        )
+        expect(depositArtifact.address).to.not.equal(ethers.ZeroAddress)
 
         const redemptionArtifact = await deployments.get("Redemption")
-        expect(redemptionArtifact.address).to.not.equal(
-          ethers.constants.AddressZero
-        )
+        expect(redemptionArtifact.address).to.not.equal(ethers.ZeroAddress)
 
         const bridgeImplArtifact = await deployments.get(
           "BridgeTIP109Implementation"
         )
-        expect(bridgeImplArtifact.address).to.not.equal(
-          ethers.constants.AddressZero
-        )
+        expect(bridgeImplArtifact.address).to.not.equal(ethers.ZeroAddress)
 
         const rebateImplArtifact = await deployments.get(
           "RebateStakingTIP109Implementation"
         )
-        expect(rebateImplArtifact.address).to.not.equal(
-          ethers.constants.AddressZero
-        )
+        expect(rebateImplArtifact.address).to.not.equal(ethers.ZeroAddress)
       })
 
       it("should log all deployed addresses to console", async () => {
@@ -403,9 +395,9 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
       "function beginDepositTreasuryFeeDivisorUpdate(uint64 _newDepositTreasuryFeeDivisor)",
     ]
 
-    const proxyAdminIface = new ethers.utils.Interface(proxyAdminABI)
-    const bridgeIface = new ethers.utils.Interface(bridgeABI)
-    const bridgeGovIface = new ethers.utils.Interface(bridgeGovABI)
+    const proxyAdminIface = new ethers.Interface(proxyAdminABI)
+    const bridgeIface = new ethers.Interface(bridgeABI)
+    const bridgeGovIface = new ethers.Interface(bridgeGovABI)
 
     // Calldata-specific test addresses (implementation addresses distinct
     // from deployment phase to test with non-trivial checksummed values).
@@ -468,9 +460,7 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
         )
 
         // The repair target must be address(0) per D-7
-        expect(innerDecoded.newRebateStaking).to.equal(
-          ethers.constants.AddressZero
-        )
+        expect(innerDecoded.newRebateStaking).to.equal(ethers.ZeroAddress)
       })
     })
 
@@ -491,7 +481,10 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
 
         // The selector must match setRebateStaking(address), which is a
         // direct onlyOwner call on BridgeGovernance
-        const expectedSelector = bridgeGovIface.getSighash("setRebateStaking")
+        const expectedSelector = requireValue(
+          bridgeGovIface.getFunction("setRebateStaking"),
+          "ABI fragment"
+        ).selector
         expect(calldata.slice(0, 10)).to.equal(expectedSelector)
       })
     })
@@ -627,7 +620,6 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
       })
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let summary: any
     let summaryFiles: string[]
 
@@ -714,24 +706,21 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
       expect(summary).to.not.be.null
       expect(summary.timelockActions).to.be.an("array")
 
-      summary.timelockActions.forEach(
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (action: any, index: number) => {
-          expect(
-            action,
-            `timelockActions[${index}] missing target`
-          ).to.have.property("target")
-          expect(
-            action,
-            `timelockActions[${index}] missing data`
-          ).to.have.property("data")
-          expect(action).to.have.property("value")
-          expect(
-            action,
-            `timelockActions[${index}] missing description`
-          ).to.have.property("description")
-        }
-      )
+      summary.timelockActions.forEach((action: any, index: number) => {
+        expect(
+          action,
+          `timelockActions[${index}] missing target`
+        ).to.have.property("target")
+        expect(
+          action,
+          `timelockActions[${index}] missing data`
+        ).to.have.property("data")
+        expect(action).to.have.property("value")
+        expect(
+          action,
+          `timelockActions[${index}] missing description`
+        ).to.have.property("description")
+      })
     })
 
     it("should have deployedContracts with all 4 entries", () => {
@@ -747,7 +736,7 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
 
       requiredKeys.forEach((key) => {
         expect(dc).to.have.property(key)
-        expect(dc[key]).to.not.equal(ethers.constants.AddressZero)
+        expect(dc[key]).to.not.equal(ethers.ZeroAddress)
       })
     })
 
@@ -798,7 +787,6 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
       expect(summary.councilSafeActions.length).to.be.greaterThan(0)
 
       const setRebateAction = summary.councilSafeActions.find(
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (a: any) =>
           a.description &&
           a.description.toLowerCase().includes("setrebatestaking")
@@ -816,7 +804,6 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
       expect(summary.governanceActions.length).to.be.greaterThan(0)
 
       const feeAction = summary.governanceActions.find(
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (a: any) =>
           a.description &&
           a.description
@@ -841,27 +828,24 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
         expect(summary).to.not.be.null
         expect(summary.verificationChecks).to.be.an("array")
 
-        summary.verificationChecks.forEach(
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (entry: any, index: number) => {
-            expect(
-              entry,
-              `verificationChecks[${index}] missing command`
-            ).to.have.property("command")
-            expect(
-              entry,
-              `verificationChecks[${index}] missing expectedResult`
-            ).to.have.property("expectedResult")
-            expect(
-              entry,
-              `verificationChecks[${index}] missing description`
-            ).to.have.property("description")
+        summary.verificationChecks.forEach((entry: any, index: number) => {
+          expect(
+            entry,
+            `verificationChecks[${index}] missing command`
+          ).to.have.property("command")
+          expect(
+            entry,
+            `verificationChecks[${index}] missing expectedResult`
+          ).to.have.property("expectedResult")
+          expect(
+            entry,
+            `verificationChecks[${index}] missing description`
+          ).to.have.property("description")
 
-            expect(entry.command).to.be.a("string").and.not.be.empty
-            expect(entry.expectedResult).to.be.a("string").and.not.be.empty
-            expect(entry.description).to.be.a("string").and.not.be.empty
-          }
-        )
+          expect(entry.command).to.be.a("string").and.not.be.empty
+          expect(entry.expectedResult).to.be.a("string").and.not.be.empty
+          expect(entry.description).to.be.a("string").and.not.be.empty
+        })
       })
 
       it("should have check[0] reference getRebateStaking with address(0) expected", () => {
@@ -875,7 +859,6 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
         expect(summary).to.not.be.null
 
         const storageCheck = summary.verificationChecks.find(
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           (c: any) =>
             c.description.toLowerCase().includes("storage") ||
             c.description.toLowerCase().includes("slot")
@@ -896,7 +879,6 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
         expect(summary).to.not.be.null
 
         const stateCheck = summary.verificationChecks.find(
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           (c: any) =>
             c.description.toLowerCase().includes("state") ||
             c.description.toLowerCase().includes("rebatestaking")
@@ -918,9 +900,8 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
       it("should have a selector count check expecting 56", () => {
         expect(summary).to.not.be.null
 
-        const selectorCheck = summary.verificationChecks.find(
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (c: any) => c.description.toLowerCase().includes("selector")
+        const selectorCheck = summary.verificationChecks.find((c: any) =>
+          c.description.toLowerCase().includes("selector")
         )
         expect(
           selectorCheck,
@@ -934,9 +915,8 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
       it("should have a bytecode linkage check referencing Deposit and Redemption addresses", () => {
         expect(summary).to.not.be.null
 
-        const bytecodeCheck = summary.verificationChecks.find(
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (c: any) => c.description.toLowerCase().includes("bytecode")
+        const bytecodeCheck = summary.verificationChecks.find((c: any) =>
+          c.description.toLowerCase().includes("bytecode")
         )
         expect(
           bytecodeCheck,

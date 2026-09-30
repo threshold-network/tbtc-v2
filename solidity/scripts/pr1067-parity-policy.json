@@ -1,0 +1,119 @@
+{
+  "baselineRevision": "5b65585459f461b52f685588a80d6c1057da5bad",
+  "baselineLockfileSha256": "874b9e09a9796301470339e0620ba6448c043390534a74e5b76efbc58e699082",
+  "candidateLockfileSha256": "e679e047d1a1487474ae6d70a638d0babdb1e53754b69cc884d904fed1012d38",
+  "baselineConfigSha256": "2f73b0dca910631290b36b3d833705da9516f0eaa707f1c9d9fa518232cd35f7",
+  "candidateConfigSha256": "d5aee8fbfcaf62ec98f5ffe6d00218c1f3fdf6dc95c6b8876981c693ec421120",
+  "layouts": [
+    "@keep-network/ecdsa/contracts/WalletRegistry.sol:WalletRegistry",
+    "contracts/bridge/BridgeGovernance.sol:BridgeGovernance",
+    "contracts/cross-chain/wormhole/L1BTCDepositorNttWithExecutor.sol:L1BTCDepositorNttWithExecutor"
+  ],
+  "changedDeployments": [
+    "deployments/hardhat/Bank.json",
+    "deployments/hardhat/Bridge.json",
+    "deployments/hardhat/BridgeGovernance.json",
+    "deployments/hardhat/BridgeGovernanceParameters.json",
+    "deployments/hardhat/Deposit.json",
+    "deployments/hardhat/DepositSweep.json",
+    "deployments/hardhat/DonationVault.json",
+    "deployments/hardhat/Fraud.json",
+    "deployments/hardhat/LightRelay.json",
+    "deployments/hardhat/LightRelayMaintainerProxy.json",
+    "deployments/hardhat/MaintainerProxy.json",
+    "deployments/hardhat/MovingFunds.json",
+    "deployments/hardhat/NativeBTCDepositor.json",
+    "deployments/hardhat/RebateStaking.json",
+    "deployments/hardhat/Redemption.json",
+    "deployments/hardhat/RedemptionWatchtower.json",
+    "deployments/hardhat/TBTC.json",
+    "deployments/hardhat/TBTCToken.json",
+    "deployments/hardhat/TBTCVault.json",
+    "deployments/hardhat/Timelock.json",
+    "deployments/hardhat/VendingMachine.json",
+    "deployments/hardhat/VendingMachineV2.json",
+    "deployments/hardhat/VendingMachineV3.json",
+    "deployments/hardhat/WalletProposalValidator.json",
+    "deployments/hardhat/Wallets.json"
+  ],
+  "compiledDeployScripts": {
+    "export/deploy/06_deploy_bridge.js": {
+      "baseline": "e4f30ae06369e41bacc93f1a835cec23b9d41241a5fa83dd405fdebf536bbd4b",
+      "candidate": "5ef835d8cd08d173ea3fb7722d4d9ff2cc46f4c0b904615680c915c795af3b20"
+    },
+    "export/deploy/14_set_deposit_parameters.js": {
+      "baseline": "01c750d798fa5da0c702917e2bac76a413ebf709a2512b9bdc177985cf6cb461",
+      "candidate": "ef3f021815b3c30f75e9e15653d4ad84cda12336fd4bfcc5afdfcffa408dbd76"
+    },
+    "export/deploy/15_set_wallet_parameters.js": {
+      "baseline": "22001670b598ae9c85eb5cac9bac529575a7c87c336a63b1d731bfdd818b0bb4",
+      "candidate": "c2825b03898e339799c0dd3fe003b5057429c2526e72a437282930ef238c7372"
+    },
+    "export/deploy/16_disable_fraud_challenges.js": {
+      "baseline": "34335999db9790fcea8dabc34ca5634182d64254d0442a023fb754b950e09492",
+      "candidate": "48064ee29d737a30baa4dac4f91a2a95e60d0d3e6e866f2f97d2de976b73bb31"
+    },
+    "export/deploy/17_disable_redemptions.js": {
+      "baseline": "359dd45b1ba677108520485392c76e3093db0104922a38824a21a1afacee7eaf",
+      "candidate": "6ee02e5259d4b09968933e2e6d37df96891ceedbbc79fb44aeda9c93d8303dab"
+    },
+    "export/deploy/18_disable_moving_funds.js": {
+      "baseline": "0c695e096491b8a35cea129d2bd73b93c49c468fd1d53f6edfad3156673a40d5",
+      "candidate": "b6dcbc34a839156f830bc0389023b0ca76da154990eb18d9223a25ef0e62c424"
+    },
+    "export/deploy/26_transfer_proxy_admin_ownership.js": {
+      "baseline": "f438431c198f979192f08dcf8d417ef7784bcd5360ec3c4f02a08309c98d8e01",
+      "candidate": "e7723015e49cf835d6844cdfbbe9022c972bcaa85eb989fc80cb24ca5f955f4b"
+    },
+    "export/deploy/29_deploy_proxy_admin_with_deputy.js": {
+      "baseline": "511331b2561ac3e3806dfcc03c39dfb3886b3632768c0b7de40ec056ccdacf69",
+      "candidate": "275119795f82ce5bb4a1d613543afb3227d98545dbf2ff4e97ee8875e02305bc"
+    },
+    "export/deploy/35_authorize_maintainer_in_light_relay_maintainer_proxy.js": {
+      "baseline": "c22cef77c76875dc71d57889b55ef0dff99b59d1e7a4b50b7b557309c160c5f4",
+      "candidate": "b3c351082802815d38e298e9ea8c9a4ab42cd26ce94148c01da73b426ced3762"
+    },
+    "export/deploy/40_deploy_redemption_watchtower.js": {
+      "baseline": "67a3cf8d77b3c9bbefaa5c177212f20225b82e1cb9db74aa316f9b96a285c0b9",
+      "candidate": "60a448e591325da75adb062802bd53434415120c830c3567601b0cf24831d6cb"
+    },
+    "export/deploy/44_upgrade_native_btc_depositor_to_968.js": {
+      "baseline": "480d519b2e12ac94e5aa7a43bef0811dc33863a8255d4f910d5dac64f8b590ae",
+      "candidate": "47777b275a0153905654a8afa696e6cd624d366cc092f3775efc42496afc41f4"
+    },
+    "export/deploy/80_upgrade_bridge_v2_DEPRECATED.js": {
+      "baseline": "477ac5c6af3a4300b3abb98193cfc7a3786ce0699ffb7b2a57261427112450ba",
+      "candidate": "434c09c2c54f379000716af91ae4136e82d260f6311331de852f1d626df507bf"
+    },
+    "export/deploy/81_upgrade_bridge_v2_vault_fix.js": {
+      "baseline": "8771e7c47497248fc4177497c9d7ebfc7aa17feb046900cdcca070bda3911667",
+      "candidate": "a853100d2d8482e9b40cf651b7e31787f4fb76687a48611cb30165a3dcb074a4"
+    },
+    "export/deploy/82_deploy_rebate_and_prepare_txs_DEPRECATED.js": {
+      "baseline": "4ed7017963249ebb60452180c32d66bfe30182c320a02ba4da89e3ea4ac05728",
+      "candidate": "f1046969a298f9c1e8cdf11fb8bb7910fceaf4271bcb51015194aa3980d0bfba"
+    },
+    "export/deploy/83_verify_rebate_deployment.js": {
+      "baseline": "17b86dc2b55ad828ae70b9a5dd2aa8520888b9bf42e809793075b5f876978abe",
+      "candidate": "6cefdd83a3619deeb21929eb95817632da37ff3d8bd87a0e85705a4dca918ba5"
+    },
+    "export/deploy/84_upgrade_bridge_repair_rebate_staking_DEPRECATED.js": {
+      "baseline": "96f2014fe5e8584df016eab2c86efc7c9b200f4f2f57e850912585e774298bba",
+      "candidate": "5ee3cee7aeaa7638d400504a043934c2b810d705e131fc0a3b0aae11754ca9e3"
+    },
+    "export/deploy/85_deploy_tip109_governance_upgrade.js": {
+      "baseline": "3f7325a6e1ae5db201f2ad4684b28d27aa627fe44fb4b99a3d4422bc078955be",
+      "candidate": "fec0370d0599c14191944380269a875cdc854b0f4ee316e924f6b209c42bdf60"
+    },
+    "export/deploy/86_deploy_tip109_hotfix.js": {
+      "baseline": "76b04bc642f37cf5dbc677d11d7283067fcf49dc40b65b9ab305c79baba3a738",
+      "candidate": "9cff04f9edea02358f0e3493f9f92524cf7090048d1131b06f0a653beedec392"
+    },
+    "export/deploy/90_initialize_wallet_owner.js": {
+      "baseline": "a3731402620e52c018bbcadc9982eebf249c2ddb9f5f80c975c6bc188fcc593c",
+      "candidate": "0a01d0bda949b698b37e6444b02edf5d7da9607c3b005ac2ccb1f94eeee85448"
+    }
+  },
+  "baselinePackageSha256": "43dd2e94cd9705e4add0deb90bb0b22026112ff81baa0b6fcdcd11f1b3607d21",
+  "candidatePackageSha256": "12b311c10f727e91689feab1580a7d41aec4e5ebed0331685ebb994fce572bf7"
+}

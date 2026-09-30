@@ -12,7 +12,7 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
   // challenge deposit extremely high. The deposit value is determined by the
   // fraudChallengeDepositAmount governance parameter. This parameter is uint96.
   // The maximum value for the uint96 is 2^96-1 = 79228162514264337593543950335.
-  const fraudChallengeDepositAmount = ethers.BigNumber.from(
+  const fraudChallengeDepositAmount = ethers.toBigInt(
     "79228162514264337593543950335"
   )
 
@@ -20,9 +20,9 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
   // - fraudChallengeDefeatTimeout to uint32 max value (2^32-1 = 4294967295)
   // - fraudSlashingAmount to zero,
   // - fraudNotifierRewardMultiplier to zero.
-  const fraudChallengeDefeatTimeout = ethers.BigNumber.from("4294967295")
-  const fraudSlashingAmount = ethers.BigNumber.from("0")
-  const fraudNotifierRewardMultiplier = ethers.BigNumber.from("0")
+  const fraudChallengeDefeatTimeout = ethers.toBigInt("4294967295")
+  const fraudSlashingAmount = ethers.toBigInt("0")
+  const fraudNotifierRewardMultiplier = ethers.toBigInt("0")
 
   await execute(
     "Bridge",

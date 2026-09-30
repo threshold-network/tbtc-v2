@@ -29,7 +29,9 @@ contract MockNttManagerWithExecutor {
 
     mapping(uint16 => bool) public supportedChains;
 
-    // Mock storage for testing signed quote validation
+    // For triggering stage-time floor validation
+    bool public undervalueQuote;
+
     mapping(bytes => bool) public validSignedQuotes;
 
     // Mock events to match real implementation
@@ -54,12 +56,12 @@ contract MockNttManagerWithExecutor {
 
     /// @notice Mock implementation of transfer matching real NttManagerWithExecutor
     function transfer(
-        address, /* nttManager */
+        address /* nttManager */,
         uint256 amount,
         uint16 recipientChain,
         bytes32 recipientAddress,
-        bytes32, /* refundAddress */
-        bytes memory, /* encodedInstructions */
+        bytes32 /* refundAddress */,
+        bytes memory /* encodedInstructions */,
         ExecutorArgs calldata executorArgs,
         FeeArgs calldata feeArgs
     ) external payable returns (uint64 msgId) {
@@ -96,12 +98,15 @@ contract MockNttManagerWithExecutor {
 
     /// @notice Mock implementation of quoteDeliveryPrice matching real implementation
     function quoteDeliveryPrice(
-        address, /* nttManager */
+        address /* nttManager */,
         uint16 recipientChain,
-        bytes memory, /* encodedInstructions */
+        bytes memory /* encodedInstructions */,
         ExecutorArgs calldata executorArgs,
         FeeArgs calldata /* feeArgs */
     ) external view returns (uint256 totalCost) {
+        if (undervalueQuote) {
+            return MOCK_DELIVERY_PRICE - 1; // Underpriced
+        }
         require(supportedChains[recipientChain], "Chain not supported");
         require(executorArgs.signedQuote.length > 0, "Empty signed quote");
 
@@ -120,6 +125,10 @@ contract MockNttManagerWithExecutor {
         return totalCost;
     }
 
+    function setUndervalueQuote(bool _undervalue) external {
+        undervalueQuote = _undervalue;
+    }
+
     /// @notice Add support for a chain (for testing)
     function setSupportedChain(uint16 chainId, bool supported) external {
         supportedChains[chainId] = supported;
@@ -131,11 +140,10 @@ contract MockNttManagerWithExecutor {
     }
 
     /// @notice Calculate fee matching real implementation
-    function calculateFee(uint256 amount, uint16 dbps)
-        public
-        pure
-        returns (uint256 fee)
-    {
+    function calculateFee(
+        uint256 amount,
+        uint16 dbps
+    ) public pure returns (uint256 fee) {
         unchecked {
             uint256 q = amount / 100000;
             uint256 r = amount % 100000;
