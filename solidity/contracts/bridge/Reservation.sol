@@ -78,7 +78,12 @@ library Reservation {
     ///         largest and smallest lengths are cached by
     ///         `BridgeState.addReservationTerm`), so the bound is a menu
     ///         budget, not a gas one. Raising it changes this constant and
-    ///         the test, fixture and deploy-script mirrors of its value.
+    ///         every mirror of its value: the range stated in the
+    ///         `IReservationBridge.setReservationTerm` NatSpec, the id
+    ///         literals in `test/fixtures/bridge.ts`,
+    ///         `Bridge.ReservationTerms.test.ts` and
+    ///         `Bridge.ReservationRevealCap.test.ts`, and the calldata
+    ///         validator in `deploy/98`.
     uint8 internal constant MAX_RESERVATION_TERM_ID = 8;
     /// @notice Upper bound on a reservation term entry's custody fee, in
     ///         basis points.
