@@ -14,7 +14,7 @@ import type { AnchorProvider } from "@coral-xyz/anchor"
 import type { StarkNetProvider } from "../lib/starknet"
 import type { SuiSignerWithAddress } from "../lib/sui"
 import { TBTC as TBTCCore } from "./tbtc-core"
-import { Signer } from "@ethersproject/abstract-signer"
+import { isEvmSigner } from "../lib/ethereum/evm-connection"
 import { StarkNetAddress } from "../lib/starknet/address"
 
 // Re-export everything from the base module so that consumers importing
@@ -170,7 +170,7 @@ export class TBTC extends TBTCCore {
     }
 
     if (
-      Signer.isSigner(provider) ||
+      isEvmSigner(provider) ||
       ("getNetwork" in provider && typeof provider.getNetwork === "function")
     ) {
       throw new Error("Expected a StarkNet provider or account")

@@ -1,6 +1,5 @@
 import { expect, use } from "chai"
 import chaiAsPromised from "chai-as-promised"
-import { BigNumber } from "ethers"
 import sinon from "sinon"
 
 use(chaiAsPromised)
@@ -62,7 +61,7 @@ describe("Deposits", () => {
   const depositRefundLocktimeDuration: number = 2592000
   const serviceDepositRefundLocktimeDuration: number = 15552000
 
-  const depositAmount = BigNumber.from(10000) // 0.0001 BTC
+  const depositAmount = 10000n // 0.0001 BTC
 
   const depositFixture = {
     receipt: {
@@ -309,12 +308,7 @@ describe("Deposits", () => {
     // In this case it's 4 bytes.
     expect(script.substring(166 + offset, 168 + offset)).to.be.equal("04")
     expect(script.substring(168 + offset, 176 + offset)).to.be.equal(
-      Buffer.from(
-        BigNumber.from(1640181600 + 2592000)
-          .toHexString()
-          .substring(2),
-        "hex"
-      )
+      Buffer.from((1640181600 + 2592000).toString(16).padStart(8, "0"), "hex")
         .reverse()
         .toString("hex")
     )
@@ -355,7 +349,7 @@ describe("Deposits", () => {
           let depositUtxo: BitcoinUtxo
 
           beforeEach(async () => {
-            const fee = BigNumber.from(1520)
+            const fee = 1520n
 
             const depositFunding = DepositFunding.fromScript(
               DepositScript.fromReceipt(depositFixture.receipt, true)
@@ -400,7 +394,7 @@ describe("Deposits", () => {
           let depositUtxo: BitcoinUtxo
 
           beforeEach(async () => {
-            const fee = BigNumber.from(1410)
+            const fee = 1410n
 
             const depositFunding = DepositFunding.fromScript(
               DepositScript.fromReceipt(depositFixture.receipt, false)
@@ -447,7 +441,7 @@ describe("Deposits", () => {
           let depositUtxo: BitcoinUtxo
 
           beforeEach(async () => {
-            const fee = BigNumber.from(1520)
+            const fee = 1520n
 
             const depositFunding = DepositFunding.fromScript(
               DepositScript.fromReceipt(
@@ -496,7 +490,7 @@ describe("Deposits", () => {
           let depositUtxo: BitcoinUtxo
 
           beforeEach(async () => {
-            const fee = BigNumber.from(1410)
+            const fee = 1410n
 
             const depositFunding = DepositFunding.fromScript(
               DepositScript.fromReceipt(
@@ -550,7 +544,7 @@ describe("Deposits", () => {
           let transaction: BitcoinRawTx
 
           beforeEach(async () => {
-            const fee = BigNumber.from(1520)
+            const fee = 1520n
 
             const depositFunding = DepositFunding.fromScript(
               DepositScript.fromReceipt(depositFixture.receipt, true)
@@ -607,7 +601,7 @@ describe("Deposits", () => {
             const changeOutput = txJSON.outputs[1]
 
             // Value should correspond to the deposit amount.
-            expect(depositOutput.value).to.be.equal(depositAmount.toNumber())
+            expect(depositOutput.value).to.be.equal(Number(depositAmount))
             // Should be OP_0 <script-hash>. The script hash should be prefixed
             // with its byte length: 0x20. The OP_0 opcode is 0x00.
             expect(depositOutput.script).to.be.equal(
@@ -651,7 +645,7 @@ describe("Deposits", () => {
           let transaction: BitcoinRawTx
 
           beforeEach(async () => {
-            const fee = BigNumber.from(1410)
+            const fee = 1410n
 
             const depositFunding = DepositFunding.fromScript(
               DepositScript.fromReceipt(depositFixture.receipt, false)
@@ -708,7 +702,7 @@ describe("Deposits", () => {
             const changeOutput = txJSON.outputs[1]
 
             // Value should correspond to the deposit amount.
-            expect(depositOutput.value).to.be.equal(depositAmount.toNumber())
+            expect(depositOutput.value).to.be.equal(Number(depositAmount))
             // Should be OP_HASH160 <script-hash> OP_EQUAL. The script hash
             // should be prefixed with its byte length: 0x14. The OP_HASH160
             // opcode is 0xa9 and OP_EQUAL is 0x87.
@@ -755,7 +749,7 @@ describe("Deposits", () => {
           let transaction: BitcoinRawTx
 
           beforeEach(async () => {
-            const fee = BigNumber.from(1520)
+            const fee = 1520n
 
             const depositFunding = DepositFunding.fromScript(
               DepositScript.fromReceipt(
@@ -815,7 +809,7 @@ describe("Deposits", () => {
             const changeOutput = txJSON.outputs[1]
 
             // Value should correspond to the deposit amount.
-            expect(depositOutput.value).to.be.equal(depositAmount.toNumber())
+            expect(depositOutput.value).to.be.equal(Number(depositAmount))
             // Should be OP_0 <script-hash>. The script hash should be prefixed
             // with its byte length: 0x20. The OP_0 opcode is 0x00.
             expect(depositOutput.script).to.be.equal(
@@ -860,7 +854,7 @@ describe("Deposits", () => {
           let transaction: BitcoinRawTx
 
           beforeEach(async () => {
-            const fee = BigNumber.from(1410)
+            const fee = 1410n
 
             const depositFunding = DepositFunding.fromScript(
               DepositScript.fromReceipt(
@@ -920,7 +914,7 @@ describe("Deposits", () => {
             const changeOutput = txJSON.outputs[1]
 
             // Value should correspond to the deposit amount.
-            expect(depositOutput.value).to.be.equal(depositAmount.toNumber())
+            expect(depositOutput.value).to.be.equal(Number(depositAmount))
             // Should be OP_HASH160 <script-hash> OP_EQUAL. The script hash
             // should be prefixed with its byte length: 0x14. The OP_HASH160
             // opcode is 0xa9 and OP_EQUAL is 0x87.
@@ -1368,14 +1362,14 @@ describe("Deposits", () => {
               "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
             ),
             outputIndex: 0,
-            value: BigNumber.from(1111),
+            value: 1111n,
           },
           {
             transactionHash: BitcoinTxHash.from(
               "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
             ),
             outputIndex: 1,
-            value: BigNumber.from(2222),
+            value: 2222n,
           },
         ]
 
@@ -1420,7 +1414,7 @@ describe("Deposits", () => {
 
         context("when funding UTXOs found", () => {
           const initiateMinting = async (depositorProxy?: DepositorProxy) => {
-            const fee = BigNumber.from(1520)
+            const fee = 1520n
             const depositFunding = DepositFunding.fromScript(
               DepositScript.fromReceipt(depositFixture.receipt)
             )
@@ -1531,7 +1525,7 @@ describe("Deposits", () => {
 
       context("manual funding outpoint provision mode", () => {
         const initiateMinting = async (depositorProxy?: DepositorProxy) => {
-          const fee = BigNumber.from(1520)
+          const fee = 1520n
 
           const depositFunding = DepositFunding.fromScript(
             DepositScript.fromReceipt(depositFixture.receipt)
@@ -1728,9 +1722,9 @@ describe("Deposits", () => {
               )
 
               // Expect the refund locktime to be in the future.
-              const receiptTimestamp = BigNumber.from(
-                receipt.refundLocktime.reverse().toPrefixedString()
-              ).toNumber()
+              const receiptTimestamp = Number(
+                BigInt(receipt.refundLocktime.reverse().toPrefixedString())
+              )
               const currentTimestamp = Math.floor(new Date().getTime() / 1000)
               expect(receiptTimestamp).to.be.greaterThan(currentTimestamp)
 
@@ -1903,9 +1897,9 @@ describe("Deposits", () => {
             )
 
             // Expect the refund locktime to be in the future.
-            const receiptTimestamp = BigNumber.from(
-              receipt.refundLocktime.reverse().toPrefixedString()
-            ).toNumber()
+            const receiptTimestamp = Number(
+              BigInt(receipt.refundLocktime.reverse().toPrefixedString())
+            )
             const currentTimestamp = Math.floor(new Date().getTime() / 1000)
             expect(receiptTimestamp).to.be.greaterThan(currentTimestamp)
 
@@ -2173,9 +2167,9 @@ describe("Deposits", () => {
                 )
 
                 // Expect the refund locktime to be in the future.
-                const receiptTimestamp = BigNumber.from(
-                  receipt.refundLocktime.reverse().toPrefixedString()
-                ).toNumber()
+                const receiptTimestamp = Number(
+                  BigInt(receipt.refundLocktime.reverse().toPrefixedString())
+                )
                 const currentTimestamp = Math.floor(new Date().getTime() / 1000)
                 expect(receiptTimestamp).to.be.greaterThan(currentTimestamp)
 
@@ -2388,9 +2382,9 @@ describe("Deposits", () => {
               )
 
               // Expect the refund locktime to be in the future.
-              const receiptTimestamp = BigNumber.from(
-                receipt.refundLocktime.reverse().toPrefixedString()
-              ).toNumber()
+              const receiptTimestamp = Number(
+                BigInt(receipt.refundLocktime.reverse().toPrefixedString())
+              )
               const currentTimestamp = Math.floor(new Date().getTime() / 1000)
               expect(receiptTimestamp).to.be.greaterThan(currentTimestamp)
 
@@ -2591,9 +2585,9 @@ describe("Deposits", () => {
               )
 
               // Expect the refund locktime to be in the future.
-              const receiptTimestamp = BigNumber.from(
-                receipt.refundLocktime.reverse().toPrefixedString()
-              ).toNumber()
+              const receiptTimestamp = Number(
+                BigInt(receipt.refundLocktime.reverse().toPrefixedString())
+              )
               const currentTimestamp = Math.floor(new Date().getTime() / 1000)
               expect(receiptTimestamp).to.be.greaterThan(currentTimestamp)
 
@@ -2658,7 +2652,7 @@ describe("Deposits", () => {
   })
 
   describe("DepositRefund", () => {
-    const fee = BigNumber.from(1520)
+    const fee = 1520n
 
     describe("DepositRefund", () => {
       describe("submitTransaction", () => {

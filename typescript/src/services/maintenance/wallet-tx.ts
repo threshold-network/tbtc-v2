@@ -11,7 +11,7 @@ import {
   BitcoinUtxo,
   toBitcoinJsLibNetwork,
 } from "../../lib/bitcoin"
-import { BigNumber } from "@ethersproject/bignumber"
+
 import {
   DepositReceipt,
   RedemptionRequest,
@@ -91,7 +91,7 @@ class DepositSweep {
    *          - the new wallet's main UTXO produced by this transaction.
    */
   async submitTransaction(
-    fee: BigNumber,
+    fee: bigint,
     walletPrivateKey: string,
     utxos: BitcoinUtxo[],
     deposits: DepositReceipt[],
@@ -167,7 +167,7 @@ class DepositSweep {
    */
   async assembleTransaction(
     bitcoinNetwork: BitcoinNetwork,
-    fee: BigNumber,
+    fee: bigint,
     walletPrivateKey: string,
     utxos: (BitcoinUtxo & BitcoinRawTx)[],
     deposits: DepositReceipt[],
@@ -199,29 +199,29 @@ class DepositSweep {
 
     const transaction = new Transaction()
 
-    let outputValue = BigNumber.from(0)
+    let outputValue = 0n
     if (mainUtxo) {
       transaction.addInput(
         mainUtxo.transactionHash.reverse().toBuffer(),
         mainUtxo.outputIndex
       )
-      outputValue = outputValue.add(mainUtxo.value)
+      outputValue += mainUtxo.value
     }
     for (const utxo of utxos) {
       transaction.addInput(
         utxo.transactionHash.reverse().toBuffer(),
         utxo.outputIndex
       )
-      outputValue = outputValue.add(utxo.value)
+      outputValue += utxo.value
     }
-    outputValue = outputValue.sub(fee)
+    outputValue -= fee
 
     const outputScript = BitcoinAddressConverter.addressToOutputScript(
       walletAddress,
       bitcoinNetwork
     )
 
-    transaction.addOutput(outputScript.toBuffer(), outputValue.toNumber())
+    transaction.addOutput(outputScript.toBuffer(), Number(outputValue))
 
     // Sign the main UTXO input if there is main UTXO.
     if (mainUtxo) {
@@ -283,7 +283,7 @@ class DepositSweep {
       newMainUtxo: {
         transactionHash,
         outputIndex: 0, // There is only one output.
-        value: BigNumber.from(transaction.outs[0].value),
+        value: BigInt(transaction.outs[0].value),
       },
       rawTransaction: {
         transactionHex: transaction.toHex(),
@@ -689,37 +689,34 @@ class Redemption {
       throw new Error("Unexpected main UTXO type")
     }
 
-    let txTotalFee = BigNumber.from(0)
-    let totalOutputsValue = BigNumber.from(0)
+    let txTotalFee = 0n
+    let totalOutputsValue = 0n
 
     // Process the requests
     for (const request of redemptionRequests) {
       // Calculate the value of the output by subtracting tx fee and treasury
       // fee for this particular output from the requested amount
-      const outputValue = request.requestedAmount
-        .sub(request.txMaxFee)
-        .sub(request.treasuryFee)
+      const outputValue =
+        request.requestedAmount - request.txMaxFee - request.treasuryFee
 
       // Add the output value to the total output value
-      totalOutputsValue = totalOutputsValue.add(outputValue)
+      totalOutputsValue += outputValue
 
       // Add the fee for this particular request to the overall transaction fee
-      txTotalFee = txTotalFee.add(request.txMaxFee)
+      txTotalFee += request.txMaxFee
 
       psbt.addOutput({
         script: request.redeemerOutputScript.toBuffer(),
-        value: outputValue.toNumber(),
+        value: Number(outputValue),
       })
     }
 
     // If there is a change output, add it to the transaction.
-    const changeOutputValue = mainUtxo.value
-      .sub(totalOutputsValue)
-      .sub(txTotalFee)
-    if (changeOutputValue.gt(0)) {
+    const changeOutputValue = mainUtxo.value - totalOutputsValue - txTotalFee
+    if (changeOutputValue > 0n) {
       psbt.addOutput({
         address: walletAddress,
-        value: changeOutputValue.toNumber(),
+        value: Number(changeOutputValue),
       })
     }
 
@@ -729,14 +726,15 @@ class Redemption {
     const transaction = psbt.extractTransaction()
     const transactionHash = BitcoinTxHash.from(transaction.getId())
     // If there is a change output, it will be the new wallet's main UTXO.
-    const newMainUtxo = changeOutputValue.gt(0)
-      ? {
-          transactionHash,
-          // It was the last output added to the transaction.
-          outputIndex: transaction.outs.length - 1,
-          value: changeOutputValue,
-        }
-      : undefined
+    const newMainUtxo =
+      changeOutputValue > 0n
+        ? {
+            transactionHash,
+            // It was the last output added to the transaction.
+            outputIndex: transaction.outs.length - 1,
+            value: changeOutputValue,
+          }
+        : undefined
 
     return {
       transactionHash,

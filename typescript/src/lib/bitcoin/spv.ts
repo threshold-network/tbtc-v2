@@ -1,6 +1,6 @@
 import { BitcoinTx, BitcoinTxHash, extractBitcoinRawTxVectors } from "./tx"
 import { BitcoinClient } from "./client"
-import { BigNumber } from "@ethersproject/bignumber"
+
 import {
   BitcoinHeader,
   BitcoinHeaderSerializer,
@@ -180,8 +180,8 @@ function createMerkleProof(txMerkleBranch: BitcoinTxMerkleBranch): Hex {
 export async function validateBitcoinSpvProof(
   transactionHash: BitcoinTxHash,
   requiredConfirmations: number,
-  previousDifficulty: BigNumber,
-  currentDifficulty: BigNumber,
+  previousDifficulty: bigint,
+  currentDifficulty: bigint,
   bitcoinClient: BitcoinClient
 ) {
   if (requiredConfirmations < 1) {

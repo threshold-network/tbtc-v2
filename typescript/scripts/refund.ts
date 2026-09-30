@@ -1,4 +1,3 @@
-import { BigNumber } from "ethers"
 import { program } from "commander"
 import * as fs from "fs"
 import {
@@ -83,7 +82,7 @@ async function run(): Promise<void> {
   const depositUtxo: BitcoinUtxo = {
     transactionHash: BitcoinTxHash.from(transactionId),
     outputIndex: Number(transactionIndex),
-    value: BigNumber.from(refundAmount),
+    value: BigInt(refundAmount),
   }
 
   const depositScript = DepositScript.fromReceipt(deposit)
@@ -91,7 +90,7 @@ async function run(): Promise<void> {
 
   const refundTxHash = await depositRefund.submitTransaction(
     client,
-    BigNumber.from(fee),
+    BigInt(fee),
     depositUtxo,
     recoveryAddress,
     refunderPrivateKey

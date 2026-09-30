@@ -6,7 +6,7 @@ import {
 } from "../contracts"
 import { EthereumL1BitcoinDepositor } from "./l1-bitcoin-depositor"
 import { EthereumL1BitcoinRedeemer } from "./l1-bitcoin-redeemer"
-import { chainIdFromSigner, EthereumSigner } from "./index"
+import { connectEvm, EthereumSigner } from "./evm-connection"
 
 // Re-export cross-chain classes for backward compatibility. These were
 // previously exported from the barrel (index.ts) but are separated to
@@ -30,8 +30,10 @@ export async function ethereumCrossChainContractsLoader(
   signer: EthereumSigner,
   chainId: Chains.Ethereum
 ): Promise<CrossChainContractsLoader> {
-  const signerChainId = await chainIdFromSigner(signer)
-  if (signerChainId !== chainId) {
+  // Normalize the signer once; every contract handle constructed by this
+  // loader reuses the same connection.
+  const connection = await connectEvm(signer)
+  if (connection.chainId !== chainId) {
     throw new Error(
       "Signer uses different chain than Ethereum cross-chain contracts"
     )
@@ -49,7 +51,7 @@ export async function ethereumCrossChainContractsLoader(
       destinationChainName === "Arbitrum"
     ) {
       l1BitcoinRedeemer = new EthereumL1BitcoinRedeemer(
-        { signerOrProvider: signer },
+        { signerOrProvider: connection },
         chainId,
         destinationChainName
       )
@@ -57,7 +59,7 @@ export async function ethereumCrossChainContractsLoader(
 
     return {
       l1BitcoinDepositor: new EthereumL1BitcoinDepositor(
-        { signerOrProvider: signer },
+        { signerOrProvider: connection },
         chainId,
         destinationChainName
       ),

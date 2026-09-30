@@ -39,7 +39,7 @@ Identifier of the deposit owner.
 
 #### Defined in
 
-[src/lib/contracts/cross-chain.ts:246](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L246)
+[src/lib/contracts/cross-chain.ts:244](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L244)
 
 ___
 
@@ -63,4 +63,4 @@ Encoded extra data.
 
 #### Defined in
 
-[src/lib/contracts/cross-chain.ts:239](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L239)
+[src/lib/contracts/cross-chain.ts:237](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L237)

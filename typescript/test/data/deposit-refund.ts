@@ -1,4 +1,3 @@
-import { BigNumber } from "ethers"
 import { Hex } from "../../src/lib/utils"
 import {
   BitcoinRawTx,
@@ -45,7 +44,7 @@ export const depositRefundOfWitnessDepositAndWitnessRefunderAddress: DepositRefu
           "6430be26d8564658bf3ff0f74e4a7ddce9d65e9c7157d6e4a203125fc01d3c6d"
         ),
         outputIndex: 0,
-        value: BigNumber.from(100000),
+        value: 100000n,
         transactionHex:
           "010000000001012b426822cb1900caef0d3bb8dc91227c77dc79305cc939843487" +
           "25fb18a24b4d0100000000ffffffff02a086010000000000220020809dc9315182" +
@@ -107,7 +106,7 @@ export const depositRefundOfNonWitnessDepositAndWitnessRefunderAddress: DepositR
           "60650462f367bf89b5a0dc52d7d1f65986296fa8d8903b129c444e2b742f0143"
         ),
         outputIndex: 0,
-        value: BigNumber.from(90000),
+        value: 90000n,
         transactionHex:
           "01000000000101d5c5fb73a9a426c4d9c509954e11cc0f3070bb06bb7761c3600e" +
           "c817fd63e90f0100000000ffffffff02905f01000000000017a9146447bec3083e" +
@@ -168,7 +167,7 @@ export const depositRefundOfWitnessDepositAndNonWitnessRefunderAddress: DepositR
           "b1fb065a61a6401279cafb95d10b502a6cd22f747bcfdb09ab25d4ee6f64319f"
         ),
         outputIndex: 0,
-        value: BigNumber.from(150000),
+        value: 150000n,
         transactionHex:
           "0100000000010143012f742b4e449c123b90d8a86f298659f6d1d752dca0b589bf6" +
           "7f3620465600100000000ffffffff02f049020000000000220020809dc931518260" +

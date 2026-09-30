@@ -1,6 +1,4 @@
 import { BitcoinRawTx, BitcoinTxHash, BitcoinUtxo } from "../../src"
-import { BigNumber } from "ethers"
-
 /**
  * An example address taken from the BTC testnet and having a non-zero balance.
  * This address and its transaction data can be used to make deposits during tests.
@@ -42,7 +40,7 @@ export const testnetTransaction: BitcoinRawTx = {
 export const testnetUTXO: BitcoinUtxo & BitcoinRawTx = {
   transactionHash: testnetTransactionHash,
   outputIndex: 1,
-  value: BigNumber.from(3933200),
+  value: 3933200n,
   ...testnetTransaction,
 }
 

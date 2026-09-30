@@ -81,7 +81,7 @@ ___
 
 ### balanceOf
 
-▸ **balanceOf**(`identifier`): `Promise`\<`BigNumber`\>
+▸ **balanceOf**(`identifier`): `Promise`\<`bigint`\>
 
 Returns the user’s TBTC balance (in smallest token units).
 If the associated token account does not exist, we create it
@@ -95,7 +95,7 @@ using a transaction signed by the connected wallet.
 
 #### Returns
 
-`Promise`\<`BigNumber`\>
+`Promise`\<`bigint`\>
 
 #### Implementation of
 
@@ -129,13 +129,13 @@ ___
 
 ### totalSupply
 
-▸ **totalSupply**(): `Promise`\<`BigNumber`\>
+▸ **totalSupply**(): `Promise`\<`bigint`\>
 
 Fetches the total supply from the TBTC mint’s SPL Token account.
 
 #### Returns
 
-`Promise`\<`BigNumber`\>
+`Promise`\<`bigint`\>
 
 #### Defined in
 

@@ -40,7 +40,7 @@ through custom integration with the tBTC Bridge contract.
 
 #### Defined in
 
-[src/lib/contracts/tbtc-token.ts:61](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/tbtc-token.ts#L61)
+[src/lib/contracts/tbtc-token.ts:60](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/tbtc-token.ts#L60)
 
 ___
 
@@ -56,7 +56,7 @@ Gets the chain-specific identifier of this contract.
 
 #### Defined in
 
-[src/lib/contracts/tbtc-token.ts:13](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/tbtc-token.ts#L13)
+[src/lib/contracts/tbtc-token.ts:12](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/tbtc-token.ts#L12)
 
 ___
 
@@ -76,7 +76,7 @@ tBTC tokens and requests redemption.
 | `walletPublicKey` | [`Hex`](../classes/Hex.md) | The Bitcoin public key of the wallet. Must be in the compressed form (33 bytes long with 02 or 03 prefix). |
 | `mainUtxo` | [`BitcoinUtxo`](../README.md#bitcoinutxo) | The main UTXO of the wallet. Must match the main UTXO held by the on-chain Bridge contract. |
 | `redeemerOutputScript` | [`Hex`](../classes/Hex.md) | The output script that the redeemed funds will be locked to. Must not be prepended with length. |
-| `amount` | `BigNumber` | The amount to be redeemed with the precision of the tBTC on-chain token contract. |
+| `amount` | `bigint` | The amount to be redeemed with the precision of the tBTC on-chain token contract. |
 
 #### Returns
 
@@ -86,13 +86,13 @@ Transaction hash of the approve and call transaction.
 
 #### Defined in
 
-[src/lib/contracts/tbtc-token.ts:40](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/tbtc-token.ts#L40)
+[src/lib/contracts/tbtc-token.ts:39](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/tbtc-token.ts#L39)
 
 ___
 
 ### totalSupply
 
-▸ **totalSupply**(`blockNumber?`): `Promise`\<`BigNumber`\>
+▸ **totalSupply**(`blockNumber?`): `Promise`\<`bigint`\>
 
 Gets the total supply of the TBTC v2 token. The returned value is in
 ERC 1e18 precision, it has to be converted before using as Bitcoin value
@@ -106,8 +106,8 @@ with 1e8 precision in satoshi.
 
 #### Returns
 
-`Promise`\<`BigNumber`\>
+`Promise`\<`bigint`\>
 
 #### Defined in
 
-[src/lib/contracts/tbtc-token.ts:23](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/tbtc-token.ts#L23)
+[src/lib/contracts/tbtc-token.ts:22](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/tbtc-token.ts#L22)

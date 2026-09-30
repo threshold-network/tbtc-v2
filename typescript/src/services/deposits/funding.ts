@@ -10,7 +10,7 @@ import {
   BitcoinUtxo,
   toBitcoinJsLibNetwork,
 } from "../../lib/bitcoin"
-import { BigNumber } from "@ethersproject/bignumber"
+
 import { Psbt, Transaction } from "bitcoinjs-lib"
 import { Hex } from "../../lib/utils"
 
@@ -61,9 +61,9 @@ export class DepositFunding {
    */
   async assembleTransaction(
     bitcoinNetwork: BitcoinNetwork,
-    amount: BigNumber,
+    amount: bigint,
     inputUtxos: (BitcoinUtxo & BitcoinRawTx)[],
-    fee: BigNumber,
+    fee: bigint,
     depositorPrivateKey: string
   ): Promise<{
     transactionHash: BitcoinTxHash
@@ -80,8 +80,8 @@ export class DepositFunding {
     const psbt = new Psbt({ network })
     psbt.setVersion(1)
 
-    const totalExpenses = amount.add(fee)
-    let totalInputValue = BigNumber.from(0)
+    const totalExpenses = amount + fee
+    let totalInputValue = 0n
 
     for (const utxo of inputUtxos) {
       const previousOutput = Transaction.fromHex(utxo.transactionHex).outs[
@@ -102,8 +102,8 @@ export class DepositFunding {
           },
         })
 
-        totalInputValue = totalInputValue.add(utxo.value)
-        if (totalInputValue.gte(totalExpenses)) {
+        totalInputValue += utxo.value
+        if (totalInputValue >= totalExpenses) {
           break
         }
       }
@@ -112,26 +112,26 @@ export class DepositFunding {
 
     // Sum of the selected UTXOs must be equal to or greater than the deposit
     // amount plus fee.
-    if (totalInputValue.lt(totalExpenses)) {
+    if (totalInputValue < totalExpenses) {
       throw new Error("Not enough funds in selected UTXOs to fund transaction")
     }
 
     // Add deposit output.
     psbt.addOutput({
       address: await this.script.deriveAddress(bitcoinNetwork),
-      value: amount.toNumber(),
+      value: Number(amount),
     })
 
     // Add change output if needed.
-    const changeValue = totalInputValue.sub(totalExpenses)
-    if (changeValue.gt(0)) {
+    const changeValue = totalInputValue - totalExpenses
+    if (changeValue > 0n) {
       const depositorAddress = BitcoinAddressConverter.publicKeyToAddress(
         Hex.from(depositorKeyPair.publicKey),
         bitcoinNetwork
       )
       psbt.addOutput({
         address: depositorAddress,
-        value: changeValue.toNumber(),
+        value: Number(changeValue),
       })
     }
 
@@ -179,9 +179,9 @@ export class DepositFunding {
    *        the deposit amount and transaction fee.
    */
   async submitTransaction(
-    amount: BigNumber,
+    amount: bigint,
     inputUtxos: BitcoinUtxo[],
-    fee: BigNumber,
+    fee: bigint,
     depositorPrivateKey: string,
     bitcoinClient: BitcoinClient
   ): Promise<{

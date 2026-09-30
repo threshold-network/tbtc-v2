@@ -29,8 +29,19 @@
  *
  * Bitcoin address types: P2PKH, P2WPKH, P2SH, P2WSH (SDK enforces).
  */
-import { ethers, BigNumber } from "ethers"
-import { TBTC } from "../src/services/tbtc"
+import {
+  createPublicClient,
+  createWalletClient,
+  defineChain,
+  http,
+  parseAbi,
+  type Address,
+  type PublicClient,
+} from "viem"
+import { privateKeyToAccount } from "viem/accounts"
+// The core entrypoint suffices here: this script never touches cross-chain
+// contracts, and the core class is what `initializeCustom` is typed to return.
+import { TBTC } from "../src/services/tbtc-core"
 import { ElectrumClient } from "../src/lib/electrum"
 import {
   BitcoinClientWithNetworkOverride,
@@ -42,41 +53,41 @@ import { Hex } from "../src/lib/utils"
 import { amountToSatoshi } from "../src/lib/utils/bitcoin"
 
 /** Same as tBTC token: 1 satoshi == 1e10 in ERC-20 units. */
-const SATOSHI_MULTIPLIER = BigNumber.from(10).pow(10)
+const SATOSHI_MULTIPLIER = 10n ** 10n
 
-function satToTokenAmount(sat: BigNumber): BigNumber {
-  return sat.mul(SATOSHI_MULTIPLIER)
+function satToTokenAmount(sat: bigint): bigint {
+  return sat * SATOSHI_MULTIPLIER
 }
 
-function tokenAmountToWholeSatoshi(token: BigNumber): BigNumber {
-  return token.sub(token.mod(SATOSHI_MULTIPLIER)).div(SATOSHI_MULTIPLIER)
+function tokenAmountToWholeSatoshi(token: bigint): bigint {
+  return (token - (token % SATOSHI_MULTIPLIER)) / SATOSHI_MULTIPLIER
 }
 
 async function getTbtcBalance(
-  wallet: ethers.Wallet,
-  tokenAddress: string
-): Promise<BigNumber> {
-  const erc20 = new ethers.Contract(
-    tokenAddress,
-    ["function balanceOf(address) view returns (uint256)"],
-    wallet
-  )
-  return erc20.balanceOf(wallet.address) as Promise<BigNumber>
+  publicClient: PublicClient,
+  holder: Address,
+  tokenAddress: Address
+): Promise<bigint> {
+  return publicClient.readContract({
+    address: tokenAddress,
+    abi: parseAbi(["function balanceOf(address) view returns (uint256)"]),
+    functionName: "balanceOf",
+    args: [holder],
+  })
 }
 
 async function getRedemptionDustThreshold(
-  wallet: ethers.Wallet,
-  bridgeAddress: string
-): Promise<BigNumber> {
-  const bridge = new ethers.Contract(
-    bridgeAddress,
-    [
+  publicClient: PublicClient,
+  bridgeAddress: Address
+): Promise<bigint> {
+  const r = await publicClient.readContract({
+    address: bridgeAddress,
+    abi: parseAbi([
       "function redemptionParameters() view returns (uint64,uint64,uint64,uint64,uint32,uint96,uint32)",
-    ],
-    wallet
-  )
-  const r = await bridge.redemptionParameters()
-  return BigNumber.from(r[0])
+    ]),
+    functionName: "redemptionParameters",
+  })
+  return BigInt(r[0])
 }
 
 async function main() {
@@ -99,11 +110,26 @@ async function main() {
     process.exit(1)
   }
 
-  // StaticJsonRpcProvider avoids eth_chainId-based network detection (which fails
-  // with NETWORK_ERROR / noNetwork when the RPC is slow, flaky, or misconfigured).
+  // A statically defined chain avoids eth_chainId-based network detection
+  // (which fails when the RPC is slow, flaky, or misconfigured).
   const chainId = parseInt(process.env.CHAIN_ID || "11155111", 10)
-  const provider = new ethers.providers.StaticJsonRpcProvider(rpcUrl, chainId)
-  const wallet = new ethers.Wallet(privateKey, provider)
+  const chain = defineChain({
+    id: chainId,
+    name: `chain-${chainId}`,
+    nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+    rpcUrls: { default: { http: [rpcUrl] } },
+  })
+  const account = privateKeyToAccount(
+    (privateKey.startsWith("0x")
+      ? privateKey
+      : `0x${privateKey}`) as `0x${string}`
+  )
+  const wallet = createWalletClient({
+    account,
+    chain,
+    transport: http(rpcUrl),
+  })
+  const publicClient = createPublicClient({ chain, transport: http(rpcUrl) })
 
   const electrumUrl = process.env.ELECTRUM_URL
   const useNetworkOverride = process.env.BITCOIN_NETWORK === "testnet4"
@@ -146,18 +172,22 @@ async function main() {
   }
 
   const tokenId = await tbtc.tbtcContracts.tbtcToken.getChainIdentifier()
-  const tokenAddress = `0x${tokenId.identifierHex}`
+  const tokenAddress = `0x${tokenId.identifierHex}` as Address
 
-  const balance = await getTbtcBalance(wallet, tokenAddress)
+  const balance = await getTbtcBalance(
+    publicClient,
+    account.address,
+    tokenAddress
+  )
   const balanceSat = tokenAmountToWholeSatoshi(balance)
   console.log(
     `TBTC balance (this token): ${balanceSat.toString()} sat` +
       ` (${balance.toString()} smallest units)`
   )
 
-  let amount: BigNumber
+  let amount: bigint
   if (redeemMax) {
-    if (balanceSat.lte(0)) {
+    if (balanceSat <= 0n) {
       console.error("No tBTC balance to redeem (or dust after rounding).")
       process.exit(1)
     }
@@ -166,10 +196,10 @@ async function main() {
       `Redeeming max: ${balanceSat.toString()} sat (token units aligned)`
     )
   } else {
-    amount = satToTokenAmount(BigNumber.from(amountSatEnv))
+    amount = satToTokenAmount(BigInt(amountSatEnv!))
   }
 
-  if (amount.gt(balance)) {
+  if (amount > balance) {
     const strict = process.env.STRICT_REDEMPTION_AMOUNT === "1"
     if (strict) {
       console.error(
@@ -178,7 +208,7 @@ async function main() {
       process.exit(1)
     }
     const cappedSat = balanceSat
-    if (cappedSat.lte(0)) {
+    if (cappedSat <= 0n) {
       console.error("Cannot cap: TBTC balance is zero.")
       process.exit(1)
     }
@@ -189,16 +219,16 @@ async function main() {
   }
 
   const bridgeId = await tbtc.tbtcContracts.bridge.getChainIdentifier()
-  const bridgeAddress = `0x${bridgeId.identifierHex}`
+  const bridgeAddress = `0x${bridgeId.identifierHex}` as Address
   const dustThresholdSat = await getRedemptionDustThreshold(
-    wallet,
+    publicClient,
     bridgeAddress
   )
   const redemptionSat = amountToSatoshi(amount)
   console.log(
     `Bridge redemption dust threshold (min redemption): ${dustThresholdSat.toString()} sat`
   )
-  if (redemptionSat.lt(dustThresholdSat)) {
+  if (redemptionSat < dustThresholdSat) {
     console.error(
       `Redemption amount (${redemptionSat.toString()} sat) is below the Bridge minimum ` +
         `(${dustThresholdSat.toString()} sat). On-chain revert: "Redemption amount too small". ` +
@@ -208,7 +238,7 @@ async function main() {
   }
 
   console.log("Requesting redemption...")
-  console.log("  Redeemer (ETH):", wallet.address)
+  console.log("  Redeemer (ETH):", account.address)
   console.log("  BTC output:", btcAddress)
 
   const { targetChainTxHash, walletPublicKey } =

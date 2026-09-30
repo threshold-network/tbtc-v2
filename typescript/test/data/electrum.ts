@@ -6,8 +6,6 @@ import {
   BitcoinTxHash,
   Hex,
 } from "../../src"
-import { BigNumber } from "ethers"
-
 /**
  * Bitcoin testnet address used for Electrum client tests.
  */
@@ -35,12 +33,12 @@ export const testnetTransaction: BitcoinTx = {
   outputs: [
     {
       outputIndex: 0,
-      value: BigNumber.from(101),
+      value: 101n,
       scriptPubKey: Hex.from("00144b47c798d12edd17dfb4ea98e5447926f664731c"),
     },
     {
       outputIndex: 1,
-      value: BigNumber.from(9125),
+      value: 9125n,
       scriptPubKey: Hex.from("0014f1f22fbcff25f9d10922a155082f33de50d9c3cd"),
     },
   ],
@@ -66,7 +64,7 @@ export const testnetRawTransaction: BitcoinRawTx = {
 export const testnetUTXO: BitcoinUtxo = {
   transactionHash: testnetTransaction.transactionHash,
   outputIndex: 0,
-  value: BigNumber.from(101),
+  value: 101n,
 }
 
 /**

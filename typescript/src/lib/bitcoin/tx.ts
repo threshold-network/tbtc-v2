@@ -1,6 +1,6 @@
 import { Transaction as Tx } from "bitcoinjs-lib"
 import bufio from "bufio"
-import { BigNumber } from "@ethersproject/bignumber"
+
 import { Hex } from "../utils"
 
 /**
@@ -79,7 +79,7 @@ export interface BitcoinTxOutput {
   /**
    * The value of the output in satoshis.
    */
-  value: BigNumber
+  value: bigint
 
   /**
    * The receiving scriptPubKey.
@@ -94,7 +94,7 @@ export type BitcoinUtxo = BitcoinTxOutpoint & {
   /**
    * The unspent value in satoshis.
    */
-  value: BigNumber
+  value: bigint
 }
 
 /**
@@ -198,7 +198,10 @@ export function extractBitcoinRawTxVectors(
  */
 function locktimeToNumber(locktimeLE: Buffer | string): number {
   const locktimeBE: Buffer = Hex.from(locktimeLE).reverse().toBuffer()
-  return BigNumber.from(locktimeBE).toNumber()
+  const locktimeBEHexString = locktimeBE.toString("hex")
+  return locktimeBEHexString.length === 0
+    ? 0
+    : Number(BigInt(`0x${locktimeBEHexString}`))
 }
 
 /**
@@ -215,9 +218,15 @@ function calculateLocktime(
 ): Hex {
   // Locktime is a Unix timestamp in seconds, computed as locktime start
   // timestamp plus locktime duration.
-  const locktime = BigNumber.from(locktimeStartedAt + locktimeDuration)
+  const locktime = locktimeStartedAt + locktimeDuration
 
-  const locktimeHex: Hex = Hex.from(locktime.toHexString())
+  // Convert the locktime to an even-length un-prefixed hex string.
+  let locktimeHexString = locktime.toString(16)
+  if (locktimeHexString.length % 2 !== 0) {
+    locktimeHexString = `0${locktimeHexString}`
+  }
+
+  const locktimeHex: Hex = Hex.from(locktimeHexString)
 
   if (locktimeHex.toString().length != 8) {
     throw new Error("Locktime must be a 4 bytes number")
