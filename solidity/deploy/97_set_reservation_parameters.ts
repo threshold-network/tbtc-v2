@@ -121,7 +121,11 @@ function isLaterEvent(a: Event, b: Event | undefined): boolean {
  *      with the vault. Activation-ordering gate: on a real network this
  *      must execute at or after this network's keep-core activation
  *      block; see solidity/docs/RESERVATION_CAPS_DEPLOYMENT.md,
- *      "Client Activation Ordering Gate".
+ *      "Client Activation Ordering Gate". On a live network it must
+ *      also follow the last finalizeReservationTermUpdate of step 4
+ *      (the order `deploy/98` emits); this script runs step 3 before
+ *      step 4 only on local test networks, where the reversed order
+ *      fails closed until step 4 completes.
  *
  *   4. `beginReservationTermUpdate(...)` then
  *      `finalizeReservationTermUpdate()` for each missing entry of
@@ -426,7 +430,9 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
       `[PENDING ACTIVATION] Network: ${network.name} | Function: setVaultStatus | ` +
         `Args: (${ReservationVault.address}, true) | ` +
         "Run separately after finalizeReservationParametersUpdate has been executed " +
-        "and confirmed on-chain (do not activate while reservationVault is still zero)"
+        "and confirmed on-chain (do not activate while reservationVault is still zero), " +
+        "and after the last finalizeReservationTermUpdate of step 4 (see " +
+        "solidity/docs/RESERVATION_CAPS_DEPLOYMENT.md, 'Client Activation Ordering Gate')"
     )
     deployments.log(
       "Activation-ordering gate: setVaultStatus(vault, true) must execute " +
