@@ -194,7 +194,10 @@ export function buildReservationActionDefinitions(params: {
           "deposits routed to the vault be revealed as ordinary " +
           "(non-reserved) deposits. Execute after the last " +
           "finalizeReservationTermUpdate, so the vault is activated only " +
-          "once the term table exists.",
+          "once the term table exists. Activation-ordering gate: also " +
+          "execute at or after this network's keep-core activation block; " +
+          "see solidity/docs/RESERVATION_CAPS_DEPLOYMENT.md, " +
+          "'Client Activation Ordering Gate'.",
       },
     },
   ]
@@ -373,6 +376,32 @@ function logCalldataSummary(actions: CalldataAction[]): void {
     "BridgeGovernance's own staging delay for begin*/finalize* pairs is " +
       "172800s (48h), read from governanceDelays(0); setReservationRouter " +
       "and setVaultStatus carry no staging delay (one-off actions)."
+  )
+  // Fee-reserve notice: none of the six actions above configures the
+  // vault's fee reserve target; governance must run a separate
+  // ReservationVault.updateFeeReserveTarget(target) step (or explicitly
+  // accept a zero reserve) before activation; see
+  // solidity/docs/RESERVATION_CAPS_DEPLOYMENT.md, "Fee-Reserve Target
+  // Governance Step".
+  console.log(
+    "Fee-reserve notice: no action in this set configures the vault's " +
+      "fee reserve target; governance must run " +
+      "ReservationVault.updateFeeReserveTarget(target) as a separate " +
+      "action before activation, or explicitly accept a zero reserve; " +
+      "see solidity/docs/RESERVATION_CAPS_DEPLOYMENT.md, " +
+      "'Fee-Reserve Target Governance Step'."
+  )
+  // Trust-revocation notice: after setVaultStatus(vault, false), every
+  // acceptance settled while the vault is untrusted (on time or late)
+  // settles by direct credit to the depositor with no acceptance fee;
+  // see solidity/docs/RESERVATION_CAPS_DEPLOYMENT.md, "Fee Fallback When
+  // Vault Trust Is Revoked".
+  console.log(
+    "Trust-revocation notice: after setVaultStatus(vault, false), every " +
+      "acceptance settled while the vault is untrusted (on time or late) " +
+      "settles by direct credit to the depositor with no acceptance fee; " +
+      "see solidity/docs/RESERVATION_CAPS_DEPLOYMENT.md, " +
+      "'Fee Fallback When Vault Trust Is Revoked'."
   )
   console.log("=".repeat(80))
 }

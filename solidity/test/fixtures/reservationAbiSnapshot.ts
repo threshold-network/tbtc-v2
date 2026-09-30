@@ -53,14 +53,6 @@ async function getContractAbi(contractName: string): Promise<AbiFragment[]> {
 }
 
 /**
- * Compute the 4-byte selector for a function fragment.
- */
-function getSelector(func: Extract<AbiFragment, { type: "function" }>): string {
-  const signature = `${func.name}(${func.inputs.map((i) => i.type).join(",")})`
-  return ethers.utils.id(signature).slice(0, 10)
-}
-
-/**
  * Extract struct field name/type pairs from a tuple-typed parameter (input or output) of a function.
  */
 function getStructFields(
@@ -102,6 +94,14 @@ export async function getReservationAbiSnapshot(): Promise<ReservationAbiSnapsho
   const bridgeAbi = await getContractAbi("IReservationBridge")
   const validatorAbi = await getContractAbi("WalletProposalValidator")
 
+  // Selectors and event topics must be EVM-canonical: the EVM expands a
+  // struct (tuple) parameter to its parenthesized component types when
+  // hashing a signature, so hashing the literal JSON `tuple` placeholder
+  // would yield a wrong value. Build an ethers Interface per artifact ABI
+  // and let it canonicalize.
+  const bridgeIface = new ethers.utils.Interface(bridgeAbi)
+  const validatorIface = new ethers.utils.Interface(validatorAbi)
+
   // Collect functions: all from IReservationBridge and the two validator entry points
   const bridgeFunctions = bridgeAbi
     .filter(
@@ -110,7 +110,7 @@ export async function getReservationAbiSnapshot(): Promise<ReservationAbiSnapsho
     )
     .map((f) => ({
       name: f.name,
-      selector: getSelector(f),
+      selector: bridgeIface.getSighash(ethers.utils.FunctionFragment.from(f)),
       inputs: f.inputs.map((i) => i.type),
       outputs: f.outputs.map((o) => o.type),
     }))
@@ -130,7 +130,9 @@ export async function getReservationAbiSnapshot(): Promise<ReservationAbiSnapsho
     }
     return {
       name: fn.name,
-      selector: getSelector(fn),
+      selector: validatorIface.getSighash(
+        ethers.utils.FunctionFragment.from(fn)
+      ),
       inputs: fn.inputs.map((i) => i.type),
       outputs: fn.outputs.map((o) => o.type),
     }
@@ -145,9 +147,7 @@ export async function getReservationAbiSnapshot(): Promise<ReservationAbiSnapsho
     )
     .map((e) => ({
       name: e.name,
-      topic0: ethers.utils.id(
-        `${e.name}(${e.inputs.map((i) => i.type).join(",")})`
-      ),
+      topic0: bridgeIface.getEventTopic(ethers.utils.EventFragment.from(e)),
       inputs: e.inputs.map((i) => i.type),
     }))
 

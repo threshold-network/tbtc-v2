@@ -2898,13 +2898,20 @@ describe("WalletProposalValidator", () => {
     const otherVault = `0x${"88".repeat(20)}`
 
     const requestNonce = 1
-    const reservationMinAmount = 5000
+    // Lifecycle regression fixtures here are reachable on-chain:
+    // governance requires `reservationMinAmount > reservationTxMaxFee > 0`
+    // (Reservation.updateReservationParameters) and authorization requires
+    // `deposit.amount >= minAmount + txMaxFee` (reservation acceptance).
+    // The below-snapshot-floor case is an explicit mock-only test of the
+    // validator's defensive invariant.
+    const reservationMinAmount = 15000
     const reservationTxMaxFee = 10000
     const anchorTxFee = 6000
-    // Must exceed `reservationMinAmount + anchorTxFee` so the anchor-amount
-    // minimum check (out of this describe block's scope) never fires
-    // incidentally in the cases below.
-    const depositAmount = reservationMinAmount + anchorTxFee + 1000
+    // Meets the authorization floor (`reservationMinAmount +
+    // reservationTxMaxFee`) so the anchor-amount minimum check (out of
+    // this describe block's scope) never fires incidentally in the
+    // cases below.
+    const depositAmount = reservationMinAmount + reservationTxMaxFee + 1000
 
     const reservationActionType = {
       None: 0,
@@ -3715,6 +3722,208 @@ describe("WalletProposalValidator", () => {
         expect(result).to.be.true
       })
     })
+
+    context(
+      "when the live reservation minimum was raised after the action was authorized",
+      () => {
+        before(async () => {
+          await createSnapshot()
+
+          deposit = createTestDeposit(walletPubKeyHash, vault)
+
+          const now = await lastBlockTime()
+
+          await bridge.wallets
+            .whenCalledWith(walletPubKeyHash)
+            .returns(buildWallet(walletState.Live))
+          // Live minimum raised far above the snapshot's (still above the
+          // max fee, as governance requires). The validator must keep
+          // validating against the snapshotted `minAmount` so a
+          // governance parameter change cannot invalidate an already
+          // authorized, broadcast anchor transaction.
+          await reservationBridge.reservationParameters.returns([
+            vault,
+            reservationMinAmount * 2,
+            reservationTxMaxFee,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+          ])
+          await reservationBridge.reservationActions.returns(
+            buildReservationAction({
+              timeoutAt: now + day,
+              txMaxFee: reservationTxMaxFee,
+              minAmount: reservationMinAmount,
+            })
+          )
+          await bridge.deposits.returns({
+            ...deposit.request,
+            amount: depositAmount,
+          })
+          await bridge.isReservedDeposit.returns(true)
+        })
+
+        after(async () => {
+          await bridge.wallets.reset()
+          await reservationBridge.reservationParameters.reset()
+          await reservationBridge.reservationActions.reset()
+          await bridge.deposits.reset()
+          await bridge.isReservedDeposit.reset()
+
+          await restoreSnapshot()
+        })
+
+        it("should pass validation against the snapshotted minimum", async () => {
+          const result =
+            await walletProposalValidator.validateReservationAnchorProposal(
+              buildProposal(),
+              deposit.extraInfo
+            )
+
+          // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+          expect(result).to.be.true
+        })
+      }
+    )
+
+    context(
+      "when the anchor amount falls below the action's snapshotted minimum",
+      () => {
+        before(async () => {
+          await createSnapshot()
+
+          deposit = createTestDeposit(walletPubKeyHash, vault)
+
+          const now = await lastBlockTime()
+
+          await bridge.wallets
+            .whenCalledWith(walletPubKeyHash)
+            .returns(buildWallet(walletState.Live))
+          // Live minimum lowered, but still above the max fee as
+          // governance requires; the snapshotted minimum is what must
+          // still be enforced at signing time.
+          await reservationBridge.reservationParameters.returns([
+            vault,
+            reservationTxMaxFee + 2000,
+            reservationTxMaxFee,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+          ])
+          await reservationBridge.reservationActions.returns(
+            buildReservationAction({
+              timeoutAt: now + day,
+              txMaxFee: reservationTxMaxFee,
+              minAmount: reservationMinAmount,
+            })
+          )
+          // Unreachable through authorization: an authorized deposit is
+          // at least `minAmount + txMaxFee` (the floor here); the value 1
+          // sat below that only pins that the validator's floor is derived
+          // from the action's snapshotted minimum, not the live one.
+          await bridge.deposits.returns({
+            ...deposit.request,
+            amount: reservationMinAmount + reservationTxMaxFee - 1,
+          })
+          await bridge.isReservedDeposit.returns(true)
+        })
+
+        after(async () => {
+          await bridge.wallets.reset()
+          await reservationBridge.reservationParameters.reset()
+          await reservationBridge.reservationActions.reset()
+          await bridge.deposits.reset()
+          await bridge.isReservedDeposit.reset()
+
+          await restoreSnapshot()
+        })
+
+        it("should revert", async () => {
+          await expect(
+            walletProposalValidator.validateReservationAnchorProposal(
+              buildProposal({ anchorTxFee: reservationTxMaxFee }),
+              deposit.extraInfo
+            )
+          ).to.be.revertedWith("Anchor amount below the reservation minimum")
+        })
+      }
+    )
+
+    context(
+      "when the anchor amount equals the action's snapshotted minimum exactly",
+      () => {
+        before(async () => {
+          await createSnapshot()
+
+          deposit = createTestDeposit(walletPubKeyHash, vault)
+
+          const now = await lastBlockTime()
+
+          await bridge.wallets
+            .whenCalledWith(walletPubKeyHash)
+            .returns(buildWallet(walletState.Live))
+          // Live minimum moved after authorization; the validator must
+          // still accept the exact boundary against the snapshotted
+          // `minAmount`.
+          await reservationBridge.reservationParameters.returns([
+            vault,
+            reservationMinAmount + 5000,
+            reservationTxMaxFee,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+          ])
+          await reservationBridge.reservationActions.returns(
+            buildReservationAction({
+              timeoutAt: now + day,
+              txMaxFee: reservationTxMaxFee,
+              minAmount: reservationMinAmount,
+            })
+          )
+          // Amount is exactly `minAmount + anchorTxFee` (proposing the fee
+          // at the authorized `txMaxFee`), sitting on the validator's
+          // `>=` boundary and at the authorization floor.
+          await bridge.deposits.returns({
+            ...deposit.request,
+            amount: reservationMinAmount + reservationTxMaxFee,
+          })
+          await bridge.isReservedDeposit.returns(true)
+        })
+
+        after(async () => {
+          await bridge.wallets.reset()
+          await reservationBridge.reservationParameters.reset()
+          await reservationBridge.reservationActions.reset()
+          await bridge.deposits.reset()
+          await bridge.isReservedDeposit.reset()
+
+          await restoreSnapshot()
+        })
+
+        it("should pass validation at the exact boundary", async () => {
+          const result =
+            await walletProposalValidator.validateReservationAnchorProposal(
+              buildProposal({ anchorTxFee: reservationTxMaxFee }),
+              deposit.extraInfo
+            )
+
+          // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+          expect(result).to.be.true
+        })
+      }
+    )
   })
 
   describe("validateReservationReanchorProposal", () => {

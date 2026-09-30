@@ -224,17 +224,18 @@ library Reservation {
         // sum would exceed the uint32 ceiling - starting somewhat before
         // February 7th 2106, proportional to the delay applied on top of
         // expiresAt's own margin.
-        // As of this milestone, this field's only on-chain reader —
-        // re-anchor's `< dissolutionEligibleAt` gate in
-        // `requestReservationReanchor` — has been removed. The field is
-        // written by `ReservationProofs.settleAcceptance` but
-        // read by nothing in m1. It must continue to be written anyway:
+        // The Closing-wallet branch of `notifyReservationStranded`
+        // is the single on-chain reader of this field: it strands a
+        // reservation only once its custodying wallet is Closing and
+        // `block.timestamp >= dissolutionEligibleAt`. Re-anchor does
+        // not read it. `settleAcceptance` writes it on every
+        // acceptance. It must continue to be written:
         // storage-completeness for a milestone-2 field means written, not
         // merely declared, and this field is a commitment held in storage
         // for m2's dissolution feature to honour. m2 must independently
         // decide whether to restore an eligibility gate on re-anchor when
-        // dissolution ships; this PR's removal defers that design decision
-        // without answering it.
+        // dissolution ships; that design decision is deferred to m2
+        // without being answered here.
         uint32 dissolutionEligibleAt;
         // Cumulative satoshi lost to Bitcoin miner fees across all
         // re-anchor hops of this reservation. Will be written on every
