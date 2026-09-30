@@ -313,6 +313,11 @@ const config: HardhatUserConfig = {
   },
   mocha: {
     timeout: 60_000,
+    // Serial by default (locally and for any workflow/job that doesn't set
+    // the var); PR jobs opt in with HARDHAT_MOCHA_PARALLEL=true. The
+    // integration suite (NODE_ENV=integration-test) mutates shared
+    // in-process state and must always stay serial.
+    parallel: process.env.HARDHAT_MOCHA_PARALLEL === "true",
   },
   typechain: {
     outDir: "typechain",
