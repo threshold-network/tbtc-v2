@@ -77,13 +77,12 @@ library Reservation {
     ///         each id is used at most once. No reader loops the table (the
     ///         largest and smallest lengths are cached by
     ///         `BridgeState.addReservationTerm`), so the bound is a menu
-    ///         budget, not a gas one. Raising it changes this constant and
-    ///         every mirror of its value: the range stated in the
-    ///         `IReservationBridge.setReservationTerm` NatSpec, the id
-    ///         literals in `test/fixtures/bridge.ts`,
-    ///         `Bridge.ReservationTerms.test.ts` and
-    ///         `Bridge.ReservationRevealCap.test.ts`, and the calldata
-    ///         validator in `deploy/98`.
+    ///         budget, not a gas one. Its value is also written out as a
+    ///         literal in contract NatSpec (the router, the interface and
+    ///         the vault), in tests and fixtures, and in the mainnet
+    ///         calldata validator `deploy/98_generate_reservation_mainnet_calldata.ts`;
+    ///         raising it means finding every literal, not only the uses of
+    ///         this name.
     uint8 internal constant MAX_RESERVATION_TERM_ID = 8;
     /// @notice Upper bound on a reservation term entry's custody fee, in
     ///         basis points.
