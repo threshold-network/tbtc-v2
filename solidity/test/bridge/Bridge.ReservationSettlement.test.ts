@@ -78,6 +78,16 @@ import type {
   TBTC,
 } from "../../typechain"
 import bridgeFixture from "../fixtures/bridge"
+import { RESERVATION_TERM_ENTRIES } from "../helpers/reservation-terms"
+import {
+  buildTx,
+  impersonateContract,
+  makeAcceptedReservation as makeAcceptedReservationWith,
+  p2wpkhScript,
+  proofFor,
+  toLE,
+} from "../helpers/reservation-proofs"
+import type { ReservationProofContext } from "../helpers/reservation-proofs"
 import type { Mock } from "../helpers/mock"
 import { walletState } from "../fixtures"
 
@@ -87,6 +97,8 @@ const { lastBlockTime, increaseTime } = helpers.time
 const ZERO_BYTES32 = ethers.constants.HashZero
 
 const RESERVATION_TERM = 31536000 // 365 days
+// The seeded 365-day entry, so acceptances keep the term above.
+const ACCEPTANCE_TERM_ID = RESERVATION_TERM_ENTRIES[0].termId
 const RESERVATION_GRACE = 2592000 // 30 days
 const RESERVATION_MIN_AMOUNT = 10000
 const RESERVATION_TX_MAX_FEE = 2000
@@ -101,7 +113,7 @@ const RESERVATION_TX_MAX_FEE = 2000
 const RESERVATION_MAX_TOTAL = BigNumber.from("10000000")
 const MAX_RESERVATIONS_PER_WALLET = 10
 const RESERVATION_ACTION_TIMEOUT = 172800 // 48 hours
-const RESERVATION_RENEWAL_WINDOW = 2592000 // 30 days
+const RESERVATION_RENEWAL_WINDOW = 604800 // 7 days
 
 const SATOSHI_MULTIPLIER = BigNumber.from(10).pow(10)
 
@@ -152,6 +164,9 @@ describe("Bridge - Reservation settlement", () => {
   const blindingFactor = "0xf9f0c90d00039523"
   const refundPubKeyHash = "0x28e081f285138ccbe389c1eb8985716230129f89"
   let refundLocktime: string
+  // The acceptance-proof context of this file's single depositor, wallet
+  // and term; set in `before`, once the refund locktime is known.
+  let proofContext: ReservationProofContext
 
   const depositAmount = BigNumber.from(3000000)
   const anchorFee = 1500
@@ -193,6 +208,20 @@ describe("Bridge - Reservation settlement", () => {
       await bridge.governance()
     )
     refundLocktime = `0x${toLE((await lastBlockTime()) + 89 * 24 * 60 * 60, 4)}`
+    proofContext = {
+      bridge,
+      reservationRouter,
+      reservationVault: reservationVault.address,
+      depositor: thirdParty,
+      spvMaintainer,
+      walletPubKeyHash,
+      blindingFactor,
+      refundPubKeyHash,
+      refundLocktime,
+      depositAmount,
+      anchorAmount,
+      termId: ACCEPTANCE_TERM_ID,
+    }
 
     await bridge
       .connect(bridgeGovernanceSigner)
@@ -232,17 +261,6 @@ describe("Bridge - Reservation settlement", () => {
     await tbtc.connect(tbtcOwner).transferOwnership(tbtcVault.address)
   })
 
-  async function impersonateContract(
-    address: string
-  ): Promise<SignerWithAddress> {
-    await ethers.provider.send("hardhat_impersonateAccount", [address])
-    await ethers.provider.send("hardhat_setBalance", [
-      address,
-      "0x8AC7230489E80000",
-    ])
-    return ethers.getSigner(address)
-  }
-
   async function liveWallet(pkh: string) {
     await bridge.setWallet(pkh, {
       ecdsaWalletID: ethers.utils.randomBytes(32),
@@ -257,181 +275,10 @@ describe("Bridge - Reservation settlement", () => {
     })
   }
 
-  // ---- Bitcoin fixture crafting (regtest-style difficulty) ----
-
-  const REGTEST_BITS_LE = "ffff7f20"
-  const REGTEST_TARGET = BigNumber.from("0x7fffff").mul(
-    BigNumber.from(2).pow(8 * (0x20 - 3))
-  )
-
-  const reverseHex = (hex: string): string =>
-    hex.replace(/^0x/, "").match(/../g)!.reverse().join("")
-
-  const hash256 = (hexData: string): string =>
-    ethers.utils.sha256(ethers.utils.sha256(hexData))
-
-  const toLE = (value: number | BigNumber, byteLength: number): string =>
-    reverseHex(
-      BigNumber.from(value)
-        .toHexString()
-        .slice(2)
-        .padStart(byteLength * 2, "0")
-    )
-
-  const compactSize = (n: number): string => {
-    if (n >= 0xfd) {
-      throw new Error("compactSize > 252 not supported in fixtures")
-    }
-    return n.toString(16).padStart(2, "0")
-  }
-
-  function buildTx(
-    inputs: { txHash: string; index: number }[],
-    outputs: { valueSat: BigNumber | number; script: string }[]
-  ) {
-    const inputVector = `0x${compactSize(inputs.length)}${inputs
-      .map((i) => `${i.txHash.slice(2)}${toLE(i.index, 4)}00ffffffff`)
-      .join("")}`
-    const outputVector = `0x${compactSize(outputs.length)}${outputs
-      .map(
-        (o) =>
-          `${toLE(BigNumber.from(o.valueSat), 8)}${compactSize(
-            o.script.length / 2
-          )}${o.script}`
-      )
-      .join("")}`
-    const info = {
-      version: "0x01000000",
-      inputVector,
-      outputVector,
-      locktime: "0x00000000",
-    }
-    const txHash = hash256(
-      `0x01000000${inputVector.slice(2)}${outputVector.slice(2)}00000000`
-    )
-    return { info, txHash }
-  }
-
-  function mineHeader(merkleRoot: string): string {
-    const prevBlock = ethers.utils
-      .hexlify(ethers.utils.randomBytes(32))
-      .slice(2)
-    const base = `20000000${prevBlock}${merkleRoot.slice(
-      2
-    )}662a2c68${REGTEST_BITS_LE}`
-    for (let nonce = 0; ; nonce++) {
-      const header = `0x${base}${toLE(nonce, 4)}`
-      if (
-        BigNumber.from(`0x${reverseHex(hash256(header))}`).lte(REGTEST_TARGET)
-      ) {
-        return header
-      }
-    }
-  }
-
-  function proofFor(txHash: string) {
-    const coinbasePreimage = ethers.utils.sha256(ethers.utils.randomBytes(32))
-    const coinbaseTxId = ethers.utils.sha256(coinbasePreimage)
-    const merkleRoot = hash256(`0x${coinbaseTxId.slice(2)}${txHash.slice(2)}`)
-    return {
-      merkleProof: coinbaseTxId,
-      txIndexInBlock: 1,
-      bitcoinHeaders: mineHeader(merkleRoot),
-      coinbasePreimage,
-      coinbaseProof: txHash,
-    }
-  }
-
-  const buildDepositScript = (
-    depositor: string,
-    blinding: string,
-    walletPkh: string,
-    refundPkh: string,
-    locktime: string
-  ): string =>
-    `14${depositor.slice(2)}7508${blinding.slice(2)}7576a914${walletPkh
-      .slice(2)
-      .toLowerCase()}8763ac6776a914${refundPkh.slice(2)}8804${locktime.slice(
-      2
-    )}b175ac68`
-
-  const p2wshScript = (script: string): string =>
-    `0020${ethers.utils.sha256(`0x${script}`).slice(2)}`
-
-  const p2wpkhScript = (pkh: string): string => `0014${pkh.slice(2)}`
-
-  const randomRedeemerScript = (): string =>
-    `0x16${p2wpkhScript(ethers.utils.hexlify(ethers.utils.randomBytes(20)))}`
-
-  // Reveals a fresh reserved deposit and requests acceptance (generation 1).
-  async function makeRequestedReservation(custodian = walletPubKeyHash) {
-    const fundingTx = buildTx(
-      [
-        {
-          txHash: ethers.utils.hexlify(ethers.utils.randomBytes(32)),
-          index: 0,
-        },
-      ],
-      [
-        {
-          valueSat: depositAmount,
-          script: p2wshScript(
-            buildDepositScript(
-              thirdParty.address,
-              blindingFactor,
-              custodian,
-              refundPubKeyHash,
-              refundLocktime
-            )
-          ),
-        },
-      ]
-    )
-
-    await bridge.connect(thirdParty).revealDeposit(fundingTx.info, {
-      fundingOutputIndex: 0,
-      blindingFactor,
-      walletPubKeyHash: custodian,
-      refundPubKeyHash,
-      refundLocktime,
-      vault: reservationVault.address,
-    })
-
-    const reservationKey = BigNumber.from(
-      ethers.utils.solidityKeccak256(
-        ["bytes32", "uint32"],
-        [fundingTx.txHash, 0]
-      )
-    )
-
-    await reservationRouter
-      .connect(thirdParty)
-      .requestReservationAcceptance(reservationKey, custodian)
-
-    const anchorTx = buildTx(
-      [{ txHash: fundingTx.txHash, index: 0 }],
-      [{ valueSat: anchorAmount, script: p2wpkhScript(custodian) }]
-    )
-
-    return { fundingTx, anchorTx, reservationKey }
-  }
-
   // Reveals a fresh reserved deposit, requests acceptance (generation 1)
   // and proves the anchor.
-  async function makeAcceptedReservation(custodian = walletPubKeyHash) {
-    const { fundingTx, anchorTx, reservationKey } =
-      await makeRequestedReservation(custodian)
-
-    await reservationRouter
-      .connect(spvMaintainer)
-      .submitReservationAcceptanceProof(
-        anchorTx.info,
-        proofFor(anchorTx.txHash),
-        reservationKey,
-        1
-      )
-
-    return { fundingTx, anchorTx, reservationKey }
+  async function makeAcceptedReservation() {
+    return makeAcceptedReservationWith(proofContext)
   }
 
   describe("cumulative re-anchor fee exposure (accepted regression)", () => {

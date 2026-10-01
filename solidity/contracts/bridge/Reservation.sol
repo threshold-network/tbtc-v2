@@ -43,9 +43,12 @@ import "./WalletProposalValidatorConstants.sol";
 ///         after the request can make the signed transaction unprovable.
 ///
 ///      2. The SPV *proof* settles the generation against the record's
-///         snapshotted authorization parameters; term and
-///         dissolution-delay grants at settlement additionally read live
-///         governance parameters current at that moment. A generation that
+///         snapshotted parameters, including the term and dissolution
+///         delay an acceptance grants. Two governance-set values are read
+///         live at settlement: the late-acceptance bound (the largest
+///         reservation term entry, which can only grow) and whether the
+///         deposit's vault is still trusted when an acceptance is
+///         credited. A generation that
 ///         times out leaves a terminal record that still accepts a late
 ///         proof (closing the anchor lineage without a second refund); a
 ///         generation vetoed by the redemption watchtower never accepts a
@@ -61,15 +64,29 @@ library Reservation {
     using Wallets for BridgeState.Storage;
 
     /// @notice Hard protocol bounds on the custody term length. The
-    ///         governable term must stay within them; they bound the
-    ///         maximum owner lookahead (one term plus the renewal window)
-    ///         and keep the carry economics of a term meaningful.
-    // Bounds enforced by the governance term-update setter that ships in the
-    // bounded-renewal PR; unused in milestone 1.
-    // slither-disable-next-line unused-state
-    uint32 internal constant MIN_RESERVATION_TERM = 90 days;
-    // slither-disable-next-line unused-state
+    ///         governable term and every reservation term entry must stay
+    ///         within them; they bound the maximum owner lookahead (one
+    ///         term plus the renewal window) and keep the carry economics
+    ///         of a term meaningful.
+    // Enforced by `updateReservationParameters` on the global term and by
+    // `setReservationTerm` on each term entry.
+    uint32 internal constant MIN_RESERVATION_TERM = 30 days;
     uint32 internal constant MAX_RESERVATION_TERM = 730 days;
+    /// @notice Largest reservation term id. Ids 1 to this value are a
+    ///         lifetime budget: entries are never rewritten or removed, so
+    ///         each id is used at most once. No reader loops the table (the
+    ///         largest and smallest lengths are cached by
+    ///         `BridgeState.addReservationTerm`), so the bound is a menu
+    ///         budget, not a gas one. Its value is also written out as a
+    ///         literal in contract NatSpec (the router, the interface and
+    ///         the vault), in tests and fixtures, and in the mainnet
+    ///         calldata validator `deploy/98_generate_reservation_mainnet_calldata.ts`;
+    ///         raising it means finding every literal, not only the uses of
+    ///         this name.
+    uint8 internal constant MAX_RESERVATION_TERM_ID = 8;
+    /// @notice Upper bound on a reservation term entry's custody fee, in
+    ///         basis points.
+    uint16 internal constant MAX_RESERVATION_TERM_CUSTODY_BPS = 500;
     /// @notice Represents the state of a reservation position.
     enum ReservationState {
         /// @dev The reservation is unknown to the Bridge. Acceptance
@@ -167,7 +184,8 @@ library Reservation {
         // UNIX timestamp the custody term expires at. Purely a contract
         // layer fact -- the anchor output carries no timelock.
         // XXX: Unsigned 32-bit int unix seconds. Computed as `acceptedAt +
-        // reservationTermSeconds`; Solidity's checked arithmetic reverts
+        // termSeconds` of the term entry selected at the acceptance request
+        // (`action.termSeconds`); Solidity's checked arithmetic reverts
         // this addition (rather than silently wrapping) once the sum would
         // exceed the uint32 ceiling - starting up to MAX_RESERVATION_TERM
         // (730 days) before the raw February 7th 2106 date, not at it.
@@ -246,9 +264,11 @@ library Reservation {
 
     /// @notice Represents one requested generation of a reservation action.
     ///         All fields the proof and settlement paths consult are
-    ///         snapshotted here at request time; live parameters are never
-    ///         read at settlement, with the exception of term and dissolution
-    ///         delay grants.
+    ///         snapshotted here at request time, including the term and
+    ///         dissolution delay an acceptance grants. The governance-set
+    ///         values read live at settlement are the late-acceptance bound
+    ///         (the largest reservation term entry) and the trust status of
+    ///         the vault an acceptance is credited through.
     struct ReservationAction {
         // 20-byte public key hash of the wallet the action's single
         // wallet-controlled output must pay to: the designated custodian
@@ -322,8 +342,9 @@ library Reservation {
         // redemption (1-input-1-output, closes the reservation) and for
         // every non-redemption action.
         bool isPartial;
-        // Snapshotted `reservationTermSeconds` at acceptance request time.
-        // Zero for every non-acceptance action type. Used by
+        // Snapshotted `termSeconds` of the term entry selected at
+        // acceptance request time (see `reservationActionTermIds` for the
+        // selected id). Zero for every non-acceptance action type. Used by
         // `settleAcceptance` to compute `expiresAt` from the generation
         // record instead of the live governance parameter, matching this
         // struct's snapshot-at-request invariant.
@@ -342,6 +363,26 @@ library Reservation {
         uint64 minAmount;
     }
 
+    /// @notice One entry of the governed reservation term menu.
+    struct ReservationTerm {
+        // Length of the custody term in seconds, within
+        // [MIN_RESERVATION_TERM, MAX_RESERVATION_TERM]. Zero only for an id
+        // that was never added. uint32 matches
+        // `ReservationAction.termSeconds`, which it is copied into, and the
+        // global `reservationTermSeconds`.
+        uint32 termSeconds;
+        // Custody fee of the term in basis points, at most
+        // MAX_RESERVATION_TERM_CUSTODY_BPS; uint16 holds any basis-point
+        // value up to 10000.
+        uint16 custodyBps;
+        // False once governance disables the term: no new position may
+        // select it, and existing positions on it keep its values.
+        bool enabled;
+        // This struct doesn't contain `__gap` property as the structure is
+        // stored in a mapping, mappings store values in different slots and
+        // they are not contiguous with other values.
+    }
+
     event ReservationAcceptanceRequested(
         uint256 indexed reservationKey,
         uint64 requestNonce,
@@ -349,6 +390,12 @@ library Reservation {
         uint64 depositAmount,
         uint64 txMaxFee,
         uint32 timeoutAt
+    );
+
+    event ReservationTermSelected(
+        uint256 indexed reservationKey,
+        uint64 requestNonce,
+        uint8 termId
     );
 
     event ReservationReanchorRequested(
@@ -385,6 +432,13 @@ library Reservation {
         uint32 maxReservationsPerWallet,
         uint32 reservationActionTimeout,
         uint32 reservationRenewalWindowSeconds
+    );
+
+    event ReservationTermUpdated(
+        uint8 indexed termId,
+        uint32 termSeconds,
+        uint16 custodyBps,
+        bool enabled
     );
 
     event ReservationVaultUpdated(address reservationVault);
@@ -424,6 +478,20 @@ library Reservation {
         return self.reservationActions[actionKey(reservationKey, requestNonce)];
     }
 
+    /// @notice Records the term id selected for the given acceptance
+    ///         generation. Kept out of `requestReservationAcceptance` to
+    ///         keep that function within the stack limit.
+    function recordActionTermId(
+        BridgeState.Storage storage self,
+        uint256 reservationKey,
+        uint64 requestNonce,
+        uint8 termId
+    ) private {
+        self.reservationActionTermIds[
+            actionKey(reservationKey, requestNonce)
+        ] = termId;
+    }
+
     /// @notice Returns the canonical hash of a reservation anchor outpoint.
     ///         Action generations snapshot this value so a late proof can
     ///         only consume the exact anchor that generation authorized.
@@ -452,6 +520,10 @@ library Reservation {
     /// @param walletPubKeyHash 20-byte public key hash of the wallet that
     ///        will anchor the deposit. Must be the wallet the deposit was
     ///        revealed for.
+    /// @param termId Id of the reservation term entry the position is
+    ///        opened on. The entry's `termSeconds` is snapshotted into the
+    ///        generation's action record and the id into
+    ///        `reservationActionTermIds`.
     /// @dev Requirements:
     ///      - The reservation vault must be set,
     ///      - The deposit must be revealed to the reservation vault and not
@@ -461,6 +533,7 @@ library Reservation {
     ///      - Wallet must be the deposit's designated wallet,
     ///      - No reservation may already exist for the key,
     ///      - The wallet must be Live,
+    ///      - `termId` must name an existing, enabled term entry,
     ///      - The deposit amount must satisfy the reservation minimum plus
     ///        the transaction fee allowance, so a compliant anchor always
     ///        satisfies the minimum after fees,
@@ -488,7 +561,8 @@ library Reservation {
     function requestReservationAcceptance(
         BridgeState.Storage storage self,
         uint256 reservationKey,
-        bytes20 walletPubKeyHash
+        bytes20 walletPubKeyHash,
+        uint8 termId
     ) external {
         require(
             self.reservationVault != address(0),
@@ -542,6 +616,15 @@ library Reservation {
                 Wallets.WalletState.Live,
             "Wallet must be in Live state"
         );
+
+        // A zero `termSeconds` marks an id that was never added, including
+        // every id outside [1, MAX_RESERVATION_TERM_ID]. Scoped to keep the
+        // function within the stack limit.
+        {
+            ReservationTerm storage term = self.reservationTerms[termId];
+            require(term.termSeconds != 0, "Reservation term does not exist");
+            require(term.enabled, "Reservation term is disabled");
+        }
 
         uint64 txMaxFee = self.reservationTxMaxFee;
         uint64 minAmount = self.reservationMinAmount;
@@ -611,6 +694,8 @@ library Reservation {
 
         uint64 requestNonce = ++reservation.requestNonce;
 
+        recordActionTermId(self, reservationKey, requestNonce, termId);
+
         ReservationAction storage action = getAction(
             self,
             reservationKey,
@@ -625,7 +710,7 @@ library Reservation {
         action.minAmount = minAmount;
         action.targetWalletPubKeyHash = walletPubKeyHash;
         action.amount = deposit.amount;
-        action.termSeconds = self.reservationTermSeconds;
+        action.termSeconds = self.reservationTerms[termId].termSeconds;
         action.dissolutionDelay = self.reservationDissolutionDelay;
 
         emit ReservationAcceptanceRequested(
@@ -636,6 +721,7 @@ library Reservation {
             action.txMaxFee,
             timeoutAt
         );
+        emit ReservationTermSelected(reservationKey, requestNonce, termId);
     }
 
     /// @notice Permissionlessly reports a pending acceptance authorization
@@ -1244,6 +1330,9 @@ library Reservation {
     ///      - `reservationRenewalWindowSeconds` must be greater than zero
     ///        and strictly shorter than the term (written in milestone 1
     ///        for storage completeness; unread until renewal lands),
+    ///      - `reservationRenewalWindowSeconds` must be strictly shorter
+    ///        than the smallest reservation term entry ever added (skipped
+    ///        while the term table is empty),
     ///      - `reservationActionTimeout` must exceed the wallet
     ///        validator's final signing safety margin,
     ///      - `maxReservationsPerWallet` must be greater than zero, so the
@@ -1287,6 +1376,17 @@ library Reservation {
             reservationRenewalWindowSeconds > 0 &&
                 reservationRenewalWindowSeconds < reservationTermSeconds,
             "Renewal window must be shorter than the term"
+        );
+        // Mirror of the relation `setReservationTerm` enforces from the
+        // table side. Zero means the table is empty, where the relation is
+        // skipped.
+        uint32 smallestTermSeconds = BridgeState.smallestReservationTermSeconds(
+            self
+        );
+        require(
+            smallestTermSeconds == 0 ||
+                reservationRenewalWindowSeconds < smallestTermSeconds,
+            "Renewal window must be shorter than every term entry"
         );
         require(
             reservationActionTimeout >
@@ -1352,6 +1452,103 @@ library Reservation {
             reservationActionTimeout,
             reservationRenewalWindowSeconds
         );
+    }
+
+    /// @notice Adds a reservation term entry, or flips the `enabled` flag of
+    ///         an existing one. Entries are never rewritten or removed:
+    ///         positions hold their term id, so the values behind an id
+    ///         must not change after any position selects it.
+    /// @param termId Id of the entry, in [1, MAX_RESERVATION_TERM_ID].
+    /// @param termSeconds Length of the custody term in seconds. For an
+    ///        existing entry, must equal the stored value.
+    /// @param custodyBps Custody fee of the term in basis points. For an
+    ///        existing entry, must equal the stored value.
+    /// @param enabled Whether new positions may select the term. For an
+    ///        existing entry, must differ from the stored value.
+    /// @dev Requirements:
+    ///      - `termId` must be in [1, MAX_RESERVATION_TERM_ID],
+    ///      - For an existing entry (non-zero stored `termSeconds`):
+    ///        `termSeconds` and `custodyBps` must equal the stored values
+    ///        and `enabled` must differ from the stored flag,
+    ///      - For a new entry:
+    ///        - `termSeconds` must stay within
+    ///          [MIN_RESERVATION_TERM, MAX_RESERVATION_TERM],
+    ///        - `custodyBps` must not exceed
+    ///          MAX_RESERVATION_TERM_CUSTODY_BPS,
+    ///        - with the entry added, `reservationRenewalWindowSeconds`
+    ///          must be strictly shorter than the smallest entry, and the
+    ///          largest entry plus `DEPOSIT_REFUND_SAFETY_MARGIN` must be
+    ///          at least `depositRevealAheadPeriod`. Both run over every
+    ///          entry ever added, enabled or disabled.
+    ///
+    ///      A flag flip leaves every entry's length unchanged, so it cannot
+    ///      break either relation and does not re-check them, and it leaves
+    ///      the cached largest and smallest lengths untouched; a disable
+    ///      must stay possible whatever the other parameters are.
+    function setReservationTerm(
+        BridgeState.Storage storage self,
+        uint8 termId,
+        uint32 termSeconds,
+        uint16 custodyBps,
+        bool enabled
+    ) external {
+        require(
+            termId >= 1 && termId <= MAX_RESERVATION_TERM_ID,
+            "Reservation term id out of range"
+        );
+
+        ReservationTerm storage term = self.reservationTerms[termId];
+
+        if (term.termSeconds != 0) {
+            require(
+                termSeconds == term.termSeconds &&
+                    custodyBps == term.custodyBps,
+                "Reservation term entry cannot be rewritten"
+            );
+            require(enabled != term.enabled, "Reservation term unchanged");
+
+            term.enabled = enabled;
+        } else {
+            require(
+                termSeconds >= MIN_RESERVATION_TERM &&
+                    termSeconds <= MAX_RESERVATION_TERM,
+                "Reservation term out of protocol bounds"
+            );
+            require(
+                custodyBps <= MAX_RESERVATION_TERM_CUSTODY_BPS,
+                "Reservation term custody fee too high"
+            );
+
+            // The single write path for a new entry: it also folds the
+            // length into the cached largest and smallest entry lengths.
+            BridgeState.addReservationTerm(
+                self,
+                termId,
+                termSeconds,
+                custodyBps,
+                enabled
+            );
+
+            // Both relations are checked with the new entry in place, so
+            // neither aggregate can be the empty-table zero here; the
+            // empty-table skip belongs to `updateReservationParameters` and
+            // `updateDepositParameters`, whose relations are the mirrors of
+            // these two.
+            require(
+                self.reservationRenewalWindowSeconds <
+                    BridgeState.smallestReservationTermSeconds(self),
+                "Renewal window must be shorter than every term entry"
+            );
+            require(
+                BridgeState.largestReservationTermSeconds(self) +
+                    WalletProposalValidatorConstants
+                        .DEPOSIT_REFUND_SAFETY_MARGIN >=
+                    self.depositRevealAheadPeriod,
+                "Largest term must cover the deposit reveal ahead period"
+            );
+        }
+
+        emit ReservationTermUpdated(termId, termSeconds, custodyBps, enabled);
     }
 
     /// @notice Updates the amount-denominated reservation caps and the

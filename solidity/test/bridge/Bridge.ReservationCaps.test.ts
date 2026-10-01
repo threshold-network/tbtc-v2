@@ -12,7 +12,7 @@ import { constants } from "../fixtures"
 import bridgeFixture from "../fixtures/bridge"
 
 // `Reservation.MIN_RESERVATION_TERM`.
-const MIN_RESERVATION_TERM = 90 * 24 * 60 * 60
+const MIN_RESERVATION_TERM = 30 * 24 * 60 * 60
 // `WalletProposalValidatorConstants.REQUEST_TIMEOUT_SAFETY_MARGIN`.
 const REQUEST_TIMEOUT_SAFETY_MARGIN = 2 * 60 * 60
 

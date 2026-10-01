@@ -5,6 +5,7 @@ import { BigNumber, Contract, ContractTransaction } from "ethers"
 import type {
   BridgeGovernance,
   Bridge,
+  BridgeStub,
   MockBridgeWithRebateStaking,
   ReservationRouter,
 } from "../../typechain"
@@ -4874,6 +4875,397 @@ describe("Bridge - Governance", () => {
               newReservationMaxSingleAmount,
               newMaxActiveReservations
             )
+        })
+      }
+    )
+  })
+
+  describe("beginReservationTermUpdate", () => {
+    // The Bridge fixture seeds ids 1 to 3, so a new entry uses id 4.
+    const termId = 4
+    const termSeconds = 182 * 86400
+    const custodyBps = 10
+    const enabled = true
+
+    context("when the caller is not the owner", () => {
+      it("should revert", async () => {
+        await expect(
+          bridgeGovernance
+            .connect(thirdParty)
+            .beginReservationTermUpdate(
+              termId,
+              termSeconds,
+              custodyBps,
+              enabled
+            )
+        ).to.be.revertedWith("Ownable: caller is not the owner")
+      })
+    })
+
+    context("when the caller is the owner", () => {
+      let tx: ContractTransaction
+
+      before(async () => {
+        await createSnapshot()
+
+        tx = await bridgeGovernance
+          .connect(governance)
+          .beginReservationTermUpdate(termId, termSeconds, custodyBps, enabled)
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should not update the reservation term table", async () => {
+        const term = await reservationRouter.reservationTerm(termId)
+        expect(term.termSeconds).to.be.equal(0)
+        expect(term.custodyBps).to.be.equal(0)
+        expect(term.enabled).to.be.equal(false)
+      })
+
+      it("should emit ReservationTermUpdateStarted event", async () => {
+        const blockTimestamp = await helpers.time.lastBlockTime()
+        await expect(tx)
+          .to.emit(bridgeGovernance, "ReservationTermUpdateStarted")
+          .withArgs(termId, termSeconds, custodyBps, enabled, blockTimestamp)
+      })
+    })
+  })
+
+  describe("finalizeReservationTermUpdate", () => {
+    // The Bridge fixture seeds ids 1 (365 d / 20 bps), 2 (30 d / 2 bps) and
+    // 3 (91 d / 5 bps), all enabled, with a 15 d reveal-ahead period, so new
+    // entries use ids 4 to 8.
+    const day = 86400
+    const termId = 4
+    const termSeconds = 182 * day
+    const custodyBps = 10
+    const enabled = true
+
+    const expectTerm = async (
+      id: number,
+      seconds: number,
+      bps: number,
+      isEnabled: boolean
+    ) => {
+      const term = await reservationRouter.reservationTerm(id)
+      expect(term.termSeconds).to.be.equal(seconds)
+      expect(term.custodyBps).to.be.equal(bps)
+      expect(term.enabled).to.be.equal(isEnabled)
+    }
+
+    context("when the caller is not the owner", () => {
+      before(async () => {
+        await createSnapshot()
+
+        // Staged and past the delay, so only the owner guard can reject.
+        await bridgeGovernance
+          .connect(governance)
+          .beginReservationTermUpdate(termId, termSeconds, custodyBps, enabled)
+        await helpers.time.increaseTime(constants.governanceDelay)
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should revert", async () => {
+        await expect(
+          bridgeGovernance.connect(thirdParty).finalizeReservationTermUpdate()
+        ).to.be.revertedWith("Ownable: caller is not the owner")
+      })
+    })
+
+    context("when the update process is not initialized", () => {
+      it("should revert", async () => {
+        await expect(
+          bridgeGovernance.connect(governance).finalizeReservationTermUpdate()
+        ).to.be.revertedWith("Change not initiated")
+      })
+    })
+
+    context("when the governance delay has not passed", () => {
+      before(async () => {
+        await createSnapshot()
+
+        await bridgeGovernance
+          .connect(governance)
+          .beginReservationTermUpdate(termId, termSeconds, custodyBps, enabled)
+
+        await helpers.time.increaseTime(constants.governanceDelay - 60) // -1min
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should revert", async () => {
+        await expect(
+          bridgeGovernance.connect(governance).finalizeReservationTermUpdate()
+        ).to.be.revertedWith("Governance delay has not elapsed")
+      })
+    })
+
+    context(
+      "when the update process is initialized and governance delay passed",
+      () => {
+        let tx: ContractTransaction
+
+        before(async () => {
+          await createSnapshot()
+
+          await bridgeGovernance
+            .connect(governance)
+            .beginReservationTermUpdate(
+              termId,
+              termSeconds,
+              custodyBps,
+              enabled
+            )
+
+          await helpers.time.increaseTime(constants.governanceDelay)
+
+          tx = await bridgeGovernance
+            .connect(governance)
+            .finalizeReservationTermUpdate()
+        })
+
+        after(async () => {
+          await restoreSnapshot()
+        })
+
+        it("should add the entry to the reservation term table", async () => {
+          await expectTerm(termId, termSeconds, custodyBps, enabled)
+        })
+
+        it("should leave the seeded entries unchanged", async () => {
+          await expectTerm(1, 365 * day, 20, true)
+          await expectTerm(2, 30 * day, 2, true)
+          await expectTerm(3, 91 * day, 5, true)
+        })
+
+        it("should emit ReservationTermUpdateFinalized event", async () => {
+          await expect(tx)
+            .to.emit(bridgeGovernance, "ReservationTermUpdateFinalized")
+            .withArgs(termId, termSeconds, custodyBps, enabled)
+        })
+
+        it("should emit ReservationTermUpdated event", async () => {
+          await expect(tx)
+            .to.emit(reservationRouter, "ReservationTermUpdated")
+            .withArgs(termId, termSeconds, custodyBps, enabled)
+        })
+
+        it("should clear the staged entry", async () => {
+          await expect(
+            bridgeGovernance.connect(governance).finalizeReservationTermUpdate()
+          ).to.be.revertedWith("Change not initiated")
+        })
+      }
+    )
+
+    context("when a new update process overwrites the staged entry", () => {
+      const otherTermId = 5
+      const otherTermSeconds = 60 * day
+      const otherCustodyBps = 3
+
+      before(async () => {
+        await createSnapshot()
+
+        await bridgeGovernance
+          .connect(governance)
+          .beginReservationTermUpdate(termId, termSeconds, custodyBps, enabled)
+        await helpers.time.increaseTime(constants.governanceDelay)
+        await bridgeGovernance
+          .connect(governance)
+          .beginReservationTermUpdate(
+            otherTermId,
+            otherTermSeconds,
+            otherCustodyBps,
+            false
+          )
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should restart the governance delay", async () => {
+        await expect(
+          bridgeGovernance.connect(governance).finalizeReservationTermUpdate()
+        ).to.be.revertedWith("Governance delay has not elapsed")
+      })
+
+      context("when the governance delay passed", () => {
+        let tx: ContractTransaction
+
+        before(async () => {
+          await createSnapshot()
+
+          await helpers.time.increaseTime(constants.governanceDelay)
+
+          tx = await bridgeGovernance
+            .connect(governance)
+            .finalizeReservationTermUpdate()
+        })
+
+        after(async () => {
+          await restoreSnapshot()
+        })
+
+        it("should add only the last staged entry", async () => {
+          await expectTerm(
+            otherTermId,
+            otherTermSeconds,
+            otherCustodyBps,
+            false
+          )
+          await expectTerm(termId, 0, 0, false)
+        })
+
+        it("should emit ReservationTermUpdated event", async () => {
+          await expect(tx)
+            .to.emit(reservationRouter, "ReservationTermUpdated")
+            .withArgs(otherTermId, otherTermSeconds, otherCustodyBps, false)
+        })
+      })
+    })
+
+    context("when the staged entry flips an existing entry's flag", () => {
+      let tx: ContractTransaction
+
+      before(async () => {
+        await createSnapshot()
+
+        // A flip carries the stored length and fee of the entry unchanged.
+        await bridgeGovernance
+          .connect(governance)
+          .beginReservationTermUpdate(2, 30 * day, 2, false)
+        await helpers.time.increaseTime(constants.governanceDelay)
+
+        tx = await bridgeGovernance
+          .connect(governance)
+          .finalizeReservationTermUpdate()
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should flip the entry's enabled flag only", async () => {
+        await expectTerm(2, 30 * day, 2, false)
+      })
+
+      it("should emit ReservationTermUpdated event", async () => {
+        await expect(tx)
+          .to.emit(reservationRouter, "ReservationTermUpdated")
+          .withArgs(2, 30 * day, 2, false)
+      })
+    })
+
+    context(
+      "when the staged flag flip does not carry the stored values",
+      () => {
+        before(async () => {
+          await createSnapshot()
+
+          await bridgeGovernance
+            .connect(governance)
+            .beginReservationTermUpdate(2, 31 * day, 2, false)
+          await helpers.time.increaseTime(constants.governanceDelay)
+        })
+
+        after(async () => {
+          await restoreSnapshot()
+        })
+
+        // Begin does not validate the entry; the Bridge rejects it here.
+        it("should revert", async () => {
+          await expect(
+            bridgeGovernance.connect(governance).finalizeReservationTermUpdate()
+          ).to.be.revertedWith("Reservation term entry cannot be rewritten")
+        })
+      }
+    )
+
+    context(
+      "when the staged entry fails a table relation at finalization",
+      () => {
+        let revealAheadPeriod: number
+
+        before(async () => {
+          await createSnapshot()
+          ;({ depositRevealAheadPeriod: revealAheadPeriod } =
+            await bridge.depositParameters())
+
+          await bridgeGovernance
+            .connect(governance)
+            .beginReservationTermUpdate(
+              termId,
+              termSeconds,
+              custodyBps,
+              enabled
+            )
+          await helpers.time.increaseTime(constants.governanceDelay)
+
+          // Raise the reveal-ahead period, between begin and finalize, above
+          // the largest entry (365 d) plus the 24 h refund safety margin.
+          // The stub setter writes storage directly: through governance, the
+          // reveal-ahead setter is meant to refuse this while the table is
+          // non-empty, and this checks the term setter fails closed anyway.
+          await (bridge as unknown as BridgeStub).setDepositRevealAheadPeriod(
+            366 * day + 1
+          )
+        })
+
+        after(async () => {
+          await restoreSnapshot()
+        })
+
+        it("should revert", async () => {
+          await expect(
+            bridgeGovernance.connect(governance).finalizeReservationTermUpdate()
+          ).to.be.revertedWith(
+            "Largest term must cover the deposit reveal ahead period"
+          )
+        })
+
+        it("should not add the entry", async () => {
+          await expectTerm(termId, 0, 0, false)
+        })
+
+        // The revert undoes the clearing, so the entry stays staged: it can
+        // be finalized once the relation holds again, without a new begin
+        // or a new delay, or be replaced by a new begin.
+        context("when the relation holds again", () => {
+          let tx: ContractTransaction
+
+          before(async () => {
+            await createSnapshot()
+
+            await (bridge as unknown as BridgeStub).setDepositRevealAheadPeriod(
+              revealAheadPeriod
+            )
+
+            tx = await bridgeGovernance
+              .connect(governance)
+              .finalizeReservationTermUpdate()
+          })
+
+          after(async () => {
+            await restoreSnapshot()
+          })
+
+          it("should add the still staged entry", async () => {
+            await expectTerm(termId, termSeconds, custodyBps, enabled)
+          })
+
+          it("should emit ReservationTermUpdateFinalized event", async () => {
+            await expect(tx)
+              .to.emit(bridgeGovernance, "ReservationTermUpdateFinalized")
+              .withArgs(termId, termSeconds, custodyBps, enabled)
+          })
         })
       }
     )

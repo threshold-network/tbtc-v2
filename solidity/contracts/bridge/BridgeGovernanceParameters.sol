@@ -122,6 +122,14 @@ library BridgeGovernanceParameters {
         uint256 reservationCapsChangeInitiated;
     }
 
+    struct ReservationTermData {
+        uint8 newReservationTermId;
+        uint32 newReservationTermSeconds;
+        uint16 newReservationTermCustodyBps;
+        bool newReservationTermEnabled;
+        uint256 reservationTermChangeInitiated;
+    }
+
     event DepositDustThresholdUpdateStarted(
         uint64 newDepositDustThreshold,
         uint256 timestamp
@@ -368,6 +376,25 @@ library BridgeGovernanceParameters {
         uint64 newReservationMaxSingleAmount,
         uint32 newMaxActiveReservations,
         uint256 timestamp
+    );
+
+    event ReservationTermUpdateStarted(
+        uint8 newReservationTermId,
+        uint32 newReservationTermSeconds,
+        uint16 newReservationTermCustodyBps,
+        bool newReservationTermEnabled,
+        uint256 timestamp
+    );
+
+    // Not named `ReservationTermUpdated`: the Bridge emits an event of that
+    // name with the same parameter types in the same finalize transaction,
+    // so the two would share a topic and be indistinguishable to a
+    // topic-only log filter or to a decoder holding either ABI.
+    event ReservationTermUpdateFinalized(
+        uint8 reservationTermId,
+        uint32 reservationTermSeconds,
+        uint16 reservationTermCustodyBps,
+        bool reservationTermEnabled
     );
 
     /// @notice Reverts if called before the governance delay elapses.
@@ -1749,5 +1776,68 @@ library BridgeGovernanceParameters {
         self.newReservationMaxSingleAmount = 0;
         self.newMaxActiveReservations = 0;
         self.reservationCapsChangeInitiated = 0;
+    }
+
+    /// @notice Begins the reservation term update process. Stages one entry
+    ///         of the Bridge's reservation term table in a single slot: a
+    ///         new call overwrites the staged entry and restarts the
+    ///         governance delay. The full entry is staged, so a flip of an
+    ///         existing entry's `enabled` flag must carry that entry's
+    ///         stored `termSeconds` and `custodyBps`. No value is validated
+    ///         here; see `Reservation.setReservationTerm` for the
+    ///         requirements the Bridge enforces at finalization.
+    /// @param _newReservationTermId Id of the entry.
+    /// @param _newReservationTermSeconds Length of the custody term, in seconds.
+    /// @param _newReservationTermCustodyBps Custody fee of the term, in basis points.
+    /// @param _newReservationTermEnabled Whether new positions may select the term.
+    function beginReservationTermUpdate(
+        ReservationTermData storage self,
+        uint8 _newReservationTermId,
+        uint32 _newReservationTermSeconds,
+        uint16 _newReservationTermCustodyBps,
+        bool _newReservationTermEnabled
+    ) external {
+        /* solhint-disable not-rely-on-time */
+        self.newReservationTermId = _newReservationTermId;
+        self.newReservationTermSeconds = _newReservationTermSeconds;
+        self.newReservationTermCustodyBps = _newReservationTermCustodyBps;
+        self.newReservationTermEnabled = _newReservationTermEnabled;
+        self.reservationTermChangeInitiated = block.timestamp;
+        emit ReservationTermUpdateStarted(
+            _newReservationTermId,
+            _newReservationTermSeconds,
+            _newReservationTermCustodyBps,
+            _newReservationTermEnabled,
+            block.timestamp
+        );
+        /* solhint-enable not-rely-on-time */
+    }
+
+    /// @notice Finalizes the reservation term update process.
+    /// @dev The staged entry is read by the caller before this call; this
+    ///      function only enforces the governance delay, emits the staged
+    ///      entry and clears it. If the caller's Bridge call then reverts,
+    ///      the whole transaction reverts and the entry stays staged.
+    function finalizeReservationTermUpdate(
+        ReservationTermData storage self,
+        uint256 governanceDelay
+    )
+        external
+        onlyAfterGovernanceDelay(
+            self.reservationTermChangeInitiated,
+            governanceDelay
+        )
+    {
+        emit ReservationTermUpdateFinalized(
+            self.newReservationTermId,
+            self.newReservationTermSeconds,
+            self.newReservationTermCustodyBps,
+            self.newReservationTermEnabled
+        );
+        self.newReservationTermId = 0;
+        self.newReservationTermSeconds = 0;
+        self.newReservationTermCustodyBps = 0;
+        self.newReservationTermEnabled = false;
+        self.reservationTermChangeInitiated = 0;
     }
 }

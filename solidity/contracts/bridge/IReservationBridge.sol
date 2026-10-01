@@ -47,6 +47,19 @@ interface IReservationBridge {
         uint32 timeoutAt
     );
 
+    /// @notice Emitted beside `ReservationAcceptanceRequested` with the
+    ///         term entry the depositor selected for the generation. See
+    ///         `ReservationRouter.requestReservationAcceptance`.
+    /// @param reservationKey The deposit key of the revealed reserved
+    ///        deposit (doubles as the reservation key).
+    /// @param requestNonce The action generation created by the request.
+    /// @param termId Id of the selected reservation term entry.
+    event ReservationTermSelected(
+        uint256 indexed reservationKey,
+        uint64 requestNonce,
+        uint8 termId
+    );
+
     /// @notice Emitted when an acceptance-anchor SPV proof settles,
     ///         registering the reservation and crediting the owner's
     ///         balance. See
@@ -200,8 +213,9 @@ interface IReservationBridge {
     ///        satoshi.
     /// @param reservationTxMaxFee New reservation transaction max fee, in
     ///        satoshi.
-    /// @param reservationTermSeconds New reservation custody term length,
-    ///        in seconds.
+    /// @param reservationTermSeconds New value of the global reservation
+    ///        term, in seconds; no position's lifecycle reads it (see
+    ///        `updateReservationParameters`).
     /// @param reservationDissolutionDelay New post-expiry dissolution
     ///        delay, in seconds.
     /// @param reservationMaxTotalAmount New cap on the total amount, in
@@ -221,6 +235,20 @@ interface IReservationBridge {
         uint32 maxReservationsPerWallet,
         uint32 reservationActionTimeout,
         uint32 reservationRenewalWindowSeconds
+    );
+
+    /// @notice Emitted when governance adds a reservation term entry or
+    ///         flips an existing entry's `enabled` flag via
+    ///         `setReservationTerm`.
+    /// @param termId Id of the entry.
+    /// @param termSeconds Length of the custody term, in seconds.
+    /// @param custodyBps Custody fee of the term, in basis points.
+    /// @param enabled Whether new positions may select the term.
+    event ReservationTermUpdated(
+        uint8 indexed termId,
+        uint32 termSeconds,
+        uint16 custodyBps,
+        bool enabled
     );
 
     /// @notice Emitted when governance changes the reservation vault
@@ -266,16 +294,20 @@ interface IReservationBridge {
     ///      this deposit does not exceed the per-wallet amount cap; the
     ///      active reservations count stays below the global occupancy
     ///      cap; and a valid signing window exists between the deposit's
-    ///      minimum age and its refund deadline. See
+    ///      minimum age and its refund deadline; and `termId` names an
+    ///      existing, enabled term entry. See
     ///      `Reservation.requestReservationAcceptance` for the full
     ///      requirement list.
     /// @param reservationKey The deposit key of the revealed reserved
     ///        deposit (doubles as the reservation key).
     /// @param walletPubKeyHash 20-byte public key hash of the wallet that
     ///        will anchor the deposit.
+    /// @param termId Id of the reservation term entry the position is
+    ///        opened on.
     function requestReservationAcceptance(
         uint256 reservationKey,
-        bytes20 walletPubKeyHash
+        bytes20 walletPubKeyHash,
+        uint8 termId
     ) external;
 
     /// @notice Requests the re-anchoring of a reservation to another
@@ -398,7 +430,9 @@ interface IReservationBridge {
     ///      `reservationTermSeconds` stays within the protocol's
     ///      [MIN_RESERVATION_TERM, MAX_RESERVATION_TERM] bounds;
     ///      `reservationRenewalWindowSeconds` is greater than zero and
-    ///      strictly shorter than the term; `reservationActionTimeout`
+    ///      strictly shorter than the term and than the smallest reservation
+    ///      term entry ever added (skipped while the term table is empty);
+    ///      `reservationActionTimeout`
     ///      exceeds the wallet validator's final signing safety margin;
     ///      `maxReservationsPerWallet` is greater than zero;
     ///      `reservationMaxTotalAmount` does not exceed the slot capacity
@@ -414,9 +448,14 @@ interface IReservationBridge {
     ///        amount, in satoshi.
     /// @param reservationTxMaxFee New value of the reservation transaction
     ///        max fee, in satoshi.
-    /// @param reservationTermSeconds New value of the reservation custody
-    ///        term length, in seconds, within the protocol bounds. Applies
-    ///        to future term grants; never alters an existing expiry.
+    /// @param reservationTermSeconds New value of the global reservation
+    ///        term, in seconds, within the protocol bounds. Kept readable
+    ///        for decoders (additive ABI) and still an upper bound on the
+    ///        renewal window; no position's lifecycle reads it. A new
+    ///        position takes the seconds of the term entry chosen at its
+    ///        acceptance request (`reservationTerm(id)`,
+    ///        `reservationTermId(key)`), and the reveal cap and late
+    ///        acceptance window use the largest entry.
     /// @param reservationDissolutionDelay New value of the post-expiry
     ///        dissolution delay, in seconds. Snapshotted per granted term.
     /// @param reservationMaxTotalAmount New cap on the total amount, in
@@ -437,6 +476,30 @@ interface IReservationBridge {
         uint32 maxReservationsPerWallet,
         uint32 reservationActionTimeout,
         uint32 reservationRenewalWindowSeconds
+    ) external;
+
+    /// @notice Adds a reservation term entry, or flips the `enabled` flag of
+    ///         an existing one. Entries are never rewritten or removed, so
+    ///         ids 1 to 8 are a lifetime budget of eight entries.
+    /// @dev Caller must be Bridge governance. Reverts unless `termId` is in
+    ///      [1, 8] and either: the entry exists, `termSeconds` and
+    ///      `custodyBps` equal its stored values and `enabled` differs from
+    ///      its stored flag; or the entry is new, `termSeconds` stays within
+    ///      [MIN_RESERVATION_TERM, MAX_RESERVATION_TERM], `custodyBps` is at
+    ///      most 500 and, with the entry added, the renewal window is
+    ///      strictly shorter than the smallest entry and the largest entry
+    ///      plus `DEPOSIT_REFUND_SAFETY_MARGIN` is at least
+    ///      `depositRevealAheadPeriod`, both over every entry ever added.
+    ///      See `Reservation.setReservationTerm`.
+    /// @param termId Id of the entry.
+    /// @param termSeconds Length of the custody term, in seconds.
+    /// @param custodyBps Custody fee of the term, in basis points.
+    /// @param enabled Whether new positions may select the term.
+    function setReservationTerm(
+        uint8 termId,
+        uint32 termSeconds,
+        uint16 custodyBps,
+        bool enabled
     ) external;
 
     /// @notice Marks a revealed reserved deposit as stale so it stops
@@ -556,14 +619,39 @@ interface IReservationBridge {
         view
         returns (Reservation.ReservationAction memory);
 
+    /// @notice Returns the reservation term entry of the given id.
+    /// @param termId Id of the entry.
+    /// @return termSeconds Length of the custody term, in seconds; zero for
+    ///         an id that was never added.
+    /// @return custodyBps Custody fee of the term, in basis points.
+    /// @return enabled Whether new positions may select the term.
+    function reservationTerm(uint8 termId)
+        external
+        view
+        returns (
+            uint32 termSeconds,
+            uint16 custodyBps,
+            bool enabled
+        );
+
+    /// @notice Returns the term id of the given reservation position.
+    /// @param reservationKey The key of the reservation.
+    /// @return The position's term id; zero when none is recorded.
+    function reservationTermId(uint256 reservationKey)
+        external
+        view
+        returns (uint8);
+
     /// @notice Returns the current values of Bridge reservation parameters.
     /// @return reservationVault Address of the reservation vault. Deposits
     ///         revealed to this address are treated as UTXO reservations.
     /// @return reservationMinAmount Minimum reservation amount, in satoshi.
     /// @return reservationTxMaxFee Reservation transaction max fee, in
     ///         satoshi.
-    /// @return reservationTermSeconds Reservation custody term length, in
-    ///         seconds.
+    /// @return reservationTermSeconds The global reservation term, in
+    ///         seconds. Kept readable for decoders; it is not the length
+    ///         positions get. A position's term is its entry's seconds, read
+    ///         through `reservationTermId(key)` and `reservationTerm(id)`.
     /// @return reservationDissolutionDelay Post-expiry dissolution delay,
     ///         in seconds.
     /// @return reservationMaxTotalAmount Cap on the total amount, in

@@ -49,27 +49,28 @@ On-chain activation (`setVaultStatus(vault, true)`) and client activation (keep-
 
 1. **Ship the keep-core release first.** Release and deploy a keep-core binary whose `reservationsActivationBlocks` table contains the chosen entry for the target network (see `keep-core pkg/tbtc/coordination.go`: `ReservationsActivationBlock`). All maintainers, orchestrators, and tBTCpg coordinators on that network must run that release before the on-chain activation block is reached.
 2. **Choose the activation block at or after the release is live on every node.** The value written into `reservationsActivationBlocks` for the network is the block height at which clients start proposing acceptance and re-anchor actions. The `setVaultStatus(vault, true)` transaction must execute at or after that block.
+3. **Seed the term table first.** On a live network `setVaultStatus(vault, true)` must also execute after the last `finalizeReservationTermUpdate` of the initial entries, which is the action order `deploy/98` emits: while the table is empty a reserved reveal reverts at any reveal-ahead period above 24 hours (150 days on mainnet), and the first entry must be at least the reveal-ahead period minus 24 hours. `deploy/97` runs the opposite order on local test networks, activating in its step 3 and seeding in its step 4; that order fails closed (no reserved reveal succeeds until step 4 completes) and is not the live-network order.
 
 Consequence of the wrong order (activating on-chain before the released clients are live): the Bridge immediately accepts reserved reveals and acceptance requests, but no keep-core client coordinates acceptance or re-anchor until the network's activation block is reached. keep-core starts coordinating a network only once the chain's block height reaches the activation block configured for that network in `reservationsActivationBlocks` (see `keep-core pkg/tbtc/coordination.go`: `ReservationsActivationBlock`), so the gap has two distinct shapes:
 
-- **(a) Network with a configured activation block:** the wrong order opens a temporary gap - reserved deposits can be revealed and accepted on-chain while no client produces the anchor proof, and the gap lasts only until the configured block, after which coordination starts and the positions settle normally.
-- **(b) Network with no entry in `reservationsActivationBlocks`:** `ReservationsActivationBlock` falls through to `math.MaxUint64` and the client never activates reservation coordination for that network. Reserved deposits can still be revealed and acceptance requested on-chain, but no client coordinates anchor signing, so without a separately signed and confirmed anchor transaction an SPV maintainer has no acceptance proof to submit. The normal fallback is that pending acceptances time out and depositors take the Bitcoin refund after the deposit locktime, after which the stale pending-deposit record can be cleared. If the custodying wallet does sign and broadcast an anchor outside client coordination, an SPV maintainer can still prove it while the acceptance is pending or, after timeout, within the late-settlement window (`timeoutAt + termSeconds`).
+- **(a) Network with a configured activation block:** the wrong order opens a temporary gap - reserved deposits can be revealed and accepted on-chain while no client produces the anchor proof, and the gap lasts only until the configured block, after which coordination starts. Positions whose acceptance actions have not timed out by then settle normally; a timed-out one must be notified and re-requested, which is possible only while the deposit's refund deadline still leaves a signing window.
+- **(b) Network with no entry in `reservationsActivationBlocks`:** `ReservationsActivationBlock` falls through to `math.MaxUint64` and the client never activates reservation coordination for that network. Reserved deposits can still be revealed and acceptance requested on-chain, but no client coordinates anchor signing, so without a separately signed and confirmed anchor transaction an SPV maintainer has no acceptance proof to submit. The normal fallback is that pending acceptances time out and depositors take the Bitcoin refund after the deposit locktime, after which the stale pending-deposit record can be cleared. If the custodying wallet does sign and broadcast an anchor outside client coordination, an SPV maintainer can still prove it while the acceptance is pending or, after timeout, within the late-settlement window (`timeoutAt` plus the largest reservation term entry ever added).
 
 This gate is runbook discipline; nothing on-chain enforces it.
 
 ## Fee Fallback When Vault Trust Is Revoked
 
-Governance can revoke the reveal-time vault's trust at any point, including while acceptance actions are still proof-settleable (pending or after their `timeoutAt`, within the late-settlement window). Once governance executes `setVaultStatus(vault, false)`, every acceptance that settles against that vault while it is untrusted - on time or late - takes a direct-credit fallback: instead of routing the gross anchored amount through `ReservationVault.receiveBalanceIncrease` (which would mint TBTC and retain the initiation fee as in-kind fee reserve), the Bridge credits the depositor directly through `Bank.increaseBalances`. The reservation position is still registered and the anchor is still indexed, but **no initiation fee is charged** and no fee reserve accumulates in the vault for that settlement. The `settleAcceptance` branch checks `isVaultTrusted[vault]` without checking lateness, so the fallback does not discriminate between on-time and late proofs.
+Governance can revoke the reveal-time vault's trust at any point, including while acceptance actions are still proof-settleable (pending or after their `timeoutAt`, within the late-settlement window). Once governance executes `setVaultStatus(vault, false)`, every acceptance that settles against that vault while it is untrusted - on time or late - takes a direct-credit fallback: instead of crediting the vault's Bank balance and calling `ReservationVault.creditReservation` (which would mint TBTC and retain the acceptance fee, the mint fee plus, unless the position was stranded at settlement, the term's custody fee, as in-kind fee reserve), the Bridge credits the depositor directly through `Bank.increaseBalances`. The reservation position is still registered and the anchor is still indexed, but **no acceptance fee is charged** and no fee reserve accumulates in the vault for that settlement. The `settleAcceptance` branch checks `isVaultTrusted[vault]` without checking lateness, so the fallback does not discriminate between on-time and late proofs.
 
 Operational consequences:
 
-- Fee revenue accounting must not assume every settled acceptance retains its initiation fee in the vault. Any settlement against a since-untrusted vault - on time or late - produces zero vault-side fee income for that position.
+- Fee revenue accounting must not assume every settled acceptance retains its acceptance fee in the vault. Any settlement against a since-untrusted vault - on time or late - produces zero vault-side fee income for that position.
 - This is the intended M1 behavior: a confirmed Bitcoin anchor must settle even if the vault lost trust, so the fallback credits the depositor directly rather than reverting the already-confirmed BTC spend. Re-trusting the vault does not retroactively charge the skipped fee.
 - Before revoking trust, governance should verify that no pending or timed-out acceptance actions remain on that vault, or accept the fee loss on the settlements that race the revocation.
 
 ## Fee-Reserve Target Governance Step
 
-`ReservationVault` deploys with `feeReserveTarget == 0`. Nothing in the activation flow (scripts 95/96/97 or the mainnet calldata script 98) calls `updateFeeReserveTarget`: script 97 performs only the caps update, the parameters update, and `setVaultStatus(vault, true)`. Re-anchor settlement already finances miner fees in kind in milestone 1, so the reserve-target decision cannot wait for a later milestone: a zero reserve target means `sweepFees` may sweep the vault's entire TBTC balance to the recipient, including the TBTC that in-kind fee financing needs: if a re-anchor hop or late fee event consumes more than the vault holds, the shortfall is recorded as `inKindFeeDebtSat` and the system runs over-supplied by that amount until `repayInKindFeeDebt` or a later `sweepFees` burns it back down. This does not block any milestone-1 settlement, but the fee debt must be consciously owned.
+`ReservationVault` deploys with `feeReserveTarget == 0`. Nothing in the activation flow (scripts 95/96/97 or the mainnet calldata script 98) calls `updateFeeReserveTarget`: script 97 performs the caps update, the parameters update, `setVaultStatus(vault, true)` and the reservation term-table seeding, and calls `updateFeeReserveTarget` at none of its four steps. Re-anchor settlement already finances miner fees in kind in milestone 1, so the reserve-target decision cannot wait for a later milestone: a zero reserve target means `sweepFees` may sweep the vault's entire TBTC balance to the recipient, including the TBTC that in-kind fee financing needs: if a re-anchor hop or late fee event consumes more than the vault holds, the shortfall is recorded as `inKindFeeDebtSat` and the system runs over-supplied by that amount until `repayInKindFeeDebt` or a later `sweepFees` burns it back down. This does not block any milestone-1 settlement, but the fee debt must be consciously owned.
 
 Explicit governance step to add to the activation runbook, to be completed before on-chain activation (`setVaultStatus(vault, true)`), i.e. before the first M1 re-anchor settlement can land in kind:
 
@@ -86,7 +87,7 @@ Record the decision in the governance log. If a zero reserve is accepted, note t
 In Milestone 1, `maxActiveReservations` acts as an occupancy launch gate and capacity ceiling:
 
 - **Occupancy lifecycle and release paths in M1:** Once reservation requests are authorized and accepted on-chain, `activeReservationsCount` increments. Voluntary protocol-level exits from an accepted reservation position (such as dissolution, veto, and dedicated reservation redemptions) are deferred to Milestone 2. However, `activeReservationsCount` is decremented on the two variant-B release paths that exist in M1: acceptance timeout (when acceptance proofs expire) and stranding (when a wallet closes or terminates). Thus, while not a strictly monotonic one-way ratchet, capacity releases occur exclusively through non-voluntary timeout/stranding paths rather than depositor-initiated exits. Occupancy is not derivable from a single field or event: the `ReservationOccupancyChanged` event alone reports only the raw `activeReservationsCount` counter, not effective occupancy. Deriving effective occupancy from current on-chain views requires combining `IReservationBridge.activeReservationsCount()` with `reservationParameters()` (for `maxReservationsPerWallet`) and the live-wallet count. This yields two distinct quantities that should not be conflated: aggregate wallet-slot utilization (`activeReservationsCount` against `liveWalletsCount * maxReservationsPerWallet`) and governance-cap utilization (`activeReservationsCount` against the global `maxActiveReservations` ceiling).
-- **Underlying tBTC funds are not locked:** This occupancy accounting applies only to the position of the dedicated-UTXO reservation. Depositor funds are not locked: upon `settleAcceptance`, the depositor is already credited liquid tBTC via the standard Bridge/vault deposit-crediting (mint) path (this mint/credit flow is completely unrelated to the distinct `redeemReservation` feature, which is disabled in Milestone 1). Only the dedicated-UTXO reservation position itself lacks an early voluntary close mechanism in M1.
+- **Underlying tBTC funds are not locked:** This occupancy accounting applies only to the position of the dedicated-UTXO reservation. Depositor funds are not locked: upon `settleAcceptance`, the depositor is already credited liquid tBTC. The Bridge increases the reservation vault's Bank balance by the gross anchored amount and then calls the vault's Bridge-only `creditReservation(reservationKey)`; the vault mints tBTC gross and sends the owner gross minus min(`mintFeeBps` + `custodyBps`, 500) bps, where `custodyBps` is that of the position's term entry (22 / 25 / 40 bps for the ruled 30 / 91 / 365-day entries at the default 20 bps mint fee), and keeps the fee. A position stranded at credit (its wallet left Live before the proof) pays the mint fee only. If the vault is no longer trusted at proof time, the Bridge credits the depositor's Bank balance directly with no fee. This mint/credit flow is completely unrelated to the distinct `redeemReservation` feature, which is disabled in Milestone 1. Only the dedicated-UTXO reservation position itself lacks an early voluntary close mechanism in M1.
 - **Wallet-closing gate dependency:** The safety story for `maxActiveReservations` relies on wallets not being able to retire while they still hold live reservation anchors. The `walletReservationInfo[wallet].count == 0` precondition is enforced at the two points that can still block _before_ any Bitcoin funds have moved: `moveFunds`'s routing decision (a wallet with a nonzero reservation count is always routed through `MovingFunds`, never straight to `Closing`) and `notifyWalletClosingPeriodElapsed`. It is deliberately _absent_ from `beginWalletClosing` and `finalizeWalletClosing`: both are reached only after a moving-funds Bitcoin transaction has already been proven on-chain via SPV proof, and blocking wallet retirement at that point (with funds already gone) would leave the wallet stuck mid-closing while its `movingFundsTimeout` clock keeps running, eventually triggering operator slashing for a state the protocol itself created. A wallet can therefore complete closing while still holding a live reservation anchor if reservations were requested against it after the `moveFunds` decision was made; the anchor itself is separately recovered via `notifyReservationStranded` once the wallet reaches `Terminated`/`Closed`/dissolution-eligible-`Closing`.
 - **Procedure for raising capacity:** When active occupancy saturates or additional headroom is required, governance can raise the occupancy limit by calling `updateReservationCaps(maxReservationsAmountPerWallet, reservationMaxSingleAmount, newMaxActiveReservations)` with a higher `newMaxActiveReservations` value.
 - **Sizing constraint:** Any update to `maxActiveReservations` or `reservationMaxSingleAmount` must maintain the Decision 1 relational invariant:
@@ -239,9 +240,16 @@ Before milestone 2 ships, a short technical spike should be conducted to empiric
 
 ## Verification
 
+**Before the Bridge implementation upgrade** on a network that already runs reservations from a deployment without the term table, untrust the old `ReservationVault` (`setVaultStatus(vault, false)`). Replacing `reservationVault` is not enough: a proof credits the vault the deposit was revealed to, and the old vault has no `creditReservation`, so while it stays trusted every proof of a deposit revealed to it reverts. Any acceptance generation requested before the upgrade and proven after it carries term id 0 and pays no custody fee. That covers a pending one, and also a timed-out one that is still inside its late window, even after a stale notice; once the table is seeded, that window runs up to the largest entry after the timeout. If its vault is untrusted, the Bridge credits the depositor directly and takes no fee; if its vault already runs this code, it pays the mint fee only. The vault can only be replaced while no reservation is active (see "Irreversible Vault Activation Warning").
+
+**The cached largest and smallest term entry lengths are populated only by entries added while this code is live.** `BridgeState.addReservationTerm` folds in the entry being added, and nothing re-derives the two fields (`largestReservationTerm`, `smallestReservationTerm`) from the table. No deployment record in this repository runs a term-table implementation, so the supported order is: upgrade to this implementation first, then seed the table. A Bridge whose table was already seeded by an implementation that scanned the table on every read must not be upgraded to this one unless the same upgrade transaction (`upgradeAndCall` with a reinitializer, as the Bridge's earlier upgrades did) re-derives the two fields from ids 1 to `MAX_RESERVATION_TERM_ID`; that reinitializer is not part of this code. Until it runs, the seeded entries are live but both fields read zero, and every reader behaves as over an empty table: every reserved reveal reverts at any reveal-ahead period above 24 hours (the refund-locktime cap is the 24-hour safety margin alone); a timed-out acceptance has no late window; `updateDepositParameters` and `updateReservationParameters` skip their table relations, so a reveal-ahead period above the largest seeded entry plus 24 hours, or a renewal window at or above the smallest seeded entry, passes the table relation (the renewal window's bound against the global term still applies); and a further term entry is checked against the entries added since the upgrade alone, in both directions, so an entry the seeded table would allow can be refused, and an entry can be added although the stored renewal window is at or above a seeded entry. A reinitializer that only rewrites the two fields re-checks nothing, so a parameter accepted in that state stays in force. The renewal window has no runtime reader; a window at or above a live entry surfaces as a revert of every further term entry ("Renewal window must be shorter than every term entry") until governance lowers the window. A reveal-ahead period above the largest entry plus 24 hours leaves every reserved reveal without a valid deadline and refuses every entry shorter than the period minus 24 hours ("Largest term must cover the deposit reveal ahead period") until governance lowers the period or adds an entry at least the period minus 24 hours long, which is possible only while that length is within `MAX_RESERVATION_TERM`.
+
 After applying the upgrade on a live network:
 
 ```solidity
+// Operator-supplied inputs: bridgeAddress, expectedRouterAddress,
+// expectedVaultOwner, expectedTbtcVault (the canonical TBTCVault).
+
 // Spot-check the Decision 1 invariant via three views on the bridge.
 // reservationParameters() returns a 10-value tuple; the 1st value is reservationVault, the 6th is reservationMaxTotalAmount.
 (address reservationVault, , , , , uint64 reservationMaxTotalAmount, , , , ) =
@@ -257,12 +265,52 @@ require(router != address(0) && router == expectedRouterAddress, "Router mismatc
 require(reservationVault != address(0), "Vault not set");
 require(Ownable(reservationVault).owner() == expectedVaultOwner, "Vault ownership mismatch");
 require(Bridge(bridgeAddress).isVaultTrusted(reservationVault), "Vault not trusted");
+
+// Acceptance-credit invariant 1: TBTCVault owns the TBTC token (otherwise
+// the vault's mint reverts, and with it every acceptance proof).
+TBTCVault tbtcVault = ReservationVault(reservationVault).tbtcVault();
+require(
+    TBTC(address(ReservationVault(reservationVault).tbtcToken())).owner() == address(tbtcVault),
+    "TBTCVault does not own TBTC"
+);
+// Invariant 1 only proves the vault's own token is owned by its own
+// TBTCVault: a vault built against a separate TBTCVault/TBTC pair passes it
+// and would pay owners a non-canonical token. Pin it to the canonical one.
+require(
+    address(ReservationVault(reservationVault).tbtcVault()) == expectedTbtcVault,
+    "Vault bound to another TBTCVault"
+);
+
+// Acceptance-credit binding: the vault's constructor-set Bridge and Bank are
+// immutable and unchecked on-chain. A vault bound to another Bridge rejects
+// the real Bridge's credit call; one bound to another Bank cannot convert the
+// balance the Bridge credited. Either way every acceptance proof reverts.
+(Bank bridgeBank, , , ) = Bridge(bridgeAddress).contractReferences();
+require(
+    address(ReservationVault(reservationVault).bridge()) == bridgeAddress,
+    "Vault bound to another Bridge"
+);
+require(
+    address(ReservationVault(reservationVault).bank()) == address(bridgeBank),
+    "Vault bound to another Bank"
+);
 ```
 
 The three views together supply the three quantities the Decision 1 invariant is written in terms of:
 `reservationMaxTotalAmount <= maxActiveReservations * reservationMaxSingleAmount` (or `reservationMaxSingleAmount == 0`).
 
 > **Precondition note:** Setting a new non-zero `reservationVault` in `updateReservationParameters` also requires `maxActiveReservations > 0`; the call reverts otherwise, so the Decision 1 invariant check above is not sufficient on its own when activating the vault for the first time.
+
+**Acceptance-credit invariant 2: the configured reservation vault implements `creditReservation`** (selector `0x60bac298`); the Bridge calls it inside every acceptance proof. The function is not a view, so probe it with a call from a non-Bridge address, which the hook must reject with its caller check:
+
+```sh
+cast call <reservationVault> "creditReservation(uint256)" 0 --from <any non-Bridge address>
+# expected: execution reverted: "Caller is not the Bridge"
+```
+
+Any other result (a different revert reason, an empty revert, or success) means the vault does not implement the hook and must not be activated. This probe does not show which Bridge the vault answers to: a vault bound to another Bridge gives the same answer, which is why the binding checks in the block above are needed alongside it.
+
+**Escape if any of these checks fails after activation:** `setVaultStatus(reservationVault, false)` (through `BridgeGovernance`) makes the vault untrusted, and acceptance proofs then settle through the Bridge's direct-credit fallback: the depositor's Bank balance is credited with the gross anchored amount and no fee is taken. If the misconfigured reservation vault is the TBTCVault itself, untrusting it also stops pooled minting through it.
 
 Because setter transactions revert on an invariant violation, a rejected configuration modifies no storage. If governance encounters a revert with `Amount cap exceeds slot capacity` during configuration, the remedy is:
 

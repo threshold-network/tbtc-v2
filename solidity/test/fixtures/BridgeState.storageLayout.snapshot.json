@@ -546,11 +546,46 @@
       "numberOfBytes": "32"
     },
     {
-      "label": "__gap",
+      "label": "reservationTerms",
       "slot": "39",
       "offset": 0,
-      "type": "uint256[39]",
-      "numberOfBytes": "1248"
+      "type": "mapping(uint8 => struct Reservation.ReservationTerm)",
+      "numberOfBytes": "32"
+    },
+    {
+      "label": "reservationActionTermIds",
+      "slot": "40",
+      "offset": 0,
+      "type": "mapping(uint256 => uint8)",
+      "numberOfBytes": "32"
+    },
+    {
+      "label": "reservationTermIds",
+      "slot": "41",
+      "offset": 0,
+      "type": "mapping(uint256 => uint8)",
+      "numberOfBytes": "32"
+    },
+    {
+      "label": "largestReservationTerm",
+      "slot": "42",
+      "offset": 0,
+      "type": "uint32",
+      "numberOfBytes": "4"
+    },
+    {
+      "label": "smallestReservationTerm",
+      "slot": "42",
+      "offset": 4,
+      "type": "uint32",
+      "numberOfBytes": "4"
+    },
+    {
+      "label": "__gap",
+      "slot": "43",
+      "offset": 0,
+      "type": "uint256[35]",
+      "numberOfBytes": "1120"
     }
   ],
   "structMembers": {
@@ -840,6 +875,29 @@
         "offset": 8,
         "type": "uint32",
         "numberOfBytes": "4"
+      }
+    ],
+    "ReservationTerm": [
+      {
+        "label": "termSeconds",
+        "slot": "0",
+        "offset": 0,
+        "type": "uint32",
+        "numberOfBytes": "4"
+      },
+      {
+        "label": "custodyBps",
+        "slot": "0",
+        "offset": 4,
+        "type": "uint16",
+        "numberOfBytes": "2"
+      },
+      {
+        "label": "enabled",
+        "slot": "0",
+        "offset": 6,
+        "type": "bool",
+        "numberOfBytes": "1"
       }
     ]
   }

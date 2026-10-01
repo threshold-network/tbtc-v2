@@ -366,9 +366,16 @@ library BridgeState {
         // wallet in a 1-input-1-output spend instead of being swept, and
         // are redeemable in-kind. See the `Reservation` library for details.
         uint64 reservationMinAmount;
-        // The custody term length in seconds applied to new and extended
-        // reservations. The term is a contract-layer fact only; anchor
-        // outputs carry no timelock.
+        // The global reservation term in seconds. Kept readable for
+        // decoders (additive ABI: it stays in `reservationParameters()`),
+        // still bounded by [MIN_RESERVATION_TERM, MAX_RESERVATION_TERM] and
+        // still an upper bound on the renewal window. No position's
+        // lifecycle reads it: the acceptance request copies the chosen term
+        // entry's seconds, and the reserved reveal cap and the late
+        // acceptance window use the largest entry of `reservationTerms`.
+        // A position's term is read through `reservationTerm(id)` and
+        // `reservationTermId(key)`. Terms are a contract-layer fact only;
+        // anchor outputs carry no timelock.
         uint32 reservationTermSeconds;
         // Address of the reservation vault. Deposits revealed with this
         // vault address are treated as UTXO reservations.
@@ -482,6 +489,31 @@ library BridgeState {
         // must keep accepting late proofs of their confirmed Bitcoin
         // transactions.
         mapping(uint256 => Reservation.ReservationAction) reservationActions;
+        // Governed menu of reservation terms indexed by term id (1 to
+        // `Reservation.MAX_RESERVATION_TERM_ID`). An entry is written once
+        // by `Reservation.setReservationTerm` and never rewritten or
+        // removed; only its `enabled` flag can flip afterwards. A zero
+        // `termSeconds` marks an id that was never added.
+        mapping(uint8 => Reservation.ReservationTerm) reservationTerms;
+        // Term id selected for each acceptance generation, indexed by
+        // `keccak256(reservationKey | requestNonce)` like
+        // `reservationActions`. Kept beside the action record so the
+        // record's layout and ABI stay unchanged.
+        mapping(uint256 => uint8) reservationActionTermIds;
+        // Term id of each accepted reservation position, indexed by
+        // reservation key like `reservations`. Kept beside the position
+        // record so the record's layout and ABI stay unchanged.
+        mapping(uint256 => uint8) reservationTermIds;
+        // Largest and smallest `termSeconds` over every reservation term
+        // entry ever added, enabled or disabled; both zero while the table
+        // is empty. Written only by `addReservationTerm`: entries are never
+        // rewritten or removed, so the largest only ever grows and the
+        // smallest only ever shrinks, and a flag flip changes neither. The
+        // reveal cap, the late-acceptance window and the parameter setters
+        // read these instead of scanning the table. The two pack into one
+        // slot.
+        uint32 largestReservationTerm;
+        uint32 smallestReservationTerm;
         // Reserved storage space in case we need to add more variables.
         // The convention from OpenZeppelin suggests the storage space should
         // add up to 50 slots. Here we want to have more slots as there are
@@ -497,9 +529,13 @@ library BridgeState {
         // as unused/dead, freeing 6 slots via re-packing). The remaining 39
         // slots are shared budget for all future Bridge upgrades, not
         // reserved for reservations specifically - a later unrelated PR
-        // should not assume it can spend the rest.
+        // should not assume it can spend the rest. The multi-term
+        // reservation menu consumed 4 more (`reservationTerms`,
+        // `reservationActionTermIds`, `reservationTermIds`, and one slot
+        // packing `largestReservationTerm` with `smallestReservationTerm`),
+        // leaving 35.
         // slither-disable-next-line unused-state
-        uint256[39] __gap;
+        uint256[35] __gap;
     }
 
     event DepositParametersUpdated(
@@ -588,7 +624,12 @@ library BridgeState {
     /// @dev Requirements:
     ///      - Deposit dust threshold must be greater than zero,
     ///      - Deposit dust threshold must be greater than deposit TX max fee,
-    ///      - Deposit transaction max fee must be greater than zero.
+    ///      - Deposit transaction max fee must be greater than zero,
+    ///      - If the reservation term table is non-empty, deposit reveal
+    ///        ahead period must not exceed the largest term entry ever added
+    ///        plus `DEPOSIT_REFUND_SAFETY_MARGIN`. Otherwise every reserved
+    ///        reveal would revert, because the reserved refund-locktime cap
+    ///        in `Deposit` would fall below the reveal-ahead bound.
     function updateDepositParameters(
         Storage storage self,
         uint64 _depositDustThreshold,
@@ -609,6 +650,18 @@ library BridgeState {
         require(
             _depositTxMaxFee > 0,
             "Deposit transaction max fee must be greater than zero"
+        );
+
+        // Mirrors the relation `Reservation.setReservationTerm` enforces
+        // from the term side. An empty table imposes no constraint.
+        uint32 largestTermSeconds = largestReservationTermSeconds(self);
+        require(
+            largestTermSeconds == 0 ||
+                _depositRevealAheadPeriod <=
+                largestTermSeconds +
+                    WalletProposalValidatorConstants
+                        .DEPOSIT_REFUND_SAFETY_MARGIN,
+            "Deposit reveal ahead period must not exceed largest term"
         );
 
         self.depositDustThreshold = _depositDustThreshold;
@@ -1095,5 +1148,80 @@ library BridgeState {
 
         self.reservationRouter = _reservationRouter;
         emit ReservationRouterSet(_reservationRouter);
+    }
+
+    /// @notice Writes a new reservation term entry and folds its length
+    ///         into the cached largest and smallest entry lengths. This is
+    ///         the only write path for a new entry; every reader of the two
+    ///         aggregates relies on it.
+    /// @dev Validates nothing; the caller guarantees two preconditions.
+    ///      `Reservation.setReservationTerm` checks the id range, that the
+    ///      id is unused, the protocol bounds and the custody cap before
+    ///      calling this. Writing an id that is already in use would leave
+    ///      the aggregates describing an entry that no longer exists, and a
+    ///      zero `termSeconds` would reset the smallest length to the
+    ///      empty-table sentinel while the table is non-empty; the setter's
+    ///      unused-id and `MIN_RESERVATION_TERM` checks rule both out.
+    ///      The aggregates are populated only by entries added through
+    ///      this function: nothing re-derives them from the table, so a
+    ///      table seeded by an implementation without them must not be
+    ///      upgraded to this one without a re-derivation (see
+    ///      `docs/RESERVATION_CAPS_DEPLOYMENT.md`, "Verification").
+    function addReservationTerm(
+        Storage storage self,
+        uint8 termId,
+        uint32 termSeconds,
+        uint16 custodyBps,
+        bool enabled
+    ) internal {
+        self.reservationTerms[termId] = Reservation.ReservationTerm(
+            termSeconds,
+            custodyBps,
+            enabled
+        );
+
+        if (termSeconds > self.largestReservationTerm) {
+            self.largestReservationTerm = termSeconds;
+        }
+        if (
+            self.smallestReservationTerm == 0 ||
+            termSeconds < self.smallestReservationTerm
+        ) {
+            self.smallestReservationTerm = termSeconds;
+        }
+    }
+
+    /// @notice Returns the largest `termSeconds` over every reservation term
+    ///         entry ever added, enabled or disabled.
+    /// @return Largest entry length in seconds; zero when the table is
+    ///         empty. Never reverts.
+    /// @dev Disabled entries count: their positions keep renewing, and
+    ///      entries are never removed, so a disabled long entry keeps
+    ///      bounding the relations it once satisfied. Read from the cache
+    ///      `addReservationTerm` maintains, so this costs one storage read
+    ///      on every reserved reveal and acceptance proof.
+    function largestReservationTermSeconds(Storage storage self)
+        internal
+        view
+        returns (uint32)
+    {
+        return self.largestReservationTerm;
+    }
+
+    /// @notice Returns the smallest `termSeconds` over every reservation
+    ///         term entry ever added, enabled or disabled.
+    /// @return Smallest entry length in seconds; zero when the table is
+    ///         empty. Never reverts. Every added entry has a non-zero
+    ///         length, so zero means exactly "no entry", and callers skip
+    ///         their relation to the smallest entry on it.
+    /// @dev Disabled entries count, for the same reason as in
+    ///      `largestReservationTermSeconds`. Read from the cache
+    ///      `addReservationTerm` maintains.
+    function smallestReservationTermSeconds(Storage storage self)
+        internal
+        view
+        returns (uint32)
+    {
+        return self.smallestReservationTerm;
     }
 }

@@ -198,15 +198,21 @@ library ReservationProofs {
         late = action.state == Reservation.ActionState.TimedOut;
         // Bound late acceptance settlement (M15 deferral mitigation):
         // a timed-out acceptance action may be settled late only within
-        // the reservation term following its timeout. Reanchor late
-        // settlement is left unbounded here because the reanchor wallet-
-        // stranding path handles late reanchor lifetimes separately.
+        // the largest reservation term entry ever added following its
+        // timeout. The bound is deliberately not the generation's own
+        // term: it limits how long a confirmed anchor stays provable,
+        // which has nothing to do with the position's length, and a short
+        // term would leave a confirmed anchor unsettleable soon after the
+        // timeout. Reanchor late settlement is left unbounded here because
+        // the reanchor wallet-stranding path handles late reanchor
+        // lifetimes separately.
         require(
             !late ||
                 expectedType != Reservation.ActionType.Acceptance ||
                 /* solhint-disable-next-line not-rely-on-time */
                 block.timestamp <=
-                uint256(action.timeoutAt) + action.termSeconds,
+                uint256(action.timeoutAt) +
+                    self.largestReservationTermSeconds(),
             "Late acceptance settlement window expired"
         );
     }
@@ -568,6 +574,12 @@ library ReservationProofs {
         reservation.state = Reservation.ReservationState.Active;
         // activeReservationsCount is incremented at reservation request time.
         reservation.dissolutionEligibleAt = expiresAt + action.dissolutionDelay;
+        // The term id of the generation being settled, which is the one
+        // named by the proof's `requestNonce` and not necessarily the
+        // position's newest generation (see the late branch above).
+        self.reservationTermIds[reservationKey] = self.reservationActionTermIds[
+            Reservation.actionKey(reservationKey, requestNonce)
+        ];
 
         self.reservationsByAnchorUtxo[
             uint256(keccak256(abi.encodePacked(anchorTxHash, uint32(0))))
@@ -610,17 +622,22 @@ library ReservationProofs {
         // interim. The per-deposit treasury fee computed at reveal time is
         // deliberately ignored: reservation claims are minted gross and all
         // protocol fees are charged as explicit transfers by the vault. All
-        // reservation-position state above is finalized before this external
-        // call, matching the checks-effects-interactions pattern.
-        address[] memory depositors = new address[](1);
-        depositors[0] = depositor;
-        uint256[] memory amounts = new uint256[](1);
-        amounts[0] = anchorAmount;
-
+        // reservation-position state above (owner, minted amount, state and
+        // term id) is finalized before these external calls, matching the
+        // checks-effects-interactions pattern: the vault reads the position
+        // back from the Bridge by key. The trusted vault is credited through
+        // its Bridge-only `creditReservation`, not the Bank callback, so the
+        // vault applies reservation fees only to a Bridge-proven position.
         address vault = deposit.vault;
         if (vault != address(0) && self.isVaultTrusted[vault]) {
-            self.bank.increaseBalanceAndCall(vault, depositors, amounts);
+            self.bank.increaseBalance(vault, anchorAmount);
+            IReservationFeeFinancer(vault).creditReservation(reservationKey);
         } else {
+            address[] memory depositors = new address[](1);
+            depositors[0] = depositor;
+            uint256[] memory amounts = new uint256[](1);
+            amounts[0] = anchorAmount;
+
             self.bank.increaseBalances(depositors, amounts);
         }
     }

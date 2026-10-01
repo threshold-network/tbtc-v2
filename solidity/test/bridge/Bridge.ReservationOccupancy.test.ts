@@ -2,6 +2,7 @@ import { ethers } from "hardhat"
 import { expect } from "chai"
 import type { Contract } from "ethers"
 import { walletState } from "../fixtures"
+import { RESERVATION_TERM_ENTRIES } from "../helpers/reservation-terms"
 
 async function deployTestReservation(): Promise<Contract> {
   const ReservationProofs = await ethers.getContractFactory("ReservationProofs")
@@ -17,7 +18,23 @@ async function deployTestReservation(): Promise<Contract> {
     }
   )
 
-  return TestReservationFactory.deploy()
+  const testReservation = await TestReservationFactory.deploy()
+
+  // The harness storage is never reached by the Bridge fixture's seeding,
+  // so the ruled term entries are added here through the harness wrapper
+  // of the production setter.
+  // eslint-disable-next-line no-restricted-syntax
+  for (const entry of RESERVATION_TERM_ENTRIES) {
+    // eslint-disable-next-line no-await-in-loop
+    await testReservation.setReservationTerm(
+      entry.termId,
+      entry.termSeconds,
+      entry.custodyBps,
+      entry.enabled
+    )
+  }
+
+  return testReservation
 }
 
 describe("Reservation - occupancy tracking", () => {
@@ -57,7 +74,11 @@ describe("Reservation - occupancy tracking", () => {
     await expect(
       testReservation
         .connect(depositor)
-        .requestReservationAcceptance(reservationKey, walletPubKeyHash)
+        .requestReservationAcceptance(
+          reservationKey,
+          walletPubKeyHash,
+          RESERVATION_TERM_ENTRIES[0].termId
+        )
     )
       .to.emit(testReservation, "ReservationOccupancyChanged")
       .withArgs(1)

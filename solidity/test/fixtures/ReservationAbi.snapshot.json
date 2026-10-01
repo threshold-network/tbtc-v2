@@ -44,8 +44,8 @@
     },
     {
       "name": "requestReservationAcceptance",
-      "selector": "0xbc78a18e",
-      "inputs": ["uint256", "bytes20"],
+      "selector": "0x2ec42e62",
+      "inputs": ["uint256", "bytes20", "uint8"],
       "outputs": []
     },
     {
@@ -96,6 +96,18 @@
       "outputs": ["address"]
     },
     {
+      "name": "reservationTerm",
+      "selector": "0xc2fdd405",
+      "inputs": ["uint8"],
+      "outputs": ["uint32", "uint16", "bool"]
+    },
+    {
+      "name": "reservationTermId",
+      "selector": "0xa66e022c",
+      "inputs": ["uint256"],
+      "outputs": ["uint8"]
+    },
+    {
       "name": "reservations",
       "selector": "0x067cf832",
       "inputs": ["uint256"],
@@ -106,6 +118,12 @@
       "selector": "0x56803b55",
       "inputs": ["uint256"],
       "outputs": ["bytes20"]
+    },
+    {
+      "name": "setReservationTerm",
+      "selector": "0x204cec23",
+      "inputs": ["uint8", "uint32", "uint16", "bool"],
+      "outputs": []
     },
     {
       "name": "submitReservationAcceptanceProof",
@@ -254,6 +272,16 @@
       "name": "ReservationStranded",
       "topic0": "0x95a304fee209cd8169392534093ab2cb9ee3b8c7031cf873b2f0c40a03b44d4d",
       "inputs": ["uint256", "bytes20", "address", "uint64"]
+    },
+    {
+      "name": "ReservationTermSelected",
+      "topic0": "0x2540d16bc873d134ab3ce589a275434cf0bdcd1ec640813e5530ddb6187fcdd6",
+      "inputs": ["uint256", "uint64", "uint8"]
+    },
+    {
+      "name": "ReservationTermUpdated",
+      "topic0": "0x4f44c9a947f369bc7700b7209458447788c16cd0371593ab278b9b794d82cbd7",
+      "inputs": ["uint8", "uint32", "uint16", "bool"]
     },
     {
       "name": "ReservationVaultUpdated",
