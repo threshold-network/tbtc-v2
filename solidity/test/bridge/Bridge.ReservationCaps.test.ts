@@ -310,7 +310,7 @@ describe("Reservation - governance ceremony argument forwarding", () => {
     const newMaxReservationsAmountPerWallet = 2_000_000
     const newReservationMaxSingleAmount = 100_000
     const newMaxActiveReservations = 200
-    const newMaxThirdPartyReanchorHoldsPerWallet = 1
+    const newMaxThirdPartyReanchorHoldsPerWallet = 3
 
     before(async () => {
       await bridgeGovernance
@@ -340,9 +340,12 @@ describe("Reservation - governance ceremony argument forwarding", () => {
 
       const { maxActive } = await reservationRouter.activeReservationsCount()
       expect(maxActive, "maxActiveReservations").to.equal(
-        newMaxActiveReservations,
-        maxThirdPartyReanchorHoldsPerWallet
-
+        newMaxActiveReservations
+      )
+      expect(
+        caps.maxThirdPartyReanchorHoldsPerWallet,
+        "maxThirdPartyReanchorHoldsPerWallet"
+      ).to.equal(newMaxThirdPartyReanchorHoldsPerWallet)
     })
   })
 })
