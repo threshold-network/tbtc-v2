@@ -378,9 +378,10 @@ library Deposit {
         /* solhint-disable-next-line not-rely-on-time */
         deposit.revealedAt = uint32(block.timestamp);
         deposit.vault = reveal.vault;
-        deposit.treasuryFee = self.depositTreasuryFeeDivisor > 0
-            ? fundingOutputAmount / self.depositTreasuryFeeDivisor
-            : 0;
+        deposit.treasuryFee =
+            self.depositTreasuryFeeDivisor > 0
+                ? fundingOutputAmount / self.depositTreasuryFeeDivisor
+                : 0;
         deposit.extraData = extraData;
 
         if (isReserved) {

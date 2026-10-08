@@ -92,11 +92,7 @@ contract VendingMachine is Ownable, IReceiveApproval {
         _;
     }
 
-    constructor(
-        IERC20 _tbtcV1,
-        TBTC _tbtcV2,
-        uint256 _unmintFee
-    ) {
+    constructor(IERC20 _tbtcV1, TBTC _tbtcV2, uint256 _unmintFee) {
         tbtcV1 = _tbtcV1;
         tbtcV2 = _tbtcV2;
         unmintFee = _unmintFee;
@@ -161,10 +157,10 @@ contract VendingMachine is Ownable, IReceiveApproval {
     ///         `VendingMachine`.
     /// @param recipient The address receiving the fees
     /// @param amount The amount of fees in TBTC v2 to withdraw
-    function withdrawFees(address recipient, uint256 amount)
-        external
-        onlyOwner
-    {
+    function withdrawFees(
+        address recipient,
+        uint256 amount
+    ) external onlyOwner {
         tbtcV2.safeTransfer(recipient, amount);
     }
 
@@ -173,10 +169,9 @@ contract VendingMachine is Ownable, IReceiveApproval {
     ///         after the `GOVERNANCE_DELAY` passes. Only unmint fee update
     ///         initiator role can initiate the update.
     /// @param _newUnmintFee The new unmint fee
-    function initiateUnmintFeeUpdate(uint256 _newUnmintFee)
-        external
-        only(unmintFeeUpdateInitiator)
-    {
+    function initiateUnmintFeeUpdate(
+        uint256 _newUnmintFee
+    ) external only(unmintFeeUpdateInitiator) {
         /* solhint-disable-next-line not-rely-on-time */
         emit UnmintFeeUpdateInitiated(_newUnmintFee, block.timestamp);
         newUnmintFee = _newUnmintFee;
@@ -205,10 +200,9 @@ contract VendingMachine is Ownable, IReceiveApproval {
     ///         `GOVERNANCE_DELAY` passes. Only vending machine upgrade
     ///         initiator role can initiate the upgrade.
     /// @param _newVendingMachine The new vending machine address
-    function initiateVendingMachineUpgrade(address _newVendingMachine)
-        external
-        only(vendingMachineUpgradeInitiator)
-    {
+    function initiateVendingMachineUpgrade(
+        address _newVendingMachine
+    ) external only(vendingMachineUpgradeInitiator) {
         require(
             _newVendingMachine != address(0),
             "New VendingMachine cannot be zero address"
@@ -247,10 +241,9 @@ contract VendingMachine is Ownable, IReceiveApproval {
     /// @notice Transfers unmint fee update initiator role to another address.
     ///         Can be called only by the current unmint fee update initiator.
     /// @param newInitiator The new unmint fee update initiator
-    function transferUnmintFeeUpdateInitiatorRole(address newInitiator)
-        external
-        only(unmintFeeUpdateInitiator)
-    {
+    function transferUnmintFeeUpdateInitiatorRole(
+        address newInitiator
+    ) external only(unmintFeeUpdateInitiator) {
         require(
             newInitiator != address(0),
             "New initiator must not be zero address"
@@ -262,10 +255,9 @@ contract VendingMachine is Ownable, IReceiveApproval {
     ///         address. Can be called only by the current vending machine
     ///         upgrade initiator.
     /// @param newInitiator The new vending machine upgrade initiator
-    function transferVendingMachineUpgradeInitiatorRole(address newInitiator)
-        external
-        only(vendingMachineUpgradeInitiator)
-    {
+    function transferVendingMachineUpgradeInitiatorRole(
+        address newInitiator
+    ) external only(vendingMachineUpgradeInitiator) {
         require(
             newInitiator != address(0),
             "New initiator must not be zero address"

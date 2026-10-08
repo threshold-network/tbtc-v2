@@ -24,10 +24,9 @@ contract CoreLogicTests is Test, TestSetup, GasReporter {
     address public owner = address(0x1);
     address public user = address(0x2);
     address public unauthorized = address(0x3);
-    uint256 public starkNetRecipient =
-        uint256(
-            0x04e3bc49f130f9d0379082c24efd397a0eddfccdc6023a2f02a74d8527140276
-        );
+    uint256 public starkNetRecipient = uint256(
+        0x04e3bc49f130f9d0379082c24efd397a0eddfccdc6023a2f02a74d8527140276
+    );
 
     // Test constants
     uint256 public constant INITIAL_MESSAGE_FEE = 0.01 ether;
@@ -601,11 +600,9 @@ contract CoreLogicTests is Test, TestSetup, GasReporter {
             });
     }
 
-    function _isWithinGasLimit(string memory operation)
-        internal
-        view
-        returns (bool)
-    {
+    function _isWithinGasLimit(
+        string memory operation
+    ) internal view returns (bool) {
         return isWithinGasLimit(operation);
     }
 }

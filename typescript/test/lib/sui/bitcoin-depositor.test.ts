@@ -23,7 +23,6 @@ describe("SUI Bitcoin Depositor", () => {
   let depositor: SuiBitcoinDepositor
   let mockClient: any
   let mockSigner: any
-  let mockTransaction: any
   let importStub: sinon.SinonStub
 
   const packageId = "0x" + "a".repeat(64)
@@ -36,9 +35,6 @@ describe("SUI Bitcoin Depositor", () => {
       Transaction: MockTransaction,
     })
     ;(global as any).import = importStub
-
-    // Create a new transaction instance for each test
-    mockTransaction = new MockTransaction()
 
     // Mock SUI client
     mockClient = {

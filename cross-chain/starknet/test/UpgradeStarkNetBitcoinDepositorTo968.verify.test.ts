@@ -52,8 +52,8 @@ chai.use(smock.matchers)
 //
 // The fork suite is gated on `FORKING_URL`; without it Hardhat runs an
 // in-memory chain where the real proxy does not exist, so that suite is
-// skipped rather than spuriously failing. There is no StarkNet CI
-// workflow, so the fork suite is expected to be run locally.
+// skipped rather than spuriously failing. CI runs the local suites; the
+// fork suite is run separately with an archival RPC endpoint.
 // -------------------------------------------------------------------
 
 const CONTRACT_NAME = "StarkNetBitcoinDepositor"
@@ -125,17 +125,16 @@ describeFork(
       // change, so a rejection here would itself signal a real layout
       // regression.
       const factory = await ethers.getContractFactory(CONTRACT_NAME)
-      // The StarkNet depositor links an external library, and the unchanged
-      // `DepositState` enum cannot be auto-compared against the recorded
-      // baseline ("insufficient data to compare enums"). Both relaxations keep
-      // the rest of the storage-safety check active; the starkGateBridge
-      // assertion below is the storage-integrity guard.
+      // The unchanged `DepositState` enum cannot be auto-compared against
+      // the recorded baseline ("insufficient data to compare enums"), so
+      // `unsafeAllowCustomTypes` stays enabled; the depositor does not link
+      // any external library. The starkGateBridge assertion below is the
+      // storage-integrity guard.
       newImplementation = (await upgrades.prepareUpgrade(
         PROXY_ADDRESS,
         factory,
         {
           kind: "transparent",
-          unsafeAllow: ["external-library-linking"],
           unsafeAllowCustomTypes: true,
         }
       )) as string
@@ -425,7 +424,6 @@ describe("UpgradeStarkNetBitcoinDepositorTo968 - best-effort skip path", () => {
         factoryOpts: { signer: namedSigners.deployer },
         proxyOpts: {
           kind: "transparent",
-          unsafeAllow: ["external-library-linking"],
         },
       }
     )
