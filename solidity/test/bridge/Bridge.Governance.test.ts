@@ -1,7 +1,7 @@
 import { ethers, helpers } from "hardhat"
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import { expect } from "chai"
-import { Contract, ContractTransaction, ContractTransactionResponse } from "ethers"
+import { BaseContract, ContractTransactionResponse } from "ethers"
 import type {
   BridgeGovernance,
   Bridge,
@@ -21,13 +21,13 @@ interface ReservationParametersSnapshot {
   reservationVault: string
   reservationMinAmount: bigint
   reservationTxMaxFee: bigint
-  reservationTermSeconds: number
-  reservationDissolutionDelay: number
+  reservationTermSeconds: bigint
+  reservationDissolutionDelay: bigint
   reservationMaxTotalAmount: bigint
   reservationTotalAmount: bigint
-  maxReservationsPerWallet: number
-  reservationActionTimeout: number
-  reservationRenewalWindowSeconds: number
+  maxReservationsPerWallet: bigint
+  reservationActionTimeout: bigint
+  reservationRenewalWindowSeconds: bigint
 }
 
 interface ReservationCapsSnapshot {
@@ -53,7 +53,7 @@ describe("Bridge - Governance", () => {
     // router ABI to the Bridge's own address to read that surface.
     reservationRouter = await ethers.getContractAt(
       "ReservationRouter",
-      bridge.address
+      bridge.target
     )
   })
 
@@ -4463,9 +4463,9 @@ describe("Bridge - Governance", () => {
     })
 
     context("when the caller is the owner", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
       let paramsBefore: ReservationParametersSnapshot
-      let bridgeGovernanceEvents: Contract
+      let bridgeGovernanceEvents: BaseContract
 
       before(async () => {
         await createSnapshot()
@@ -4481,7 +4481,7 @@ describe("Bridge - Governance", () => {
         const paramsLib = await helpers.contracts.getContract(
           "BridgeGovernanceParameters"
         )
-        bridgeGovernanceEvents = paramsLib.attach(bridgeGovernance.address)
+        bridgeGovernanceEvents = paramsLib.attach(bridgeGovernance.target)
 
         tx = await bridgeGovernance
           .connect(governance)
@@ -4627,7 +4627,7 @@ describe("Bridge - Governance", () => {
     context(
       "when the update process is initialized and governance delay passed",
       () => {
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -4722,10 +4722,10 @@ describe("Bridge - Governance", () => {
     })
 
     context("when the caller is the owner", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
       let capsBefore: ReservationCapsSnapshot
-      let maxActiveReservationsBefore: number
-      let bridgeGovernanceEvents: Contract
+      let maxActiveReservationsBefore: bigint
+      let bridgeGovernanceEvents: BaseContract
 
       before(async () => {
         await createSnapshot()
@@ -4737,7 +4737,7 @@ describe("Bridge - Governance", () => {
         const paramsLib = await helpers.contracts.getContract(
           "BridgeGovernanceParameters"
         )
-        bridgeGovernanceEvents = paramsLib.attach(bridgeGovernance.address)
+        bridgeGovernanceEvents = paramsLib.attach(bridgeGovernance.target)
 
         tx = await bridgeGovernance
           .connect(governance)
@@ -4828,7 +4828,7 @@ describe("Bridge - Governance", () => {
     context(
       "when the update process is initialized and governance delay passed",
       () => {
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()

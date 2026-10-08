@@ -4,7 +4,7 @@
 
 import { expect } from "chai"
 import hre, { ethers } from "hardhat"
-import { utils } from "ethers"
+import { Interface } from "ethers"
 import fs from "fs"
 import path from "path"
 import func, {
@@ -45,13 +45,13 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
   // source, mirroring what the deploy script itself loads via
   // `artifacts.readArtifact`.
   let bridgeGovernanceArtifact: any
-  let bridgeGovInterface: utils.Interface
+  let bridgeGovInterface: Interface
 
   before(async () => {
     bridgeGovernanceArtifact = await hre.artifacts.readArtifact(
       "BridgeGovernance"
     )
-    bridgeGovInterface = new ethers.utils.Interface(
+    bridgeGovInterface = new ethers.Interface(
       bridgeGovernanceArtifact.abi
     )
   })
@@ -115,7 +115,7 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
     const liveWalletsCountAtFinalize =
       overrides?.liveWalletsCountAtFinalize ?? liveWalletsCount
     const reservationRouterOnChain =
-      overrides?.reservationRouterOnChain ?? ethers.constants.AddressZero
+      overrides?.reservationRouterOnChain ?? ethers.ZeroAddress
     const routerOnChainCode =
       overrides?.routerOnChainCode ?? ROUTER_DEPLOYED_BYTECODE
     const proxyAdminOwner = overrides?.proxyAdminOwner ?? KNOWN_TIMELOCK
@@ -349,7 +349,7 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
         "finalizeReservationCapsUpdate",
         "finalizeReservationParametersUpdate",
         "setVaultStatus",
-      ].map((method) => bridgeGovInterface.getSighash(method))
+      ].map((method) => bridgeGovInterface.getFunction(method)!.selector)
 
       const indices = selectors.map((sel) => output.indexOf(sel))
       indices.forEach((index, i) => {
@@ -549,7 +549,7 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
         "finalizeReservationCapsUpdate",
         "finalizeReservationParametersUpdate",
         "setVaultStatus",
-      ].map((method) => bridgeGovInterface.getSighash(method))
+      ].map((method) => bridgeGovInterface.getFunction(method)!.selector)
 
       summary.governanceActions.forEach((action: any, index: number) => {
         expect(action.to).to.equal(BRIDGE_GOVERNANCE_ADDRESS)

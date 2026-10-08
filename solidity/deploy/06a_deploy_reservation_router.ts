@@ -69,7 +69,7 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
     "getReservationRouter"
   )
 
-  if (currentReservationRouter === ethers.constants.AddressZero) {
+  if (currentReservationRouter === ethers.ZeroAddress) {
     await execute(
       "Bridge",
       { from: deployer, log: true, waitConfirmations: 1 },

@@ -97,10 +97,8 @@ export async function getReservationAbiSnapshot(): Promise<ReservationAbiSnapsho
   // Selectors and event topics must be EVM-canonical: the EVM expands a
   // struct (tuple) parameter to its parenthesized component types when
   // hashing a signature, so hashing the literal JSON `tuple` placeholder
-  // would yield a wrong value. Build an ethers Interface per artifact ABI
-  // and let it canonicalize.
-  const bridgeIface = new ethers.utils.Interface(bridgeAbi)
-  const validatorIface = new ethers.utils.Interface(validatorAbi)
+  // would yield a wrong value. Build ethers Function/Event fragments and
+  // read their `.selector` / `.topicHash` so ethers canonicalizes.
 
   // Collect functions: all from IReservationBridge and the two validator entry points
   const bridgeFunctions = bridgeAbi
@@ -110,7 +108,7 @@ export async function getReservationAbiSnapshot(): Promise<ReservationAbiSnapsho
     )
     .map((f) => ({
       name: f.name,
-      selector: bridgeIface.getSighash(ethers.utils.FunctionFragment.from(f)),
+      selector: ethers.FunctionFragment.from(f).selector,
       inputs: f.inputs.map((i) => i.type),
       outputs: f.outputs.map((o) => o.type),
     }))
@@ -130,9 +128,7 @@ export async function getReservationAbiSnapshot(): Promise<ReservationAbiSnapsho
     }
     return {
       name: fn.name,
-      selector: validatorIface.getSighash(
-        ethers.utils.FunctionFragment.from(fn)
-      ),
+      selector: ethers.FunctionFragment.from(fn).selector,
       inputs: fn.inputs.map((i) => i.type),
       outputs: fn.outputs.map((o) => o.type),
     }
@@ -147,7 +143,7 @@ export async function getReservationAbiSnapshot(): Promise<ReservationAbiSnapsho
     )
     .map((e) => ({
       name: e.name,
-      topic0: bridgeIface.getEventTopic(ethers.utils.EventFragment.from(e)),
+      topic0: ethers.EventFragment.from(e).topicHash,
       inputs: e.inputs.map((i) => i.type),
     }))
 
@@ -195,7 +191,7 @@ export async function writeReservationAbiSnapshot(
   // fixture always matches what `contracts-format` (`prettier --check`)
   // expects, regardless of how JSON.stringify happens to wrap short arrays.
   const config = await prettier.resolveConfig(outputPath)
-  const content = prettier.format(raw, {
+  const content = await prettier.format(raw, {
     ...config,
     filepath: outputPath,
     parser: "json",

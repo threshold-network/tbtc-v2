@@ -2,7 +2,7 @@ import fs from "fs"
 import path from "path"
 import { HardhatRuntimeEnvironment } from "hardhat/types"
 import { DeployFunction } from "hardhat-deploy/types"
-import { utils, constants } from "ethers"
+import { getAddress, Interface, ZeroAddress } from "ethers"
 
 // Known mainnet Timelock Controller address. Owner of the ProxyAdmin,
 // used for scheduling and executing proxy upgrades with a 24h delay. This
@@ -325,11 +325,11 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   // this script or its siblings. Fails loudly on a mismatch rather than
   // silently carrying stale addresses into operator-facing documentation.
   console.log("\n--- Verifying governance role addresses on-chain ---")
-  const adminSlotData = await ethers.provider.getStorageAt(
+  const adminSlotData = await ethers.provider.getStorage(
     Bridge.address,
     EIP_1967_ADMIN_SLOT
   )
-  const proxyAdminAddress = utils.getAddress(`0x${adminSlotData.slice(26)}`)
+  const proxyAdminAddress = getAddress(`0x${adminSlotData.slice(26)}`)
   const proxyAdmin = await ethers.getContractAt(
     ["function owner() view returns (address)"],
     proxyAdminAddress
@@ -377,7 +377,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     "Bridge",
     "getReservationRouter"
   )
-  if (currentReservationRouter !== constants.AddressZero) {
+  if (currentReservationRouter !== ZeroAddress) {
     throw new Error(
       "Bridge.getReservationRouter() is already set to " +
         `${currentReservationRouter}; setReservationRouter is write-once ` +
@@ -589,7 +589,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const bridgeGovernanceArtifact = await artifacts.readArtifact(
     "BridgeGovernance"
   )
-  const bridgeGovInterface = new utils.Interface(bridgeGovernanceArtifact.abi)
+  const bridgeGovInterface = new Interface(bridgeGovernanceArtifact.abi)
 
   const actionDefinitions = buildReservationActionDefinitions({
     reservationRouter: ReservationRouter.address,

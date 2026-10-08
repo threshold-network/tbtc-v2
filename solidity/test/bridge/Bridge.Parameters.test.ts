@@ -1,7 +1,7 @@
 import { ethers, helpers } from "hardhat"
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import { expect } from "chai"
-import { Contract, ContractTransaction, ContractTransactionResponse } from "ethers"
+import { Contract, ContractTransactionResponse } from "ethers"
 import { Deployment } from "hardhat-deploy/types"
 import type { Bridge, BridgeStub, BridgeGovernance } from "../../typechain"
 import { constants } from "../fixtures"
@@ -2038,8 +2038,8 @@ describe("Bridge - Parameters", () => {
         before(async () => {
           await createSnapshot()
 
-          freshBridge = (await deployBridge(1))[0] as BridgeStub
-          await freshBridge.setReservationRouter(freshBridge.address)
+          freshBridge = (await deployBridge(1))[0] as unknown as BridgeStub
+          await freshBridge.setReservationRouter(freshBridge.target)
         })
 
         after(async () => {
@@ -2060,7 +2060,7 @@ describe("Bridge - Parameters", () => {
           before(async () => {
             await createSnapshot()
 
-            freshBridge = (await deployBridge(1))[0] as BridgeStub
+            freshBridge = (await deployBridge(1))[0] as unknown as BridgeStub
           })
 
           after(async () => {
@@ -2082,7 +2082,7 @@ describe("Bridge - Parameters", () => {
             before(async () => {
               await createSnapshot()
 
-              freshBridge = (await deployBridge(1))[0] as BridgeStub
+              freshBridge = (await deployBridge(1))[0] as unknown as BridgeStub
             })
 
             after(async () => {
@@ -2099,13 +2099,13 @@ describe("Bridge - Parameters", () => {
 
         context("when the reservation router address is non-zero", () => {
           let freshBridge: BridgeStub
-          let tx: ContractTransaction
+          let tx: ContractTransactionResponse
 
           before(async () => {
             await createSnapshot()
 
-            freshBridge = (await deployBridge(1))[0] as BridgeStub
-            tx = await freshBridge.setReservationRouter(freshBridge.address)
+            freshBridge = (await deployBridge(1))[0] as unknown as BridgeStub
+            tx = await freshBridge.setReservationRouter(freshBridge.target)
           })
 
           after(async () => {
@@ -2114,7 +2114,7 @@ describe("Bridge - Parameters", () => {
 
           it("should set the reservation router address", async () => {
             expect(await freshBridge.getReservationRouter()).to.equal(
-              freshBridge.address
+              freshBridge.target
             )
           })
 
@@ -2127,14 +2127,14 @@ describe("Bridge - Parameters", () => {
             // instance's address using the event's standalone ABI
             // fragment.
             const reservationRouterSetEvent = new ethers.Contract(
-              freshBridge.address,
+              freshBridge.target,
               ["event ReservationRouterSet(address reservationRouter)"],
               ethers.provider
             )
 
             await expect(tx)
               .to.emit(reservationRouterSetEvent, "ReservationRouterSet")
-              .withArgs(freshBridge.address)
+              .withArgs(freshBridge.target)
           })
         })
       })

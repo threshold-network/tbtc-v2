@@ -1,9 +1,9 @@
 import { ethers } from "hardhat"
 import { expect } from "chai"
-import type { Contract } from "ethers"
+import type { TestReservation } from "../../typechain"
 import { walletState } from "../fixtures"
 
-async function deployTestReservation(): Promise<Contract> {
+async function deployTestReservation(): Promise<TestReservation> {
   const ReservationProofs = await ethers.getContractFactory("ReservationProofs")
   const reservationProofs = await ReservationProofs.deploy()
 
@@ -13,7 +13,7 @@ async function deployTestReservation(): Promise<Contract> {
   const TestReservationFactory = await ethers.getContractFactory(
     "TestReservation",
     {
-      libraries: { Reservation: reservation.address },
+      libraries: { Reservation: reservation.target },
     }
   )
 
@@ -21,7 +21,7 @@ async function deployTestReservation(): Promise<Contract> {
 }
 
 describe("Reservation - occupancy tracking", () => {
-  let testReservation: Contract
+  let testReservation: TestReservation
 
   beforeEach(async () => {
     testReservation = await deployTestReservation()
@@ -32,7 +32,7 @@ describe("Reservation - occupancy tracking", () => {
     const reservationKey = 101
     const walletPubKeyHash = `0x${"2".repeat(40)}`
     const vault = `0x${"3".repeat(40)}`
-    const now = (await ethers.provider.getBlock("latest")).timestamp
+    const now = (await ethers.provider.getBlock("latest"))!.timestamp
 
     await testReservation.setGovernanceParameters(100, 100, 10000, 1)
     await testReservation.setMaxActiveReservations(1)
@@ -68,7 +68,7 @@ describe("Reservation - occupancy tracking", () => {
   it("notifyReservationAcceptanceTimedOut decrements activeReservationsCount and emits ReservationOccupancyChanged", async () => {
     const reservationKey = 102
     const walletPubKeyHash = `0x${"2".repeat(40)}`
-    const now = (await ethers.provider.getBlock("latest")).timestamp
+    const now = (await ethers.provider.getBlock("latest"))!.timestamp
 
     await testReservation.setActiveReservationsCount(1)
     await testReservation.setWalletReservationsCount(walletPubKeyHash, 1)
@@ -78,7 +78,7 @@ describe("Reservation - occupancy tracking", () => {
     // the action; seed the record so it resolves to the Acceptance action.
     await testReservation.setReservationFullState(
       reservationKey,
-      ethers.constants.AddressZero,
+      ethers.ZeroAddress,
       walletPubKeyHash,
       1000,
       1 /* Active */,
@@ -120,7 +120,7 @@ describe("Reservation - occupancy tracking", () => {
     const reservationKey = 1
     await testReservation.setReservationFullState(
       reservationKey,
-      ethers.constants.AddressZero,
+      ethers.ZeroAddress,
       walletPubKeyHash,
       100,
       1 /* Active */,
@@ -132,7 +132,7 @@ describe("Reservation - occupancy tracking", () => {
       .withArgs(
         reservationKey,
         walletPubKeyHash,
-        ethers.constants.AddressZero,
+        ethers.ZeroAddress,
         100
       )
       .to.emit(testReservation, "ReservationOccupancyChanged")
@@ -156,7 +156,7 @@ describe("Reservation - occupancy tracking", () => {
     const reservationKey = 1
     await testReservation.setReservationFullState(
       reservationKey,
-      ethers.constants.AddressZero,
+      ethers.ZeroAddress,
       walletPubKeyHash,
       100,
       1 /* Active */,
@@ -168,7 +168,7 @@ describe("Reservation - occupancy tracking", () => {
       .withArgs(
         reservationKey,
         walletPubKeyHash,
-        ethers.constants.AddressZero,
+        ethers.ZeroAddress,
         100
       )
       .to.emit(testReservation, "ReservationOccupancyChanged")
@@ -187,15 +187,15 @@ describe("Reservation - occupancy tracking", () => {
     await testReservation.setWalletState(walletPubKeyHash, walletState.Closing)
 
     const reservationKey = 1
-    const now = (await ethers.provider.getBlock("latest")).timestamp
+    const now = (await ethers.provider.getBlock("latest"))!.timestamp
     await testReservation.setReservation(reservationKey, {
-      owner: ethers.constants.AddressZero,
+      owner: ethers.ZeroAddress,
       mintedAmount: 100,
       acceptedAt: 0,
       walletPubKeyHash,
       anchorAmount: 100,
       expiresAt: 0,
-      anchorTxHash: ethers.constants.HashZero,
+      anchorTxHash: ethers.ZeroHash,
       anchorTxOutputIndex: 0,
       state: 1 /* Active */,
       requestNonce: 1,
@@ -223,7 +223,7 @@ describe("Reservation - occupancy tracking", () => {
     const reservationKey = 1
     await testReservation.setReservationFullState(
       reservationKey,
-      ethers.constants.AddressZero,
+      ethers.ZeroAddress,
       walletPubKeyHash,
       100,
       1 /* Active */,
@@ -243,7 +243,7 @@ describe("Reservation - occupancy tracking", () => {
     await testReservation.setActiveReservationsCount(0)
     await testReservation.setReservationFullState(
       reservationKey,
-      ethers.constants.AddressZero,
+      ethers.ZeroAddress,
       walletPubKeyHash,
       1000,
       4 /* Stranded */,

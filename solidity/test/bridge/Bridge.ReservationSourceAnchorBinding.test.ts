@@ -32,8 +32,8 @@
 // ReservationProofs.sol).
 
 import { ethers, helpers } from "hardhat"
-import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
-import { BigNumber, Contract } from "ethers"
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
+import { Contract } from "ethers"
 import { expect } from "chai"
 import type {
   Bank,
@@ -55,7 +55,7 @@ import { walletState } from "../fixtures"
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 const { lastBlockTime, increaseTime } = helpers.time
 
-const ZERO_BYTES32 = ethers.constants.HashZero
+const ZERO_BYTES32 = ethers.ZeroHash
 
 const RESERVATION_TERM = 31536000 // 365 days
 const RESERVATION_GRACE = 2592000 // 30 days
@@ -69,12 +69,12 @@ const RESERVATION_TX_MAX_FEE = 2000
 // relational check (`reservationMaxTotalAmount <= maxActiveReservations *
 // reservationMaxSingleAmount`) is live from that deploy step onward, so
 // this must fit under 100 * 100,000 = 10,000,000 - found 2026-08-26.
-const RESERVATION_MAX_TOTAL = BigNumber.from("10000000")
+const RESERVATION_MAX_TOTAL = BigInt("10000000")
 const MAX_RESERVATIONS_PER_WALLET = 10
 const RESERVATION_ACTION_TIMEOUT = 172800 // 48 hours
 const RESERVATION_RENEWAL_WINDOW = 2592000 // 30 days
 
-const SATOSHI_MULTIPLIER = BigNumber.from(10).pow(10)
+const SATOSHI_MULTIPLIER = 10n ** 10n
 
 const ReservationState = {
   Unknown: 0,
@@ -102,10 +102,10 @@ const ActionState = {
 }
 
 describe("Bridge - Reservation source-anchor binding", () => {
-  let governance: SignerWithAddress
-  let spvMaintainer: SignerWithAddress
-  let thirdParty: SignerWithAddress
-  let deployer: SignerWithAddress
+  let governance: HardhatEthersSigner
+  let spvMaintainer: HardhatEthersSigner
+  let thirdParty: HardhatEthersSigner
+  let deployer: HardhatEthersSigner
 
   let bank: Bank & BankStub
   let relay: Mock<IRelay>
@@ -113,10 +113,10 @@ describe("Bridge - Reservation source-anchor binding", () => {
   let bridge: Bridge & BridgeStub
   let reservationRouter: ReservationRouter
   let reimbursementPool: ReimbursementPool
-  let tbtc: TBTC & Contract
-  let tbtcVault: TBTCVault & Contract
+  let tbtc: TBTC
+  let tbtcVault: TBTCVault
   let reservationVault: ReservationVault
-  let bridgeGovernanceSigner: SignerWithAddress
+  let bridgeGovernanceSigner: HardhatEthersSigner
 
   const walletPubKeyHash = "0x8db50eb52063ea9d98b3eac91489a90f738986f6"
   const secondWalletPubKeyHash = "0xafcdf88d15a0e0c2134dbbc9f6da24d0e26c8f21"
@@ -124,10 +124,10 @@ describe("Bridge - Reservation source-anchor binding", () => {
   const refundPubKeyHash = "0x28e081f285138ccbe389c1eb8985716230129f89"
   let refundLocktime: string
 
-  const depositAmount = BigNumber.from(3000000)
-  const anchorFee = 1500
-  const anchorAmount = depositAmount.sub(anchorFee)
-  const grossTbtc = anchorAmount.mul(SATOSHI_MULTIPLIER)
+  const depositAmount = BigInt(3000000)
+  const anchorFee = 1500n
+  const anchorAmount = depositAmount- anchorFee
+  const grossTbtc = anchorAmount* SATOSHI_MULTIPLIER
 
   before(async () => {
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
@@ -157,7 +157,7 @@ describe("Bridge - Reservation source-anchor binding", () => {
     // `Bridge.fallback()`, exactly like the production caller path.
     reservationRouter = await ethers.getContractAt(
       "ReservationRouter",
-      bridge.address
+      bridge.target
     )
     reservationVault = await helpers.contracts.getContract("ReservationVault")
     bridgeGovernanceSigner = await impersonateContract(
@@ -167,7 +167,7 @@ describe("Bridge - Reservation source-anchor binding", () => {
 
     await bridge
       .connect(bridgeGovernanceSigner)
-      .setVaultStatus(reservationVault.address, true)
+      .setVaultStatus(reservationVault.target, true)
     // `deploy/97_set_reservation_parameters.ts` already set
     // `reservationMaxSingleAmount` to 100,000 as part of the fixture, but
     // this fixture's anchor is 2,998,500 sat - well over that single-
@@ -180,7 +180,7 @@ describe("Bridge - Reservation source-anchor binding", () => {
     await reservationRouter
       .connect(bridgeGovernanceSigner)
       .updateReservationParameters(
-        reservationVault.address,
+        reservationVault.target,
         RESERVATION_MIN_AMOUNT,
         RESERVATION_TX_MAX_FEE,
         RESERVATION_TERM,
@@ -200,12 +200,12 @@ describe("Bridge - Reservation source-anchor binding", () => {
     await liveWallet(walletPubKeyHash)
 
     const tbtcOwner = await impersonateContract(await tbtc.owner())
-    await tbtc.connect(tbtcOwner).transferOwnership(tbtcVault.address)
+    await tbtc.connect(tbtcOwner).transferOwnership(tbtcVault.target)
   })
 
   async function impersonateContract(
     address: string
-  ): Promise<SignerWithAddress> {
+  ): Promise<HardhatEthersSigner> {
     await ethers.provider.send("hardhat_impersonateAccount", [address])
     await ethers.provider.send("hardhat_setBalance", [
       address,
@@ -216,7 +216,7 @@ describe("Bridge - Reservation source-anchor binding", () => {
 
   async function liveWallet(pkh: string) {
     await bridge.setWallet(pkh, {
-      ecdsaWalletID: ethers.utils.randomBytes(32),
+      ecdsaWalletID: ethers.randomBytes(32),
       mainUtxoHash: ZERO_BYTES32,
       pendingRedemptionsValue: 0,
       createdAt: await lastBlockTime(),
@@ -231,20 +231,18 @@ describe("Bridge - Reservation source-anchor binding", () => {
   // ---- Bitcoin fixture crafting (regtest-style difficulty) ----
 
   const REGTEST_BITS_LE = "ffff7f20"
-  const REGTEST_TARGET = BigNumber.from("0x7fffff").mul(
-    BigNumber.from(2).pow(8 * (0x20 - 3))
-  )
+  const REGTEST_TARGET = BigInt(0x7fffff) * 2n ** BigInt(8 * (0x20 - 3))
 
   const reverseHex = (hex: string): string =>
     hex.replace(/^0x/, "").match(/../g)!.reverse().join("")
 
   const hash256 = (hexData: string): string =>
-    ethers.utils.sha256(ethers.utils.sha256(hexData))
+    ethers.sha256(ethers.sha256(hexData))
 
-  const toLE = (value: number | BigNumber, byteLength: number): string =>
+  const toLE = (value: number | bigint, byteLength: number): string =>
     reverseHex(
-      BigNumber.from(value)
-        .toHexString()
+      BigInt(value)
+        .toString(16)
         .slice(2)
         .padStart(byteLength * 2, "0")
     )
@@ -258,7 +256,7 @@ describe("Bridge - Reservation source-anchor binding", () => {
 
   function buildTx(
     inputs: { txHash: string; index: number }[],
-    outputs: { valueSat: BigNumber | number; script: string }[]
+    outputs: { valueSat: bigint | number; script: string }[]
   ) {
     const inputVector = `0x${compactSize(inputs.length)}${inputs
       .map((i) => `${i.txHash.slice(2)}${toLE(i.index, 4)}00ffffffff`)
@@ -266,7 +264,7 @@ describe("Bridge - Reservation source-anchor binding", () => {
     const outputVector = `0x${compactSize(outputs.length)}${outputs
       .map(
         (o) =>
-          `${toLE(BigNumber.from(o.valueSat), 8)}${compactSize(
+          `${toLE(BigInt(o.valueSat), 8)}${compactSize(
             o.script.length / 2
           )}${o.script}`
       )
@@ -284,16 +282,14 @@ describe("Bridge - Reservation source-anchor binding", () => {
   }
 
   function mineHeader(merkleRoot: string): string {
-    const prevBlock = ethers.utils
-      .hexlify(ethers.utils.randomBytes(32))
-      .slice(2)
+    const prevBlock = ethers.hexlify(ethers.randomBytes(32)).slice(2)
     const base = `20000000${prevBlock}${merkleRoot.slice(
       2
     )}662a2c68${REGTEST_BITS_LE}`
     for (let nonce = 0; ; nonce++) {
       const header = `0x${base}${toLE(nonce, 4)}`
       if (
-        BigNumber.from(`0x${reverseHex(hash256(header))}`).lte(REGTEST_TARGET)
+        BigInt(`0x${reverseHex(hash256(header))}`)<= REGTEST_TARGET
       ) {
         return header
       }
@@ -301,8 +297,8 @@ describe("Bridge - Reservation source-anchor binding", () => {
   }
 
   function proofFor(txHash: string) {
-    const coinbasePreimage = ethers.utils.sha256(ethers.utils.randomBytes(32))
-    const coinbaseTxId = ethers.utils.sha256(coinbasePreimage)
+    const coinbasePreimage = ethers.sha256(ethers.randomBytes(32))
+    const coinbaseTxId = ethers.sha256(coinbasePreimage)
     const merkleRoot = hash256(`0x${coinbaseTxId.slice(2)}${txHash.slice(2)}`)
     return {
       merkleProof: coinbaseTxId,
@@ -327,19 +323,19 @@ describe("Bridge - Reservation source-anchor binding", () => {
     )}b175ac68`
 
   const p2wshScript = (script: string): string =>
-    `0020${ethers.utils.sha256(`0x${script}`).slice(2)}`
+    `0020${ethers.sha256(`0x${script}`).slice(2)}`
 
   const p2wpkhScript = (pkh: string): string => `0014${pkh.slice(2)}`
 
   const randomRedeemerScript = (): string =>
-    `0x16${p2wpkhScript(ethers.utils.hexlify(ethers.utils.randomBytes(20)))}`
+    `0x16${p2wpkhScript(ethers.hexlify(ethers.randomBytes(20)))}`
 
   // Reveals a fresh reserved deposit and requests acceptance (generation 1).
   async function makeRequestedReservation(custodian = walletPubKeyHash) {
     const fundingTx = buildTx(
       [
         {
-          txHash: ethers.utils.hexlify(ethers.utils.randomBytes(32)),
+          txHash: ethers.hexlify(ethers.randomBytes(32)),
           index: 0,
         },
       ],
@@ -365,11 +361,11 @@ describe("Bridge - Reservation source-anchor binding", () => {
       walletPubKeyHash: custodian,
       refundPubKeyHash,
       refundLocktime,
-      vault: reservationVault.address,
+      vault: reservationVault.target,
     })
 
-    const reservationKey = BigNumber.from(
-      ethers.utils.solidityKeccak256(
+    const reservationKey = BigInt(
+      ethers.solidityPackedKeccak256(
         ["bytes32", "uint32"],
         [fundingTx.txHash, 0]
       )
@@ -416,8 +412,8 @@ describe("Bridge - Reservation source-anchor binding", () => {
 
     it("rejects a timed-out re-anchor replay against a later anchor", async () => {
       const { anchorTx, reservationKey } = await makeAcceptedReservation()
-      const thirdWalletPubKeyHash = ethers.utils.hexlify(
-        ethers.utils.randomBytes(20)
+      const thirdWalletPubKeyHash = ethers.hexlify(
+        ethers.randomBytes(20)
       )
       await liveWallet(secondWalletPubKeyHash)
       await liveWallet(thirdWalletPubKeyHash)
@@ -436,7 +432,7 @@ describe("Bridge - Reservation source-anchor binding", () => {
         [{ txHash: anchorTx.txHash, index: 0 }],
         [
           {
-            valueSat: anchorAmount.sub(500),
+            valueSat: anchorAmount - 500n,
             script: p2wpkhScript(secondWalletPubKeyHash),
           },
         ]
@@ -462,7 +458,7 @@ describe("Bridge - Reservation source-anchor binding", () => {
         .connect(thirdParty)
         .notifyReservationActionTimeout(reservationKey)
 
-      const originalAnchorHash = ethers.utils.solidityKeccak256(
+      const originalAnchorHash = ethers.solidityPackedKeccak256(
         ["bytes32", "uint32"],
         [anchorTx.txHash, 0]
       )
@@ -493,7 +489,7 @@ describe("Bridge - Reservation source-anchor binding", () => {
           2,
           secondWalletPubKeyHash,
           firstReanchorTx.txHash,
-          anchorAmount.sub(500),
+          anchorAmount - 500n,
           500
         )
 
@@ -504,7 +500,7 @@ describe("Bridge - Reservation source-anchor binding", () => {
         [{ txHash: firstReanchorTx.txHash, index: 0 }],
         [
           {
-            valueSat: anchorAmount.sub(1000),
+            valueSat: anchorAmount - 1000n,
             script: p2wpkhScript(thirdWalletPubKeyHash),
           },
         ]
@@ -529,8 +525,8 @@ describe("Bridge - Reservation source-anchor binding", () => {
       ).to.equal(ActionState.TimedOut)
       expect(
         await bridge.spentMainUTXOs(
-          BigNumber.from(
-            ethers.utils.solidityKeccak256(
+          BigInt(
+            ethers.solidityPackedKeccak256(
               ["bytes32", "uint32"],
               [firstReanchorTx.txHash, 0]
             )
