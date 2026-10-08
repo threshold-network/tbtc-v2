@@ -668,7 +668,7 @@ describe("Bridge - Reservation stranding", () => {
 
       await expect(
         reservationRouter.notifyReservationStranded(reservationKey)
-      ).to.be.revertedWith("Wallet is not terminated")
+      ).to.be.revertedWith("Wallet is not terminated, closed, or a dissolution-eligible closing wallet")
     })
 
     it("rejects when the wallet is in MovingFunds", async () => {
@@ -680,7 +680,7 @@ describe("Bridge - Reservation stranding", () => {
 
       await expect(
         reservationRouter.notifyReservationStranded(reservationKey)
-      ).to.be.revertedWith("Wallet is not terminated")
+      ).to.be.revertedWith("Wallet is not terminated, closed, or a dissolution-eligible closing wallet")
     })
   })
 

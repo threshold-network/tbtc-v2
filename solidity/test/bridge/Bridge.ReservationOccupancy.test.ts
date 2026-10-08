@@ -207,7 +207,7 @@ describe("Reservation - occupancy tracking", () => {
 
     await expect(
       testReservation.notifyReservationStranded(reservationKey)
-    ).to.be.revertedWith("Wallet is not terminated")
+    ).to.be.revertedWith("Wallet is not terminated, closed, or a dissolution-eligible closing wallet")
   })
 
   it("notifyReservationStranded reverts on a Live wallet", async () => {
@@ -232,7 +232,7 @@ describe("Reservation - occupancy tracking", () => {
 
     await expect(
       testReservation.notifyReservationStranded(reservationKey)
-    ).to.be.revertedWith("Wallet is not terminated")
+    ).to.be.revertedWith("Wallet is not terminated, closed, or a dissolution-eligible closing wallet")
   })
 
   it("prepareReservationForSettlement restores activeReservationsCount on late settlement of stranded reservation and emits ReservationOccupancyChanged", async () => {

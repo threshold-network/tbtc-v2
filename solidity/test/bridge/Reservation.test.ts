@@ -1062,7 +1062,7 @@ describe("Reservation", () => {
 
     it("should validate a correct anchor output and return its amount", async () => {
       expect(
-        await testReservation.validateAnchorOutput(
+        await testReservation.callStatic.validateAnchorOutput(
           singleOutput,
           anchorPubKeyHash,
           amount,
@@ -1100,7 +1100,7 @@ describe("Reservation", () => {
     it("should succeed at the fee-bound boundary (amount - anchorAmount == txMaxFee)", async () => {
       const boundaryAmount = anchorAmount + txMaxFee
       expect(
-        await testReservation.validateAnchorOutput(
+        await testReservation.callStatic.validateAnchorOutput(
           singleOutput,
           anchorPubKeyHash,
           boundaryAmount,

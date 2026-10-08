@@ -149,7 +149,7 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
       },
       ethers: {
         provider: {
-          getStorageAt: async () =>
+          getStorage: async () =>
             `0x${"0".repeat(24)}${PROXY_ADMIN_ADDRESS.slice(2).toLowerCase()}`,
           getCode: async () => routerOnChainCode,
         },
