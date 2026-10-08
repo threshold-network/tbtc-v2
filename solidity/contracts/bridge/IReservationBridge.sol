@@ -238,10 +238,15 @@ interface IReservationBridge {
     ///        single reservation; zero disables the cap.
     /// @param maxActiveReservations New global cap on open reservation
     ///        positions; must be positive.
+    /// @param maxThirdPartyReanchorHoldsPerWallet New per-target cap on
+    ///        the number of concurrently pending third-party re-anchor
+    ///        holds; zero means third parties may not hold re-anchor
+    ///        capacity at all (privileged callers only).
     event ReservationCapsUpdated(
         uint64 maxReservationsAmountPerWallet,
         uint64 reservationMaxSingleAmount,
-        uint32 maxActiveReservations
+        uint32 maxActiveReservations,
+        uint32 maxThirdPartyReanchorHoldsPerWallet
     );
 
     /// @notice Emitted whenever the global count of open reservation
@@ -283,22 +288,39 @@ interface IReservationBridge {
     ///         anchor during migration or a governance-approved rotation.
     /// @dev Callable by anyone when the source wallet is in the
     ///      MovingFunds or Closing state (the primary, permissionless
-    ///      migration path). Callable only by Bridge governance when the
-    ///      source wallet is still Live (an approved rotation). Reverts
-    ///      unless: the reservation is Active; the target wallet is Live
-    ///      and different from the source; the target wallet's
-    ///      reservation-count and amount capacity allow the move; and a
-    ///      valid signing window remains before the action-timeout safety
-    ///      margin. A non-privileged call additionally reverts if the
-    ///      reservation's re-anchor cooldown has not elapsed. See
+    ///      migration backstop), subject to the per-target third-party
+    ///      re-anchor hold cap. The reservation owner, an SPV maintainer,
+    ///      or a proven member of the source wallet are privileged and
+    ///      exempt from the cap. Callable only by Bridge governance when
+    ///      the source wallet is still Live (an approved rotation).
+    ///      Reverts unless: the reservation is Active; the target wallet is
+    ///      Live and different from the source; the target wallet's
+    ///      reservation-count and amount capacity allow the move; a valid
+    ///      signing window remains before the action-timeout safety margin;
+    ///      and, for a non-privileged caller, the target wallet's pending
+    ///      third-party re-anchor hold count is below the cap. A non-
+    ///      privileged call additionally reverts if the reservation's
+    ///      re-anchor cooldown has not elapsed. A caller passing a
+    ///      non-empty `walletMembersIDs` proof that fails validation
+    ///      reverts. See
     ///      `Reservation.requestReservationReanchor` for the full
     ///      requirement list.
     /// @param reservationKey The key of the reservation to re-anchor.
     /// @param targetWalletPubKeyHash 20-byte public key hash of the target
     ///        wallet.
+    /// @param walletMembersIDs Identifiers of the source wallet signing
+    ///        group members. Empty for privileged (owner, SPV maintainer,
+    ///        or governance-discriminated) calls and for third-party
+    ///        callers; a non-empty proof that fails validation reverts
+    ///        rather than degrading to a third-party request.
+    /// @param walletMemberIndex Position of the caller in the source
+    ///        wallet signing group members list, used to validate
+    ///        `walletMembersIDs` against the source wallet's registry.
     function requestReservationReanchor(
         uint256 reservationKey,
-        bytes20 targetWalletPubKeyHash
+        bytes20 targetWalletPubKeyHash,
+        uint32[] calldata walletMembersIDs,
+        uint256 walletMemberIndex
     ) external;
 
     /// @notice Settles a reservation acceptance-anchor SPV proof: the named
@@ -480,8 +502,9 @@ interface IReservationBridge {
     function notifyReservationStranded(uint256 reservationKey) external;
 
     /// @notice Updates the amount-denominated reservation caps (per-wallet
-    ///         total anchor amount and single-reservation maximum) and the
-    ///         global open-position occupancy cap. Caps are checked and
+    ///         total anchor amount and single-reservation maximum), the
+    ///         global open-position occupancy cap, and the per-target
+    ///         third-party re-anchor hold cap. Caps are checked and
     ///         reserved at request/authorization time, never at proof time.
     /// @dev Caller must be Bridge governance. Reverts unless
     ///      `maxActiveReservations` is greater than zero (the milestone 1
@@ -497,15 +520,20 @@ interface IReservationBridge {
     /// @param maxActiveReservations New global cap on open reservation
     ///        positions (pending acceptances reserved against it). Must be
     ///        greater than zero. Milestone 1 launch gate.
+    /// @param maxThirdPartyReanchorHoldsPerWallet New per-target cap on
+    ///        the number of concurrently pending third-party re-anchor
+    ///        holds. Zero means third parties may not hold re-anchor
+    ///        capacity at all (privileged callers only).
     function updateReservationCaps(
         uint64 maxReservationsAmountPerWallet,
         uint64 reservationMaxSingleAmount,
-        uint32 maxActiveReservations
+        uint32 maxActiveReservations,
+        uint32 maxThirdPartyReanchorHoldsPerWallet
     ) external;
 
     /// @notice Returns the reservation caps: per-wallet anchor amount cap,
-    ///         single-reservation maximum amount, and global open-position
-    ///         occupancy cap.
+    ///         single-reservation maximum amount, global open-position
+    ///         occupancy cap, and per-target third-party re-anchor hold cap.
     /// @return maxReservationsAmountPerWallet Cap on the total satoshi
     ///         amount of anchors a single wallet can custody; zero means
     ///         the cap is disabled.
@@ -513,14 +541,29 @@ interface IReservationBridge {
     ///         single reservation; zero means the cap is disabled.
     /// @return maxActiveReservations Global cap on open reservation
     ///         positions.
+    /// @return maxThirdPartyReanchorHoldsPerWallet Cap on the number of
+    ///         concurrently pending third-party re-anchor holds per target
+    ///         wallet; zero means third parties may not hold re-anchor
+    ///         capacity at all.
     function reservationCaps()
         external
         view
         returns (
             uint64 maxReservationsAmountPerWallet,
             uint64 reservationMaxSingleAmount,
-            uint32 maxActiveReservations
+            uint32 maxActiveReservations,
+            uint32 maxThirdPartyReanchorHoldsPerWallet
         );
+
+    /// @notice Returns the number of pending third-party re-anchor holds
+    ///         currently reserved against the given target wallet.
+    /// @param walletPubKeyHash 20-byte public key hash of the wallet.
+    /// @return holds The number of pending third-party re-anchor holds
+    ///         reserved against the wallet.
+    function pendingThirdPartyReanchorHolds(bytes20 walletPubKeyHash)
+        external
+        view
+        returns (uint32 holds);
 
     /// @notice Bridge treasury address. Declared by the Bridge contract
     ///         itself (not the router); included here so reservation

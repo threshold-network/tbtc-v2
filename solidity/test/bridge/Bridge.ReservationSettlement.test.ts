@@ -205,7 +205,7 @@ describe("Bridge - Reservation settlement", () => {
     // reservation - found 2026-08-26.
     await reservationRouter
       .connect(bridgeGovernanceSigner)
-      .updateReservationCaps(RESERVATION_MAX_TOTAL, RESERVATION_MAX_TOTAL, 10) // 10 = 1 wallet * MAX_RESERVATIONS_PER_WALLET, satisfying the Item-3 sizing relation with this fixture's single default Live wallet
+      .updateReservationCaps(RESERVATION_MAX_TOTAL, RESERVATION_MAX_TOTAL, 10, 1) // 10 = 1 wallet * MAX_RESERVATIONS_PER_WALLET, satisfying the Item-3 sizing relation with this fixture's single default Live wallet
     await reservationRouter
       .connect(bridgeGovernanceSigner)
       .updateReservationParameters(
@@ -479,7 +479,7 @@ describe("Bridge - Reservation settlement", () => {
     ) {
       await reservationRouter
         .connect(bridgeGovernanceSigner)
-        .requestReservationReanchor(reservationKey, target)
+        .requestReservationReanchor(reservationKey, target, [], 0)
 
       const hopTx = buildTx(
         [{ txHash: sourceTx.txHash, index: 0 }],
@@ -575,7 +575,7 @@ describe("Bridge - Reservation settlement", () => {
       await expect(
         reservationRouter
           .connect(bridgeGovernanceSigner)
-          .requestReservationReanchor(reservationKey, target)
+          .requestReservationReanchor(reservationKey, target, [], 0)
       ).to.be.revertedWith(
         "Reanchor would fall below the minimum reservation amount"
       )
@@ -603,7 +603,7 @@ describe("Bridge - Reservation settlement", () => {
       await expect(
         reservationRouter
           .connect(thirdParty)
-          .requestReservationReanchor(reservationKey, secondWalletPubKeyHash)
+          .requestReservationReanchor(reservationKey, secondWalletPubKeyHash, [], 0)
       ).to.be.revertedWith("Only governance can rotate a Live wallet's anchor")
     })
   })

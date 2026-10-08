@@ -546,11 +546,25 @@
       "numberOfBytes": "32"
     },
     {
-      "label": "__gap",
+      "label": "maxThirdPartyReanchorHoldsPerWallet",
       "slot": "39",
       "offset": 0,
-      "type": "uint256[39]",
-      "numberOfBytes": "1248"
+      "type": "uint32",
+      "numberOfBytes": "4"
+    },
+    {
+      "label": "pendingThirdPartyReanchorHolds",
+      "slot": "40",
+      "offset": 0,
+      "type": "mapping(bytes20 => uint32)",
+      "numberOfBytes": "32"
+    },
+    {
+      "label": "__gap",
+      "slot": "41",
+      "offset": 0,
+      "type": "uint256[37]",
+      "numberOfBytes": "1184"
     }
   ],
   "structMembers": {
@@ -824,6 +838,13 @@
         "offset": 8,
         "type": "uint64",
         "numberOfBytes": "8"
+      },
+      {
+        "label": "thirdPartyHold",
+        "slot": "5",
+        "offset": 16,
+        "type": "bool",
+        "numberOfBytes": "1"
       }
     ],
     "WalletReservationInfo": [

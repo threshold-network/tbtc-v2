@@ -186,7 +186,8 @@ contract ReservationRouter is Governable, Initializable {
     event ReservationCapsUpdated(
         uint64 maxReservationsAmountPerWallet,
         uint64 reservationMaxSingleAmount,
-        uint32 maxActiveReservations
+        uint32 maxActiveReservations,
+        uint32 maxThirdPartyReanchorHoldsPerWallet
     );
 
     event ReservationOccupancyChanged(uint32 activeReservationsCount);
@@ -229,14 +230,24 @@ contract ReservationRouter is Governable, Initializable {
     /// @param reservationKey The key of the reservation to re-anchor.
     /// @param targetWalletPubKeyHash 20-byte public key hash of the target
     ///        wallet.
+    /// @param walletMembersIDs Identifiers of the source wallet signing
+    ///        group members. Empty for privileged and third-party callers;
+    ///        a non-empty proof that fails validation reverts.
+    /// @param walletMemberIndex Position of the caller in the source wallet
+    ///        signing group members list, used to validate the member proof
+    ///        against the source wallet's ECDSA registry.
     function requestReservationReanchor(
         uint256 reservationKey,
-        bytes20 targetWalletPubKeyHash
+        bytes20 targetWalletPubKeyHash,
+        uint32[] calldata walletMembersIDs,
+        uint256 walletMemberIndex
     ) external {
         self.requestReservationReanchor(
             reservationKey,
             targetWalletPubKeyHash,
-            msg.sender == governance
+            msg.sender == governance,
+            walletMembersIDs,
+            walletMemberIndex
         );
     }
 
@@ -416,8 +427,9 @@ contract ReservationRouter is Governable, Initializable {
     }
 
     /// @notice Updates the amount-denominated reservation caps (per-wallet
-    ///         total anchor amount and single-reservation maximum) and the
-    ///         global open-position occupancy cap. A zero amount-cap value
+    ///         total anchor amount and single-reservation maximum), the
+    ///         global open-position occupancy cap, and the per-target
+    ///         third-party re-anchor hold cap. A zero amount-cap value
     ///         disables that amount cap. `maxActiveReservations` must be
     ///         greater than zero — it is the milestone 1 launch gate.
     ///         Caps are checked and reserved at request/authorization time,
@@ -429,35 +441,57 @@ contract ReservationRouter is Governable, Initializable {
     /// @param maxActiveReservations New global cap on open reservation
     ///        positions (pending acceptances reserved against it). Must be
     ///        greater than zero. Milestone 1 launch gate.
+    /// @param maxThirdPartyReanchorHoldsPerWallet New per-target cap on
+    ///        the number of concurrently pending third-party re-anchor
+    ///        holds. Zero means third parties may not hold re-anchor
+    ///        capacity at all (privileged callers only).
     /// @dev Requirements:
     ///      - The caller must be the governance.
     function updateReservationCaps(
         uint64 maxReservationsAmountPerWallet,
         uint64 reservationMaxSingleAmount,
-        uint32 maxActiveReservations
+        uint32 maxActiveReservations,
+        uint32 maxThirdPartyReanchorHoldsPerWallet
     ) external onlyGovernance {
         self.updateReservationCaps(
             maxReservationsAmountPerWallet,
             reservationMaxSingleAmount,
-            maxActiveReservations
+            maxActiveReservations,
+            maxThirdPartyReanchorHoldsPerWallet
         );
     }
 
     /// @notice Returns the reservation caps: per-wallet anchor amount cap,
-    ///         single-reservation maximum amount, and global open-position
-    ///         occupancy cap.
+    ///         single-reservation maximum amount, global open-position
+    ///         occupancy cap, and per-target third-party re-anchor hold cap.
     function reservationCaps()
         external
         view
         returns (
             uint64 maxReservationsAmountPerWallet,
             uint64 reservationMaxSingleAmount,
-            uint32 maxActiveReservations
+            uint32 maxActiveReservations,
+            uint32 maxThirdPartyReanchorHoldsPerWallet
         )
     {
         maxReservationsAmountPerWallet = self.maxReservationsAmountPerWallet;
         reservationMaxSingleAmount = self.reservationMaxSingleAmount;
         maxActiveReservations = self.maxActiveReservations;
+        maxThirdPartyReanchorHoldsPerWallet =
+            self.maxThirdPartyReanchorHoldsPerWallet;
+    }
+
+    /// @notice Returns the number of pending third-party re-anchor holds
+    ///         currently reserved against the given target wallet.
+    /// @param walletPubKeyHash 20-byte public key hash of the wallet.
+    /// @return holds The number of pending third-party re-anchor holds
+    ///        reserved against the wallet.
+    function pendingThirdPartyReanchorHolds(bytes20 walletPubKeyHash)
+        external
+        view
+        returns (uint32 holds)
+    {
+        holds = self.pendingThirdPartyReanchorHolds[walletPubKeyHash];
     }
 
     /// @notice Returns the total satoshi amount of reservation anchors

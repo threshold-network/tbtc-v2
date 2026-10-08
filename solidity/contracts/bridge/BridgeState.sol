@@ -482,6 +482,26 @@ library BridgeState {
         // must keep accepting late proofs of their confirmed Bitcoin
         // transactions.
         mapping(uint256 => Reservation.ReservationAction) reservationActions;
+        // Governance-time cap on the number of concurrently *pending*
+        // third-party re-anchor holds that a single target wallet may
+        // custody, measured over pending re-anchor action generations whose
+        // capacity was reserved by a non-privileged (third-party) caller of
+        // `Reservation.requestReservationReanchor`. A third-party request
+        // reverts with "Target third-party re-anchor holds exceeded" once
+        // the target's `pendingThirdPartyReanchorHolds` reaches this cap;
+        // privileged requests (the reservation owner, an SPV maintainer, or
+        // a proven member of the source wallet) never count and are never
+        // blocked by the cap. `0` means third parties may not hold re-anchor
+        // capacity at all (privileged callers only).
+        uint32 maxThirdPartyReanchorHoldsPerWallet;
+        // Per-target-wallet count of pending third-party re-anchor holds:
+        // one slot each, incremented when a non-privileged
+        // `requestReservationReanchor` reserves a target wallet's capacity
+        // and decremented exactly once on every path that ends that pending
+        // generation (on-time/late re-anchor settlement, supersede-unwind of
+        // the pending generation, or `notifyReservationActionTimeout`).
+        // Privileged generations never touch it.
+        mapping(bytes20 => uint32) pendingThirdPartyReanchorHolds;
         // Reserved storage space in case we need to add more variables.
         // The convention from OpenZeppelin suggests the storage space should
         // add up to 50 slots. Here we want to have more slots as there are
@@ -494,12 +514,14 @@ library BridgeState {
         // `walletPendingDissolution`, `reservationRetryCreditActionNonce`,
         // `reservationMaxBackingFractionBps`, `walletReservationKeys`, and
         // `walletReservationKeyIndex`
-        // as unused/dead, freeing 6 slots via re-packing). The remaining 39
-        // slots are shared budget for all future Bridge upgrades, not
+        // as unused/dead, freeing 6 slots via re-packing). This PR appended
+        // `maxThirdPartyReanchorHoldsPerWallet` and
+        // `pendingThirdPartyReanchorHolds` into the gap (two slots), leaving
+        // 37 slots as the shared budget for all future Bridge upgrades, not
         // reserved for reservations specifically - a later unrelated PR
         // should not assume it can spend the rest.
         // slither-disable-next-line unused-state
-        uint256[39] __gap;
+        uint256[37] __gap;
     }
 
     event DepositParametersUpdated(

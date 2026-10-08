@@ -176,7 +176,7 @@ describe("Bridge - Reservation source-anchor binding", () => {
     // reservation - found 2026-08-26.
     await reservationRouter
       .connect(bridgeGovernanceSigner)
-      .updateReservationCaps(RESERVATION_MAX_TOTAL, RESERVATION_MAX_TOTAL, 10) // 10 = 1 wallet * MAX_RESERVATIONS_PER_WALLET, satisfying the Item-3 sizing relation with this fixture's single default Live wallet
+      .updateReservationCaps(RESERVATION_MAX_TOTAL, RESERVATION_MAX_TOTAL, 10, 1) // 10 = 1 wallet * MAX_RESERVATIONS_PER_WALLET, satisfying the Item-3 sizing relation with this fixture's single default Live wallet
     await reservationRouter
       .connect(bridgeGovernanceSigner)
       .updateReservationParameters(
@@ -427,7 +427,7 @@ describe("Bridge - Reservation source-anchor binding", () => {
       // confirmed transaction awaits an SPV proof.
       await reservationRouter
         .connect(thirdParty)
-        .requestReservationReanchor(reservationKey, secondWalletPubKeyHash)
+        .requestReservationReanchor(reservationKey, secondWalletPubKeyHash, [], 0)
       const firstReanchorTx = buildTx(
         [{ txHash: anchorTx.txHash, index: 0 }],
         [
@@ -452,7 +452,7 @@ describe("Bridge - Reservation source-anchor binding", () => {
       // Generation 3 authorizes the same source A -> C and also times out.
       await reservationRouter
         .connect(thirdParty)
-        .requestReservationReanchor(reservationKey, thirdWalletPubKeyHash)
+        .requestReservationReanchor(reservationKey, thirdWalletPubKeyHash, [], 0)
       await increaseTime(RESERVATION_ACTION_TIMEOUT + 1)
       await reservationRouter
         .connect(thirdParty)

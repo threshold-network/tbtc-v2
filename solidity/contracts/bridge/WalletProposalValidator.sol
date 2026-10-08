@@ -1171,7 +1171,7 @@ contract WalletProposalValidator {
             "Wallet reservations cap exceeded"
         );
 
-        (uint64 maxReservationsAmountPerWallet, , ) = IReservationBridge(
+        (uint64 maxReservationsAmountPerWallet, , , ) = IReservationBridge(
             address(bridge)
         ).reservationCaps();
         require(

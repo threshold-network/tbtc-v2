@@ -45,7 +45,8 @@ contract TestReservation {
     event ReservationCapsUpdated(
         uint64 maxReservationsAmountPerWallet,
         uint64 reservationMaxSingleAmount,
-        uint32 maxActiveReservations
+        uint32 maxActiveReservations,
+        uint32 maxThirdPartyReanchorHoldsPerWallet
     );
     event ReservationOccupancyChanged(uint32 activeReservationsCount);
     event WalletMovingFunds(
@@ -373,19 +374,23 @@ contract TestReservation {
         return state.pendingReservedDeposits;
     }
 
-    /// @notice Returns the three fields the slot-capacity invariant relates.
+    /// @notice Returns the fields the slot-capacity invariant relates and
+    ///         the per-target third-party re-anchor hold cap.
     function caps()
         external
         view
         returns (
             uint64 reservationMaxTotalAmount,
             uint64 reservationMaxSingleAmount,
-            uint32 maxActiveReservations
+            uint32 maxActiveReservations,
+            uint32 maxThirdPartyReanchorHoldsPerWallet
         )
     {
         reservationMaxTotalAmount = state.reservationMaxTotalAmount;
         reservationMaxSingleAmount = state.reservationMaxSingleAmount;
         maxActiveReservations = state.maxActiveReservations;
+        maxThirdPartyReanchorHoldsPerWallet =
+            state.maxThirdPartyReanchorHoldsPerWallet;
     }
 
     function getReservationByAnchorUtxo(
@@ -587,13 +592,15 @@ contract TestReservation {
     function updateReservationCaps(
         uint64 maxReservationsAmountPerWallet,
         uint64 reservationMaxSingleAmount,
-        uint32 maxActiveReservations
+        uint32 maxActiveReservations,
+        uint32 maxThirdPartyReanchorHoldsPerWallet
     ) external {
         Reservation.updateReservationCaps(
             state,
             maxReservationsAmountPerWallet,
             reservationMaxSingleAmount,
-            maxActiveReservations
+            maxActiveReservations,
+            maxThirdPartyReanchorHoldsPerWallet
         );
     }
 
@@ -761,12 +768,15 @@ contract TestReservation {
         returns (
             uint64 maxReservationsAmountPerWallet,
             uint64 reservationMaxSingleAmount,
-            uint32 maxActiveReservations
+            uint32 maxActiveReservations,
+            uint32 maxThirdPartyReanchorHoldsPerWallet
         )
     {
         maxReservationsAmountPerWallet = state.maxReservationsAmountPerWallet;
         reservationMaxSingleAmount = state.reservationMaxSingleAmount;
         maxActiveReservations = state.maxActiveReservations;
+        maxThirdPartyReanchorHoldsPerWallet =
+            state.maxThirdPartyReanchorHoldsPerWallet;
     }
 
     function reservationsByAnchorUtxo(bytes32 anchorUtxoHash)

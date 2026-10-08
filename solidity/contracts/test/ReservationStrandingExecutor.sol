@@ -9,6 +9,7 @@ import "../bridge/Reservation.sol";
 import "../bridge/ReservationProofs.sol";
 import "../bridge/Wallets.sol";
 import "../bridge/BitcoinTx.sol";
+import "../bridge/IRelay.sol";
 
 /// @title Reservation stranding executor
 /// @notice Helper contract exposing library functions from `Reservation.sol` and
@@ -61,6 +62,21 @@ contract ReservationStrandingExecutor is TestReservation {
         );
     }
 
+    /// @notice Forwards the `ReservationProofs.unwindPendingAction` library
+    ///         function, which terminates the position's current pending
+    ///         generation as `Superseded` and releases its reserved
+    ///         capacity. Used to exercise the supersede-unwind release path
+    ///         for third-party re-anchor holds.
+    function unwindPendingAction(uint256 reservationKey, bool restoreRetryCredit)
+        external
+    {
+        ReservationProofs.unwindPendingAction(
+            state,
+            state.reservations[reservationKey],
+            reservationKey,
+            restoreRetryCredit
+        );
+    }
     /// @notice Forwards the `Reservation.notifyStaleReservedDeposit` library
     ///         function. Reverts with the library's exact message when the
     ///         deposit is not a pending reserved deposit, when the
@@ -71,18 +87,68 @@ contract ReservationStrandingExecutor is TestReservation {
         Reservation.notifyStaleReservedDeposit(state, depositKey);
     }
 
+    /// @notice Forwards the `Reservation.requestReservationReanchor`
+    ///         library function with the governance-discriminated
+    ///         `privileged` flag and the optional source-wallet member
+    ///         proof, so the cap-exempt privilege paths can be exercised
+    ///         from the test executor.
     function requestReservationReanchor(
         uint256 reservationKey,
         bytes20 targetWalletPubKeyHash,
-        bool privileged
+        bool privileged,
+        uint32[] calldata walletMembersIDs,
+        uint256 walletMemberIndex
     ) external {
         Reservation.requestReservationReanchor(
             state,
             reservationKey,
             targetWalletPubKeyHash,
-            privileged
+            privileged,
+            walletMembersIDs,
+            walletMemberIndex
         );
     }
+
+    // --- privilege and cap wiring for third-party re-anchor hold tests ----
+
+    /// @notice Marks the given address as a trusted SPV maintainer in the
+    ///         stored Bridge state so calls routed through the library
+    ///         forwarders recognize it via `state.isSpvMaintainer`.
+    function setSpvMaintainer(address maintainer, bool trusted) external {
+        state.isSpvMaintainer[maintainer] = trusted;
+    }
+
+    /// @notice Points the stored relay at a mock relay contract so
+    ///         re-anchor SPV settlement (which validates the merkle proof
+    ///         against the relay's epoch difficulty) can be exercised from
+    ///         the test executor.
+    function setRelay(address relayAddress) external {
+        state.relay = IRelay(relayAddress);
+    }
+
+    /// @notice Sets the governance-time cap on the number of concurrently
+    ///         pending third-party re-anchor holds per target wallet.
+    function setMaxThirdPartyReanchorHoldsPerWallet(uint32 cap) external {
+        state.maxThirdPartyReanchorHoldsPerWallet = cap;
+    }
+
+    /// @notice Returns the number of pending third-party re-anchor holds
+    ///         currently reserved against the given target wallet.
+    function pendingThirdPartyReanchorHolds(bytes20 walletPubKeyHash)
+        external
+        view
+        returns (uint32)
+    {
+        return state.pendingThirdPartyReanchorHolds[walletPubKeyHash];
+    }
+
+    /// @notice Returns whether the given target wallet's pending third-party
+    ///         re-anchor hold count and the governance cap, for assertions
+    ///         about cap exhaustion.
+    function thirdPartyReanchorHoldsCap() external view returns (uint32) {
+        return state.maxThirdPartyReanchorHoldsPerWallet;
+    }
+
 
     // --- seed helpers used by tests ---------------------------------------
 

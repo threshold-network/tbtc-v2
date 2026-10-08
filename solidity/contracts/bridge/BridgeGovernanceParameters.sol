@@ -120,6 +120,9 @@ library BridgeGovernanceParameters {
         uint64 newReservationMaxSingleAmount;
         uint32 newMaxActiveReservations;
         uint256 reservationCapsChangeInitiated;
+        // Appended to the end of the struct to keep any future storage
+        // layout upgrade of this data append-only.
+        uint32 newMaxThirdPartyReanchorHoldsPerWallet;
     }
 
     event DepositDustThresholdUpdateStarted(
@@ -367,6 +370,7 @@ library BridgeGovernanceParameters {
         uint64 newMaxReservationsAmountPerWallet,
         uint64 newReservationMaxSingleAmount,
         uint32 newMaxActiveReservations,
+        uint32 newMaxThirdPartyReanchorHoldsPerWallet,
         uint256 timestamp
     );
 
@@ -1710,22 +1714,30 @@ library BridgeGovernanceParameters {
     /// @param _newMaxReservationsAmountPerWallet New max reservations amount per wallet.
     /// @param _newReservationMaxSingleAmount New reservation max single amount.
     /// @param _newMaxActiveReservations New max active reservations.
+    /// @param _newMaxThirdPartyReanchorHoldsPerWallet New per-target cap on
+    ///        the number of concurrently pending third-party re-anchor
+    ///        holds; zero means third parties may not hold re-anchor
+    ///        capacity at all.
     function beginReservationCapsUpdate(
         ReservationCapsData storage self,
         uint64 _newMaxReservationsAmountPerWallet,
         uint64 _newReservationMaxSingleAmount,
-        uint32 _newMaxActiveReservations
+        uint32 _newMaxActiveReservations,
+        uint32 _newMaxThirdPartyReanchorHoldsPerWallet
     ) external {
         /* solhint-disable not-rely-on-time */
         self
             .newMaxReservationsAmountPerWallet = _newMaxReservationsAmountPerWallet;
         self.newReservationMaxSingleAmount = _newReservationMaxSingleAmount;
         self.newMaxActiveReservations = _newMaxActiveReservations;
+        self.newMaxThirdPartyReanchorHoldsPerWallet =
+            _newMaxThirdPartyReanchorHoldsPerWallet;
         self.reservationCapsChangeInitiated = block.timestamp;
         emit ReservationCapsUpdateStarted(
             _newMaxReservationsAmountPerWallet,
             _newReservationMaxSingleAmount,
             _newMaxActiveReservations,
+            _newMaxThirdPartyReanchorHoldsPerWallet,
             block.timestamp
         );
         /* solhint-enable not-rely-on-time */
@@ -1744,10 +1756,11 @@ library BridgeGovernanceParameters {
             self.reservationCapsChangeInitiated,
             governanceDelay
         )
-    {
+     {
         self.newMaxReservationsAmountPerWallet = 0;
         self.newReservationMaxSingleAmount = 0;
         self.newMaxActiveReservations = 0;
+        self.newMaxThirdPartyReanchorHoldsPerWallet = 0;
         self.reservationCapsChangeInitiated = 0;
     }
 }

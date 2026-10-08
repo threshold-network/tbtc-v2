@@ -64,6 +64,7 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
     RESERVATION_PER_WALLET_CAP_SATS: "1000000",
     RESERVATION_SINGLE_AMOUNT_CAP_SATS: "100000",
     RESERVATION_MAX_ACTIVE: "5",
+    RESERVATION_MAX_THIRD_PARTY_REANCHOR_HOLDS: "1",
     RESERVATION_MIN_AMOUNT_SATS: "10000",
     RESERVATION_TX_MAX_FEE_SATS: "1000",
     RESERVATION_TERM_SECONDS: "7776000", // 90 days = MIN_RESERVATION_TERM
@@ -238,6 +239,7 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
       perWalletCap: BigInt(1_000_000),
       singleAmountCap: BigInt(100_000),
       maxActive: 5,
+      maxThirdPartyReanchorHolds: 1,
       minAmount: BigInt(10_000),
       txMaxFee: BigInt(1_000),
       termSeconds: 7_776_000,
@@ -272,6 +274,7 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
         params.perWalletCap,
         params.singleAmountCap,
         params.maxActive,
+        params.maxThirdPartyReanchorHolds,
       ])
     })
 

@@ -2,13 +2,14 @@
 
 ## Overview
 
-The milestone-1 reservation subsystem introduces two governance setters with a deploy-ordering dependency and a third ABI/event argument relative to the #1094 specification. This document covers the new coordination requirements.
+The milestone-1 reservation subsystem introduces two governance setters with a deploy-ordering dependency and a fourth ABI/event argument relative to the #1094 specification. This document covers the new coordination requirements.
 
 Changes relative to #1094:
 
-- `updateReservationCaps` now takes a third argument `maxActiveReservations` (uint32, must be > 0). The 4-byte selector changes; existing Defender / Safe / Tenderly / multisend scripts that encode the 2-argument version will revert.
-- The `ReservationCapsUpdated` event gained a third field `maxActiveReservations`. Off-chain indexers and dashboards that decode the 2-field version will need to update their event ABI; consumers that only read a subset of fields and ignore unknown trailing fields may only need a rebind/restart.
+- `updateReservationCaps` now takes a fourth argument `maxThirdPartyReanchorHoldsPerWallet` (uint32, zero allowed). The 4-byte selector changes; existing Defender / Safe / Tenderly / multisend scripts that encode the 3-argument version will revert.
+- The `ReservationCapsUpdated` event gained a fourth field `maxThirdPartyReanchorHoldsPerWallet`. Off-chain indexers and dashboards that decode the 3-field version will need to update their event ABI; consumers that only read a subset of fields and ignore unknown trailing fields may only need a rebind/restart.
 - `updateReservationParameters` enforces the Decision 1 on-chain relational check `reservationMaxTotalAmount <= maxActiveReservations * reservationMaxSingleAmount` by reading both `self.maxActiveReservations` and `self.reservationMaxSingleAmount` from storage. In the pristine pre-launch bootstrap state, both are zero, so the check short-circuits and any `reservationMaxTotalAmount` is accepted. Subsequent calls can revert with `Amount cap exceeds slot capacity` if governance sets `reservationMaxTotalAmount` first and the later `updateReservationCaps` operands cannot accommodate it.
+- `requestReservationReanchor` now takes a source-wallet member proof (`walletMembersIDs`, `walletMemberIndex`). The reservation owner, an SPV maintainer, and a proven source-wallet member are exempt from the per-target third-party re-anchor hold cap; every other caller reserves a pending third-party hold against the target wallet and reverts with "Target third-party re-anchor holds exceeded" once the target's pending count reaches `maxThirdPartyReanchorHoldsPerWallet` (zero blocks third-party holds entirely).
 
 ---
 

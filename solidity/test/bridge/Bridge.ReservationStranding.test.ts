@@ -214,7 +214,7 @@ describe("Bridge - Reservation stranding", () => {
     // reservation.
     await reservationRouter
       .connect(bridgeGovernanceSigner)
-      .updateReservationCaps(RESERVATION_MAX_TOTAL, RESERVATION_MAX_TOTAL, 10) // 10 = 1 wallet * MAX_RESERVATIONS_PER_WALLET, satisfying the Item-3 sizing relation (roadmap.md section 6 item 2) with this fixture's single default Live wallet
+      .updateReservationCaps(RESERVATION_MAX_TOTAL, RESERVATION_MAX_TOTAL, 10, 1) // 10 = 1 wallet * MAX_RESERVATIONS_PER_WALLET, satisfying the Item-3 sizing relation (roadmap.md section 6 item 2) with this fixture's single default Live wallet
     await reservationRouter
       .connect(bridgeGovernanceSigner)
       .updateReservationParameters(

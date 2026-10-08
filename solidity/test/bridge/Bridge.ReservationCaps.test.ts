@@ -74,6 +74,7 @@ describe("Reservation - amount cap versus slot capacity", () => {
   const reservationMaxSingleAmount = 1_000_000
   const slotCapacity = maxActiveReservations * reservationMaxSingleAmount
   const maxReservationsAmountPerWallet = 10_000_000
+  const maxThirdPartyReanchorHoldsPerWallet = 1
 
   let testReservation: TestReservation
 
@@ -86,7 +87,8 @@ describe("Reservation - amount cap versus slot capacity", () => {
       await testReservation.updateReservationCaps(
         maxReservationsAmountPerWallet,
         reservationMaxSingleAmount,
-        maxActiveReservations
+        maxActiveReservations,
+        maxThirdPartyReanchorHoldsPerWallet
       )
     })
 
@@ -110,7 +112,8 @@ describe("Reservation - amount cap versus slot capacity", () => {
       await testReservation.updateReservationCaps(
         maxReservationsAmountPerWallet,
         reservationMaxSingleAmount,
-        maxActiveReservations
+        maxActiveReservations,
+        maxThirdPartyReanchorHoldsPerWallet
       )
       await setTotalAmount(testReservation, slotCapacity)
     })
@@ -120,7 +123,8 @@ describe("Reservation - amount cap versus slot capacity", () => {
         testReservation.updateReservationCaps(
           maxReservationsAmountPerWallet,
           reservationMaxSingleAmount,
-          maxActiveReservations - 1
+          maxActiveReservations - 1,
+          maxThirdPartyReanchorHoldsPerWallet
         )
       ).to.be.revertedWith(CAPACITY_REVERT)
     })
@@ -130,7 +134,8 @@ describe("Reservation - amount cap versus slot capacity", () => {
         testReservation.updateReservationCaps(
           maxReservationsAmountPerWallet,
           reservationMaxSingleAmount / 2,
-          maxActiveReservations
+          maxActiveReservations,
+          maxThirdPartyReanchorHoldsPerWallet
         )
       ).to.be.revertedWith(CAPACITY_REVERT)
     })
@@ -140,14 +145,14 @@ describe("Reservation - amount cap versus slot capacity", () => {
       const a = 1_000_000
       const b = 100_000
       const c = 5
-      await expect(testReservation.updateReservationCaps(a, b, c))
+      await expect(testReservation.updateReservationCaps(a, b, c, 1))
         .to.emit(testReservation, "ReservationCapsUpdated")
-        .withArgs(a, b, c)
+        .withArgs(a, b, c, 1)
     })
 
     it("reverts when maxActiveReservations is set to zero", async () => {
       await expect(
-        testReservation.updateReservationCaps(0, 0, 0)
+        testReservation.updateReservationCaps(0, 0, 0, 0)
       ).to.be.revertedWith("Active reservations cap must be greater than zero")
     })
 
@@ -156,7 +161,7 @@ describe("Reservation - amount cap versus slot capacity", () => {
       const b = 1_000_000
       const c = 5
 
-      await testReservation.updateReservationCaps(a, b, c)
+      await testReservation.updateReservationCaps(a, b, c, 1)
 
       const caps = await testReservation.reservationCaps()
       expect(caps.maxReservationsAmountPerWallet).to.equal(a)
@@ -174,7 +179,8 @@ describe("Reservation - amount cap versus slot capacity", () => {
       await testReservation.updateReservationCaps(
         maxReservationsAmountPerWallet,
         0,
-        maxActiveReservations
+        maxActiveReservations,
+        maxThirdPartyReanchorHoldsPerWallet
       )
 
       await setTotalAmount(testReservation, slotCapacity * 1000)
@@ -233,7 +239,8 @@ describe("Reservation - amount cap versus slot capacity", () => {
         testReservation.updateReservationCaps(
           maxReservationsAmountPerWallet,
           reservationMaxSingleAmount,
-          maxActiveReservations
+          maxActiveReservations,
+          maxThirdPartyReanchorHoldsPerWallet
         )
       ).to.be.revertedWith(CAPACITY_REVERT)
     })
@@ -250,7 +257,8 @@ describe("Reservation - amount cap versus slot capacity", () => {
       await testReservation.updateReservationCaps(
         maxReservationsAmountPerWallet,
         reservationMaxSingleAmount,
-        maxActiveReservations
+        maxActiveReservations,
+        maxThirdPartyReanchorHoldsPerWallet
       )
 
       await setTotalAmount(testReservation, slotCapacity)
@@ -302,6 +310,7 @@ describe("Reservation - governance ceremony argument forwarding", () => {
     const newMaxReservationsAmountPerWallet = 2_000_000
     const newReservationMaxSingleAmount = 100_000
     const newMaxActiveReservations = 200
+    const newMaxThirdPartyReanchorHoldsPerWallet = 1
 
     before(async () => {
       await bridgeGovernance
@@ -309,7 +318,8 @@ describe("Reservation - governance ceremony argument forwarding", () => {
         .beginReservationCapsUpdate(
           newMaxReservationsAmountPerWallet,
           newReservationMaxSingleAmount,
-          newMaxActiveReservations
+          newMaxActiveReservations,
+          newMaxThirdPartyReanchorHoldsPerWallet
         )
 
       await helpers.time.increaseTime(constants.governanceDelay)
@@ -330,8 +340,9 @@ describe("Reservation - governance ceremony argument forwarding", () => {
 
       const { maxActive } = await reservationRouter.activeReservationsCount()
       expect(maxActive, "maxActiveReservations").to.equal(
-        newMaxActiveReservations
-      )
+        newMaxActiveReservations,
+        maxThirdPartyReanchorHoldsPerWallet
+
     })
   })
 })

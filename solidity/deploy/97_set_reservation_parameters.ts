@@ -106,7 +106,8 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
     // values per agent-docs/inventory/reservation-parameters.md
     BigInt("1000000"), // maxReservationsAmountPerWallet
     BigInt("100000"), // reservationMaxSingleAmount
-    BigInt("100") // maxActiveReservations
+    BigInt("100"), // maxActiveReservations
+    BigInt("1") // maxThirdPartyReanchorHoldsPerWallet
   )
   if (isLocalNetwork) {
     await passGovernanceDelay()

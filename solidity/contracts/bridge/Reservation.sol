@@ -340,6 +340,16 @@ library Reservation {
         // last in the struct to keep the storage layout upgrade
         // append-only.
         uint64 minAmount;
+        // True when this pending re-anchor generation was requested by a
+        // non-privileged (third-party) caller and therefore counted against
+        // the target wallet's `pendingThirdPartyReanchorHolds`. False for
+        // privileged requests (owner, SPV maintainer, source-wallet member)
+        // and every non-re-anchor generation. Carried on the action record
+        // so every path that ends the pending generation (settlement,
+        // supersede-unwind, action timeout) decrements the target counter
+        // exactly once. Appended to the end of the struct so the storage
+        // layout upgrade stays append-only.
+        bool thirdPartyHold;
     }
 
     event ReservationAcceptanceRequested(
@@ -392,7 +402,8 @@ library Reservation {
     event ReservationCapsUpdated(
         uint64 maxReservationsAmountPerWallet,
         uint64 reservationMaxSingleAmount,
-        uint32 maxActiveReservations
+        uint32 maxActiveReservations,
+        uint32 maxThirdPartyReanchorHoldsPerWallet
     );
 
     event ReservationRetryCreditMinted(uint256 indexed reservationKey);
@@ -702,6 +713,14 @@ library Reservation {
     /// @param privileged True when the call is made by the governance
     ///        (checked by the calling contract), which may rotate anchors
     ///        away from Live wallets.
+    /// @param walletMembersIDs Identifiers of the source wallet signing
+    ///        group members. Empty for privileged (owner, SPV maintainer,
+    ///        or governance-discriminated) calls and for third-party
+    ///        callers; a non-empty proof that fails validation reverts
+    ///        rather than degrading to a third-party request.
+    /// @param walletMemberIndex Position of the caller in the source wallet
+    ///        signing group members list, used to validate
+    ///        `walletMembersIDs` against the source wallet's registry.
     /// @dev Requirements:
     ///      - The reservation must be Active,
     ///      - The source wallet must be in the MovingFunds or Closing state
@@ -724,7 +743,9 @@ library Reservation {
         BridgeState.Storage storage self,
         uint256 reservationKey,
         bytes20 targetWalletPubKeyHash,
-        bool privileged
+        bool privileged,
+        uint32[] calldata walletMembersIDs,
+        uint256 walletMemberIndex
     ) external {
         ReservationRequest storage reservation = self.reservations[
             reservationKey
@@ -741,6 +762,32 @@ library Reservation {
             );
         }
         /* solhint-enable not-rely-on-time */
+
+        // Privilege: the governance-discriminated call, the reservation
+        // owner, an SPV maintainer, or a proven member of the source wallet
+        // are privileged and exempt from the third-party hold cap. A caller
+        // passing a non-empty member proof that fails validation reverts
+        // rather than silently degrading to a third-party request, even
+        // when that caller would otherwise be recognized as privileged.
+        // The member result is scoped to the block so the privilege
+        // computation below stays under the stack depth limit.
+        if (walletMembersIDs.length > 0) {
+            bool isSourceMember = self.ecdsaWalletRegistry.isWalletMember(
+                self.registeredWallets[reservation.walletPubKeyHash]
+                    .ecdsaWalletID,
+                walletMembersIDs,
+                msg.sender,
+                walletMemberIndex
+            );
+            if (!isSourceMember) {
+                revert("Caller is not a member of the source wallet");
+            }
+        }
+        bool isPrivileged =
+            privileged ||
+            reservation.owner == msg.sender ||
+            self.isSpvMaintainer[msg.sender] ||
+            walletMembersIDs.length > 0;
 
         {
             Wallets.WalletState sourceState = self
@@ -772,7 +819,6 @@ library Reservation {
 
         uint64 anchorAmount = reservation.anchorAmount;
         uint64 txMaxFee = self.reservationTxMaxFee;
-        uint64 minAmount = self.reservationMinAmount;
 
         /* solhint-disable-next-line not-rely-on-time */
         uint32 timeoutAt = uint32(block.timestamp) +
@@ -791,8 +837,8 @@ library Reservation {
                 /* solhint-disable-next-line not-rely-on-time */
                 uint256(block.timestamp) + 1 <
                 uint256(timeoutAt) -
-                    WalletProposalValidatorConstants
-                        .REQUEST_TIMEOUT_SAFETY_MARGIN,
+                WalletProposalValidatorConstants
+                    .REQUEST_TIMEOUT_SAFETY_MARGIN,
             "Reanchor authorization has no signing window"
         );
         // Request-time amount floor: this is the only on-chain bound on
@@ -803,33 +849,59 @@ library Reservation {
         // (initial anchor - minAmount). Restored per adjudication reversing
         // review finding [6] (which had dropped the `minAmount` term; its
         // rationale did not account for the cumulative exposure).
-        require(
-            anchorAmount > txMaxFee + minAmount,
-            "Reanchor would fall below the minimum reservation amount"
-        );
+        {
+            uint64 minAmount = self.reservationMinAmount;
+            require(
+                anchorAmount > txMaxFee + minAmount,
+                "Reanchor would fall below the minimum reservation amount"
+            );
+        }
+
+        // Third-party holds are capped per target wallet: a non-privileged
+        // caller may only reserve the target's capacity while its pending
+        // third-party hold count is below the governance cap. Privileged
+        // requests (owner, maintainer, source-wallet member, or
+        // governance-discriminated) are exempt and never count. `0` means
+        // third parties may not hold re-anchor capacity at all.
+        if (!isPrivileged) {
+            uint32 targetHolds = self
+                .pendingThirdPartyReanchorHolds[targetWalletPubKeyHash];
+            require(
+                targetHolds < self.maxThirdPartyReanchorHoldsPerWallet,
+                "Target third-party re-anchor holds exceeded"
+            );
+            self.pendingThirdPartyReanchorHolds[
+                targetWalletPubKeyHash
+            ] = targetHolds + 1;
+        }
 
         // Reserve the target wallet's count and amount capacity; the
         // source wallet's are released at settlement (or kept on timeout).
-        uint32 targetCount = self
-            .walletReservationInfo[targetWalletPubKeyHash]
-            .count + 1;
-        require(
-            targetCount <= self.maxReservationsPerWallet,
-            "Wallet reservations cap exceeded"
-        );
-        self.walletReservationInfo[targetWalletPubKeyHash].count = targetCount;
-
-        uint64 targetAmount = self
-            .walletReservationInfo[targetWalletPubKeyHash]
-            .amount + anchorAmount;
-        require(
-            self.maxReservationsAmountPerWallet == 0 ||
-                targetAmount <= self.maxReservationsAmountPerWallet,
-            "Wallet reserved amount cap exceeded"
-        );
-        self
-            .walletReservationInfo[targetWalletPubKeyHash]
-            .amount = targetAmount;
+        {
+            uint32 targetCount = self
+                .walletReservationInfo[targetWalletPubKeyHash]
+                .count +
+                1;
+            require(
+                targetCount <= self.maxReservationsPerWallet,
+                "Wallet reservations cap exceeded"
+            );
+            self.walletReservationInfo[targetWalletPubKeyHash].count =
+                targetCount;
+        }
+        {
+            uint64 targetAmount = self
+                .walletReservationInfo[targetWalletPubKeyHash]
+                .amount +
+                anchorAmount;
+            require(
+                self.maxReservationsAmountPerWallet == 0 ||
+                    targetAmount <= self.maxReservationsAmountPerWallet,
+                "Wallet reserved amount cap exceeded"
+            );
+            self.walletReservationInfo[targetWalletPubKeyHash].amount =
+                targetAmount;
+        }
 
         reservation.state = ReservationState.ActionPending;
         uint64 requestNonce = ++reservation.requestNonce;
@@ -848,6 +920,7 @@ library Reservation {
         action.targetWalletPubKeyHash = targetWalletPubKeyHash;
         action.amount = anchorAmount;
         action.sourceAnchorUtxoHash = anchorUtxoHash(reservation);
+        action.thirdPartyHold = !isPrivileged;
 
         emit ReservationReanchorRequested(
             reservationKey,
@@ -898,6 +971,11 @@ library Reservation {
             self,
             action.targetWalletPubKeyHash,
             action.amount
+        );
+        releaseThirdPartyReanchorHold(
+            self,
+            action.targetWalletPubKeyHash,
+            action.thirdPartyHold
         );
 
         reservation.state = ReservationState.Active;
@@ -981,6 +1059,29 @@ library Reservation {
     ) internal {
         self.walletReservationInfo[targetWalletPubKeyHash].count -= 1;
         self.walletReservationInfo[targetWalletPubKeyHash].amount -= amount;
+    }
+
+    /// @notice Releases one third-party re-anchor hold from a target
+    ///         wallet's pending-hold count, when the generation that
+    ///         reserved it ends. Called exactly once per generation, on the
+    ///         path that terminates the pending re-anchor (on-time
+    ///         settlement, supersede-unwind, or action timeout), and only
+    ///         when that generation actually counted (`counted` true).
+    ///         Privileged generations carry `counted == false` and never
+    ///         touch the counter, so a repeated release cannot underflow.
+    function releaseThirdPartyReanchorHold(
+        BridgeState.Storage storage self,
+        bytes20 targetWalletPubKeyHash,
+        bool counted
+    ) internal {
+        if (counted) {
+            uint32 holds = self.pendingThirdPartyReanchorHolds[
+                targetWalletPubKeyHash
+            ];
+            require(holds > 0, "No third-party re-anchor hold to release");
+            self.pendingThirdPartyReanchorHolds[targetWalletPubKeyHash] =
+                holds - 1;
+        }
     }
 
     /// @notice Strands a reservation: releases its tracked capacity and
@@ -1378,7 +1479,8 @@ library Reservation {
         BridgeState.Storage storage self,
         uint64 maxReservationsAmountPerWallet,
         uint64 reservationMaxSingleAmount,
-        uint32 maxActiveReservations
+        uint32 maxActiveReservations,
+        uint32 maxThirdPartyReanchorHoldsPerWallet
     ) external {
         require(
             maxActiveReservations > 0,
@@ -1398,11 +1500,17 @@ library Reservation {
         self.maxReservationsAmountPerWallet = maxReservationsAmountPerWallet;
         self.reservationMaxSingleAmount = reservationMaxSingleAmount;
         self.maxActiveReservations = maxActiveReservations;
+        // Zero means third parties may not hold re-anchor capacity at all;
+        // privileged callers (owner, maintainer, source-wallet member) are
+        // unaffected.
+        self.maxThirdPartyReanchorHoldsPerWallet =
+            maxThirdPartyReanchorHoldsPerWallet;
 
         emit ReservationCapsUpdated(
             maxReservationsAmountPerWallet,
             reservationMaxSingleAmount,
-            maxActiveReservations
+            maxActiveReservations,
+            maxThirdPartyReanchorHoldsPerWallet
         );
     }
 }

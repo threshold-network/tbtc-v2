@@ -71,12 +71,13 @@ interface CalldataAction extends ActionDefinition {
  * once setVaultStatus(vault, true) executes, deposits can be revealed
  * against the vault.
  */
-export function buildReservationActionDefinitions(params: {
+ export function buildReservationActionDefinitions(params: {
   reservationRouter: string
   reservationVault: string
   perWalletCap: bigint
   singleAmountCap: bigint
   maxActive: number
+  maxThirdPartyReanchorHolds: number
   minAmount: bigint
   txMaxFee: bigint
   termSeconds: number
@@ -85,7 +86,7 @@ export function buildReservationActionDefinitions(params: {
   maxReservationsPerWallet: number
   actionTimeout: number
   renewalWindowSeconds: number
-}): ActionDefinition[] {
+ }): ActionDefinition[] {
   return [
     {
       method: "setReservationRouter",
@@ -100,12 +101,19 @@ export function buildReservationActionDefinitions(params: {
     },
     {
       method: "beginReservationCapsUpdate",
-      args: [params.perWalletCap, params.singleAmountCap, params.maxActive],
+      args: [
+        params.perWalletCap,
+        params.singleAmountCap,
+        params.maxActive,
+        params.maxThirdPartyReanchorHolds,
+      ],
       label: "beginReservationCapsUpdate (stages the reservation caps update)",
       details: {
         "Max reservations amount per wallet": params.perWalletCap.toString(),
         "Max single amount": params.singleAmountCap.toString(),
         "Max active reservations": params.maxActive.toString(),
+        "Max third-party re-anchor holds per target wallet":
+          params.maxThirdPartyReanchorHolds.toString(),
         "Governance delay": "172800s (48h)",
         Note:
           "Finalize order matters: finalizeReservationCapsUpdate must execute " +
@@ -412,7 +420,9 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     "RESERVATION_SINGLE_AMOUNT_CAP_SATS"
   )
   const MAX_ACTIVE = requireEnvNumber("RESERVATION_MAX_ACTIVE")
-
+  const MAX_THIRD_PARTY_REANCHOR_HOLDS = requireEnvNumber(
+    "RESERVATION_MAX_THIRD_PARTY_REANCHOR_HOLDS"
+  )
   const RES_MIN_AMOUNT = requireEnvBigInt("RESERVATION_MIN_AMOUNT_SATS")
   const RES_TX_MAX_FEE = requireEnvBigInt("RESERVATION_TX_MAX_FEE_SATS")
   const RES_TERM_SECONDS = requireEnvNumber("RESERVATION_TERM_SECONDS")
@@ -597,6 +607,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     perWalletCap: PER_WALLET_CAP,
     singleAmountCap: SINGLE_AMOUNT_CAP,
     maxActive: MAX_ACTIVE,
+    maxThirdPartyReanchorHolds: MAX_THIRD_PARTY_REANCHOR_HOLDS,
     minAmount: RES_MIN_AMOUNT,
     txMaxFee: RES_TX_MAX_FEE,
     termSeconds: RES_TERM_SECONDS,
