@@ -21,13 +21,21 @@ import type {
 
 const ZERO_BYTES20 = `0x${"00".repeat(20)}`
 
-// 256-bit all-ones word (replaces `ethers.MaxUint256`).
+// 256-bit all-ones word (replaces `ethers.constants.MaxUint256`).
 const MAX_UINT256 =
-  0xffffffffffffffffffffffffffffffffn
+  0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffn
 
 // 0x-prefixed, 32-byte-padded hex encoding of a storage word.
 const padWordHex = (word: bigint): string =>
   `0x${(word & MAX_UINT256).toString(16).padStart(64, "0")}`
+// Zeroes the `bits`-wide field at bit offset `shift` within a 256-bit word,
+// leaving every other bit untouched. v6 BigInt replacement for the original
+// `ethers.constants.MaxUint256.sub(fieldMask)` idiom used to clear a packed
+// storage field before writing a new value into it.
+const clearField = (word: bigint, shift: number, bits: number): bigint => {
+  const field = (1n << BigInt(bits)) - 1n
+  return (word & (MAX_UINT256 ^ (field << BigInt(shift)))) & MAX_UINT256
+}
 // Collects the `name`-matched LogDescriptions emitted by a receipt,
 // decoded through the given ABI (v6 replacement for the v5
 // `receipt.events` convenience property).
@@ -146,12 +154,12 @@ async function setReservationConfig(
     let word29 = BigInt(raw)
     if (params.reservationMinAmount !== undefined) {
       word29 =
-        (word29 & 0x0000ffffffffffffffffffffffffffffffffffffffffn) |
+        clearField(word29, 160, 64) |
         (BigInt(params.reservationMinAmount) << 160n)
     }
     if (params.reservationTermSeconds !== undefined) {
       word29 =
-        (word29 & 0xffffffff000000000000000000000000000000000000000000000000n) |
+        clearField(word29, 224, 32) |
         (BigInt(params.reservationTermSeconds) << 224n)
     }
     await ethers.provider.send("hardhat_setStorageAt", [
@@ -173,17 +181,16 @@ async function setReservationConfig(
     let word30 = BigInt(raw)
     if (params.reservationVault !== undefined) {
       word30 =
-        (word30 & 0x0000ffffffffffffffffffffffffffffffffffffffffn) |
-        BigInt(params.reservationVault)
+        clearField(word30, 0, 160) | BigInt(params.reservationVault)
     }
     if (params.reservationTxMaxFee !== undefined) {
       word30 =
-        (word30 & 0xffffffffffffffff000000000000000000000000000000000000000000000000n) |
+        clearField(word30, 160, 64) |
         (BigInt(params.reservationTxMaxFee) << 160n)
     }
     if (params.reservationDissolutionDelay !== undefined) {
       word30 =
-        (word30 & 0xffffffff000000000000000000000000000000000000000000000000n) |
+        clearField(word30, 224, 32) |
         (BigInt(params.reservationDissolutionDelay) << 224n)
     }
     await ethers.provider.send("hardhat_setStorageAt", [
@@ -205,16 +212,16 @@ async function setReservationConfig(
     let word31 = BigInt(raw)
     if (params.reservationMaxTotalAmount !== undefined) {
       word31 =
-        (word31 & 0xffffffffffffffffn) | BigInt(params.reservationMaxTotalAmount)
+        clearField(word31, 0, 64) | BigInt(params.reservationMaxTotalAmount)
     }
     if (params.reservationTotalAmount !== undefined) {
       word31 =
-        (word31 & 0xffffffffffffffff00000000n) |
+        clearField(word31, 64, 64) |
         (BigInt(params.reservationTotalAmount) << 64n)
     }
     if (params.maxReservationsPerWallet !== undefined) {
       word31 =
-        (word31 & 0xffffffff00000000000000000000000000000000n) |
+        clearField(word31, 128, 32) |
         (BigInt(params.maxReservationsPerWallet) << 128n)
     }
     await ethers.provider.send("hardhat_setStorageAt", [
@@ -236,17 +243,16 @@ async function setReservationConfig(
     let word32 = BigInt(raw)
     if (params.reservationRouter !== undefined) {
       word32 =
-        (word32 & 0x0000ffffffffffffffffffffffffffffffffffffffffn) |
-        BigInt(params.reservationRouter)
+        clearField(word32, 0, 160) | BigInt(params.reservationRouter)
     }
     if (params.reservationActionTimeout !== undefined) {
       word32 =
-        (word32 & 0xffffffff000000000000000000000000000000000000000000000000n) |
+        clearField(word32, 160, 32) |
         (BigInt(params.reservationActionTimeout) << 160n)
     }
     if (params.reservationRenewalWindowSeconds !== undefined) {
       word32 =
-        (word32 & 0xffffffff00000000000000000000000000000000n) |
+        clearField(word32, 192, 32) |
         (BigInt(params.reservationRenewalWindowSeconds) << 192n)
     }
     await ethers.provider.send("hardhat_setStorageAt", [
@@ -267,11 +273,11 @@ async function setReservationConfig(
     let word33 = BigInt(raw)
     if (params.maxReservationsAmountPerWallet !== undefined) {
       word33 =
-        (word33 & 0xffffffffffffffffn) | BigInt(params.maxReservationsAmountPerWallet)
+        clearField(word33, 0, 64) | BigInt(params.maxReservationsAmountPerWallet)
     }
     if (params.reservationMaxSingleAmount !== undefined) {
       word33 =
-        (word33 & 0xffffffffffffffff00000000n) |
+        clearField(word33, 64, 64) |
         (BigInt(params.reservationMaxSingleAmount) << 64n)
     }
     await ethers.provider.send("hardhat_setStorageAt", [
