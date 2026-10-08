@@ -44,10 +44,10 @@ describe("Reservation", () => {
   const walletPubKeyHash = "0x7ac2d9378a1c47e589dfb8095ca95ed2140d2726"
   const walletPubKeyHash2 = "0x1111111111111111111111111111111111111111"
 
-  const reservationKey1 = ethers.zeroPadValue("0x1", 32)
-  const reservationKey2 = ethers.zeroPadValue("0x2", 32)
-  const reservationKey3 = ethers.zeroPadValue("0x3", 32)
-  const reservationKey4 = ethers.zeroPadValue("0x4", 32)
+  const reservationKey1 = ethers.zeroPadValue("0x01", 32)
+  const reservationKey2 = ethers.zeroPadValue("0x02", 32)
+  const reservationKey3 = ethers.zeroPadValue("0x03", 32)
+  const reservationKey4 = ethers.zeroPadValue("0x04", 32)
 
   const defaultDepositAmount = 1000000 // 0.01 BTC
   const defaultMinAmount = 100000
