@@ -352,6 +352,65 @@ describe("Bridge - reservation third-party re-anchor holds (per-target cap)", ()
     })
   })
 
+  // Known limit of the cap: the exemption covers only the third-party cap.
+  // Every pending hold still consumes the target's ordinary per-wallet
+  // capacity (`maxReservationsPerWallet` / `maxReservationsAmountPerWallet`),
+  // so a privileged re-request against a target whose single free slot a
+  // third-party hold occupies reverts on the ordinary per-wallet cap until
+  // the hold is released (timeout, supersede-unwind, or settlement).
+  describe("cap limit: a third-party hold still uses the target's ordinary capacity", () => {
+    const memberKey = `0x${"bb".repeat(32)}`
+
+    // The target wallet holds exactly one free slot, and the pending
+    // third-party hold is within the third-party cap.
+    async function seedThirdPartyHold() {
+      await executor.setMaxReservationsPerWallet(1)
+      await executor.setMaxThirdPartyReanchorHoldsPerWallet(2)
+      await seedReanchorableReservation()
+      await executor.requestReservationReanchor(reservationKey, targetWallet, false, [], 0)
+      expect(await executor.pendingThirdPartyReanchorHolds(targetWallet)).to.equal(1)
+    }
+
+    // A distinct, privileged (source-wallet-member) reservation re-anchoring
+    // to the SAME target, whose proof goes through the mocked registry.
+    async function seedMemberRequest() {
+      const registry = await createMock<IWalletRegistry>("IWalletRegistry")
+      await executor.setEcdsaWalletRegistry(registry.address)
+      await seedSecondReanchorable(memberKey, targetWallet)
+      await executor.seedWallet(secondSourceWallet, sourceEcdsaId, walletStateEnum.MovingFunds)
+      await registry.isWalletMember
+        .whenCalledWith(sourceEcdsaId, [1, 2, 3], caller, 2)
+        .returns(true)
+    }
+
+    it("a third-party hold still uses the target's ordinary per-wallet slot", async () => {
+      await seedThirdPartyHold()
+      await seedMemberRequest()
+
+      // The member proof is exempt from the third-party cap, but the pending
+      // hold already consumed the target's only ordinary slot.
+      await expect(
+        executor.requestReservationReanchor(memberKey, targetWallet, false, [1, 2, 3], 2)
+      ).to.be.revertedWith("Wallet reservations cap exceeded")
+    })
+
+    it("the member request succeeds after the third-party hold times out", async () => {
+      await seedThirdPartyHold()
+      await seedMemberRequest()
+
+      // The pending generation times out: both the counted hold and the
+      // target's reserved ordinary capacity are released.
+      await ethers.provider.send("evm_increaseTime", [6 * HOURS + 1])
+      await ethers.provider.send("evm_mine", [])
+      await executor.notifyReservationActionTimeout(reservationKey)
+      expect(await executor.pendingThirdPartyReanchorHolds(targetWallet)).to.equal(0)
+
+      await executor.requestReservationReanchor(memberKey, targetWallet, false, [1, 2, 3], 2)
+      // The member request is privileged, so it does not count as a hold.
+      expect(await executor.pendingThirdPartyReanchorHolds(targetWallet)).to.equal(0)
+    })
+  })
+
   describe("governance staging of the cap", () => {
     it("stages and finalizes the cap through the begin/finalize ceremony", async () => {
       const cap = await loadFixture(deployCapsGovernanceExecutor)
