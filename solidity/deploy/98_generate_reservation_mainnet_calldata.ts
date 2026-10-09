@@ -16,7 +16,7 @@ export const KNOWN_TIMELOCK = "0x92f2d8b72a7F6a551Be60b9aa4194248E9B4913D"
 // Timelock, and owner of BridgeGovernance -- the actual submitter of every
 // action generated below. Validated on-chain against BridgeGovernance's
 // actual owner() before any calldata is generated.
-export const KNOWN_COUNCIL_SAFE = "0x9F6e831c8f8939dc0c830c6e492e7cef4f9c2f5f"
+export const KNOWN_COUNCIL_SAFE = "0x9F6e831c8F8939DC0C830C6e492e7cEf4f9C2F5f"
 
 // EIP-1967 transparent proxy admin storage slot. Defined by the standard
 // at https://eips.ethereum.org/EIPS/eip-1967#admin-address and used to
@@ -71,7 +71,7 @@ interface CalldataAction extends ActionDefinition {
  * once setVaultStatus(vault, true) executes, deposits can be revealed
  * against the vault.
  */
- export function buildReservationActionDefinitions(params: {
+export function buildReservationActionDefinitions(params: {
   reservationRouter: string
   reservationVault: string
   perWalletCap: bigint
@@ -86,7 +86,7 @@ interface CalldataAction extends ActionDefinition {
   maxReservationsPerWallet: number
   actionTimeout: number
   renewalWindowSeconds: number
- }): ActionDefinition[] {
+}): ActionDefinition[] {
   return [
     {
       method: "setReservationRouter",
@@ -596,9 +596,8 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   // Single ABI source: the compiled BridgeGovernance artifact, not a
   // hand-maintained ABI-fragment copy that can silently drift from the
   // real contract.
-  const bridgeGovernanceArtifact = await artifacts.readArtifact(
-    "BridgeGovernance"
-  )
+  const bridgeGovernanceArtifact =
+    await artifacts.readArtifact("BridgeGovernance")
   const bridgeGovInterface = new Interface(bridgeGovernanceArtifact.abi)
 
   const actionDefinitions = buildReservationActionDefinitions({

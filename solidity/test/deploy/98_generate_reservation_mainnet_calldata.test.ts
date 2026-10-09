@@ -4,7 +4,7 @@
 
 import { expect } from "chai"
 import hre, { ethers } from "hardhat"
-import { Interface } from "ethers"
+import { Interface, getAddress } from "ethers"
 import fs from "fs"
 import path from "path"
 import func, {
@@ -48,12 +48,9 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
   let bridgeGovInterface: Interface
 
   before(async () => {
-    bridgeGovernanceArtifact = await hre.artifacts.readArtifact(
-      "BridgeGovernance"
-    )
-    bridgeGovInterface = new ethers.Interface(
-      bridgeGovernanceArtifact.abi
-    )
+    bridgeGovernanceArtifact =
+      await hre.artifacts.readArtifact("BridgeGovernance")
+    bridgeGovInterface = new ethers.Interface(bridgeGovernanceArtifact.abi)
   })
 
   // A complete set of env vars that satisfies every validation the script
@@ -583,6 +580,16 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
       expect(summary.existingContracts.ProxyAdmin).to.equal(PROXY_ADMIN_ADDRESS)
       expect(summary.existingContracts.Timelock).to.equal(KNOWN_TIMELOCK)
       expect(summary.existingContracts.CouncilSafe).to.equal(KNOWN_COUNCIL_SAFE)
+    })
+
+    // The summary feeds Safe transaction builders and other ethers v6
+    // tooling, which reject a mixed-case address whose EIP-55 checksum is
+    // wrong. Every address in it must already be in checksum form.
+    it("should write EIP-55 checksummed governance addresses", () => {
+      for (const name of ["Timelock", "CouncilSafe"]) {
+        const address = summary.existingContracts[name]
+        expect(address, name).to.equal(getAddress(address.toLowerCase()))
+      }
     })
   })
 })
