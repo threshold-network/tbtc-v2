@@ -1,5 +1,12 @@
 import type { HardhatRuntimeEnvironment } from "hardhat/types"
 import type { DeployFunction } from "hardhat-deploy/types"
+import { assertReservedDepositsFeasible } from "./98_generate_reservation_mainnet_calldata"
+
+// Local/test values; see the divergence notes at each call below.
+const PER_WALLET_CAP = BigInt("1000000")
+const SINGLE_AMOUNT_CAP = BigInt("100000")
+const TERM_SECONDS = 7776000 // 90 days = MIN_RESERVATION_TERM
+const MAX_TOTAL_AMOUNT = BigInt("10000000")
 
 /**
  * 97_set_reservation_parameters.ts
@@ -86,6 +93,23 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
     await helpers.time.increaseTime(governanceDelay.toNumber() + 1)
   }
 
+  // These test values were sized for local chains. On a live network the
+  // Bridge's deposit parameters may make them unusable (Sepolia's
+  // 1,000,000-sat dust threshold is above the 100,000-sat single cap), and
+  // activating with them would give a vault that can never hold a
+  // reservation. Refuse instead; use the network's runbook values there.
+  if (!isLocalNetwork) {
+    const depositParameters = await read("Bridge", "depositParameters")
+    assertReservedDepositsFeasible({
+      depositDustThreshold: BigInt(depositParameters[0].toString()),
+      depositRevealAheadPeriod: Number(depositParameters[3].toString()),
+      termSeconds: TERM_SECONDS,
+      singleAmountCap: SINGLE_AMOUNT_CAP,
+      perWalletCap: PER_WALLET_CAP,
+      maxTotalAmount: MAX_TOTAL_AMOUNT,
+    })
+  }
+
   // ----- Step 1: begin/finalize updateReservationCaps --------------------
   // Settle the setter-ordering hazard. Reservation.sol defaults
   // `reservationMaxTotalAmount` to 0, so the relational check in the
@@ -104,8 +128,8 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
     // more throughput for exercising the reservation flow in tests and are
     // deliberately NOT meant to mirror the mainnet configuration.
     // values per agent-docs/inventory/reservation-parameters.md
-    BigInt("1000000"), // maxReservationsAmountPerWallet
-    BigInt("100000"), // reservationMaxSingleAmount
+    PER_WALLET_CAP, // maxReservationsAmountPerWallet
+    SINGLE_AMOUNT_CAP, // reservationMaxSingleAmount
     BigInt("100"), // maxActiveReservations
     BigInt("1") // maxThirdPartyReanchorHoldsPerWallet
   )
@@ -138,9 +162,9 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
     ReservationVault.address, // reservationVault
     BigInt("10000"), // reservationMinAmount
     BigInt("1000"), // reservationTxMaxFee
-    BigInt("7776000"), // reservationTermSeconds (90 days = MIN_RESERVATION_TERM)
+    BigInt(TERM_SECONDS), // reservationTermSeconds (90 days = MIN_RESERVATION_TERM)
     BigInt("86400"), // reservationDissolutionDelay (1 day)
-    BigInt("10000000"), // reservationMaxTotalAmount
+    MAX_TOTAL_AMOUNT, // reservationMaxTotalAmount
     // NOTE: 5, not the mainnet-required 1 (see the divergence note above
     // Step 1) -- deliberately larger for local/test throughput.
     BigInt("5"), // maxReservationsPerWallet
