@@ -21,12 +21,45 @@ While calling `updateReservationParameters` first is accepted during initial boo
 
 Safe operational sequence:
 
-1. Call `updateReservationCaps(maxReservationsAmountPerWallet, reservationMaxSingleAmount, maxActiveReservations)` — sets the per-wallet amount cap, the single-reservation amount cap, and the global occupancy cap together. The Decision 1 check evaluates `0 <= maxActiveReservations * reservationMaxSingleAmount` (trivially true because `reservationMaxTotalAmount` is still 0).
+1. Call `updateReservationCaps(maxReservationsAmountPerWallet, reservationMaxSingleAmount, maxActiveReservations, maxThirdPartyReanchorHoldsPerWallet)` — sets the per-wallet amount cap, the single-reservation amount cap, the global occupancy cap, and the per-target third-party re-anchor hold cap together. The Decision 1 check evaluates `0 <= maxActiveReservations * reservationMaxSingleAmount` (trivially true because `reservationMaxTotalAmount` is still 0).
 2. Call `updateReservationParameters(reservationVault, ...)` — sets `reservationMaxTotalAmount` and the other parameters. The Decision 1 check now evaluates `reservationMaxTotalAmount <= maxActiveReservations * reservationMaxSingleAmount` against the just-set storage values.
 
 If the two updates must land in the same block, an atomic multicall preserves the ordering guarantee.
 
 The existing regression test `Bridge.ReservationCaps.test.ts` in the `describe("bootstrap ordering")` group pins both the deploy-ordering hazard and the safe operational order; review it before any deployment.
+
+---
+
+## Generating the Mainnet Calldata (deploy script 98)
+
+`deploy/98_generate_reservation_mainnet_calldata.ts` builds the governance calldata for the steps above. It has no numeric defaults: every value below is required, and a missing or malformed value stops the script. Run it with:
+
+```sh
+DEPLOY_RESERVATION_BOOTSTRAP_CALDATA=true yarn deploy --tags GenerateReservationMainnetCalldata --network mainnet
+```
+
+`DEPLOY_RESERVATION_BOOTSTRAP_CALDATA=true` is needed on any network other than `mainnet`; on `hardhat`, `localhost`, `development` and `system_tests` the script skips itself (use script 97 there).
+
+| Env var | `BridgeGovernance` argument | Script check |
+|---|---|---|
+| `RESERVATION_PER_WALLET_CAP_SATS` | `beginReservationCapsUpdate._newMaxReservationsAmountPerWallet` | |
+| `RESERVATION_SINGLE_AMOUNT_CAP_SATS` | `beginReservationCapsUpdate._newReservationMaxSingleAmount` | |
+| `RESERVATION_MAX_ACTIVE` | `beginReservationCapsUpdate._newMaxActiveReservations` | |
+| `RESERVATION_MAX_THIRD_PARTY_REANCHOR_HOLDS` | `beginReservationCapsUpdate._newMaxThirdPartyReanchorHoldsPerWallet` | 0 blocks third-party holds |
+| `RESERVATION_MIN_AMOUNT_SATS` | `beginReservationParametersUpdate._newReservationMinAmount` | must exceed the tx max fee |
+| `RESERVATION_TX_MAX_FEE_SATS` | `beginReservationParametersUpdate._newReservationTxMaxFee` | must be > 0 |
+| `RESERVATION_TERM_SECONDS` | `beginReservationParametersUpdate._newReservationTermSeconds` | 90 to 730 days |
+| `RESERVATION_DISSOLUTION_DELAY_SECONDS` | `beginReservationParametersUpdate._newReservationDissolutionDelay` | |
+| `RESERVATION_MAX_TOTAL_AMOUNT_SATS` | `beginReservationParametersUpdate._newReservationMaxTotalAmount` | Decision 1 invariant |
+| `RESERVATION_MAX_PER_WALLET` | `beginReservationParametersUpdate._newMaxReservationsPerWallet` | must be 1 (M1 launch value) |
+| `RESERVATION_ACTION_TIMEOUT_SECONDS` | `beginReservationParametersUpdate._newReservationActionTimeout` | |
+| `RESERVATION_RENEWAL_WINDOW_SECONDS` | `beginReservationParametersUpdate._newReservationRenewalWindowSeconds` | |
+
+The vault address is not an env var: the script reads the deployed `ReservationVault` and passes it as `_newReservationVault`.
+
+The script mirrors the on-chain `require` checks of `updateReservationParameters` and `updateReservationCaps`, so a bad value fails here instead of at finalize, 48 hours later. The `Script check` column lists the main ones; the script's error message names the exact rule.
+
+Tooling note: under the repository's Node version, `npx hardhat run` does not call a TypeScript script's `export default` function, and the run still exits 0. A script run that way must call its entry point at top level (see `scripts/reservations-fork-dryrun.ts` on the `reservations-fork-dryrun` branch).
 
 ---
 
@@ -89,7 +122,7 @@ In Milestone 1, `maxActiveReservations` acts as an occupancy launch gate and cap
 - **Occupancy lifecycle and release paths in M1:** Once reservation requests are authorized and accepted on-chain, `activeReservationsCount` increments. Voluntary protocol-level exits from an accepted reservation position (such as dissolution, veto, and dedicated reservation redemptions) are deferred to Milestone 2. However, `activeReservationsCount` is decremented on the two variant-B release paths that exist in M1: acceptance timeout (when acceptance proofs expire) and stranding (when a wallet closes or terminates). Thus, while not a strictly monotonic one-way ratchet, capacity releases occur exclusively through non-voluntary timeout/stranding paths rather than depositor-initiated exits. Occupancy is not derivable from a single field or event: the `ReservationOccupancyChanged` event alone reports only the raw `activeReservationsCount` counter, not effective occupancy. Deriving effective occupancy from current on-chain views requires combining `IReservationBridge.activeReservationsCount()` with `reservationParameters()` (for `maxReservationsPerWallet`) and the live-wallet count. This yields two distinct quantities that should not be conflated: aggregate wallet-slot utilization (`activeReservationsCount` against `liveWalletsCount * maxReservationsPerWallet`) and governance-cap utilization (`activeReservationsCount` against the global `maxActiveReservations` ceiling).
 - **Underlying tBTC funds are not locked:** This occupancy accounting applies only to the position of the dedicated-UTXO reservation. Depositor funds are not locked: upon `settleAcceptance`, the depositor is already credited liquid tBTC via the standard Bridge/vault deposit-crediting (mint) path (this mint/credit flow is completely unrelated to the distinct `redeemReservation` feature, which is disabled in Milestone 1). Only the dedicated-UTXO reservation position itself lacks an early voluntary close mechanism in M1.
 - **Wallet-closing gate dependency:** The safety story for `maxActiveReservations` relies on wallets not being able to retire while they still hold live reservation anchors. The `walletReservationInfo[wallet].count == 0` precondition is enforced at the two points that can still block _before_ any Bitcoin funds have moved: `moveFunds`'s routing decision (a wallet with a nonzero reservation count is always routed through `MovingFunds`, never straight to `Closing`) and `notifyWalletClosingPeriodElapsed`. It is deliberately _absent_ from `beginWalletClosing` and `finalizeWalletClosing`: both are reached only after a moving-funds Bitcoin transaction has already been proven on-chain via SPV proof, and blocking wallet retirement at that point (with funds already gone) would leave the wallet stuck mid-closing while its `movingFundsTimeout` clock keeps running, eventually triggering operator slashing for a state the protocol itself created. A wallet can therefore complete closing while still holding a live reservation anchor if reservations were requested against it after the `moveFunds` decision was made; the anchor itself is separately recovered via `notifyReservationStranded` once the wallet reaches `Terminated`/`Closed`/dissolution-eligible-`Closing`.
-- **Procedure for raising capacity:** When active occupancy saturates or additional headroom is required, governance can raise the occupancy limit by calling `updateReservationCaps(maxReservationsAmountPerWallet, reservationMaxSingleAmount, newMaxActiveReservations)` with a higher `newMaxActiveReservations` value.
+- **Procedure for raising capacity:** When active occupancy saturates or additional headroom is required, governance can raise the occupancy limit by calling `updateReservationCaps(maxReservationsAmountPerWallet, reservationMaxSingleAmount, newMaxActiveReservations, maxThirdPartyReanchorHoldsPerWallet)` with a higher `newMaxActiveReservations` value and the current value of every other cap.
 - **Sizing constraint:** Any update to `maxActiveReservations` or `reservationMaxSingleAmount` must maintain the Decision 1 relational invariant:
   `reservationMaxTotalAmount <= maxActiveReservations * reservationMaxSingleAmount`
   (unless `reservationMaxSingleAmount == 0`, which disables the amount cap). If lowering caps or raising `reservationMaxTotalAmount`, governance must ensure the new slot capacity accommodates `reservationMaxTotalAmount`.
@@ -137,6 +170,14 @@ function updateReservationCaps(
   uint32 maxActiveReservations
 ) external;
 
+// Milestone 1, third-party re-anchor hold cap
+function updateReservationCaps(
+  uint64 maxReservationsAmountPerWallet,
+  uint64 reservationMaxSingleAmount,
+  uint32 maxActiveReservations,
+  uint32 maxThirdPartyReanchorHoldsPerWallet
+) external;
+
 ```
 
 `ReservationCapsUpdated` event signature change:
@@ -153,6 +194,14 @@ event ReservationCapsUpdated(
     uint64 maxReservationsAmountPerWallet,
     uint64 reservationMaxSingleAmount,
     uint32 maxActiveReservations
+);
+
+// Milestone 1, third-party re-anchor hold cap
+event ReservationCapsUpdated(
+    uint64 maxReservationsAmountPerWallet,
+    uint64 reservationMaxSingleAmount,
+    uint32 maxActiveReservations,
+    uint32 maxThirdPartyReanchorHoldsPerWallet
 );
 ```
 
@@ -247,7 +296,7 @@ After applying the upgrade on a live network:
 // reservationParameters() returns a 10-value tuple; the 1st value is reservationVault, the 6th is reservationMaxTotalAmount.
 (address reservationVault, , , , , uint64 reservationMaxTotalAmount, , , , ) =
     IReservationBridge(bridgeAddress).reservationParameters();
-(, uint64 reservationMaxSingleAmount, ) =
+(, uint64 reservationMaxSingleAmount, , ) =
     IReservationBridge(bridgeAddress).reservationCaps();
 (, uint32 maxActiveReservations) =
     IReservationBridge(bridgeAddress).activeReservationsCount();
