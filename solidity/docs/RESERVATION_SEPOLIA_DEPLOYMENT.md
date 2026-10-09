@@ -114,28 +114,51 @@ read-only.
    ```sh
    cd ../tbtc-v2-fork/solidity   # worktree on branch reservations-fork-dryrun
    FORKING_URL="$FORKING_URL" FORKING_BLOCK=26154824 \
-   RESERVATION_PER_WALLET_CAP_SATS=1000000 \
-   RESERVATION_SINGLE_AMOUNT_CAP_SATS=100000 \
+   RESERVATION_PER_WALLET_CAP_SATS=2000000 \
+   RESERVATION_SINGLE_AMOUNT_CAP_SATS=2000000 \
    RESERVATION_MAX_ACTIVE=5 \
    RESERVATION_MAX_THIRD_PARTY_REANCHOR_HOLDS=1 \
    RESERVATION_MIN_AMOUNT_SATS=10000 \
    RESERVATION_TX_MAX_FEE_SATS=1000 \
-   RESERVATION_TERM_SECONDS=7776000 \
+   RESERVATION_TERM_SECONDS=12960000 \
    RESERVATION_DISSOLUTION_DELAY_SECONDS=86400 \
-   RESERVATION_MAX_TOTAL_AMOUNT_SATS=500000 \
+   RESERVATION_MAX_TOTAL_AMOUNT_SATS=10000000 \
    RESERVATION_MAX_PER_WALLET=1 \
    RESERVATION_ACTION_TIMEOUT_SECONDS=86400 \
    RESERVATION_RENEWAL_WINDOW_SECONDS=86400 \
    npx hardhat run --network hardhat scripts/reservations-fork-dryrun.ts
    ```
 
-   Expected: all 22 steps PASS, exit code 0. The RESERVATION_* values above
-   are the canonical set the script hard-enforces (e.g.
-   `RESERVATION_MAX_PER_WALLET` must be exactly 1,
-   `RESERVATION_MAX_TOTAL_AMOUNT_SATS` must fit under
-   `RESERVATION_MAX_ACTIVE × RESERVATION_SINGLE_AMOUNT_CAP_SATS`). Reuse the
-   **same twelve values** for the Sepolia ceremony so the dry run and the
-   live run stay comparable.
+   Expected: all 22 steps PASS, exit code 0. These are the fork's mainnet
+   values: mainnet's 150-day reveal-ahead period forces a 150-day term.
+
+   **Do not reuse them unchanged on Sepolia.** Every reservation needs:
+   - every non-zero amount cap at or above the Bridge's
+     `depositDustThreshold` (otherwise no reveal fits under the cap);
+   - `depositRevealAheadPeriod <= RESERVATION_TERM_SECONDS + 86400`
+     (otherwise the refund-deadline window is empty);
+   - `RESERVATION_MAX_ACTIVE` at or below `liveWalletsCount` (with one
+     reservation per wallet, a higher value can never be reached);
+   - `RESERVATION_MAX_TOTAL_AMOUNT_SATS <= RESERVATION_MAX_ACTIVE × RESERVATION_SINGLE_AMOUNT_CAP_SATS`.
+
+   Nothing on-chain checks the first two. Script 98 and the fork dry-run
+   check them (`assertReservedDepositsFeasible`), and script 97 refuses its
+   local test values on live networks. The `cast` calls in step 7 check
+   nothing, so read the live values first:
+
+   ```sh
+   cast call $BRIDGE 'depositParameters()(uint64,uint64,uint64,uint32)' --rpc-url $SEPOLIA_RPC_URL
+   # 2026-10-09: dust 1000000, treasury divisor 2000, tx max fee 100000, reveal-ahead 1296000 (15 days)
+   cast call $BRIDGE 'liveWalletsCount()(uint32)' --rpc-url $SEPOLIA_RPC_URL
+   # 2026-10-09: 4
+   ```
+
+   The Sepolia values used in step 7 (feasible against those readings):
+   per-wallet cap 2000000, single cap 2000000, max active 4, third-party
+   holds 1, min amount 10000, tx max fee 1000, term 7776000 (90 days),
+   dissolution delay 86400, max total 8000000, max per wallet 1, action
+   timeout 86400, renewal window 86400. Re-check them against the live
+   readings on the day of the ceremony.
 
 2. **Key check.** The deployer EOA you hold matches the owners found in the
    live-state table (ProxyAdmin owner and BridgeGovernance owner both
@@ -495,13 +518,11 @@ hard-fails on Sepolia: after the local-network skip it verifies the
 ProxyAdmin owner against the hardcoded `KNOWN_TIMELOCK` and the
 BridgeGovernance owner against the hardcoded `KNOWN_COUNCIL_SAFE` — on
 Sepolia both owners are the deployer EOA, so those checks throw. Do **not**
-run 98 for Sepolia. Use the manual `cast` ceremony below (identical to the
-dry-run's six ordered actions) with the twelve canonical RESERVATION_* values,
-or run `deploy/97` (`--tags ReservationParameters --network sepolia`) for its
-hardcoded test values (97 stages the two `begin*` calls and logs PENDING
-FINALIZE / PENDING ACTIVATION; it deliberately does not finalize or activate
-on live networks, so you still issue the finalizers and `setVaultStatus`
-yourself, as below).
+run 98 for Sepolia. Use the manual `cast` ceremony below (the dry-run's six
+ordered actions) with the Sepolia values from pre-flight check 1. Do not use
+`deploy/97` on Sepolia: its hardcoded local test values (100,000-sat single
+cap) are below Sepolia's 1,000,000-sat dust threshold, so no reservation could
+ever be revealed, and the script refuses to run there for that reason.
 
 Signer note: on Sepolia every named account in `hardhat.config.ts` maps to
 index 0 of `ACCOUNTS_PRIVATE_KEYS`, so the **governance signer is the same
@@ -514,11 +535,11 @@ Execute, in order, as the deployer/governance EOA (all against `$NEW_GOV`):
 
 ```sh
 # 7.1 begin caps:  (perWalletCap, singleAmount, maxActive, thirdPartyHolds)
-cast send $NEW_GOV 'beginReservationCapsUpdate(uint64,uint64,uint32,uint32)' 1000000 100000 5 1 \
+cast send $NEW_GOV 'beginReservationCapsUpdate(uint64,uint64,uint32,uint32)' 2000000 2000000 4 1 \
   --rpc-url $SEPOLIA_RPC_URL --private-key $SEPOLIA_PRIVATE_KEY
 # 7.2 begin parameters: (vault, min, txMaxFee, term, dissolutionDelay, maxTotal, perWallet, actionTimeout, renewalWindow)
 cast send $NEW_GOV 'beginReservationParametersUpdate(address,uint64,uint64,uint32,uint32,uint64,uint32,uint32,uint32)' \
-  $VAULT 10000 1000 7776000 86400 500000 1 86400 86400 \
+  $VAULT 10000 1000 7776000 86400 8000000 1 86400 86400 \
   --rpc-url $SEPOLIA_RPC_URL --private-key $SEPOLIA_PRIVATE_KEY
 # wait > 60s (governanceDelays[0] = 60 on the new governance)
 # 7.3 finalize caps  (MUST precede finalize parameters)
@@ -534,9 +555,9 @@ proxy** — encode against the router ABI and call `$BRIDGE`):
 
 ```sh
 cast call $BRIDGE 'reservationCaps()(uint64,uint64,uint32,uint32)' --rpc-url $SEPOLIA_RPC_URL
-# -> (1000000, 100000, 5, 1)
+# -> (2000000, 2000000, 4, 1)
 cast call $BRIDGE 'reservationParameters()(address,uint64,uint64,uint32,uint32,uint64,uint32,uint32,uint32,uint32)' --rpc-url $SEPOLIA_RPC_URL
-# -> vault == $VAULT, maxTotalAmount == 500000, ...
+# -> vault == $VAULT, maxTotalAmount == 8000000, ...
 ```
 
 **Rollback / abort:**
@@ -597,7 +618,7 @@ Bridge fallback).
 ```sh
 # 9.1 caps
 cast call $BRIDGE 'reservationCaps()(uint64,uint64,uint32,uint32)' --rpc-url $SEPOLIA_RPC_URL
-# -> (1000000, 100000, 5, 1) — must equal the staged caps
+# -> (2000000, 2000000, 4, 1) — must equal the staged caps
 # 9.2 parameters (1st field = $VAULT, 6th = staged max total amount;
 #     10-value tuple per IReservationBridge.reservationParameters)
 cast call $BRIDGE 'reservationParameters()(address,uint64,uint64,uint32,uint32,uint64,uint32,uint32,uint32,uint32)' \
@@ -771,10 +792,11 @@ re-releasing is the only rollback; on-chain trust revocation
   (pattern in `deploy/44_upgrade_native_btc_depositor_to_968.ts`).
 - The exact `updateFeeReserveTarget` target value (governance decision;
   zero is allowed and must be recorded as a decision).
-- `RESERVATION_MAX_TOTAL_AMOUNT_SATS=500000` vs script 97's hardcoded
-  `10000000` test value: the ceremony uses the dry-run canonical set above
-  (`500000`); confirm governance wants the same values on Sepolia as on the
-  mainnet dry run, or run script 97's own values and adjust 7.1/7.2.
+- The Sepolia caps (step 7) were sized on 2026-10-09 against a 1,000,000-sat
+  dust threshold, a 15-day reveal-ahead period and 4 Live wallets. If any of
+  those changed, re-size them by the rules in pre-flight check 1. Script 97's
+  local test values (100,000-sat single cap) are infeasible on Sepolia, and
+  the script now refuses to run there.
 - The new governance address (`$NEW_GOV`) and the new Bridge implementation
   address (`$NEW_IMPL`) are not known until step 3 runs; every command that
   references them must be filled in from the script's stdout.
