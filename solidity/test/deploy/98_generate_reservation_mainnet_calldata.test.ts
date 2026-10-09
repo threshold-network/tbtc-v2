@@ -23,12 +23,19 @@ async function expectRejection(
   promise: Promise<unknown>,
   pattern: RegExp
 ): Promise<void> {
+  let rejection: unknown
   try {
     await promise
-    expect.fail(`expected rejection matching ${pattern}`)
   } catch (error) {
-    expect((error as Error).message).to.match(pattern)
+    rejection = error
   }
+  // Fail outside the try block: an assertion thrown inside it would be
+  // caught above and matched against `pattern`, and its own message
+  // contains the pattern text, so a promise that never rejects would pass.
+  if (rejection === undefined) {
+    expect.fail(`expected rejection matching ${pattern}`)
+  }
+  expect((rejection as Error).message).to.match(pattern)
 }
 
 describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
@@ -108,6 +115,8 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
     routerOnChainCode?: string
     proxyAdminOwner?: string
     bridgeGovernanceOwner?: string
+    depositDustThreshold?: bigint
+    depositRevealAheadPeriod?: number
   }): { mockHre: any } {
     const liveWalletsCount = overrides?.liveWalletsCount ?? 10
     const liveWalletsCountAtFinalize =
@@ -119,6 +128,12 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
     const proxyAdminOwner = overrides?.proxyAdminOwner ?? KNOWN_TIMELOCK
     const bridgeGovernanceOwner =
       overrides?.bridgeGovernanceOwner ?? KNOWN_COUNCIL_SAFE
+    // Defaults keep VALID_ENV feasible: dust at the single-amount cap and a
+    // reveal-ahead period inside the 90-day term plus the 24h margin.
+    const depositDustThreshold =
+      overrides?.depositDustThreshold ?? BigInt(100000)
+    const depositRevealAheadPeriod =
+      overrides?.depositRevealAheadPeriod ?? 7776000
 
     const addressMap: Record<string, string> = {
       Bridge: BRIDGE_ADDRESS,
@@ -175,6 +190,14 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
           }
           if (name === "Bridge" && method === "getReservationRouter") {
             return reservationRouterOnChain
+          }
+          if (name === "Bridge" && method === "depositParameters") {
+            return [
+              depositDustThreshold,
+              BigInt(500),
+              BigInt(100000),
+              depositRevealAheadPeriod,
+            ]
           }
           throw new Error(`Unexpected read: ${name}.${method}`)
         },
@@ -455,6 +478,33 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
       process.env.RESERVATION_ACTION_TIMEOUT_SECONDS = "7200" // exactly the margin
       const { mockHre } = createMockHre()
       await expectRejection(func(mockHre), /ACTION_TIMEOUT_SECONDS/)
+    })
+  })
+
+  // A reserved reveal is only possible when the deposit refund window the
+  // Bridge demands (reveal-ahead period) fits inside the one a reservation
+  // allows (term plus the 24h refund safety margin), and when a dust-sized
+  // deposit fits under every amount cap. Neither rule is checked on-chain.
+  describe("reserved-deposit feasibility against the live deposit parameters", () => {
+    it("should throw when the reveal-ahead period exceeds the term plus the refund safety margin", async () => {
+      // Live mainnet value: 150 days, against VALID_ENV's 90-day term.
+      const { mockHre } = createMockHre({ depositRevealAheadPeriod: 12960000 })
+      await expectRejection(func(mockHre), /depositRevealAheadPeriod/)
+    })
+
+    it("should accept a reveal-ahead period exactly at the term plus the refund safety margin", async () => {
+      const { mockHre } = createMockHre({
+        depositRevealAheadPeriod: 7776000 + 86400,
+      })
+      await func(mockHre)
+    })
+
+    it("should throw when the dust threshold exceeds a non-zero amount cap", async () => {
+      // Live mainnet value: 1,000,000 sats, against VALID_ENV's 100,000 cap.
+      const { mockHre } = createMockHre({
+        depositDustThreshold: BigInt(1000000),
+      })
+      await expectRejection(func(mockHre), /depositDustThreshold/)
     })
   })
 
