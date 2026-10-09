@@ -33,6 +33,8 @@ const MIN_RESERVATION_TERM = 7_776_000 // 90 days
 const MAX_RESERVATION_TERM = 63_072_000 // 730 days
 // Mirrored from WalletProposalValidatorConstants.REQUEST_TIMEOUT_SAFETY_MARGIN.
 const REQUEST_TIMEOUT_SAFETY_MARGIN = 7_200 // 2 hours
+// Mirrored from WalletProposalValidatorConstants.DEPOSIT_REFUND_SAFETY_MARGIN.
+const DEPOSIT_REFUND_SAFETY_MARGIN = 86_400 // 24 hours
 
 /** A single governance action: an ABI method name plus its call args. */
 interface ActionDefinition {
@@ -553,6 +555,52 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   console.log(
     `\nOccupancy sizing relation OK: maxActiveReservations (${MAX_ACTIVE}) <= ` +
       `liveWalletsCount * maxReservationsPerWallet (${slotCapacityByWallets})`
+  )
+
+  // A reserved deposit can only be revealed when two rules that live in
+  // different parameter sets agree, and nothing on-chain checks that they
+  // do. Deposit.revealDeposit requires
+  //   now + depositRevealAheadPeriod <= refundDeadline
+  //     <= now + reservationTermSeconds + DEPOSIT_REFUND_SAFETY_MARGIN,
+  // so the window is empty when the reveal-ahead period is longer than the
+  // term plus the margin. And every reveal must carry at least
+  // depositDustThreshold, so a non-zero amount cap below it rejects every
+  // reservation. Either case would activate a vault that can never hold a
+  // reservation.
+  const depositParameters = await read("Bridge", "depositParameters")
+  const depositDustThreshold = BigInt(depositParameters[0])
+  const depositRevealAheadPeriod = Number(depositParameters[3])
+  if (
+    depositRevealAheadPeriod > 0 &&
+    depositRevealAheadPeriod > RES_TERM_SECONDS + DEPOSIT_REFUND_SAFETY_MARGIN
+  ) {
+    throw new Error(
+      `The Bridge's depositRevealAheadPeriod (${depositRevealAheadPeriod}s) ` +
+        `exceeds RESERVATION_TERM_SECONDS (${RES_TERM_SECONDS}s) plus the ` +
+        `${DEPOSIT_REFUND_SAFETY_MARGIN}s refund safety margin, so no ` +
+        "reserved deposit could ever be revealed. Raise " +
+        "RESERVATION_TERM_SECONDS to at least " +
+        `${depositRevealAheadPeriod - DEPOSIT_REFUND_SAFETY_MARGIN}s.`
+    )
+  }
+  const amountCaps: Array<[string, bigint]> = [
+    ["RESERVATION_SINGLE_AMOUNT_CAP_SATS", SINGLE_AMOUNT_CAP],
+    ["RESERVATION_PER_WALLET_CAP_SATS", PER_WALLET_CAP],
+    ["RESERVATION_MAX_TOTAL_AMOUNT_SATS", RES_MAX_TOTAL_AMOUNT],
+  ]
+  for (const [name, cap] of amountCaps) {
+    if (cap > BigInt(0) && cap < depositDustThreshold) {
+      throw new Error(
+        `${name} (${cap}) is below the Bridge's depositDustThreshold ` +
+          `(${depositDustThreshold}): every reveal carries at least the ` +
+          "dust threshold, so no reservation could fit under this cap."
+      )
+    }
+  }
+  console.log(
+    `\nReserved-deposit feasibility OK: depositRevealAheadPeriod ` +
+      `(${depositRevealAheadPeriod}s) fits the term plus margin, and every ` +
+      `non-zero amount cap is at least depositDustThreshold (${depositDustThreshold})`
   )
 
   // --- Re-verify live-wallet slot capacity immediately before generating
