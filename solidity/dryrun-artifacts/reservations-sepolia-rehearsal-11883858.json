@@ -1,7 +1,11 @@
 {
+  "mode": "fork",
+  "network": "hardhat",
+  "phase": "full",
+  "startBlock": 11883858,
   "forkBlock": 11883858,
   "activationBlock": 11884578,
-  "runAt": "2026-10-10T13:04:38.810Z",
+  "runAt": "2026-10-10T14:05:16.792Z",
   "addresses": {
     "bridge": "0x2220acE07d86B508742D511478e517716B675940",
     "oldGov": "0x61700ebaCCfd9FB0100C35DDd38e4cC3e9057c5A",
@@ -14,10 +18,10 @@
     "deployer": "0xb9B8a92677fcad86dc8d36fe947184283B03b3C8"
   },
   "summary": {
-    "total": 25,
+    "total": 26,
     "pass": 23,
     "fail": 0,
-    "skip": 2
+    "skip": 3
   },
   "steps": [
     {
@@ -26,14 +30,9 @@
       "values": {
         "bridge": "0x2220acE07d86B508742D511478e517716B675940",
         "oldGov": "0x61700ebaCCfd9FB0100C35DDd38e4cC3e9057c5A",
-        "oldImpl": "0xc9CEec54a8b25D7051B702322675ee3014bA4685",
+        "implementation": "0xc9CEec54a8b25D7051B702322675ee3014bA4685",
         "proxyAdmin": "0x0E9bD483CC8Fb649636e0cd7a60BC48b6C040103",
-        "proxyAdminOwner": "0xb9B8a92677fcad86dc8d36fe947184283B03b3C8",
-        "oldGovOwner": "0xb9B8a92677fcad86dc8d36fe947184283B03b3C8",
         "governanceDelay": "60",
-        "initialized": "0x0000000000000000000000000000000000000000000000000000000000000001",
-        "knownPk": "0x248611d152fd9f9303df373d28ba612d08d42267",
-        "knownWallet": "0xea994beb5cefe3b50ae671f054fe0cfe5f125aa1cb4a22075827bf25c7258892|0x469fb81f91d72a08196b51cd3c74cd1e27c2cbd509c0804ac51d3654ad739cb6|1",
         "liveWalletsCount": "4",
         "depositParameters": "1000000,2000,100000,1296000"
       }
@@ -67,7 +66,7 @@
       "txHash": "0x09a915f37d76782aed35e83a7afa2a52e66023b61d0cff3577ac161050915e8d",
       "gasUsed": 5170655,
       "values": {
-        "implementation": "0x2DB8355295C5f09da68Cf35A318F7209d90c0640"
+        "address": "0x2DB8355295C5f09da68Cf35A318F7209d90c0640"
       }
     },
     {
@@ -76,7 +75,7 @@
       "txHash": "0xb525a99dce2978531153a73961f67b524af7347d8d0b25b341ba949e0bba3eaf",
       "gasUsed": 1661827,
       "values": {
-        "router": "0xd8F192488c6B2AF29c6E0a02040E68F87B9d5EAA"
+        "address": "0xd8F192488c6B2AF29c6E0a02040E68F87B9d5EAA"
       }
     },
     {
@@ -85,7 +84,7 @@
       "txHash": "0x13d948eedafdc86fdb88f1fefbc87c6919a23fda6fbbc30fda5443eff9bac640",
       "gasUsed": 1598272,
       "values": {
-        "vault": "0x222C73bc1440b97876B64C3F34077904deF93714"
+        "address": "0x222C73bc1440b97876B64C3F34077904deF93714"
       }
     },
     {
@@ -94,7 +93,6 @@
       "txHash": "0xf18e808628f677c822563cd13e02c0cbd9cfc60be1c53f0ddeedae359ce859c4",
       "gasUsed": 25842,
       "values": {
-        "vaultOwner": "0xb9B8a92677fcad86dc8d36fe947184283B03b3C8",
         "note": "governance EOA == deployer EOA on Sepolia (index 0)"
       }
     },
@@ -104,8 +102,7 @@
       "txHash": "0xf62c6918e11a6d98781187aa9c4fd81d1bfc621a7db16d9cc2fb7aa096990eaa",
       "gasUsed": 4768345,
       "values": {
-        "newGov": "0xfb5C050a969921b882b9EB151a8862Bf56D5cBE0",
-        "governanceDelay": 60
+        "address": "0xfb5C050a969921b882b9EB151a8862Bf56D5cBE0"
       }
     },
     {
@@ -121,12 +118,18 @@
       "name": "04-state-preservation",
       "status": "PASS",
       "values": {
-        "ecdsaWalletRegistry": "0x000000000000000000000000872d27463e7fe6ac843d7f7ae5f401bc5547c51b",
-        "governanceSlotUnchanged": true,
-        "knownWalletUnchanged": true,
-        "liveWalletsCountUnchanged": true,
-        "depositParametersUnchanged": true,
-        "initialized": "0x0000000000000000000000000000000000000000000000000000000000000001"
+        "unchanged": [
+          "knownPk",
+          "knownWallet",
+          "liveWalletsCount",
+          "depositParameters",
+          "governance",
+          "initialized",
+          "ecdsaWalletRegistry",
+          "rebateStaking",
+          "reservationVault",
+          "reservationRouter"
+        ]
       }
     },
     {
@@ -142,10 +145,7 @@
       "name": "06-governance-transfer-finalize",
       "status": "PASS",
       "txHash": "0x71b7206f20971a7983ad527c4f22401b6c2c4359cbed8297864d621667f44573",
-      "gasUsed": 45593,
-      "values": {
-        "bridgeGovernanceSlot": "0x000000000000000000000000fb5c050a969921b882b9eb151a8862bf56d5cbe0"
-      }
+      "gasUsed": 45593
     },
     {
       "name": "07-set-reservation-router",
@@ -160,42 +160,22 @@
       "name": "08-assert-reserved-deposits-feasible",
       "status": "PASS",
       "values": {
-        "depositDustThreshold": "1000000",
-        "depositRevealAheadPeriod": "1296000",
-        "termSeconds": "7776000",
-        "singleAmountCap": "2000000",
-        "perWalletCap": "2000000",
-        "maxTotalAmount": "8000000"
+        "dust": "1000000",
+        "revealAhead": "1296000",
+        "term": 7776000
       }
     },
     {
       "name": "09-begin-reservation-caps",
       "status": "PASS",
       "txHash": "0x00cec6079abea5103dec9afe554d36df3367bd2361df2a31dca58688133dd9bd",
-      "gasUsed": 96836,
-      "values": {
-        "perWalletCap": "2000000",
-        "singleAmountCap": "2000000",
-        "maxActive": 4,
-        "maxThirdPartyReanchorHolds": 1
-      }
+      "gasUsed": 96836
     },
     {
       "name": "10-begin-reservation-parameters",
       "status": "PASS",
       "txHash": "0x459fa1a49024773b71c512adb2d361883072402ab7627d98f8de5b0f515eb35b",
-      "gasUsed": 124558,
-      "values": {
-        "vault": "0x222C73bc1440b97876B64C3F34077904deF93714",
-        "minAmount": "10000",
-        "txMaxFee": "1000",
-        "termSeconds": 7776000,
-        "dissolutionDelay": 86400,
-        "maxTotalAmount": "8000000",
-        "maxPerWallet": 1,
-        "actionTimeout": 86400,
-        "renewalWindowSeconds": 86400
-      }
+      "gasUsed": 124558
     },
     {
       "name": "11-finalize-reservation-caps",
@@ -211,11 +191,9 @@
     },
     {
       "name": "13-update-fee-reserve-target",
-      "status": "PASS",
-      "txHash": "0x2a740d79585fdc2d3133511a2350f06817e058169ac8a5bdbeb4227e0ed45be2",
-      "gasUsed": 26915,
+      "status": "SKIP",
       "values": {
-        "feeReserveTarget": "0"
+        "reason": "fee reserve target already at the decided value 0"
       }
     },
     {
@@ -233,21 +211,27 @@
       }
     },
     {
+      "name": "15a-activation-preconditions",
+      "status": "PASS",
+      "values": {
+        "currentBlock": 11883883,
+        "activationBlock": 11884578
+      }
+    },
+    {
       "name": "16-mine-to-activation-block",
       "status": "PASS",
       "values": {
-        "activationBlock": 11884578,
-        "note": "B = FORKING_BLOCK + 720 (runbook step 8 margin)"
+        "activationBlock": 11884578
       }
     },
     {
       "name": "17-set-vault-status",
       "status": "PASS",
-      "txHash": "0x5ad55a821848ffc5fc571a2fd3407e1e2222d8b8d30e12130c75a5e5da228f46",
+      "txHash": "0xf8af44e22d13ee473b8f8ef2a8e72e4f671498868b87e0caed264079cf348ab3",
       "gasUsed": 62826,
       "values": {
-        "vault": "0x222C73bc1440b97876B64C3F34077904deF93714",
-        "isTrusted": true
+        "vault": "0x222C73bc1440b97876B64C3F34077904deF93714"
       }
     },
     {
@@ -260,9 +244,8 @@
           "4",
           "1"
         ],
-        "reservationVault": "0x222C73bc1440b97876B64C3F34077904deF93714",
-        "reservationMinAmount": "10000",
         "reservationParameters": [
+          "0x222C73bc1440b97876B64C3F34077904deF93714",
           "10000",
           "1000",
           "7776000",
@@ -275,17 +258,14 @@
         ],
         "router": "0xd8F192488c6B2AF29c6E0a02040E68F87B9d5EAA",
         "vaultTrusted": true,
-        "feeReserveTarget": "0"
+        "feeReserveTarget": 0
       }
     },
     {
       "name": "19-negative-third-party-reanchor",
       "status": "PASS",
       "values": {
-        "reverted": true,
-        "revertReason": "Reservation is not active",
-        "reservationKey": "1234567890123456789",
-        "via": "Bridge fallback -> router delegatecall (new ABI reachable)"
+        "revertReason": "Reservation is not active"
       }
     }
   ]

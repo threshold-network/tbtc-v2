@@ -212,6 +212,76 @@ read-only.
    recorded, and the rehearsal asserts reserved-deposit feasibility
    against the forked values before anything is staged.
 
+## Primary path: the key holder runs the script
+
+`scripts/reservations-sepolia-rehearsal.ts` is the same script as the
+fork rehearsal in pre-flight item 8. On `--network sepolia` it runs live
+with the key holder's signer. Steps 1–6 and 10 are one run, steps 11–12
+are a second run, and steps 7–9 (npm publish, keep-core build with block B,
+operator rollout) happen between them. The `cast` commands in the step
+sections below are the **manual fallback** for the same steps; use them only
+if the script cannot be used.
+
+From `solidity/`, as the holder of the deployer key
+`0xb9B8a92677fcad86dc8d36fe947184283B03b3C8`:
+
+```sh
+export CHAIN_API_URL="$SEPOLIA_RPC_URL"
+export ACCOUNTS_PRIVATE_KEYS="$SEPOLIA_PRIVATE_KEY"   # first key = the deployer EOA
+export GAS_PRICE_GWEI=2
+
+# steps 1-6 and 10; stops and prints the addresses keep-core needs
+PHASE=prepare npx hardhat run --network sepolia scripts/reservations-sepolia-rehearsal.ts
+
+# steps 7-9 are off-chain: publish npm `sepolia`, give keep-core the printed
+# addresses and a FUTURE block B, build and release, confirm every operator
+
+# steps 11-12; only once the chain is at or past B
+PHASE=activate ACTIVATION_BLOCK=<B> npx hardhat run --network sepolia scripts/reservations-sepolia-rehearsal.ts
+```
+
+What the script does on a live network:
+
+- The signer is the first configured account. If it is not the deployer EOA,
+  the script stops before sending any transaction.
+- It makes no `hardhat_*` or `evm_*` calls. The 60-second governance delays
+  are waited out in real time by polling the chain timestamp.
+- Before every step it reads the chain, and skips what is already done. After
+  an interruption or failure, run `PHASE=prepare` again: it reads the newest
+  partial artifact, checks the deployed addresses, the vault owner, the
+  implementation slot, the Bridge governance, the router, and the caps and
+  parameters on-chain, and continues from the first step not done.
+- `PHASE=activate` refuses to run if the current block is below B, if any
+  deployed address or implementation differs from the prepare artifact, if
+  caps, parameters or the fee reserve differ from the runbook values, or if
+  the reserved-deposit feasibility check fails against the live
+  `depositParameters`.
+- Artifacts: `dryrun-artifacts/reservations-sepolia-rehearsal-sepolia-<start
+  block>.json` (prepare) and `reservations-sepolia-activation-sepolia-<start
+  block>.json` (activate), rewritten after every step. Commit the deployment
+  records for step 4 from the addresses it prints.
+
+Rehearsing the live path without the key (rehearsal-only): start a local fork
+node, unlock the deployer on it with one-off RPC calls, and mine blocks from
+outside so the real-time waits and block B pass:
+
+```sh
+npx hardhat node --no-deploy --fork "$SEPOLIA_RPC_URL" --fork-block-number <latest - 20> --port 8547 &
+curl -s -X POST -H 'Content-Type: application/json' http://127.0.0.1:8547 \
+  -d '{"jsonrpc":"2.0","id":1,"method":"hardhat_impersonateAccount","params":["0xb9B8a92677fcad86dc8d36fe947184283B03b3C8"]}'
+curl -s -X POST -H 'Content-Type: application/json' http://127.0.0.1:8547 \
+  -d '{"jsonrpc":"2.0","id":2,"method":"hardhat_setBalance","params":["0xb9B8a92677fcad86dc8d36fe947184283B03b3C8","0x8AC7230489E80000"]}'
+# in another shell: while true; do curl -s -o /dev/null -X POST -H 'Content-Type: application/json' \
+#   -d '{"jsonrpc":"2.0","id":1,"method":"evm_mine","params":[]}' http://127.0.0.1:8547; sleep 1; done
+env -u ACCOUNTS_PRIVATE_KEYS REHEARSAL_UNLOCKED_DEPLOYER=1 PHASE=prepare \
+  npx hardhat run --network rehearsal scripts/reservations-sepolia-rehearsal.ts
+```
+
+`REHEARSAL_UNLOCKED_DEPLOYER=1` is honoured only on the `rehearsal` network,
+where the node signs for the unlocked deployer; every other network uses the
+first configured account and the address check above. Stop the node by its
+PID when done.
+
 ## Step 0 — compile and sanity-check the new contracts
 
 ```sh

@@ -1,47 +1,50 @@
 /*
- * Sepolia-fork rehearsal of the UTXO-reservations ACTIVATION sequence from
- * docs/RESERVATION_SEPOLIA_DEPLOYMENT.md.
+ * UTXO-reservations deploy for Sepolia, from
+ * docs/RESERVATION_SEPOLIA_DEPLOYMENT.md. One script, two modes.
  *
- * Runs the runbook's on-chain steps (in the new order: the client-release
- * steps are off-chain and recorded as SKIP) against a FORK of live Sepolia,
- * impersonating the Sepolia deployer EOA, which owns both the Bridge
- * ProxyAdmin and the live BridgeGovernance. Mirrors the helper shape of
- * scripts/reservations-fork-dryrun.ts (that script is on a separate
- * branch, so its helpers are copied here rather than imported).
+ * Phases (runbook step numbers):
+ *   PHASE=prepare   steps 1-6 and 10: deploy the vault, libraries, Bridge
+ *                   implementation, router and new governance; upgrade the
+ *                   proxy; swap governance; set the router; stage and
+ *                   finalize caps and parameters; fee reserve 0. Then it
+ *                   stops and prints the addresses keep-core needs.
+ *                   Resumable: every step is checked against the chain and
+ *                   skipped when already done.
+ *   PHASE=activate ACTIVATION_BLOCK=<B>
+ *                   steps 11-12: refuses to run if the current block is
+ *                   below B or anything staged differs from the runbook,
+ *                   then setVaultStatus and the post-activation checks.
+ *                   Deployed addresses come from the prepare artifact.
  *
- * Order rehearsed:
- *   0. read & record live Sepolia governance state,
- *   1. impersonate the deployer EOA,
- *   2. deploy linked libraries, the new Bridge implementation,
- *      ReservationRouter, ReservationVault, and the new BridgeGovernance,
- *      and transfer vault ownership to the governance EOA (the same
- *      address on Sepolia),
- *   3. upgrade the Bridge proxy via ProxyAdmin and verify the
- *      pre-existing state is preserved,
- *   4. transfer Bridge governance old-gov -> new-gov (60 s delay
- *      advanced on the fork),
- *   5. setReservationRouter + reserved-deposit feasibility check +
- *      caps/params begin/finalize (60 s delays advanced),
- *   6. updateFeeReserveTarget(0) (recorded decision),
- *   7. npm publish + keep-core build/release: off-chain steps, logged as
- *      SKIP,
- *   8. mine to the chosen activation block B, setVaultStatus,
- *   9. post-activation checks, including one negative check that proves
- *      the new router ABI is reachable through the Bridge fallback.
+ * Mode follows the hardhat network:
+ *   --network hardhat (fork of Sepolia, FORKING_URL + pinned FORKING_BLOCK):
+ *     impersonates the deployer EOA, advances the clock with evm_*, mines
+ *     to B. With no PHASE it runs both phases and logs the off-chain steps
+ *     (npm publish, keep-core build) as SKIP.
+ *   any other network (--network sepolia: CHAIN_API_URL +
+ *     ACCOUNTS_PRIVATE_KEYS; or a local node): the signer is
+ *     (await ethers.getSigners())[0] and must be the deployer EOA, else it
+ *     aborts before any transaction. No hardhat_* or evm_* calls;
+ *     governance delays are waited out in real time. PHASE is required.
  *
- * Run (from solidity/):
+ * Fork run (from solidity/):
  *   FORKING_URL="$SEPOLIA_RPC_URL" FORKING_BLOCK=<pinned block> \
  *     npx hardhat run --network hardhat scripts/reservations-sepolia-rehearsal.ts
+ * Live run:
+ *   export CHAIN_API_URL="$SEPOLIA_RPC_URL"
+ *   export ACCOUNTS_PRIVATE_KEYS="$SEPOLIA_PRIVATE_KEY"
+ *   PHASE=prepare npx hardhat run --network sepolia scripts/reservations-sepolia-rehearsal.ts
+ *   PHASE=activate ACTIVATION_BLOCK=<B> npx hardhat run --network sepolia scripts/reservations-sepolia-rehearsal.ts
  *
- * The values rehearsed are the runbook's Sepolia values: caps
- * (2000000, 2000000, 4, 1), min amount 10000, tx max fee 1000, term
- * 7776000 (90 days), dissolution delay 86400, max total 8000000,
- * max per wallet 1, action timeout 86400, renewal window 86400. They
- * are asserted feasible against the forked live `depositParameters`
- * (dust threshold 1,000,000 sats, reveal-ahead period 1,296,000 s on
- * 2026-10-10) before anything is staged.
+ * Values are the runbook's Sepolia values (caps 2000000/2000000/4/1, min
+ * 10000, tx max fee 1000, term 7776000, dissolution 86400, max total
+ * 8000000, max per wallet 1, action timeout 86400, renewal 86400) and are
+ * checked against the live depositParameters before anything is staged.
  *
- * Writes dryrun-artifacts/reservations-sepolia-rehearsal-<block>.json.
+ * Artifacts in dryrun-artifacts/: fork reservations-sepolia-rehearsal-<fork
+ * block>.json; live reservations-sepolia-rehearsal-<network>-<start
+ * block>.json (prepare) and reservations-sepolia-activation-<network>-<start
+ * block>.json (activate). They are rewritten after every step.
  */
 import fs from "fs"
 import path from "path"
@@ -51,6 +54,7 @@ import {
   ContractFactory,
   Signer,
   TransactionReceipt,
+  ContractTransactionResponse,
   ethers as eth,
 } from "ethers"
 
@@ -197,6 +201,11 @@ interface RunState {
   bank: string
   tbtcVault: string
   activationBlock: number
+  live: boolean
+  phase: string
+  networkName: string
+  startBlock: number
+  libs?: Record<string, string>
   snapshotBefore?: Record<string, string>
   snapshotAfter?: Record<string, string>
 }
@@ -329,796 +338,67 @@ async function mineToBlock(blockNumber: number): Promise<void> {
     current += 1
   }
 }
+const V = SEPOLIA_VALUES
 
-async function main(): Promise<void> {
-  const block = await ethers.provider.getBlock("latest")
-  if (block.number !== FORKING_BLOCK) {
-    throw new Error(
-      `Fork block is ${block.number}, expected pinned ${FORKING_BLOCK} — ` +
-        `re-run with FORKING_BLOCK=${FORKING_BLOCK}`
-    )
-  }
-
-  const state: RunState = {
-    steps: [],
-    bridge: "",
-    oldGov: "",
-    proxyAdmin: "",
-    deployer: KNOWN_DEPLOYER,
-    oldImpl: "",
-    newImpl: "",
-    router: "",
-    vault: "",
-    newGov: "",
-    bank: "",
-    tbtcVault: "",
-    activationBlock: FORKING_BLOCK + ACTIVATION_BLOCK_OFFSET,
-  }
-
-  // =========================================================================
-  // 0. Read live Sepolia state
-  // =========================================================================
-  console.log("\n=== Step 0: read live Sepolia state ===")
-  try {
-    state.bridge = readSepoliaDeploymentAddress("Bridge.json")
-    state.oldGov = readSepoliaDeploymentAddress("BridgeGovernance.json")
-    state.bank = readSepoliaDeploymentAddress("Bank.json")
-    state.tbtcVault = readSepoliaDeploymentAddress("TBTCVault.json")
-
-    const adminSlot = await ethers.provider.getStorage(
-      state.bridge,
-      EIP1967_ADMIN_SLOT
-    )
-    state.proxyAdmin = eth.getAddress(`0x${adminSlot.slice(26)}`)
-    if (state.proxyAdmin.toLowerCase() !== KNOWN_PROXY_ADMIN.toLowerCase()) {
-      throw new Error(
-        `On-chain ProxyAdmin ${state.proxyAdmin} != runbook ${KNOWN_PROXY_ADMIN}`
-      )
-    }
-
-    const implSlot = await ethers.provider.getStorage(
-      state.bridge,
-      EIP1967_IMPL_SLOT
-    )
-    state.oldImpl = eth.getAddress(`0x${implSlot.slice(26)}`)
-    if (state.oldImpl.toLowerCase() !== KNOWN_OLD_IMPL.toLowerCase()) {
-      throw new Error(
-        `On-chain Bridge implementation ${state.oldImpl} != runbook ` +
-          `${KNOWN_OLD_IMPL}`
-      )
-    }
-
-    const proxyAdmin = await ethers.getContractAt(
-      ["function owner() view returns (address)"],
-      state.proxyAdmin
-    )
-    const proxyAdminOwner = await proxyAdmin.owner()
-    if (proxyAdminOwner.toLowerCase() !== KNOWN_DEPLOYER.toLowerCase()) {
-      throw new Error(
-        `ProxyAdmin owner ${proxyAdminOwner} != deployer EOA ${KNOWN_DEPLOYER}`
-      )
-    }
-
-    const oldGov = await ethers.getContractAt(
-      [
-        "function owner() view returns (address)",
-        "function governanceDelays(uint256) view returns (uint256)",
-        "function beginBridgeGovernanceTransfer(address)",
-        "function finalizeBridgeGovernanceTransfer()",
-      ],
-      state.oldGov
-    )
-    const oldGovOwner = await oldGov.owner()
-    if (oldGovOwner.toLowerCase() !== KNOWN_DEPLOYER.toLowerCase()) {
-      throw new Error(
-        `BridgeGovernance owner ${oldGovOwner} != deployer EOA ${KNOWN_DEPLOYER}`
-      )
-    }
-    const oldGovDelay = await oldGov.governanceDelays(0)
-    if (oldGovDelay !== BigInt(GOVERNANCE_DELAY_SECONDS)) {
-      throw new Error(
-        `Live governance delay ${oldGovDelay}s != runbook ` +
-          `${GOVERNANCE_DELAY_SECONDS}s — re-check the ceremony waits`
-      )
-    }
-
-    state.snapshotBefore = await snapshotBridge(state)
-
-    record(state, {
-      name: "00-read-sepolia-state",
-      status: "PASS",
-      values: {
-        bridge: state.bridge,
-        oldGov: state.oldGov,
-        oldImpl: state.oldImpl,
-        proxyAdmin: state.proxyAdmin,
-        proxyAdminOwner,
-        oldGovOwner,
-        governanceDelay: oldGovDelay.toString(),
-        initialized: state.snapshotBefore["initialized"],
-        knownPk: state.snapshotBefore["knownPk"],
-        knownWallet: state.snapshotBefore["knownWallet"],
-        liveWalletsCount: state.snapshotBefore["liveWalletsCount"],
-        depositParameters: state.snapshotBefore["depositParameters"],
-      },
-    })
-  } catch (e) {
-    record(state, {
-      name: "00-read-sepolia-state",
-      status: "FAIL",
-      error: String(e),
-    })
-    return writeArtifact(state)
-  }
-
-  // =========================================================================
-  // 1. Impersonate the deployer EOA
-  // =========================================================================
-  console.log("\n=== Step 1: impersonate the deployer EOA ===")
-  const FUND = "0x8AC7230489E80000" // 10 ETH
-  try {
-    await network.provider.send("hardhat_impersonateAccount", [state.deployer])
-    await network.provider.send("hardhat_setBalance", [state.deployer, FUND])
-    record(state, {
-      name: "01-impersonate-deployer",
-      status: "PASS",
-      values: { deployer: state.deployer },
-    })
-  } catch (e) {
-    record(state, {
-      name: "01-impersonate-deployer",
-      status: "FAIL",
-      error: String(e),
-    })
-    return writeArtifact(state)
-  }
-  const deployer = await ethers.getSigner(state.deployer)
-
-  // =========================================================================
-  // 2. Deploy on the fork (runbook steps 1–3)
-  // =========================================================================
-  console.log("\n=== Step 2: deploy contracts on the fork ===")
-  try {
-    const libAddresses: Record<string, string> = {}
-    for (const { name, artifact } of LIBS) {
-      const { contract } = await deployLinked(artifact, deployer, {})
-      libAddresses[name] = contract.target
-    }
-    record(state, {
-      name: "02a-deploy-shared-libraries",
-      status: "PASS",
-      values: libAddresses,
-    })
-
-    const bridgeImpl = await deployLinked(
-      BRIDGE_ARTIFACT,
-      deployer,
-      libAddresses,
-      []
-    )
-    state.newImpl = bridgeImpl.contract.target
-    record(state, {
-      name: "02b-deploy-bridge-implementation",
-      status: "PASS",
-      txHash: txHashOf(bridgeImpl.receipt),
-      gasUsed: Number(bridgeImpl.receipt.gasUsed),
-      values: { implementation: state.newImpl },
-    })
-
-    const router = await deployLinked(
-      ROUTER_ARTIFACT,
-      deployer,
-      libAddresses,
-      []
-    )
-    state.router = router.contract.target
-    record(state, {
-      name: "02c-deploy-reservation-router",
-      status: "PASS",
-      txHash: txHashOf(router.receipt),
-      gasUsed: Number(router.receipt.gasUsed),
-      values: { router: state.router },
-    })
-
-    const vault = await deployLinked(VAULT_ARTIFACT, deployer, libAddresses, [
-      state.bank,
-      state.tbtcVault,
-      state.bridge,
-    ])
-    state.vault = vault.contract.target
-    record(state, {
-      name: "02d-deploy-reservation-vault",
-      status: "PASS",
-      txHash: txHashOf(vault.receipt),
-      gasUsed: Number(vault.receipt.gasUsed),
-      values: { vault: state.vault },
-    })
-
-    // Runbook step 2: vault ownership deployer -> governance. On Sepolia
-    // both named accounts are the same deployer EOA, so this is a
-    // self-transfer that documents the owner chain: the governance EOA
-    // (== deployer EOA) holds the vault before activation.
-    const vaultContract = (
-      await ethers.getContractAt(VAULT_ARTIFACT, state.vault)
-    ).connect(deployer)
-    const vaultTransfer = await vaultContract.transferOwnership(KNOWN_DEPLOYER)
-    const vaultTransferReceipt = await vaultTransfer.wait()
-    const vaultOwner = await vaultContract.owner()
-    if (vaultOwner.toLowerCase() !== KNOWN_DEPLOYER.toLowerCase()) {
-      throw new Error(`vault owner after transfer: ${vaultOwner}`)
-    }
-    record(state, {
-      name: "02e-transfer-reservation-vault-ownership-to-governance",
-      status: "PASS",
-      txHash: txHashOf(vaultTransferReceipt),
-      gasUsed: Number(vaultTransferReceipt.gasUsed),
-      values: {
-        vaultOwner,
-        note: "governance EOA == deployer EOA on Sepolia (index 0)",
-      },
-    })
-
-    const newGov = await deployLinked(GOV_ARTIFACT, deployer, libAddresses, [
-      state.bridge,
-      BigInt(GOVERNANCE_DELAY_SECONDS),
-    ])
-    state.newGov = newGov.contract.target
-    record(state, {
-      name: "02f-deploy-new-bridge-governance",
-      status: "PASS",
-      txHash: txHashOf(newGov.receipt),
-      gasUsed: Number(newGov.receipt.gasUsed),
-      values: {
-        newGov: state.newGov,
-        governanceDelay: GOVERNANCE_DELAY_SECONDS,
-      },
-    })
-  } catch (e) {
-    record(state, {
-      name: "02-deploy-contracts",
-      status: "FAIL",
-      error: String(e),
-    })
-    return writeArtifact(state)
-  }
-
-  // =========================================================================
-  // 3. Upgrade the Bridge proxy + state-preservation check (runbook step 4)
-  // =========================================================================
-  console.log("\n=== Step 3: proxy upgrade ===")
-  try {
-    const proxyAdmin = await ethers.getContractAt(
-      [
-        "function upgrade(address, address)",
-        "function upgradeAndCall(address, address, bytes)",
-      ],
-      state.proxyAdmin
-    )
-    const upgrade = await proxyAdmin
-      .connect(deployer)
-      .upgrade(state.bridge, state.newImpl)
-    const upgradeReceipt = await upgrade.wait()
-    record(state, {
-      name: "03-proxy-upgrade",
-      status: "PASS",
-      txHash: txHashOf(upgradeReceipt),
-      gasUsed: Number(upgradeReceipt.gasUsed),
-      values: { newImpl: state.newImpl },
-    })
-  } catch (e) {
-    record(state, {
-      name: "03-proxy-upgrade",
-      status: "FAIL",
-      error: String(e),
-    })
-    return writeArtifact(state)
-  }
-
-  // State-preservation check (runbook step 4, fork dry-run step 4 model):
-  // no reinitializer is invoked on this branch; the new impl's max
-  // reinitializer is reinitializer(5), same as the old live impl, so a
-  // plain upgrade() is correct.
-  try {
-    state.snapshotAfter = await snapshotBridge(state)
-    const before = state.snapshotBefore
-    const after = state.snapshotAfter
-    for (const field of [
-      "ecdsaWalletRegistry",
-      "governance",
-      "initialized",
-      "rebateStaking",
-      "reservationVault",
-      "reservationRouter",
-    ]) {
-      if (before[field] !== after[field]) {
-        throw new Error(
-          `storage ${field} changed on upgrade: ${before[field]} -> ${after[field]}`
-        )
-      }
-    }
-    if (before["knownPk"] !== after["knownPk"]) {
-      throw new Error("knownPk changed on upgrade")
-    }
-    if (before["knownWallet"] !== after["knownWallet"]) {
-      throw new Error(
-        `wallets(pk) entry changed: ${before["knownWallet"]} -> ${after["knownWallet"]}`
-      )
-    }
-    if (before["liveWalletsCount"] !== after["liveWalletsCount"]) {
-      throw new Error("liveWalletsCount changed on upgrade")
-    }
-    if (before["depositParameters"] !== after["depositParameters"]) {
-      throw new Error("depositParameters changed on upgrade")
-    }
-    record(state, {
-      name: "04-state-preservation",
-      status: "PASS",
-      values: {
-        ecdsaWalletRegistry: after["ecdsaWalletRegistry"],
-        governanceSlotUnchanged: true,
-        knownWalletUnchanged: true,
-        liveWalletsCountUnchanged: true,
-        depositParametersUnchanged: true,
-        initialized: after["initialized"],
-      },
-    })
-  } catch (e) {
-    record(state, {
-      name: "04-state-preservation",
-      status: "FAIL",
-      error: String(e),
-    })
-    return writeArtifact(state)
-  }
-
-  // =========================================================================
-  // 4. Governance swap + router + caps/params (runbook steps 5–6)
-  // =========================================================================
-  console.log("\n=== Step 4: governance actions ===")
-  try {
-    const oldGov = await ethers.getContractAt(
-      [
-        "function beginBridgeGovernanceTransfer(address)",
-        "function finalizeBridgeGovernanceTransfer()",
-      ],
-      state.oldGov
-    )
-    const begin = await oldGov
-      .connect(deployer)
-      .beginBridgeGovernanceTransfer(state.newGov)
-    const beginReceipt = await begin.wait()
-    record(state, {
-      name: "05-governance-transfer-begin",
-      status: "PASS",
-      txHash: txHashOf(beginReceipt),
-      gasUsed: Number(beginReceipt.gasUsed),
-      values: { newGov: state.newGov },
-    })
-
-    await advanceTime(GOVERNANCE_DELAY_SECONDS)
-
-    const finalize = await oldGov
-      .connect(deployer)
-      .finalizeBridgeGovernanceTransfer()
-    const finalizeReceipt = await finalize.wait()
-    const governanceAfter = await ethers.provider.getStorage(
-      state.bridge,
-      SLOTS.governance
-    )
-    const expectedSlot =
-      "0x" + "0".repeat(24) + state.newGov.toLowerCase().slice(2)
-    if (governanceAfter.toLowerCase() !== expectedSlot.toLowerCase()) {
-      throw new Error(
-        `Bridge governance slot ${governanceAfter} != new gov ${state.newGov}`
-      )
-    }
-    record(state, {
-      name: "06-governance-transfer-finalize",
-      status: "PASS",
-      txHash: txHashOf(finalizeReceipt),
-      gasUsed: Number(finalizeReceipt.gasUsed),
-      values: { bridgeGovernanceSlot: governanceAfter },
-    })
-
-    const newGov = await ethers.getContractAt(GOV_ARTIFACT, state.newGov)
-
-    // setReservationRouter MUST be the first reservation action.
-    const routerTx = await newGov
-      .connect(deployer)
-      .setReservationRouter(state.router)
-    const routerReceipt = await routerTx.wait()
-    record(state, {
-      name: "07-set-reservation-router",
-      status: "PASS",
-      txHash: txHashOf(routerReceipt),
-      gasUsed: Number(routerReceipt.gasUsed),
-      values: { router: state.router },
-    })
-
-    // Reserved-deposit feasibility against the forked live deposit
-    // parameters, before anything is staged (runbook step 6 / pre-flight
-    // check 1). Nothing on-chain checks this, so it must run here.
-    const [dust, , , revealAhead] = String(
-      state.snapshotBefore?.["depositParameters"]
-    ).split(",")
-    assertReservedDepositsFeasible({
-      depositDustThreshold: BigInt(dust),
-      depositRevealAheadPeriod: Number(revealAhead),
-      termSeconds: SEPOLIA_VALUES.termSeconds,
-      singleAmountCap: SEPOLIA_VALUES.singleAmountCap,
-      perWalletCap: SEPOLIA_VALUES.perWalletCap,
-      maxTotalAmount: SEPOLIA_VALUES.maxTotalAmount,
-    })
-    record(state, {
-      name: "08-assert-reserved-deposits-feasible",
-      status: "PASS",
-      values: {
-        depositDustThreshold: dust,
-        depositRevealAheadPeriod: revealAhead,
-        termSeconds: String(SEPOLIA_VALUES.termSeconds),
-        singleAmountCap: SEPOLIA_VALUES.singleAmountCap.toString(),
-        perWalletCap: SEPOLIA_VALUES.perWalletCap.toString(),
-        maxTotalAmount: SEPOLIA_VALUES.maxTotalAmount.toString(),
-      },
-    })
-
-    // Staged pairs: caps first (finalizes must precede the parameters
-    // finalize), then parameters. Both begins batch at one timestamp;
-    // one delay advance covers both finalizes.
-    const beginCaps = await newGov
-      .connect(deployer)
-      .beginReservationCapsUpdate(
-        SEPOLIA_VALUES.perWalletCap,
-        SEPOLIA_VALUES.singleAmountCap,
-        SEPOLIA_VALUES.maxActive,
-        SEPOLIA_VALUES.maxThirdPartyReanchorHolds
-      )
-    const beginCapsReceipt = await beginCaps.wait()
-    record(state, {
-      name: "09-begin-reservation-caps",
-      status: "PASS",
-      txHash: txHashOf(beginCapsReceipt),
-      gasUsed: Number(beginCapsReceipt.gasUsed),
-      values: {
-        perWalletCap: SEPOLIA_VALUES.perWalletCap.toString(),
-        singleAmountCap: SEPOLIA_VALUES.singleAmountCap.toString(),
-        maxActive: SEPOLIA_VALUES.maxActive,
-        maxThirdPartyReanchorHolds: SEPOLIA_VALUES.maxThirdPartyReanchorHolds,
-      },
-    })
-
-    const beginParams = await newGov
-      .connect(deployer)
-      .beginReservationParametersUpdate(
-        state.vault,
-        SEPOLIA_VALUES.minAmount,
-        SEPOLIA_VALUES.txMaxFee,
-        SEPOLIA_VALUES.termSeconds,
-        SEPOLIA_VALUES.dissolutionDelay,
-        SEPOLIA_VALUES.maxTotalAmount,
-        SEPOLIA_VALUES.maxReservationsPerWallet,
-        SEPOLIA_VALUES.actionTimeout,
-        SEPOLIA_VALUES.renewalWindowSeconds
-      )
-    const beginParamsReceipt = await beginParams.wait()
-    record(state, {
-      name: "10-begin-reservation-parameters",
-      status: "PASS",
-      txHash: txHashOf(beginParamsReceipt),
-      gasUsed: Number(beginParamsReceipt.gasUsed),
-      values: {
-        vault: state.vault,
-        minAmount: SEPOLIA_VALUES.minAmount.toString(),
-        txMaxFee: SEPOLIA_VALUES.txMaxFee.toString(),
-        termSeconds: SEPOLIA_VALUES.termSeconds,
-        dissolutionDelay: SEPOLIA_VALUES.dissolutionDelay,
-        maxTotalAmount: SEPOLIA_VALUES.maxTotalAmount.toString(),
-        maxPerWallet: SEPOLIA_VALUES.maxReservationsPerWallet,
-        actionTimeout: SEPOLIA_VALUES.actionTimeout,
-        renewalWindowSeconds: SEPOLIA_VALUES.renewalWindowSeconds,
-      },
-    })
-
-    await advanceTime(GOVERNANCE_DELAY_SECONDS)
-
-    const finalizeCaps = await newGov
-      .connect(deployer)
-      .finalizeReservationCapsUpdate()
-    const finalizeCapsReceipt = await finalizeCaps.wait()
-    record(state, {
-      name: "11-finalize-reservation-caps",
-      status: "PASS",
-      txHash: txHashOf(finalizeCapsReceipt),
-      gasUsed: Number(finalizeCapsReceipt.gasUsed),
-    })
-
-    const finalizeParams = await newGov
-      .connect(deployer)
-      .finalizeReservationParametersUpdate()
-    const finalizeParamsReceipt = await finalizeParams.wait()
-    record(state, {
-      name: "12-finalize-reservation-parameters",
-      status: "PASS",
-      txHash: txHashOf(finalizeParamsReceipt),
-      gasUsed: Number(finalizeParamsReceipt.gasUsed),
-    })
-
-    // Fee-reserve target, recorded decision: zero on Sepolia.
-    const vaultContract = (
-      await ethers.getContractAt(VAULT_ARTIFACT, state.vault)
-    ).connect(deployer)
-    const feeReserveTx = await vaultContract.updateFeeReserveTarget(
-      BigInt(SEPOLIA_VALUES.feeReserveTarget)
-    )
-    const feeReserveReceipt = await feeReserveTx.wait()
-    const feeReserveTarget = await vaultContract.feeReserveTarget()
-    if (feeReserveTarget !== BigInt(SEPOLIA_VALUES.feeReserveTarget)) {
-      throw new Error(`feeReserveTarget ${feeReserveTarget} != decided value 0`)
-    }
-    record(state, {
-      name: "13-update-fee-reserve-target",
-      status: "PASS",
-      txHash: txHashOf(feeReserveReceipt),
-      gasUsed: Number(feeReserveReceipt.gasUsed),
-      values: { feeReserveTarget: feeReserveTarget.toString() },
-    })
-  } catch (e) {
-    record(state, {
-      name: "05-governance-action-sequence",
-      status: "FAIL",
-      error: String(e),
-    })
-    return writeArtifact(state)
-  }
-
-  // =========================================================================
-  // 5. Off-chain steps: npm publish + keep-core build (runbook steps 7–9)
-  // =========================================================================
-  console.log("\n=== Step 5: off-chain client steps (logged, not run) ===")
-  record(state, {
-    name: "14-npm-publish-sepolia-package",
-    status: "SKIP",
-    values: { reason: "off-chain step" },
-  })
-  record(state, {
-    name: "15-keep-core-build-and-release-with-activation-block",
-    status: "SKIP",
-    values: { reason: "off-chain step" },
-  })
-
-  // =========================================================================
-  // 6. Mine to the activation block, activate the vault (runbook step 11)
-  // =========================================================================
-  console.log(`\n=== Step 6: activate at block ${state.activationBlock} ===`)
-  try {
-    await mineToBlock(state.activationBlock)
-    const minedBlock = (await ethers.provider.getBlock("latest")).number
-    if (minedBlock < state.activationBlock) {
-      throw new Error(
-        `Fork is at block ${minedBlock}, below activation block ` +
-          `${state.activationBlock}`
-      )
-    }
-    record(state, {
-      name: "16-mine-to-activation-block",
-      status: "PASS",
-      values: {
-        activationBlock: state.activationBlock,
-        note: `B = FORKING_BLOCK + ${ACTIVATION_BLOCK_OFFSET} (runbook step 8 margin)`,
-      },
-    })
-
-    const newGov = await ethers.getContractAt(GOV_ARTIFACT, state.newGov)
-    const activate = await newGov
-      .connect(deployer)
-      .setVaultStatus(state.vault, true)
-    const activateReceipt = await activate.wait()
-    const trusted = await ethers
-      .getContractAt(BRIDGE_ARTIFACT, state.bridge)
-      .then((b) => b.isVaultTrusted(state.vault))
-    if (trusted !== true) {
-      throw new Error("vault not trusted after setVaultStatus")
-    }
-    record(state, {
-      name: "17-set-vault-status",
-      status: "PASS",
-      txHash: txHashOf(activateReceipt),
-      gasUsed: Number(activateReceipt.gasUsed),
-      values: { vault: state.vault, isTrusted: true },
-    })
-  } catch (e) {
-    record(state, {
-      name: "17-activate-vault",
-      status: "FAIL",
-      error: String(e),
-    })
-    return writeArtifact(state)
-  }
-
-  // =========================================================================
-  // 7. Post-activation verification (runbook step 12)
-  // =========================================================================
-  console.log("\n=== Step 7: verify activation ===")
-  try {
-    // Router-only views are reached through the Bridge fallback, so encode
-    // with the router's ABI and call the Bridge proxy address directly.
-    const routerArtifact = await artifacts.readArtifact(ROUTER_ARTIFACT)
-    const routerIface = new eth.Interface(routerArtifact.abi)
-    const callRouterView = async (
-      name: string,
-      args: unknown[]
-    ): Promise<eth.Result> => {
-      const data = routerIface.encodeFunctionData(name, args)
-      const result = await ethers.provider.call({ to: state.bridge, data })
-      return routerIface.decodeFunctionResult(name, result)
-    }
-
-    const caps = await callRouterView("reservationCaps", [])
-    const [capPerWallet, capSingle, capMaxActive, capThirdPartyHolds] =
-      caps as [bigint, bigint, bigint, bigint]
-    if (capPerWallet !== SEPOLIA_VALUES.perWalletCap)
-      throw new Error("capPerWallet mismatch")
-    if (capSingle !== SEPOLIA_VALUES.singleAmountCap)
-      throw new Error("capSingle mismatch")
-    if (Number(capMaxActive) !== SEPOLIA_VALUES.maxActive)
-      throw new Error("capMaxActive mismatch")
-    if (
-      Number(capThirdPartyHolds) !== SEPOLIA_VALUES.maxThirdPartyReanchorHolds
-    )
-      throw new Error("capThirdPartyHolds mismatch")
-
-    const params = await callRouterView("reservationParameters", [])
-    const [
-      pVault,
-      pMin,
-      pTxMaxFee,
-      pTerm,
-      pDissolution,
-      pMaxTotal,
-      pTotal,
-      pPerWallet,
-      pActionTimeout,
-      pRenewal,
-    ] = params as [
-      string,
-      bigint,
-      bigint,
-      bigint,
-      bigint,
-      bigint,
-      bigint,
-      bigint,
-      bigint,
-      bigint,
-    ]
-    if ((pVault as string).toLowerCase() !== state.vault.toLowerCase())
-      throw new Error(`reservationParameters.vault ${pVault} != ${state.vault}`)
-    if (pMin !== SEPOLIA_VALUES.minAmount) throw new Error("minAmount mismatch")
-    if (pTxMaxFee !== SEPOLIA_VALUES.txMaxFee)
-      throw new Error("txMaxFee mismatch")
-    if (Number(pTerm) !== SEPOLIA_VALUES.termSeconds)
-      throw new Error("termSeconds mismatch")
-    if (Number(pDissolution) !== SEPOLIA_VALUES.dissolutionDelay)
-      throw new Error("dissolutionDelay mismatch")
-    if (pMaxTotal !== SEPOLIA_VALUES.maxTotalAmount)
-      throw new Error("maxTotalAmount mismatch")
-    if (pTotal !== 0n)
-      throw new Error(`reservationTotalAmount ${pTotal} != 0 (fresh vault)`)
-    if (Number(pPerWallet) !== SEPOLIA_VALUES.maxReservationsPerWallet)
-      throw new Error("maxPerWallet mismatch")
-    if (Number(pActionTimeout) !== SEPOLIA_VALUES.actionTimeout)
-      throw new Error("actionTimeout mismatch")
-    if (Number(pRenewal) !== SEPOLIA_VALUES.renewalWindowSeconds)
-      throw new Error("renewalWindow mismatch")
-
-    const bridgeNew = await ethers.getContractAt(BRIDGE_ARTIFACT, state.bridge)
-    const routerAddr = await bridgeNew.getReservationRouter()
-    if (routerAddr.toLowerCase() !== state.router.toLowerCase())
-      throw new Error(`router ${routerAddr} != ${state.router}`)
-
-    record(state, {
-      name: "18-verify-activation",
-      status: "PASS",
-      values: {
-        reservationCaps: [
-          capPerWallet.toString(),
-          capSingle.toString(),
-          capMaxActive.toString(),
-          capThirdPartyHolds.toString(),
-        ],
-        reservationVault: pVault,
-        reservationMinAmount: String(pMin),
-        reservationParameters: [
-          pMin.toString(),
-          pTxMaxFee.toString(),
-          pTerm.toString(),
-          pDissolution.toString(),
-          pMaxTotal.toString(),
-          pTotal.toString(),
-          pPerWallet.toString(),
-          pActionTimeout.toString(),
-          pRenewal.toString(),
-        ],
-        router: routerAddr,
-        vaultTrusted: true,
-        feeReserveTarget: SEPOLIA_VALUES.feeReserveTarget.toString(),
-      },
-    })
-  } catch (e) {
-    record(state, {
-      name: "18-verify-activation",
-      status: "FAIL",
-      error: String(e),
-    })
-    return writeArtifact(state)
-  }
-
-  // 19: negative check — a third party hitting a nonexistent reservation
-  // proves the router's ABI is live through the Bridge fallback.
-  try {
-    const routerArtifact = await artifacts.readArtifact(ROUTER_ARTIFACT)
-    const routerIface = new eth.Interface(routerArtifact.abi)
-    const bogusKey = 1234567890123456789n
-    const data = routerIface.encodeFunctionData("requestReservationReanchor", [
-      bogusKey,
-      state.snapshotBefore?.["knownPk"] ?? "0x" + "0".repeat(40),
-      [],
-      0,
-    ])
-    const thirdParty = (await ethers.getSigners())[5]
-    let reverted = false
-    let revertReason = ""
-    try {
-      // eth_call is a gas-free simulation; the caller needs no balance.
-      await ethers.provider.send("eth_call", [
-        { to: state.bridge, data, from: thirdParty.address },
-        "latest",
-      ])
-    } catch (e) {
-      reverted = true
-      revertReason = String(e)
-    }
-    if (!reverted) {
-      throw new Error(
-        "requestReservationReanchor did NOT revert — unexpectedly permissive"
-      )
-    }
-    if (!revertReason.includes("Reservation is not active")) {
-      throw new Error(
-        `expected revert "Reservation is not active", got: ${revertReason.slice(0, 200)}`
-      )
-    }
-    record(state, {
-      name: "19-negative-third-party-reanchor",
-      status: "PASS",
-      values: {
-        reverted: true,
-        revertReason: "Reservation is not active",
-        reservationKey: bogusKey.toString(),
-        via: "Bridge fallback -> router delegatecall (new ABI reachable)",
-      },
-    })
-  } catch (e) {
-    record(state, {
-      name: "19-negative-third-party-reanchor",
-      status: "FAIL",
-      error: String(e),
-    })
-  }
-
-  return writeArtifact(state)
+function artifactDir(): string {
+  return path.join(__dirname, "..", "dryrun-artifacts")
 }
 
-function writeArtifact(state: RunState): void {
-  const outDir = path.join(__dirname, "..", "dryrun-artifacts")
-  fs.mkdirSync(outDir, { recursive: true })
-  const outFile = path.join(
-    outDir,
-    `reservations-sepolia-rehearsal-${FORKING_BLOCK}.json`
+function artifactFile(state: RunState): string {
+  const kind = state.phase === "activate" ? "activation" : "rehearsal"
+  const base = state.live
+    ? `${state.networkName}-${state.startBlock}`
+    : `${FORKING_BLOCK}`
+  return path.join(artifactDir(), `reservations-sepolia-${kind}-${base}.json`)
+}
+
+interface PrepareArtifact {
+  addresses?: Record<string, string | null>
+}
+
+// Newest prepare/rehearsal artifact of this network (fork: the pinned one).
+function loadPrepareArtifact(state: RunState): PrepareArtifact | null {
+  const dir = artifactDir()
+  if (!fs.existsSync(dir)) return null
+  const files = state.live
+    ? fs
+        .readdirSync(dir)
+        .filter(
+          (f) =>
+            f.startsWith(
+              `reservations-sepolia-rehearsal-${state.networkName}-`
+            ) && f.endsWith(".json")
+        )
+    : [`reservations-sepolia-rehearsal-${FORKING_BLOCK}.json`]
+  const found: { m: number; j: PrepareArtifact }[] = []
+  for (const f of files) {
+    try {
+      const p = path.join(dir, f)
+      found.push({
+        m: fs.statSync(p).mtimeMs,
+        j: JSON.parse(fs.readFileSync(p, "utf8")) as PrepareArtifact,
+      })
+    } catch {
+      // missing or half-written file: ignore, the chain is the source of truth
+    }
+  }
+  // A rerun's own, still empty artifact must not mask the partial one.
+  const deployed = found.filter((f) =>
+    ["newImpl", "router", "vault", "newGov"].some((k) => !!f.j.addresses?.[k])
   )
+  deployed.sort((a, b) => b.m - a.m)
+  return deployed.length > 0 ? deployed[0].j : null
+}
+
+function saveArtifact(state: RunState): void {
+  fs.mkdirSync(artifactDir(), { recursive: true })
   const failures = state.steps.filter((s) => s.status === "FAIL")
   const artifact = {
-    forkBlock: FORKING_BLOCK,
+    mode: state.live ? "live" : "fork",
+    network: state.networkName,
+    phase: state.phase || "full",
+    startBlock: state.startBlock,
+    forkBlock: state.live ? null : FORKING_BLOCK,
     activationBlock: state.activationBlock,
     runAt: new Date().toISOString(),
     addresses: {
@@ -1141,28 +421,838 @@ function writeArtifact(state: RunState): void {
     steps: state.steps,
   }
   fs.writeFileSync(
-    outFile,
+    artifactFile(state),
     JSON.stringify(
       artifact,
-      (_key, value) => (typeof value === "bigint" ? value.toString() : value),
+      (_k, value) => (typeof value === "bigint" ? value.toString() : value),
       2
     ) + "\n"
   )
-  console.log(`\nArtifact written to ${outFile}`)
+}
+
+function finish(state: RunState): void {
+  saveArtifact(state)
+  const failed = state.steps.filter((s) => s.status === "FAIL")
+  console.log(`\nArtifact written to ${artifactFile(state)}`)
   console.log(
-    `Summary: ${artifact.summary.pass} pass / ${artifact.summary.fail} fail / ${artifact.summary.skip} skip`
+    `Summary: ${state.steps.filter((s) => s.status === "PASS").length} pass / ` +
+      `${failed.length} fail / ${state.steps.filter((s) => s.status === "SKIP").length} skip`
   )
-  for (const f of failures) {
-    console.log(`  - ${f.name}: ${String(f.error).slice(0, 200)}`)
+  for (const f of failed) {
+    console.log(`  - ${f.name}: ${String(f.error).slice(0, 300)}`)
   }
-  if (failures.length > 0) {
-    process.exitCode = 1
+  if (failed.length > 0) process.exitCode = 1
+}
+
+// Records a step and persists the artifact, so a killed run leaves a
+// resumable partial artifact behind.
+function done(state: RunState, step: Step): void {
+  record(state, step)
+  saveArtifact(state)
+}
+
+function skip(state: RunState, name: string, reason: string): void {
+  done(state, { name, status: "SKIP", values: { reason } })
+}
+
+async function sendStep(
+  state: RunState,
+  name: string,
+  send: () => Promise<ContractTransactionResponse>,
+  values?: Record<string, unknown>
+): Promise<TransactionReceipt> {
+  const receipt = await (await send()).wait()
+  if (receipt === null) throw new Error(`${name}: no receipt`)
+  done(state, {
+    name,
+    status: "PASS",
+    txHash: txHashOf(receipt),
+    gasUsed: Number(receipt.gasUsed),
+    values,
+  })
+  return receipt
+}
+
+// Fork: jump the clock. Live: wait out the delay in real time by polling
+// the chain timestamp (no evm_* calls).
+async function waitDelay(
+  state: RunState,
+  beginBlock: number,
+  seconds: number
+): Promise<void> {
+  if (!state.live) {
+    await advanceTime(seconds)
+    return
   }
+  const begin = (await ethers.provider.getBlock(beginBlock)).timestamp
+  for (;;) {
+    const now = (await ethers.provider.getBlock("latest")).timestamp
+    if (now >= begin + seconds) return
+    console.log(
+      `    waiting for governance delay: chain time ${now}/${begin + seconds}`
+    )
+    const { promise, resolve } = Promise.withResolvers<void>()
+    setTimeout(resolve, 5000)
+    await promise
+  }
+}
+
+async function hasCode(addr?: string | null): Promise<boolean> {
+  return !!addr && (await ethers.provider.getCode(addr)) !== "0x"
+}
+
+async function slotAddress(state: RunState, slot: string | number) {
+  const raw = await ethers.provider.getStorage(state.bridge, slot)
+  return eth.getAddress(`0x${raw.slice(26)}`)
+}
+
+async function routerView(state: RunState, name: string): Promise<eth.Result> {
+  const abi = (await artifacts.readArtifact(ROUTER_ARTIFACT)).abi
+  const iface = new eth.Interface(abi)
+  const data = iface.encodeFunctionData(name, [])
+  const res = await ethers.provider.call({ to: state.bridge, data })
+  return iface.decodeFunctionResult(name, res)
+}
+
+async function capsApplied(state: RunState): Promise<boolean> {
+  try {
+    const r = await routerView(state, "reservationCaps")
+    return (
+      r[0] === V.perWalletCap &&
+      r[1] === V.singleAmountCap &&
+      Number(r[2]) === V.maxActive &&
+      Number(r[3]) === V.maxThirdPartyReanchorHolds
+    )
+  } catch {
+    return false
+  }
+}
+
+async function paramsApplied(state: RunState): Promise<boolean> {
+  try {
+    const r = await routerView(state, "reservationParameters")
+    return (
+      r[0].toLowerCase() === state.vault.toLowerCase() &&
+      r[1] === V.minAmount &&
+      r[2] === V.txMaxFee &&
+      Number(r[3]) === V.termSeconds &&
+      Number(r[4]) === V.dissolutionDelay &&
+      r[5] === V.maxTotalAmount &&
+      Number(r[7]) === V.maxReservationsPerWallet &&
+      Number(r[8]) === V.actionTimeout &&
+      Number(r[9]) === V.renewalWindowSeconds
+    )
+  } catch {
+    return false
+  }
+}
+
+async function routerWired(state: RunState): Promise<boolean> {
+  try {
+    const bridge = await ethers.getContractAt(BRIDGE_ARTIFACT, state.bridge)
+    const addr = await bridge.getReservationRouter()
+    return addr.toLowerCase() === state.router.toLowerCase()
+  } catch {
+    return false
+  }
+}
+
+// Step 0 of the runbook: read and check live state. `allowedImpls` lists the
+// implementations the proxy may point to (old one, or the new one when
+// resuming/activating).
+async function readState(
+  state: RunState,
+  allowedImpls: (string | null | undefined)[]
+): Promise<boolean> {
+  console.log("\n=== Step 0: read Sepolia state ===")
+  try {
+    state.bridge = readSepoliaDeploymentAddress("Bridge.json")
+    state.oldGov = readSepoliaDeploymentAddress("BridgeGovernance.json")
+    state.bank = readSepoliaDeploymentAddress("Bank.json")
+    state.tbtcVault = readSepoliaDeploymentAddress("TBTCVault.json")
+    state.proxyAdmin = await slotAddress(state, EIP1967_ADMIN_SLOT)
+    if (state.proxyAdmin.toLowerCase() !== KNOWN_PROXY_ADMIN.toLowerCase()) {
+      throw new Error(
+        `ProxyAdmin ${state.proxyAdmin} != runbook ${KNOWN_PROXY_ADMIN}`
+      )
+    }
+    const impl = await slotAddress(state, EIP1967_IMPL_SLOT)
+    if (
+      !allowedImpls.some((a) => a && a.toLowerCase() === impl.toLowerCase())
+    ) {
+      throw new Error(
+        `Bridge implementation ${impl} is not one of ${allowedImpls.join(", ")}`
+      )
+    }
+    state.oldImpl = KNOWN_OLD_IMPL
+    const owner = async (addr: string) =>
+      (await (
+        await ethers.getContractAt(
+          ["function owner() view returns (address)"],
+          addr
+        )
+      ).owner()) as string
+    const adminOwner = await owner(state.proxyAdmin)
+    const govOwner = await owner(state.oldGov)
+    for (const [what, o] of [
+      ["ProxyAdmin", adminOwner],
+      ["BridgeGovernance", govOwner],
+    ]) {
+      if (o.toLowerCase() !== KNOWN_DEPLOYER.toLowerCase()) {
+        throw new Error(`${what} owner ${o} != deployer EOA ${KNOWN_DEPLOYER}`)
+      }
+    }
+    const oldGov = await ethers.getContractAt(
+      ["function governanceDelays(uint256) view returns (uint256)"],
+      state.oldGov
+    )
+    const delay = await oldGov.governanceDelays(0)
+    if (delay !== BigInt(GOVERNANCE_DELAY_SECONDS)) {
+      throw new Error(
+        `Live governance delay ${delay}s != runbook ${GOVERNANCE_DELAY_SECONDS}s`
+      )
+    }
+    state.snapshotBefore = await snapshotBridge(state)
+    done(state, {
+      name: "00-read-sepolia-state",
+      status: "PASS",
+      values: {
+        bridge: state.bridge,
+        oldGov: state.oldGov,
+        implementation: impl,
+        proxyAdmin: state.proxyAdmin,
+        governanceDelay: delay.toString(),
+        liveWalletsCount: state.snapshotBefore["liveWalletsCount"],
+        depositParameters: state.snapshotBefore["depositParameters"],
+      },
+    })
+    return true
+  } catch (e) {
+    done(state, {
+      name: "00-read-sepolia-state",
+      status: "FAIL",
+      error: String(e),
+    })
+    return false
+  }
+}
+
+async function getSigner(state: RunState): Promise<Signer | null> {
+  if (!state.live) {
+    await network.provider.send("hardhat_impersonateAccount", [state.deployer])
+    await network.provider.send("hardhat_setBalance", [
+      state.deployer,
+      "0x8AC7230489E80000",
+    ])
+    done(state, {
+      name: "01-impersonate-deployer",
+      status: "PASS",
+      values: { deployer: state.deployer },
+    })
+    return ethers.getSigner(state.deployer)
+  }
+  // Rehearsal-only: on the local `rehearsal` node the deployer EOA has no
+  // key here, so the one-off RPC setup unlocks it on the node and it signs
+  // through the node. Never applies to any other network.
+  if (
+    network.name === "rehearsal" &&
+    process.env.REHEARSAL_UNLOCKED_DEPLOYER === "1"
+  ) {
+    done(state, {
+      name: "01-live-signer-check",
+      status: "PASS",
+      values: {
+        signer: KNOWN_DEPLOYER,
+        note: "rehearsal node: deployer unlocked via one-off RPC setup",
+      },
+    })
+    return ethers.provider.getSigner(KNOWN_DEPLOYER)
+  }
+  const signer = (await ethers.getSigners())[0]
+  if (
+    !signer ||
+    signer.address.toLowerCase() !== KNOWN_DEPLOYER.toLowerCase()
+  ) {
+    done(state, {
+      name: "01-live-signer-check",
+      status: "FAIL",
+      error:
+        `signer[0] is ${signer ? signer.address : "missing"}, expected the deployer EOA ` +
+        `${KNOWN_DEPLOYER} (set ACCOUNTS_PRIVATE_KEYS to its key); no transaction was sent`,
+    })
+    return null
+  }
+  done(state, {
+    name: "01-live-signer-check",
+    status: "PASS",
+    values: { signer: signer.address },
+  })
+  return signer
+}
+
+// Runbook steps 1-6 and 10. Every step is checked against the chain first
+// and skipped when the chain already shows it done, so a rerun after a
+// failure resumes where it stopped.
+async function prepare(
+  state: RunState,
+  signer: Signer,
+  prev: Record<string, string | null>
+): Promise<boolean> {
+  console.log("\n=== Prepare: runbook steps 1-6 and 10 ===")
+  const gov = KNOWN_DEPLOYER
+  try {
+    const have = {
+      impl: await hasCode(prev.newImpl),
+      router: await hasCode(prev.router),
+      vault: await hasCode(prev.vault),
+      gov: await hasCode(prev.newGov),
+    }
+    if (have.impl && have.router && have.vault && have.gov) {
+      skip(
+        state,
+        "02a-deploy-shared-libraries",
+        "all consumers already deployed (verified on-chain)"
+      )
+    } else {
+      const libs: Record<string, string> = {}
+      for (const { name, artifact } of LIBS) {
+        libs[name] = (await deployLinked(artifact, signer, {})).contract.target
+      }
+      state.libs = libs
+      done(state, {
+        name: "02a-deploy-shared-libraries",
+        status: "PASS",
+        values: libs,
+      })
+    }
+    const libs = state.libs ?? {}
+    const deploy = async (
+      key: "newImpl" | "router" | "vault" | "newGov",
+      exists: boolean,
+      name: string,
+      artifact: string,
+      args: unknown[]
+    ) => {
+      if (exists) {
+        state[key] = prev[key] as string
+        skip(
+          state,
+          name,
+          `already deployed at ${prev[key]} (code verified on-chain)`
+        )
+        return
+      }
+      const d = await deployLinked(artifact, signer, libs, args)
+      state[key] = d.contract.target
+      done(state, {
+        name,
+        status: "PASS",
+        txHash: txHashOf(d.receipt),
+        gasUsed: Number(d.receipt.gasUsed),
+        values: { address: d.contract.target },
+      })
+    }
+    await deploy(
+      "newImpl",
+      have.impl,
+      "02b-deploy-bridge-implementation",
+      BRIDGE_ARTIFACT,
+      []
+    )
+    await deploy(
+      "router",
+      have.router,
+      "02c-deploy-reservation-router",
+      ROUTER_ARTIFACT,
+      []
+    )
+    await deploy(
+      "vault",
+      have.vault,
+      "02d-deploy-reservation-vault",
+      VAULT_ARTIFACT,
+      [state.bank, state.tbtcVault, state.bridge]
+    )
+    const vault = (
+      await ethers.getContractAt(VAULT_ARTIFACT, state.vault)
+    ).connect(signer) as Contract
+    if (have.vault) {
+      skip(
+        state,
+        "02e-transfer-reservation-vault-ownership-to-governance",
+        "vault already deployed; owner verified on-chain"
+      )
+    } else {
+      await sendStep(
+        state,
+        "02e-transfer-reservation-vault-ownership-to-governance",
+        () => vault.transferOwnership(gov),
+        {
+          note: "governance EOA == deployer EOA on Sepolia (index 0)",
+        }
+      )
+    }
+    if ((await vault.owner()).toLowerCase() !== gov.toLowerCase()) {
+      throw new Error("vault owner is not the governance EOA")
+    }
+    await deploy(
+      "newGov",
+      have.gov,
+      "02f-deploy-new-bridge-governance",
+      GOV_ARTIFACT,
+      [state.bridge, BigInt(GOVERNANCE_DELAY_SECONDS)]
+    )
+
+    // 03/04: proxy upgrade + state preservation
+    if (
+      (await slotAddress(state, EIP1967_IMPL_SLOT)).toLowerCase() ===
+      state.newImpl.toLowerCase()
+    ) {
+      skip(
+        state,
+        "03-proxy-upgrade",
+        "implementation slot already points at the new implementation"
+      )
+      skip(state, "04-state-preservation", "checked in the run that upgraded")
+    } else {
+      const proxyAdmin = await ethers.getContractAt(
+        ["function upgrade(address, address)"],
+        state.proxyAdmin
+      )
+      await sendStep(
+        state,
+        "03-proxy-upgrade",
+        () => proxyAdmin.connect(signer).upgrade(state.bridge, state.newImpl),
+        { newImpl: state.newImpl }
+      )
+      const before = state.snapshotBefore!
+      const after = await snapshotBridge(state)
+      for (const k of Object.keys(before)) {
+        if (before[k] !== after[k])
+          throw new Error(
+            `${k} changed on upgrade: ${before[k]} -> ${after[k]}`
+          )
+      }
+      done(state, {
+        name: "04-state-preservation",
+        status: "PASS",
+        values: { unchanged: Object.keys(before) },
+      })
+    }
+
+    // 05/06: governance swap old -> new
+    if (
+      (await slotAddress(state, SLOTS.governance)).toLowerCase() ===
+      state.newGov.toLowerCase()
+    ) {
+      skip(
+        state,
+        "05-governance-transfer-begin",
+        "Bridge governance already points at the new governance"
+      )
+      skip(
+        state,
+        "06-governance-transfer-finalize",
+        "Bridge governance already points at the new governance"
+      )
+    } else {
+      const oldGov = (
+        await ethers.getContractAt(
+          [
+            "function beginBridgeGovernanceTransfer(address)",
+            "function finalizeBridgeGovernanceTransfer()",
+          ],
+          state.oldGov
+        )
+      ).connect(signer) as Contract
+      const r = await sendStep(
+        state,
+        "05-governance-transfer-begin",
+        () => oldGov.beginBridgeGovernanceTransfer(state.newGov),
+        { newGov: state.newGov }
+      )
+      await waitDelay(state, r.blockNumber, GOVERNANCE_DELAY_SECONDS)
+      await sendStep(state, "06-governance-transfer-finalize", () =>
+        oldGov.finalizeBridgeGovernanceTransfer()
+      )
+      if (
+        (await slotAddress(state, SLOTS.governance)).toLowerCase() !==
+        state.newGov.toLowerCase()
+      ) {
+        throw new Error(
+          "Bridge governance slot != new governance after finalize"
+        )
+      }
+    }
+
+    const newGov = (
+      await ethers.getContractAt(GOV_ARTIFACT, state.newGov)
+    ).connect(signer) as Contract
+    if (await routerWired(state)) {
+      skip(
+        state,
+        "07-set-reservation-router",
+        "router already wired (verified on-chain)"
+      )
+    } else {
+      await sendStep(
+        state,
+        "07-set-reservation-router",
+        () => newGov.setReservationRouter(state.router),
+        { router: state.router }
+      )
+    }
+
+    const [dust, , , revealAhead] = String(
+      state.snapshotBefore?.["depositParameters"]
+    ).split(",")
+    assertReservedDepositsFeasible({
+      depositDustThreshold: BigInt(dust),
+      depositRevealAheadPeriod: Number(revealAhead),
+      termSeconds: V.termSeconds,
+      singleAmountCap: V.singleAmountCap,
+      perWalletCap: V.perWalletCap,
+      maxTotalAmount: V.maxTotalAmount,
+    })
+    done(state, {
+      name: "08-assert-reserved-deposits-feasible",
+      status: "PASS",
+      values: { dust, revealAhead, term: V.termSeconds },
+    })
+
+    if ((await capsApplied(state)) && (await paramsApplied(state))) {
+      for (const n of [
+        "09-begin-reservation-caps",
+        "10-begin-reservation-parameters",
+        "11-finalize-reservation-caps",
+        "12-finalize-reservation-parameters",
+      ]) {
+        skip(
+          state,
+          n,
+          "caps and parameters already finalized (verified on-chain)"
+        )
+      }
+    } else {
+      await sendStep(state, "09-begin-reservation-caps", () =>
+        newGov.beginReservationCapsUpdate(
+          V.perWalletCap,
+          V.singleAmountCap,
+          V.maxActive,
+          V.maxThirdPartyReanchorHolds
+        )
+      )
+      const r = await sendStep(state, "10-begin-reservation-parameters", () =>
+        newGov.beginReservationParametersUpdate(
+          state.vault,
+          V.minAmount,
+          V.txMaxFee,
+          V.termSeconds,
+          V.dissolutionDelay,
+          V.maxTotalAmount,
+          V.maxReservationsPerWallet,
+          V.actionTimeout,
+          V.renewalWindowSeconds
+        )
+      )
+      await waitDelay(state, r.blockNumber, GOVERNANCE_DELAY_SECONDS)
+      await sendStep(state, "11-finalize-reservation-caps", () =>
+        newGov.finalizeReservationCapsUpdate()
+      )
+      await sendStep(state, "12-finalize-reservation-parameters", () =>
+        newGov.finalizeReservationParametersUpdate()
+      )
+    }
+
+    if ((await vault.feeReserveTarget()) === BigInt(V.feeReserveTarget)) {
+      skip(
+        state,
+        "13-update-fee-reserve-target",
+        "fee reserve target already at the decided value 0"
+      )
+    } else {
+      await sendStep(
+        state,
+        "13-update-fee-reserve-target",
+        () => vault.updateFeeReserveTarget(BigInt(V.feeReserveTarget)),
+        { feeReserveTarget: V.feeReserveTarget }
+      )
+    }
+    return true
+  } catch (e) {
+    done(state, { name: "prepare", status: "FAIL", error: String(e) })
+    return false
+  }
+}
+
+function printAddresses(state: RunState): void {
+  console.log("\n--- Prepare complete. Addresses keep-core needs ---")
+  console.log(`  Bridge proxy:        ${state.bridge}`)
+  console.log(`  Bridge implementation: ${state.newImpl}`)
+  console.log(`  BridgeGovernance:    ${state.newGov}`)
+  console.log(`  ReservationRouter:   ${state.router}`)
+  console.log(`  ReservationVault:    ${state.vault}`)
+  console.log(
+    "Next: runbook steps 7-9 (npm publish, keep-core build with block B, operator rollout),"
+  )
+  console.log(
+    "then PHASE=activate ACTIVATION_BLOCK=<B> once the chain is at or past B."
+  )
+}
+
+// Runbook steps 11-12. Refuses to run on any precondition mismatch.
+async function activate(state: RunState, signer: Signer): Promise<boolean> {
+  console.log(
+    `\n=== Activate at block >= ${state.activationBlock}: runbook steps 11-12 ===`
+  )
+  try {
+    const bad: string[] = []
+    for (const [k, a] of [
+      ["newImpl", state.newImpl],
+      ["router", state.router],
+      ["vault", state.vault],
+      ["newGov", state.newGov],
+    ]) {
+      if (!(await hasCode(a))) bad.push(`${k} ${a} has no code`)
+    }
+    if (
+      (await slotAddress(state, EIP1967_IMPL_SLOT)).toLowerCase() !==
+      state.newImpl.toLowerCase()
+    )
+      bad.push("implementation slot != new implementation")
+    if (
+      (await slotAddress(state, SLOTS.governance)).toLowerCase() !==
+      state.newGov.toLowerCase()
+    )
+      bad.push("Bridge governance != new governance")
+    if (!(await routerWired(state))) bad.push("router not wired")
+    if (!(await capsApplied(state)))
+      bad.push("reservation caps differ from the runbook")
+    if (!(await paramsApplied(state)))
+      bad.push("reservation parameters differ from the runbook")
+    const vault = (
+      await ethers.getContractAt(VAULT_ARTIFACT, state.vault)
+    ).connect(signer) as Contract
+    if ((await vault.feeReserveTarget()) !== BigInt(V.feeReserveTarget))
+      bad.push("fee reserve target != 0")
+    const [dust, , , revealAhead] = String(
+      state.snapshotBefore?.["depositParameters"]
+    ).split(",")
+    try {
+      assertReservedDepositsFeasible({
+        depositDustThreshold: BigInt(dust),
+        depositRevealAheadPeriod: Number(revealAhead),
+        termSeconds: V.termSeconds,
+        singleAmountCap: V.singleAmountCap,
+        perWalletCap: V.perWalletCap,
+        maxTotalAmount: V.maxTotalAmount,
+      })
+    } catch (e) {
+      bad.push(`feasibility: ${String(e).slice(0, 120)}`)
+    }
+    const current = (await ethers.provider.getBlock("latest")).number
+    if (state.live && current < state.activationBlock) {
+      bad.push(
+        `current block ${current} is below activation block ${state.activationBlock}`
+      )
+    }
+    if (bad.length > 0) {
+      done(state, {
+        name: "15a-activation-preconditions",
+        status: "FAIL",
+        error: `refusing to activate: ${bad.join("; ")}`,
+      })
+      return false
+    }
+    done(state, {
+      name: "15a-activation-preconditions",
+      status: "PASS",
+      values: { currentBlock: current, activationBlock: state.activationBlock },
+    })
+
+    if (!state.live) {
+      await mineToBlock(state.activationBlock)
+      done(state, {
+        name: "16-mine-to-activation-block",
+        status: "PASS",
+        values: { activationBlock: state.activationBlock },
+      })
+    }
+
+    const newGov = (
+      await ethers.getContractAt(GOV_ARTIFACT, state.newGov)
+    ).connect(signer) as Contract
+    const bridge = await ethers.getContractAt(BRIDGE_ARTIFACT, state.bridge)
+    if (await bridge.isVaultTrusted(state.vault)) {
+      skip(state, "17-set-vault-status", "vault already trusted")
+    } else {
+      const r = await sendStep(
+        state,
+        "17-set-vault-status",
+        () => newGov.setVaultStatus(state.vault, true),
+        { vault: state.vault }
+      )
+      if (r.blockNumber < state.activationBlock)
+        throw new Error("setVaultStatus mined below the activation block")
+    }
+
+    // Step 12: post-activation checks
+    const caps = await routerView(state, "reservationCaps")
+    const params = await routerView(state, "reservationParameters")
+    if (!(await bridge.isVaultTrusted(state.vault)))
+      throw new Error("vault not trusted")
+    if (params[6] !== 0n)
+      throw new Error(`reservationTotalAmount ${params[6]} != 0`)
+    done(state, {
+      name: "18-verify-activation",
+      status: "PASS",
+      values: {
+        reservationCaps: caps.map(String),
+        reservationParameters: params.map(String),
+        router: state.router,
+        vaultTrusted: true,
+        feeReserveTarget: V.feeReserveTarget,
+      },
+    })
+
+    const iface = new eth.Interface(
+      (await artifacts.readArtifact(ROUTER_ARTIFACT)).abi
+    )
+    const data = iface.encodeFunctionData("requestReservationReanchor", [
+      1234567890123456789n,
+      state.snapshotBefore?.["knownPk"] ?? "0x" + "0".repeat(40),
+      [],
+      0,
+    ])
+    const from = state.live
+      ? KNOWN_DEPLOYER
+      : (await ethers.getSigners())[5].address
+    let reason = ""
+    try {
+      await ethers.provider.send("eth_call", [
+        { to: state.bridge, data, from },
+        "latest",
+      ])
+    } catch (e) {
+      reason = String(e)
+    }
+    if (!reason.includes("Reservation is not active")) {
+      throw new Error(
+        `expected revert "Reservation is not active", got: ${reason.slice(0, 200) || "no revert"}`
+      )
+    }
+    done(state, {
+      name: "19-negative-third-party-reanchor",
+      status: "PASS",
+      values: { revertReason: "Reservation is not active" },
+    })
+    return true
+  } catch (e) {
+    done(state, { name: "activate", status: "FAIL", error: String(e) })
+    return false
+  }
+}
+
+async function main(): Promise<void> {
+  const live = network.name !== "hardhat"
+  const phase = process.env.PHASE ?? ""
+  if (!["", "prepare", "activate"].includes(phase)) {
+    throw new Error(`PHASE must be prepare or activate, got "${phase}"`)
+  }
+  if (live && phase === "") {
+    throw new Error(
+      `On network "${network.name}" set PHASE=prepare, or PHASE=activate ACTIVATION_BLOCK=<B>`
+    )
+  }
+  const startBlock = (await ethers.provider.getBlock("latest")).number
+  if (!live && startBlock !== FORKING_BLOCK) {
+    throw new Error(
+      `Fork block is ${startBlock}, expected pinned ${FORKING_BLOCK} — re-run with FORKING_BLOCK=${FORKING_BLOCK}`
+    )
+  }
+  let activationBlock = live ? 0 : FORKING_BLOCK + ACTIVATION_BLOCK_OFFSET
+  if (phase === "activate") {
+    activationBlock = Number(process.env.ACTIVATION_BLOCK)
+    if (!Number.isInteger(activationBlock) || activationBlock <= 0) {
+      throw new Error("PHASE=activate needs ACTIVATION_BLOCK=<block number>")
+    }
+  }
+  const state: RunState = {
+    steps: [],
+    live,
+    phase,
+    networkName: network.name,
+    startBlock,
+    bridge: "",
+    oldGov: "",
+    proxyAdmin: "",
+    deployer: KNOWN_DEPLOYER,
+    oldImpl: "",
+    newImpl: "",
+    router: "",
+    vault: "",
+    newGov: "",
+    bank: "",
+    tbtcVault: "",
+    activationBlock,
+  }
+
+  const prevAddr = loadPrepareArtifact(state)?.addresses
+  if (phase === "activate") {
+    if (
+      !prevAddr?.newGov ||
+      !prevAddr?.router ||
+      !prevAddr?.vault ||
+      !prevAddr?.newImpl
+    ) {
+      record(state, {
+        name: "00-load-prepare-artifact",
+        status: "FAIL",
+        error:
+          "no prepare artifact with deployed addresses found; run PHASE=prepare first",
+      })
+      return finish(state)
+    }
+    Object.assign(state, {
+      newImpl: prevAddr.newImpl,
+      newGov: prevAddr.newGov,
+      router: prevAddr.router,
+      vault: prevAddr.vault,
+    })
+    record(state, {
+      name: "00-load-prepare-artifact",
+      status: "PASS",
+      values: prevAddr,
+    })
+  }
+
+  const allowed =
+    phase === "activate" ? [state.newImpl] : [KNOWN_OLD_IMPL, prevAddr?.newImpl]
+  if (!(await readState(state, allowed))) return finish(state)
+  const signer = await getSigner(state)
+  if (signer === null) return finish(state)
+
+  if (phase !== "activate") {
+    if (!(await prepare(state, signer, prevAddr ?? {}))) return finish(state)
+    if (phase === "prepare") {
+      printAddresses(state)
+      return finish(state)
+    }
+    console.log("\n=== Off-chain client steps (logged, not run) ===")
+    skip(state, "14-npm-publish-sepolia-package", "off-chain step")
+    skip(
+      state,
+      "15-keep-core-build-and-release-with-activation-block",
+      "off-chain step"
+    )
+  }
+  await activate(state, signer)
+  finish(state)
 }
 
 // Under `hardhat run` on a node-22 native-ESM TS loader the module's
 // default export is never auto-invoked, so drive `main()` at top level.
 void main().catch((error: unknown) => {
-  console.error("Reservations Sepolia rehearsal FAILED:", error)
+  console.error("Reservations Sepolia script FAILED:", error)
   process.exitCode = 1
 })
