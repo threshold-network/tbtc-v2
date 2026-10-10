@@ -272,7 +272,6 @@ describe("Bridge - Reservation settlement", () => {
     reverseHex(
       BigInt(value)
         .toString(16)
-        .slice(2)
         .padStart(byteLength * 2, "0")
     )
 
