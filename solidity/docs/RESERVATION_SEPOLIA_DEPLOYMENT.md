@@ -191,6 +191,26 @@ read-only.
    `0x61700ebaCCfd9FB0100C35DDd38e4cC3e9057c5A`).
 7. **keep-core artifact availability** is resolved in steps 7–9 — do not
    skip the build order.
+8. **Rehearsal dry run (this branch, run first).** The full on-chain
+   sequence has been rehearsed on a fork of Sepolia — pinned to the
+   latest block minus 20, with `FORKING_URL` pointed at `SEPOLIA_RPC_URL`
+   and the deployer EOA impersonated. Run it and confirm exit code 0
+   before touching live state:
+
+   ```sh
+   cd solidity
+   FORKING_URL="$SEPOLIA_RPC_URL" FORKING_BLOCK=<latest Sepolia block - 20> \
+     npx hardhat run --network hardhat scripts/reservations-sepolia-rehearsal.ts
+   ```
+
+   Expected: every on-chain step PASSes (the off-chain npm publish and
+   keep-core build steps are recorded as SKIP "off-chain step"), the
+   process exits 0, and the per-step gas is written to
+   `dryrun-artifacts/reservations-sepolia-rehearsal-<block>.json`.
+   Re-pin the fork block and re-run before the ceremony: live
+   `depositParameters` may have moved since the last artifact was
+   recorded, and the rehearsal asserts reserved-deposit feasibility
+   against the forked values before anything is staged.
 
 ## Step 0 — compile and sanity-check the new contracts
 
@@ -300,7 +320,7 @@ async function main() {
   const Reservation = await deployments.deploy("Reservation", { ...opts, skipIfAlreadyDeployed: false })
   const router = await deployments.deploy("ReservationRouter", {
     ...opts,
-    libraries: { Reservation: Reservation.address, ReservationProofs: Reservation.address },
+    libraries: { Reservation: Reservation.address, ReservationProofs: ReservationProofs.address },
     skipIfAlreadyDeployed: false,
   })
 
