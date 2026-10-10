@@ -306,9 +306,12 @@ describe("Reservation - governance ceremony argument forwarding", () => {
     // Chosen so the product stays above the `reservationMaxTotalAmount`
     // already set by the deploy-time governance ceremony
     // (`97_set_reservation_parameters.ts`), so finalizing does not trip
-    // `Reservation.validateReservationCapsInvariant`.
-    const newMaxReservationsAmountPerWallet = 2_000_000
-    const newReservationMaxSingleAmount = 100_000
+    // `Reservation.validateReservationCapsInvariant`, and every cap is at
+    // least the Bridge's 1,000,000-sat dust threshold, which the Bridge
+    // requires while a vault is configured. All values differ, so a field
+    // written to the wrong slot fails the assertions.
+    const newMaxReservationsAmountPerWallet = 2_500_000
+    const newReservationMaxSingleAmount = 1_500_000
     const newMaxActiveReservations = 200
     const newMaxThirdPartyReanchorHoldsPerWallet = 3
 
