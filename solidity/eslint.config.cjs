@@ -23,6 +23,16 @@ const qualifiedFunctionConstructor = {
   message: "The Function constructor is eval.",
 }
 
+// A failing assertion inside a try block is caught by the matching catch.
+// When the catch then checks the error message, the assertion's own message
+// usually matches, so a promise that never rejects still passes the test.
+const expectFailInTry = {
+  selector:
+    'TryStatement > BlockStatement.block CallExpression[callee.type="MemberExpression"][callee.object.name="expect"][callee.property.name="fail"]',
+  message:
+    "expect.fail inside a try block is caught by its own catch. Record the error in the catch and assert after the try.",
+}
+
 module.exports = [
   {
     ignores: [
@@ -93,7 +103,14 @@ module.exports = [
   },
   {
     files: ["**/*.test.ts", "**/*.spec.ts"],
-    rules: { ...testRules, "no-only-tests/no-only-tests": "error" },
+    rules: {
+      ...testRules,
+      "no-only-tests/no-only-tests": "error",
+      "no-restricted-syntax": [
+        ...coreRules["no-restricted-syntax"],
+        expectFailInTry,
+      ],
+    },
   },
   {
     files: ["deploy-patches/**/*.js"],

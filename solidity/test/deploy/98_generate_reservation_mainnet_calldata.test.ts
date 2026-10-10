@@ -529,16 +529,16 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
 
     it("should not reference the nonexistent 'Occupancy cap exceeds live wallet slot capacity' revert string", async () => {
       const { mockHre } = createMockHre({ liveWalletsCount: 2 })
+      await expectRejection(func(mockHre), /Wallet reservations cap exceeded/)
+      let message = ""
       try {
-        await func(mockHre)
-        expect.fail("expected func to throw")
+        await func(createMockHre({ liveWalletsCount: 2 }).mockHre)
       } catch (error) {
-        const { message } = error as Error
-        expect(message).to.not.include(
-          "Occupancy cap exceeds live wallet slot capacity"
-        )
-        expect(message).to.include("Wallet reservations cap exceeded")
+        message = (error as Error).message
       }
+      expect(message).to.not.include(
+        "Occupancy cap exceeds live wallet slot capacity"
+      )
     })
   })
 
