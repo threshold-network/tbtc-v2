@@ -52,12 +52,12 @@ function createLiveNetworkHre(depositParameters: {
 
 describe("Deploy Script 97: Reservation Parameters", () => {
   describe("on a live network", () => {
-    it("should refuse its local test values when the Bridge dust threshold is above the single-amount cap", async () => {
-      // Sepolia's live deposit parameters: 1,000,000-sat dust threshold,
-      // 15-day reveal-ahead period.
+    it("should refuse its local test values when the Bridge reveal-ahead period is longer than its term plus the refund margin", async () => {
+      // Mainnet-like deposit parameters: 1,000,000-sat dust threshold,
+      // 150-day reveal-ahead period, against script 97's 90-day term.
       const { hre, executed } = createLiveNetworkHre({
         dustThreshold: BigInt(1000000),
-        revealAheadPeriod: 1296000,
+        revealAheadPeriod: 12960000,
       })
 
       let rejection: unknown
@@ -68,14 +68,16 @@ describe("Deploy Script 97: Reservation Parameters", () => {
       }
 
       expect(rejection, "script 97 should reject").to.be.instanceOf(Error)
-      expect((rejection as Error).message).to.match(/depositDustThreshold/)
+      expect((rejection as Error).message).to.match(/depositRevealAheadPeriod/)
       expect(executed, "no governance call may be sent").to.deep.equal([])
     })
 
     it("should stage the begin calls when its values fit the Bridge deposit parameters", async () => {
+      // Sepolia's live deposit parameters: 1,000,000-sat dust threshold,
+      // 15-day reveal-ahead period.
       const { hre, executed } = createLiveNetworkHre({
-        dustThreshold: BigInt(100000),
-        revealAheadPeriod: 0,
+        dustThreshold: BigInt(1000000),
+        revealAheadPeriod: 1296000,
       })
 
       await func(hre)

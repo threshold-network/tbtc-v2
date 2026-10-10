@@ -4432,7 +4432,7 @@ describe("Bridge - Governance", () => {
     const newReservationTxMaxFee = 2000
     const newReservationTermSeconds = 8640000 // 100 days
     const newReservationDissolutionDelay = 172800 // 2 days
-    const newReservationMaxTotalAmount = 400000 // must fit under the deploy-fixture slot capacity: maxActiveReservations(5) * reservationMaxSingleAmount(100,000) = 500,000 (deploy/97_set_reservation_parameters.ts)
+    const newReservationMaxTotalAmount = 4000000 // at least the Bridge's 1,000,000-sat dust threshold (required while a vault is configured), and under the deploy-fixture slot capacity: maxActiveReservations(100) * reservationMaxSingleAmount(1,000,000) (deploy/97_set_reservation_parameters.ts)
     const newMaxReservationsPerWallet = 10
     const newReservationActionTimeout = 172800 // 2 days
     const newReservationRenewalWindowSeconds = 172800 // 2 days
@@ -4560,7 +4560,7 @@ describe("Bridge - Governance", () => {
     const newReservationTxMaxFee = 2000
     const newReservationTermSeconds = 8640000 // 100 days
     const newReservationDissolutionDelay = 172800 // 2 days
-    const newReservationMaxTotalAmount = 400000 // must fit under the deploy-fixture slot capacity: maxActiveReservations(5) * reservationMaxSingleAmount(100,000) = 500,000 (deploy/97_set_reservation_parameters.ts)
+    const newReservationMaxTotalAmount = 4000000 // at least the Bridge's 1,000,000-sat dust threshold (required while a vault is configured), and under the deploy-fixture slot capacity: maxActiveReservations(100) * reservationMaxSingleAmount(1,000,000) (deploy/97_set_reservation_parameters.ts)
     const newMaxReservationsPerWallet = 10
     const newReservationActionTimeout = 172800 // 2 days
     const newReservationRenewalWindowSeconds = 172800 // 2 days
@@ -4704,7 +4704,7 @@ describe("Bridge - Governance", () => {
 
   describe("beginReservationCapsUpdate", () => {
     const newMaxReservationsAmountPerWallet = 2000000
-    const newReservationMaxSingleAmount = 200000
+    const newReservationMaxSingleAmount = 1200000 // at least the 1,000,000-sat dust threshold
     const newMaxActiveReservations = 150
     const newMaxThirdPartyReanchorHoldsPerWallet = 1
 
@@ -4784,7 +4784,7 @@ describe("Bridge - Governance", () => {
 
   describe("finalizeReservationCapsUpdate", () => {
     const newMaxReservationsAmountPerWallet = 2000000
-    const newReservationMaxSingleAmount = 200000
+    const newReservationMaxSingleAmount = 1200000 // at least the 1,000,000-sat dust threshold
     const newMaxActiveReservations = 150
     const newMaxThirdPartyReanchorHoldsPerWallet = 1
 

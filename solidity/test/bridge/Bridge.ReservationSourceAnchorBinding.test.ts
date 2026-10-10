@@ -243,7 +243,6 @@ describe("Bridge - Reservation source-anchor binding", () => {
     reverseHex(
       BigInt(value)
         .toString(16)
-        .slice(2)
         .padStart(byteLength * 2, "0")
     )
 
@@ -417,10 +416,19 @@ describe("Bridge - Reservation source-anchor binding", () => {
       )
       await liveWallet(secondWalletPubKeyHash)
       await liveWallet(thirdWalletPubKeyHash)
+      const custodianWallet = await bridge.wallets(walletPubKeyHash)
       await bridge.setWallet(walletPubKeyHash, {
-        ...(await bridge.wallets(walletPubKeyHash)),
-        state: walletState.MovingFunds,
+        ecdsaWalletID: custodianWallet.ecdsaWalletID,
+        mainUtxoHash: custodianWallet.mainUtxoHash,
+        pendingRedemptionsValue: custodianWallet.pendingRedemptionsValue,
+        createdAt: custodianWallet.createdAt,
         movingFundsRequestedAt: await lastBlockTime(),
+        closingStartedAt: custodianWallet.closingStartedAt,
+        pendingMovedFundsSweepRequestsCount:
+          custodianWallet.pendingMovedFundsSweepRequestsCount,
+        state: walletState.MovingFunds,
+        movingFundsTargetWalletsCommitmentHash:
+          custodianWallet.movingFundsTargetWalletsCommitmentHash,
       })
 
       // Generation 2 authorizes A -> B and times out while its already-

@@ -1418,6 +1418,22 @@ library Reservation {
             emit ReservationVaultUpdated(reservationVault);
         }
 
+        // While reservations are configured, a parameter write that breaks
+        // the reserved-deposit feasibility rule against the current deposit
+        // parameters would leave no deposit that can ever be revealed as
+        // reserved, so gate on the vault: enabling it (zero-to-nonzero) is
+        // checked too, and disabling it (nonzero-to-zero) is exempt.
+        if (reservationVault != address(0)) {
+            BridgeState.assertReservedDepositsFeasible(
+                self.depositDustThreshold,
+                self.depositRevealAheadPeriod,
+                reservationTermSeconds,
+                self.reservationMaxSingleAmount,
+                self.maxReservationsAmountPerWallet,
+                reservationMaxTotalAmount
+            );
+        }
+
         // Decision 1 (option 2): the total amount cap may not exceed
         // worst-case slot capacity. `maxActiveReservations` bounds the
         // number of open positions and `reservationMaxSingleAmount` bounds
@@ -1497,6 +1513,20 @@ library Reservation {
             reservationMaxSingleAmount,
             maxActiveReservations
         );
+        // As in `updateReservationParameters`, while reservations are
+        // configured no amount cap may drop below the deposit dust
+        // threshold against the current deposit parameters: the caps are
+        // the only values this setter owns.
+        if (self.reservationVault != address(0)) {
+            BridgeState.assertReservedDepositsFeasible(
+                self.depositDustThreshold,
+                self.depositRevealAheadPeriod,
+                self.reservationTermSeconds,
+                reservationMaxSingleAmount,
+                maxReservationsAmountPerWallet,
+                self.reservationMaxTotalAmount
+            );
+        }
         self.maxReservationsAmountPerWallet = maxReservationsAmountPerWallet;
         self.reservationMaxSingleAmount = reservationMaxSingleAmount;
         self.maxActiveReservations = maxActiveReservations;

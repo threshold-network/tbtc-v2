@@ -2,9 +2,12 @@ import type { HardhatRuntimeEnvironment } from "hardhat/types"
 import type { DeployFunction } from "hardhat-deploy/types"
 import { assertReservedDepositsFeasible } from "./98_generate_reservation_mainnet_calldata"
 
-// Local/test values; see the divergence notes at each call below.
+// Local/test values; see the divergence notes at each call below. The
+// single-amount cap equals the Bridge's initial 1,000,000-sat dust threshold
+// (Bridge.initialize): the Bridge rejects any non-zero amount cap below the
+// dust threshold while a vault is configured, because no reveal could fit.
 const PER_WALLET_CAP = BigInt("1000000")
-const SINGLE_AMOUNT_CAP = BigInt("100000")
+const SINGLE_AMOUNT_CAP = BigInt("1000000")
 const TERM_SECONDS = 7776000 // 90 days = MIN_RESERVATION_TERM
 const MAX_TOTAL_AMOUNT = BigInt("10000000")
 
@@ -94,10 +97,10 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
   }
 
   // These test values were sized for local chains. On a live network the
-  // Bridge's deposit parameters may make them unusable (Sepolia's
-  // 1,000,000-sat dust threshold is above the 100,000-sat single cap), and
-  // activating with them would give a vault that can never hold a
-  // reservation. Refuse instead; use the network's runbook values there.
+  // Bridge's deposit parameters may make them unusable (a reveal-ahead
+  // period longer than the 90-day term plus 24h, or a dust threshold above
+  // the caps), and activating with them would give a vault that can never
+  // hold a reservation. Refuse instead; use the network's runbook values.
   if (!isLocalNetwork) {
     const depositParameters = await read("Bridge", "depositParameters")
     assertReservedDepositsFeasible({
@@ -153,7 +156,7 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
   // `reservationVault` (the first arg) is set here — no separate
   // `setReservationVault` setter exists. Total must fit under the
   // `maxActiveReservations * reservationMaxSingleAmount` product set in
-  // step 1 (100 * 100000 = 10_000_000).
+  // step 1 (100 * 1_000_000 = 100_000_000, above 10_000_000).
   deployments.log("[2/3] beginReservationParametersUpdate")
   await execute(
     "BridgeGovernance",

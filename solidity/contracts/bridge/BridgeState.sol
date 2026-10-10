@@ -25,7 +25,7 @@ import "./Reservation.sol";
 import "./Fraud.sol";
 import "./Wallets.sol";
 import "./MovingFunds.sol";
-
+import "./WalletProposalValidatorConstants.sol";
 import "../bank/Bank.sol";
 
 library BridgeState {
@@ -633,6 +633,24 @@ library BridgeState {
             "Deposit transaction max fee must be greater than zero"
         );
 
+        // Gate on the configured vault: while reservations are disabled
+        // the stored caps are zero and the check would be a no-op anyway.
+        // A reserved reveal carries at least the dust threshold and its
+        // refund locktime stays within the custody term plus the validator
+        // margin, so a period or threshold that breaks that window makes
+        // every reserved deposit impossible.
+        if (self.reservationVault != address(0)) {
+            assertReservedDepositsFeasible(
+                _depositDustThreshold,
+                _depositRevealAheadPeriod,
+                self.reservationTermSeconds,
+                self.reservationMaxSingleAmount,
+                self.maxReservationsAmountPerWallet,
+                self.reservationMaxTotalAmount
+            );
+        }
+
+
         self.depositDustThreshold = _depositDustThreshold;
         self.depositTreasuryFeeDivisor = _depositTreasuryFeeDivisor;
         self.depositTxMaxFee = _depositTxMaxFee;
@@ -643,6 +661,53 @@ library BridgeState {
             _depositTreasuryFeeDivisor,
             _depositTxMaxFee,
             _depositRevealAheadPeriod
+        );
+    }
+
+    /// @notice Asserts that one reserved deposit can still be revealed
+    ///         under the given deposit dust threshold, reveal-ahead period,
+    ///         reservation term and amount caps.
+    /// @dev Pure form of the off-chain `assertReservedDepositsFeasible`
+    ///      deploy check (deploy script 98). A reserved reveal carries an
+    ///      amount of at least the dust threshold and a refund locktime
+    ///      within the custody term plus the deposit refund safety margin,
+    ///      so a non-zero cap below the dust threshold can never be
+    ///      reached and a reveal-ahead period longer than the term plus the
+    ///      margin pushes every reserved refund past the last moment a
+    ///      wallet validator signs. `updateDepositParameters` passes its
+    ///      new values against the stored reservation parameters; the
+    ///      reservation setters pass their new values against the stored
+    ///      deposit parameters.
+    function assertReservedDepositsFeasible(
+        uint64 depositDustThreshold,
+        uint32 depositRevealAheadPeriod,
+        uint32 reservationTermSeconds,
+        uint64 reservationMaxSingleAmount,
+        uint64 maxReservationsAmountPerWallet,
+        uint64 reservationMaxTotalAmount
+    ) internal pure {
+        require(
+            depositRevealAheadPeriod == 0 ||
+                depositRevealAheadPeriod <=
+                reservationTermSeconds +
+                WalletProposalValidatorConstants
+                    .DEPOSIT_REFUND_SAFETY_MARGIN,
+            "Reveal ahead period leaves no reserved deposit possible"
+        );
+        require(
+            reservationMaxSingleAmount == 0 ||
+                reservationMaxSingleAmount >= depositDustThreshold,
+            "Single-reservation cap below dust threshold"
+        );
+        require(
+            maxReservationsAmountPerWallet == 0 ||
+                maxReservationsAmountPerWallet >= depositDustThreshold,
+            "Per-wallet reservation cap below dust threshold"
+        );
+        require(
+            reservationMaxTotalAmount == 0 ||
+                reservationMaxTotalAmount >= depositDustThreshold,
+            "Total reservation cap below dust threshold"
         );
     }
 
