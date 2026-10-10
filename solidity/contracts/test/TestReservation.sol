@@ -604,6 +604,42 @@ contract TestReservation {
         );
     }
 
+    function updateDepositParameters(
+        uint64 depositDustThreshold,
+        uint64 depositTreasuryFeeDivisor,
+        uint64 depositTxMaxFee,
+        uint32 depositRevealAheadPeriod
+    ) external {
+        BridgeState.updateDepositParameters(
+            state,
+            depositDustThreshold,
+            depositTreasuryFeeDivisor,
+            depositTxMaxFee,
+            depositRevealAheadPeriod
+        );
+    }
+
+    function depositParameters()
+        external
+        view
+        returns (
+            uint64 depositDustThreshold,
+            uint32 depositRevealAheadPeriod
+        )
+    {
+        depositDustThreshold = state.depositDustThreshold;
+        depositRevealAheadPeriod = state.depositRevealAheadPeriod;
+    }
+
+    function reservationVaultAndTerm()
+        external
+        view
+        returns (address reservationVault, uint32 reservationTermSeconds)
+    {
+        reservationVault = state.reservationVault;
+        reservationTermSeconds = state.reservationTermSeconds;
+    }
+
     function seedPendingReservedDeposit(
         uint256 depositKey,
         bool isReserved,
