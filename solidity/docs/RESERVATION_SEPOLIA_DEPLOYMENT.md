@@ -143,7 +143,7 @@ read-only.
 
    Nothing on-chain checks the first two. Script 98 and the fork dry-run
    check them (`assertReservedDepositsFeasible`), and script 97 refuses its
-   local test values on live networks. The `cast` calls in step 7 check
+   local test values on live networks. The `cast` calls in step 6 check
    nothing, so read the live values first:
 
    ```sh
@@ -153,7 +153,7 @@ read-only.
    # 2026-10-09: 4
    ```
 
-   The Sepolia values used in step 7 (feasible against those readings):
+   The Sepolia values used in step 6 (feasible against those readings):
    per-wallet cap 2000000, single cap 2000000, max active 4, third-party
    holds 1, min amount 10000, tx max fee 1000, term 7776000 (90 days),
    dissolution delay 86400, max total 8000000, max per wallet 1, action
@@ -184,12 +184,12 @@ read-only.
    cast call $BRIDGE 'governance()(address)' --rpc-url $SEPOLIA_RPC_URL
    ```
 5. **Block height.** Note the current block (`cast block-number`); it is
-   the reference for choosing the activation block in step 6.
+   the reference for choosing the activation block B in step 8.
 6. **No in-flight governance.** Check that the live BridgeGovernance has no
    pending staged changes: `cast call $OLD_GOV 'governanceDelays(uint256)(uint256)' 1 --rpc-url $SEPOLIA_RPC_URL`
    returns 0 (verified 2026-10-09; `$OLD_GOV` =
    `0x61700ebaCCfd9FB0100C35DDd38e4cC3e9057c5A`).
-7. **keep-core artifact availability** is resolved in steps 10–11 — do not
+7. **keep-core artifact availability** is resolved in steps 7–9 — do not
    skip the build order.
 
 ## Step 0 — compile and sanity-check the new contracts
@@ -222,8 +222,8 @@ Script `deploy/95_deploy_reservation_vault.ts` deploys
 `get("TBTCVault")`, `get("Bridge")` — i.e. the existing Sepolia addresses —
 and writes the `deployments/sepolia/ReservationVault.json` record
 (address + tx hash). It does **not** activate anything: the activation is
-the governance ceremony in steps 5–8 (`beginReservationCapsUpdate` →
-`beginReservationParametersUpdate` → `setVaultStatus`, per script 95's
+the governance ceremony in steps 5–6 (`beginReservationCapsUpdate` →
+`beginReservationParametersUpdate` → finalizes, per script 95's
 comment block).
 
 On-chain checks:
@@ -338,7 +338,7 @@ Notes:
 - `skipIfAlreadyDeployed: false` forces fresh code even though the
   hardhat-deploy record names exist (the scripts above deploy under the
   same logical names; the `deployments/` records get the new addresses,
-  which is what step 5 and the npm publish in step 10 need).
+  which is what step 5 and the npm publish in step 7 need).
 - The ProxyAdmin upgrade itself happens next; this script only deploys.
 
 On-chain checks:
@@ -410,7 +410,7 @@ cast send $ADMIN 'upgrade(address,address)' $BRIDGE 0xc9CEec54a8b25D7051B7023226
 ```
 
 Safety precondition for that rollback: `getReservationRouter` still returns
-`0` and no `setVaultStatus` has run (both checked in step 6). Once the
+`0` and no `setVaultStatus` has run (both checked in step 11). Once the
 router is wired (step 5) the downgrade is no longer safe, because the new
 storage layout fields (`reservationRouter` slot 83, `reservationVault` slot
 81, ...) are live.
@@ -486,24 +486,7 @@ cast call $BRIDGE 'getReservationRouter()(address)' --rpc-url $SEPOLIA_RPC_URL  
   router no governance can manage. The router wiring itself (5b) is
   **irreversible** — no "clear router" setter exists.
 
-## Step 6 — client activation ordering gate C-4 (keep-core release BEFORE activation)
-
-From `RESERVATION_CAPS_DEPLOYMENT.md`, "Client Activation Ordering Gate":
-the on-chain `setVaultStatus(vault, true)` MUST execute at or after the
-block written into keep-core's `reservationsActivationBlocks[Sepolia]`.
-Release the client first, verify every Sepolia node is on that binary,
-**then** choose the activation block at or after the rollout completes.
-(If no entry is written for Sepolia in keep-core, `ReservationsActivationBlock`
-falls through to `math.MaxUint64` and coordination never starts — the gate
-is runbook discipline; nothing on-chain enforces it.)
-
-Practical choice for Sepolia: activation block = (current block at the time
-of the ceremony) + a comfortable margin (e.g. +1h of Sepolia blocks), far
-after the 60-second governance windows in step 7. Record the chosen block
-number in the governance log; it is the value written in step 9's keep-core
-change.
-
-## Step 7 — stage and finalize the reservation parameters (governance, 60 s delays)
+## Step 6 — stage and finalize the reservation caps and parameters (governance, 60 s delays; vault NOT trusted yet)
 
 The new BridgeGovernance exposes the begin/finalize pairs. Order is fixed
 (Decision 1, `RESERVATION_CAPS_DEPLOYMENT.md` "Deploy Order"): caps **first**
@@ -512,6 +495,13 @@ The new BridgeGovernance exposes the begin/finalize pairs. Order is fixed
 `maxActiveReservations × reservationMaxSingleAmount` slot capacity). The
 `reservationVault` address is the **first argument** of
 `beginReservationParametersUpdate` — there is no separate vault setter.
+The vault is **not** trusted at this point: `setVaultStatus` only happens in
+step 11, after the client (with the activation block compiled in) is released
+in steps 7–8. Before staging, run the shared feasibility check
+`assertReservedDepositsFeasible` (`deploy/98_generate_reservation_mainnet_calldata.ts`)
+against the live `depositParameters` — it rejects any term that would leave no
+reserved deposit possible (`depositRevealAheadPeriod > term + 86400`, or a
+non-zero cap below the dust threshold); if it fails, stop and re-size.
 
 Script 98 (`GenerateReservationMainnetCalldata`) is the **mainnet** path and
 hard-fails on Sepolia: after the local-network skip it verifies the
@@ -534,23 +524,23 @@ already owned by that EOA).
 Execute, in order, as the deployer/governance EOA (all against `$NEW_GOV`):
 
 ```sh
-# 7.1 begin caps:  (perWalletCap, singleAmount, maxActive, thirdPartyHolds)
+# 6.1 begin caps:  (perWalletCap, singleAmount, maxActive, thirdPartyHolds)
 cast send $NEW_GOV 'beginReservationCapsUpdate(uint64,uint64,uint32,uint32)' 2000000 2000000 4 1 \
   --rpc-url $SEPOLIA_RPC_URL --private-key $SEPOLIA_PRIVATE_KEY
-# 7.2 begin parameters: (vault, min, txMaxFee, term, dissolutionDelay, maxTotal, perWallet, actionTimeout, renewalWindow)
+# 6.2 begin parameters: (vault, min, txMaxFee, term, dissolutionDelay, maxTotal, perWallet, actionTimeout, renewalWindow)
 cast send $NEW_GOV 'beginReservationParametersUpdate(address,uint64,uint64,uint32,uint32,uint64,uint32,uint32,uint32)' \
   $VAULT 10000 1000 7776000 86400 8000000 1 86400 86400 \
   --rpc-url $SEPOLIA_RPC_URL --private-key $SEPOLIA_PRIVATE_KEY
 # wait > 60s (governanceDelays[0] = 60 on the new governance)
-# 7.3 finalize caps  (MUST precede finalize parameters)
+# 6.3 finalize caps  (MUST precede finalize parameters)
 cast send $NEW_GOV 'finalizeReservationCapsUpdate()' \
   --rpc-url $SEPOLIA_RPC_URL --private-key $SEPOLIA_PRIVATE_KEY
-# 7.4 finalize parameters
+# 6.4 finalize parameters
 cast send $NEW_GOV 'finalizeReservationParametersUpdate()' \
   --rpc-url $SEPOLIA_RPC_URL --private-key $SEPOLIA_PRIVATE_KEY
 ```
 
-On-chain checks (post-7.4; router views are reached **through the Bridge
+On-chain checks (post-6.4; router views are reached **through the Bridge
 proxy** — encode against the router ABI and call `$BRIDGE`):
 
 ```sh
@@ -562,16 +552,144 @@ cast call $BRIDGE 'reservationParameters()(address,uint64,uint64,uint32,uint32,u
 
 **Rollback / abort:**
 
-- 7.1/7.2 (began, not finalized): re-stage overwrites; a stale `begin*`
+- 6.1/6.2 (began, not finalized): re-stage overwrites; a stale `begin*`
   simply never gets finalized and is inert.
-- 7.3/7.4 (finalized): caps and parameters are re-settable by another
+- 6.3/6.4 (finalized): caps and parameters are re-settable by another
   begin/finalize pair (another 60 s each). The `reservationVault` address,
   however, is gated by `reservationTotalAmount == 0 && pendingReservedDeposits
   == 0` — before any reservation exists, re-pointing the vault is still a
   governance call and reversible; after the first acceptance it is not
   (irreversibility warning in `RESERVATION_CAPS_DEPLOYMENT.md`).
 
-## Step 8 — fee-reserve target, then activate the vault
+## Step 7 — publish the npm `sepolia` package (consumed by keep-core)
+
+keep-core's `Makefile` resolves Sepolia contracts exclusively from the npm
+registry:
+
+```
+make all environment=sepolia
+  -> get_artifacts:  npm pack @keep-network/tbtc-v2@sepolia  (and
+     @keep-network/random-beacon@sepolia, @keep-network/ecdsa@sepolia,
+     @threshold-network/solidity-contracts@sepolia)
+     -> extracts package/artifacts/ into tmp/contracts/sepolia/<pkg>/
+  -> generate:  go generate ./...  (pkg/chain/ethereum/tbtc/gen/Makefile
+     runs abigen + keep-common generator over ${artifacts_dir}/<Name>.json
+     for Bridge, MaintainerProxy, LightRelay, LightRelayMaintainerProxy,
+     WalletProposalValidator, RedemptionWatchtower, ReservationRouter,
+     ReservationVault, TBTC)
+```
+
+Critical: for **non-`development`** environments the gen Makefile
+**hard-fails** if `ReservationRouter.json` or `ReservationVault.json` is
+missing from the fetched artifacts (the vendored fallback is development
+only). The current published `@keep-network/tbtc-v2@sepolia` tag (checked
+2026-10-09: `1.6.0-sepolia.6`) predates the reservation artifacts, so the
+sepolia tag **must** be re-published from this branch after step 4 has
+written the `deployments/sepolia/` records (`ReservationRouter`,
+`ReservationVault`, `BridgeGovernance`, `Bridge`).
+
+Publish (CI does this in `.github/workflows/contracts.yml` via
+`workflow_dispatch` with `environment: sepolia`; manually, from `solidity/`):
+
+```sh
+# ensure deployments/sepolia records are current and committed (Step 4 commit)
+# npm auth in CI: NODE_AUTH_TOKEN
+npm publish --access=public --tag sepolia --network=sepolia
+```
+
+`--network=sepolia` sets `$npm_config_network`, so `prepublishOnly`
+(`scripts/prepare-artifacts.sh --network sepolia`) copies
+`deployments/sepolia/` into the package's `artifacts/` directory — the
+directory keep-core's `get_npm_package` extracts. `prepack` additionally
+runs `tsc -p tsconfig.export.json && hardhat export-artifacts export/artifacts`.
+
+On-chain/npm checks after publishing:
+
+```sh
+npm view @keep-network/tbtc-v2@sepolia version            # new version
+npm pack $(npm view @keep-network/tbtc-v2@sepolia dist.tarball | grep -o 'https://.*') -p .
+tar tzf <tarball> | grep -E 'ReservationRouter|ReservationVault'   # both present under package/artifacts/
+```
+
+**Rollback / abort:** none — the npm tag is re-publishable; an operator who
+already built keep-core against a bad artifact just rebuilds after the
+re-publish. This step and step 8 are **before** any activation: the block B
+they compile into the client is only written on-chain later, in step 11.
+
+## Step 8 — keep-core: choose the activation block B, build, and release the client
+
+This is the C-4 gate from `RESERVATION_CAPS_DEPLOYMENT.md` ("Client
+Activation Ordering Gate"), made concrete: the activation block is
+**compiled into the client**, so the block must be chosen **before** the
+client is built and released — it cannot be decided after `setVaultStatus`.
+
+In the keep-core working tree (`pr-4282-drill` layout):
+
+1. Regenerate bindings against the freshly published package:
+
+   ```sh
+   make get_artifacts environment=sepolia   # fetch @keep-network/tbtc-v2@sepolia (new)
+   cd pkg/chain/ethereum/tbtc/gen && make   # abigen + keep-common generator,
+                                            # writes abi/, contract/, cmd/, _address/
+   cd ../../../..
+   make generate environment=sepolia        # go generate ./...
+   ```
+
+   The addresses land in `pkg/chain/ethereum/tbtc/gen/_address/*` (embedded
+   into the binary; on a real environment the on-chain addresses are used,
+   not zeros — zeros are development-only).
+   TO VERIFY: `go build ./...` and, if a vendored fallback file was
+   touched, `make verify-vendored-fallback` in `pkg/chain/ethereum/tbtc/gen`
+   (it needs the real fetched artifacts, i.e. run it in a tree that has
+   them, not CI's hermetic environment).
+
+2. **Choose a FUTURE activation block B** and write it into
+   `pkg/tbtc/coordination.go` — `reservationsActivationBlocks` is a
+   `map[ethereum.Network]uint64` currently **empty**; without an entry for
+   `ethereum.Sepolia`, `ReservationsActivationBlock` returns
+   `math.MaxUint64` and coordination never activates for Sepolia:
+
+   ```go
+   var reservationsActivationBlocks = map[ethereum.Network]uint64{
+       ethereum.Sepolia: B,
+   }
+   ```
+
+   Choose B as the current Sepolia block height (pre-flight item 5) plus a
+   comfortable margin (e.g. +1 h of Sepolia blocks) — comfortably after the
+   60-second governance windows in step 6 and after the operator rollout in
+   step 9. Record B in the governance log. Rule from the doc comment: only
+   add a **real** height chosen after the release plan is fixed — an
+   invented placeholder is indistinguishable from a live one.
+
+3. Build and ship the binary to **all** Sepolia operators before the
+   activation block B is reached:
+
+   ```sh
+   make sepolia        # == make all environment=sepolia: get_artifacts, generate, build, release
+   ```
+
+**Rollback / abort:** the `reservationsActivationBlocks` entry has no
+on-chain counterpart — lowering the height or removing the entry and
+re-releasing is the only rollback; on-chain trust revocation
+(`setVaultStatus(vault, false)`, step 11) is the paired chain-side escape.
+
+## Step 9 — confirm every drill operator runs the released binary
+
+Before step 11, verify that **every** Sepolia drill operator is running the
+binary released in step 8 (the one with block B compiled in):
+
+```sh
+# each operator's node reports the binary's activation block; it must equal B
+# (operator log line or the operator's `reservationsActivationBlocks` value)
+```
+
+If any operator is still on an older binary without a `Sepolia` entry (or
+with a stale B), do not proceed: those clients would not coordinate reserved
+deposits once step 11 activates. Only when all operators are on the step 8
+binary is the activation gate satisfied.
+
+## Step 10 — fee-reserve target (decision recorded)
 
 Governance step from `RESERVATION_CAPS_DEPLOYMENT.md` "Fee-Reserve Target
 Governance Step" — complete it **before** activation (or explicitly accept a
@@ -579,13 +697,21 @@ zero reserve and record that decision):
 
 ```sh
 # the vault's owner is the deployer/governance EOA (step 2)
-cast send $VAULT 'updateFeeReserveTarget(uint256)' <target in TBTC, 18 decimals> \
+cast send $VAULT 'updateFeeReserveTarget(uint256)' 0 \
   --rpc-url $SEPOLIA_RPC_URL --private-key $SEPOLIA_PRIVATE_KEY
-cast call $VAULT 'feeReserveTarget()(uint256)' --rpc-url $SEPOLIA_RPC_URL  # -> the chosen value
+cast call $VAULT 'feeReserveTarget()(uint256)' --rpc-url $SEPOLIA_RPC_URL  # -> 0
 ```
 
-Activation — only at or after the keep-core activation block chosen in
-step 6 (C-4 gate):
+For the Sepolia rehearsal the chosen value is **0** and that decision is
+recorded here (a zero reserve is allowed; acceptances then direct-credit).
+
+## Step 11 — activate the vault at or after block B
+
+From `RESERVATION_CAPS_DEPLOYMENT.md`, "Client Activation Ordering Gate":
+the on-chain `setVaultStatus(vault, true)` MUST execute **at or after** the
+activation block B written into keep-core's `reservationsActivationBlocks
+[Sepolia]` (step 8). Verify the current height has reached B
+(`cast block-number`), confirm step 9 passed, **then** activate:
 
 ```sh
 cast send $NEW_GOV 'setVaultStatus(address,bool)' $VAULT true \
@@ -598,6 +724,10 @@ On-chain check (fork dry-run step 5 model):
 cast call $BRIDGE 'isVaultTrusted(address)(bool)' $VAULT --rpc-url $SEPOLIA_RPC_URL   # -> true
 ```
 
+(If no entry is written for Sepolia in keep-core, `ReservationsActivationBlock`
+falls through to `math.MaxUint64` and coordination never starts — the gate
+is runbook discipline; nothing on-chain enforces it.)
+
 **Rollback / abort:** `setVaultStatus(vault, false)` reverts the trusted
 flag at any time (fee fallback: acceptances settling while untrusted are
 direct-credit, no initiation fee — see the "Fee Fallback" section of
@@ -606,32 +736,32 @@ vault trust is the final, one-way-for-practical-purposes gate of M1 —
 after the first reservation acceptance, the vault can only be swapped when
 `reservationTotalAmount == 0 && pendingReservedDeposits == 0` (M1 variant-B
 release paths only). The C-4 ordering is the true "point of no return":
-activating on-chain before the keep-core release means reserved deposits
-can be accepted with no client coordinating them until the activation block.
+activating on-chain before the keep-core release (step 8) means reserved
+deposits can be accepted with no client coordinating them until block B.
 
-## Step 9 — post-activation verification (full set)
+## Step 12 — post-activation verification (full set)
 
 The fork dry-run's steps 9–10 are the model. All calls below go through the
 Bridge proxy (the reservation views are router methods reached via the
 Bridge fallback).
 
 ```sh
-# 9.1 caps
+# 12.1 caps
 cast call $BRIDGE 'reservationCaps()(uint64,uint64,uint32,uint32)' --rpc-url $SEPOLIA_RPC_URL
 # -> (2000000, 2000000, 4, 1) — must equal the staged caps
-# 9.2 parameters (1st field = $VAULT, 6th = staged max total amount;
+# 12.2 parameters (1st field = $VAULT, 6th = staged max total amount;
 #     10-value tuple per IReservationBridge.reservationParameters)
 cast call $BRIDGE 'reservationParameters()(address,uint64,uint64,uint32,uint32,uint64,uint32,uint32,uint32,uint32)' \
   --rpc-url $SEPOLIA_RPC_URL
-# 9.3 vault trusted
+# 12.3 vault trusted
 cast call $BRIDGE 'isVaultTrusted(address)(bool)' $VAULT --rpc-url $SEPOLIA_RPC_URL   # -> true
-# 9.4 router wired
+# 12.4 router wired
 cast call $BRIDGE 'getReservationRouter()(address)' --rpc-url $SEPOLIA_RPC_URL   # -> $ROUTER
 ```
 
-9.1–9.4 must equal the staged ceremony values.
+12.1–12.4 must equal the staged ceremony values.
 
-**9.5 negative check** (fork dry-run step 10): a third party re-anchoring a
+**12.5 negative check** (fork dry-run step 10): a third party re-anchoring a
 nonexistent reservation must revert with `Reservation is not active`
 (`contracts/bridge/Reservation.sol:755`), proving the new router ABI is live
 through the Bridge fallback. Simulate with a gasless `eth_call` (any `from`
@@ -666,109 +796,6 @@ print("OK: router negative check reverted with 'Reservation is not active'")
 EOF
 ```
 
-## Step 10 — publish the npm `sepolia` package (consumed by keep-core)
-
-keep-core's `Makefile` resolves Sepolia contracts exclusively from the npm
-registry:
-
-```
-make all environment=sepolia
-  -> get_artifacts:  npm pack @keep-network/tbtc-v2@sepolia  (and
-     @keep-network/random-beacon@sepolia, @keep-network/ecdsa@sepolia,
-     @threshold-network/solidity-contracts@sepolia)
-     -> extracts package/artifacts/ into tmp/contracts/sepolia/<pkg>/
-  -> generate:  go generate ./...  (pkg/chain/ethereum/tbtc/gen/Makefile
-     runs abigen + keep-common generator over ${artifacts_dir}/<Name>.json
-     for Bridge, MaintainerProxy, LightRelay, LightRelayMaintainerProxy,
-     WalletProposalValidator, RedemptionWatchtower, ReservationRouter,
-     ReservationVault, TBTC)
-```
-
-Critical: for **non-`development`** environments the gen Makefile
-**hard-fails** if `ReservationRouter.json` or `ReservationVault.json` is
-missing from the fetched artifacts (the vendored fallback is development
-only). The current published `@keep-network/tbtc-v2@sepolia` tag (checked
-2026-10-09: `1.6.0-sepolia.6`) predates the reservation artifacts, so the
-sepolia tag **must** be re-published from this branch after steps 4–5 have
-written the `deployments/sepolia/` records (`ReservationRouter`,
-`ReservationVault`, `BridgeGovernance`, `Bridge`).
-
-Publish (CI does this in `.github/workflows/contracts.yml` via
-`workflow_dispatch` with `environment: sepolia`; manually, from `solidity/`):
-
-```sh
-# ensure deployments/sepolia records are current and committed (Step 4 commit)
-# npm auth in CI: NODE_AUTH_TOKEN
-npm publish --access=public --tag sepolia --network=sepolia
-```
-
-`--network=sepolia` sets `$npm_config_network`, so `prepublishOnly`
-(`scripts/prepare-artifacts.sh --network sepolia`) copies
-`deployments/sepolia/` into the package's `artifacts/` directory — the
-directory keep-core's `get_npm_package` extracts. `prepack` additionally
-runs `tsc -p tsconfig.export.json && hardhat export-artifacts export/artifacts`.
-
-On-chain/npm checks after publishing:
-
-```sh
-npm view @keep-network/tbtc-v2@sepolia version            # new version
-npm pack $(npm view @keep-network/tbtc-v2@sepolia dist.tarball | grep -o 'https://.*') -p .
-tar tzf <tarball> | grep -E 'ReservationRouter|ReservationVault'   # both present under package/artifacts/
-```
-
-**Rollback / abort:** none — the npm tag is re-publishable; an operator who
-already built keep-core against a bad artifact just rebuilds after the
-re-publish.
-
-## Step 11 — keep-core follow-up: activation block + bindings
-
-In the keep-core working tree (`pr-4282-drill` layout):
-
-1. Regenerate bindings against the freshly published package:
-
-   ```sh
-   make get_artifacts environment=sepolia   # fetch @keep-network/tbtc-v2@sepolia (new)
-   cd pkg/chain/ethereum/tbtc/gen && make   # abigen + keep-common generator,
-                                            # writes abi/, contract/, cmd/, _address/
-   cd ../../../..
-   make generate environment=sepolia        # go generate ./...
-   ```
-
-   The addresses land in `pkg/chain/ethereum/tbtc/gen/_address/*` (embedded
-   into the binary; on a real environment the on-chain addresses are used,
-   not zeros — zeros are development-only).
-   TO VERIFY: `go build ./...` and, if a vendored fallback file was
-   touched, `make verify-vendored-fallback` in `pkg/chain/ethereum/tbtc/gen`
-   (it needs the real fetched artifacts, i.e. run it in a tree that has
-   them, not CI's hermetic environment).
-
-2. Set the activation block chosen in step 6 in
-   `pkg/tbtc/coordination.go` — `reservationsActivationBlocks` is a
-   `map[ethereum.Network]uint64` currently **empty**; without an entry for
-   `ethereum.Sepolia`, `ReservationsActivationBlock` returns
-   `math.MaxUint64` and coordination never activates for Sepolia:
-
-   ```go
-   var reservationsActivationBlocks = map[ethereum.Network]uint64{
-       ethereum.Sepolia: <activation block from step 6>,
-   }
-   ```
-
-   Rule from the doc comment: only add a **real** height chosen after the
-   release plan is fixed — an invented placeholder is indistinguishable
-   from a live one.
-
-3. Build and ship the binary to **all** Sepolia operators before the
-   activation block is reached:
-
-   ```sh
-   make sepolia        # == make all environment=sepolia: get_artifacts, generate, build, release
-   ```
-
-**Rollback / abort:** the `reservationsActivationBlocks` entry has no
-on-chain counterpart — lowering the height or removing the entry and
-re-releasing is the only rollback; on-chain trust revocation
-(`setVaultStatus(vault, false)`) is the paired chain-side escape.
 
 ## Summary of irreversible points (in order)
 
@@ -776,9 +803,9 @@ re-releasing is the only rollback; on-chain trust revocation
 |---|---|---|---|
 | 4 | Bridge proxy `upgrade` | reversible while reservation state is empty | `upgrade` back to `0xc9CE...` |
 | 5b | `setReservationRouter` | **yes** (write-once) | none — address must be right |
-| 7.4 | `finalizeReservationParametersUpdate` | no until first acceptance | re-stage/re-finalize |
-| 8 | `setVaultStatus(true)` | no for the flag; the vault lock is permanent after first acceptance | `setVaultStatus(false)` (fee fallback applies) |
-| 9+ | keep-core release with activation block | no (client-side) | remove entry / raise height, re-release |
+| 6.4 | `finalizeReservationParametersUpdate` | no until first acceptance | re-stage/re-finalize |
+| 8 | keep-core release with activation block B compiled in | no (client-side) | lower/raise B or remove the entry, re-release |
+| 11 | `setVaultStatus(true)` at/after B | no for the flag; the vault lock is permanent after first acceptance | `setVaultStatus(false)` (fee fallback applies) |
 
 ## Open items (TO VERIFY)
 
@@ -792,7 +819,7 @@ re-releasing is the only rollback; on-chain trust revocation
   (pattern in `deploy/44_upgrade_native_btc_depositor_to_968.ts`).
 - The exact `updateFeeReserveTarget` target value (governance decision;
   zero is allowed and must be recorded as a decision).
-- The Sepolia caps (step 7) were sized on 2026-10-09 against a 1,000,000-sat
+- The Sepolia caps (step 6) were sized on 2026-10-09 against a 1,000,000-sat
   dust threshold, a 15-day reveal-ahead period and 4 Live wallets. If any of
   those changed, re-size them by the rules in pre-flight check 1. Script 97's
   local test values (100,000-sat single cap) are infeasible on Sepolia, and
