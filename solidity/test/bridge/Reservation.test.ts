@@ -116,6 +116,12 @@ describe("Reservation", () => {
     await testReservation.setMaxReservationsPerWallet(10)
     await testReservation.setMaxReservationsAmountPerWallet(0)
     await testReservation.setMaxActiveReservations(1000)
+    // The acceptance gate holds back `handoffReserveWallets` Live wallets
+    // from carrying positions; give it two Live wallets (one reserved, one
+    // carrying positions) so acceptances below reach the per-wallet caps
+    // they probe rather than the gate.
+    await testReservation.setLiveWalletsCount(2)
+    await testReservation.setHandoffReserveWallets(1)
 
     await testReservation.registerWallet(pkh, wState)
     await testReservation.seedDeposit(
@@ -595,6 +601,10 @@ describe("Reservation", () => {
       it("should revert when wallet reservations count exceeds maxReservationsPerWallet (Wallet reservations cap exceeded)", async () => {
         await setupValidDeposit(reservationKey1, walletPubKeyHash)
         await testReservation.setMaxReservationsPerWallet(1)
+        // Three Live wallets against a one-wallet hand-off reserve leave the
+        // gate capacity at (3 - 1) * 1 = 2 open positions, so the per-wallet
+        // count cap this test probes is the binding constraint, not the gate.
+        await testReservation.setLiveWalletsCount(3)
 
         // First request succeeds
         await testReservation
@@ -713,8 +723,10 @@ describe("Reservation", () => {
         // must not exceed `liveWalletsCount * maxReservationsPerWallet`.
         // `setupValidDeposit` sets `maxReservationsPerWallet = 10`; give
         // this wallet capacity so `maxActiveReservations` stays the
-        // binding constraint this test exercises.
-        await testReservation.setLiveWalletsCount(1)
+        // binding constraint this test exercises. Two Live wallets keep
+        // the hand-off reserve gate (one held back) off the path that
+        // `maxActiveReservations` bounds.
+        await testReservation.setLiveWalletsCount(2)
 
         // First request fills the capacity
         await testReservation
@@ -750,9 +762,9 @@ describe("Reservation", () => {
         await setupValidDeposit(reservationKey1, walletPubKeyHash)
         await testReservation.setMaxActiveReservations(1)
         // See sibling test above: satisfy the Item-3 sizing-relation
-        // invariant so `maxActiveReservations` remains the binding
-        // constraint.
-        await testReservation.setLiveWalletsCount(1)
+        // invariant, with two Live wallets so the hand-off reserve gate
+        // does not preempt the occupancy cap this test exercises.
+        await testReservation.setLiveWalletsCount(2)
 
         // First request fills the occupancy
         await testReservation
@@ -1780,6 +1792,10 @@ describe("Reservation", () => {
       await testReservation.setMaxActiveReservations(1000)
       await testReservation.setReservationVault(vault)
       await testReservation.setWalletState(walletPubKeyHash, 1) // 1 = Live
+      // Two Live wallets (one held back by the hand-off reserve gate)
+      // keep the gate off the success path this test exercises.
+      await testReservation.setLiveWalletsCount(2)
+      await testReservation.setHandoffReserveWallets(1)
       await testReservation.setDeposit(
         reservationKey,
         depositor.address,
