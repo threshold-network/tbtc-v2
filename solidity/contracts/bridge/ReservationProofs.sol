@@ -340,7 +340,7 @@ library ReservationProofs {
     ///        funds on the authorized wallet's public key hash,
     ///      - The Bitcoin miner fee must not exceed the authorization's
     ///        snapshotted fee bound. Together with the request-time check
-    ///        `depositAmount >= minAmount + txMaxFee` this guarantees the
+    ///        `depositAmount > minAmount + 2 * txMaxFee` this guarantees the
     ///        anchor value satisfies the reservation minimum without any
     ///        proof-time dependency on live parameters.
     function submitReservationAcceptanceProof(
@@ -455,7 +455,7 @@ library ReservationProofs {
         );
         // Defense-in-depth: `action.amount - anchorAmount <= action.txMaxFee`
         // together with the request-time check
-        // `depositAmount >= reservationMinAmount + txMaxFee` already implies
+        // `depositAmount > reservationMinAmount + 2 * txMaxFee` already implies
         // this, but that guarantee is indirect through two other
         // invariants; make the anchor minimum a direct revert guard so a
         // future caller or test harness mismatch that writes a smaller

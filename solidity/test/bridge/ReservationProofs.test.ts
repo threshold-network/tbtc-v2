@@ -14,6 +14,8 @@ import { MovedFundsSweepWithoutMainUtxo as movedFundsSweepData } from "../data/m
 import { createMock } from "../helpers/mock"
 import type { Mock } from "../helpers/mock"
 
+const { lastBlockTime } = helpers.time
+
 describe("ReservationProofs", () => {
   let relay: Mock<IRelay>
   let testReservationProofs: TestReservationProofs
@@ -407,6 +409,67 @@ describe("ReservationProofs", () => {
       )
       expect(action.state).to.equal(3) // TimedOut
       expect(late).to.be.true
+    })
+
+    describe("late acceptance window (timeoutAt + termSeconds)", () => {
+      // A timed-out acceptance can still settle late, but only until
+      // timeoutAt + termSeconds; after that its confirmed anchor cannot be
+      // credited. The bound is inclusive to the second, and it does not apply
+      // to a timed-out re-anchor, whose late settlement is unbounded by design.
+      let bound: number
+
+      beforeEach(async () => {
+        bound = (await lastBlockTime()) + 1000
+      })
+
+      async function setTimedOutAction(actionType: number) {
+        await testReservationProofs.setReservationAction(
+          sampleReservationKey,
+          requestNonce,
+          buildReservationAction({
+            actionType,
+            state: 3, // TimedOut
+            timeoutAt: bound - termSeconds,
+          })
+        )
+      }
+
+      it("should still load a late acceptance at the last second of the window", async () => {
+        await setTimedOutAction(1) // Acceptance
+        await ethers.provider.send("evm_mine", [bound])
+
+        const [, late] = await testReservationProofs.loadSettleableAction(
+          sampleReservationKey,
+          requestNonce,
+          1
+        )
+        expect(late).to.be.true
+      })
+
+      it("should reject a late acceptance one second after the window closes", async () => {
+        await setTimedOutAction(1) // Acceptance
+        await ethers.provider.send("evm_mine", [bound + 1])
+
+        await expect(
+          testReservationProofs.loadSettleableAction(
+            sampleReservationKey,
+            requestNonce,
+            1
+          )
+        ).to.be.revertedWith("Late acceptance settlement window expired")
+      })
+
+      it("should not apply the window to a late re-anchor", async () => {
+        await setTimedOutAction(3) // Reanchor
+        await ethers.provider.send("evm_mine", [bound + 1])
+
+        const [, late] = await testReservationProofs.loadSettleableAction(
+          sampleReservationKey,
+          requestNonce,
+          3
+        )
+        expect(late).to.be.true
+      })
     })
   })
   describe("4. Pending-reserved and existence guards", () => {
