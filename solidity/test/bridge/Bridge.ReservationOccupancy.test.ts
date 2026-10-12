@@ -279,6 +279,7 @@ describe("Reservation - hand-off reserve gate at acceptance", () => {
 
   const walletA = `0x${"a1".repeat(20)}`
   const walletB = `0x${"a2".repeat(20)}`
+  const walletC = `0x${"a3".repeat(20)}`
   const vault = `0x${"3".repeat(40)}`
 
   beforeEach(async () => {
@@ -321,6 +322,7 @@ describe("Reservation - hand-off reserve gate at acceptance", () => {
   it("reverts when an acceptance would push the count past (L - R) * N, even with maxActiveReservations free", async () => {
     // L = 2, N = 10, R = 1, so the gate allows 1 * 10 = 10 open positions.
     await testReservation.setWalletState(walletA, walletState.Live)
+    await testReservation.setWalletState(walletB, walletState.Live)
     await enableGate(10, 2, 1)
 
     for (let i = 0; i < 10; i++) {
@@ -333,11 +335,11 @@ describe("Reservation - hand-off reserve gate at acceptance", () => {
 
     // The 11th exceeds the gate's (L - R) * N = 10 even though the
     // maxActiveReservations cap of 1000 still has room.
-    const key = await seedAcceptableDeposit(walletA)
+    const key = await seedAcceptableDeposit(walletB)
     await expect(
       testReservation
         .connect(depositor)
-        .requestReservationAcceptance(key, walletA)
+        .requestReservationAcceptance(key, walletB)
     ).to.be.revertedWith("Hand-off reserve exceeded")
   })
 
@@ -345,6 +347,7 @@ describe("Reservation - hand-off reserve gate at acceptance", () => {
     // L = 3, N = 10, R = 1: the gate allows 2 * 10 = 20 open positions.
     await testReservation.setWalletState(walletA, walletState.Live)
     await testReservation.setWalletState(walletB, walletState.Live)
+    await testReservation.setWalletState(walletC, walletState.Live)
     await enableGate(10, 3, 1)
 
     for (let i = 0; i < 10; i++) {
@@ -363,12 +366,13 @@ describe("Reservation - hand-off reserve gate at acceptance", () => {
 
     // One of the three Live wallets retires: remaining = 1 * 10 = 10,
     // below the 20 open positions, so the next acceptance reverts.
+    await testReservation.setWalletState(walletA, walletState.MovingFunds)
     await testReservation.setLiveWalletsCount(2)
-    const key = await seedAcceptableDeposit(walletA)
+    const key = await seedAcceptableDeposit(walletC)
     await expect(
       testReservation
         .connect(depositor)
-        .requestReservationAcceptance(key, walletA)
+        .requestReservationAcceptance(key, walletC)
     ).to.be.revertedWith("Hand-off reserve exceeded")
   })
 
