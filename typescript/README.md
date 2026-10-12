@@ -154,6 +154,10 @@ Notes for integrators:
 - **Release to pool.** `releaseToPool` is only valid for a reserved
   deposit that never received an acceptance request; the vault target is
   the zero address or a trusted vault other than the reservation vault.
+  The ordinary sweep charges the treasury fee recorded at reveal and its
+  Bitcoin miner fee. The reservation initiation fee does not apply after
+  release. Reserved reveals do not claim a treasury-fee rebate, so release
+  does not retroactively apply one.
 - **Refunds.** A reserved deposit refunds through a Bitcoin script path
   (OP_IF/OP_ELSE with the refund public key and locktime). The depositor
   must control a Bitcoin wallet that can sign the script-path refund; a
