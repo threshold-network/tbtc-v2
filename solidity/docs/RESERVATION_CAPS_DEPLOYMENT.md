@@ -131,7 +131,7 @@ In Milestone 1, `maxActiveReservations` acts as an occupancy launch gate and cap
 
 ### Emergency Step: Free Target Slots Run Low
 
-If free per-wallet target slots run low and a retiring wallet's hand-off re-anchor would otherwise fail, governance raises `maxReservationsPerWallet` (and the per-wallet amount cap, `maxReservationsAmountPerWallet`, if it is on). `maxReservationsPerWallet` is set through `beginReservationParametersUpdate` / `finalizeReservationParametersUpdate`; `maxReservationsAmountPerWallet` is set through `beginReservationCapsUpdate` / `finalizeReservationCapsUpdate`. Each takes effect after the governance delay and the on-chain feasibility guard. The hand-off reserve gate then re-evaluates at every acceptance with the wider per-wallet headroom, so the raised caps unblock both new acceptances and the pending re-anchors of retiring wallets.
+Privileged hand-offs from `MovingFunds` or `Closing` do not need ordinary target headroom. Raise `maxReservationsPerWallet` or `maxReservationsAmountPerWallet` only when governance wants more ordinary admission, third-party target headroom or Live-source rotation capacity. `maxReservationsPerWallet` uses the delayed reservation-parameters update. `maxReservationsAmountPerWallet` uses the delayed caps update and must include the current hand-off reserve. Raising the per-wallet count increases the reserve-gated admission budget; it does not override `maxActiveReservations` or change existing pending actions.
 
 ### Monitoring and Alerting (Occupancy & Risk Signals)
 
@@ -254,11 +254,11 @@ event ReservationReanchored(
 
 Off-chain tooling updates required:
 
-- Governance proposal builders (Defender, Safe Transaction Builder, Tenderly, custom multisend helpers) — regenerate the encoded calldata with the 3-argument signature for `updateReservationCaps`.
-- Indexers and dashboards (The Graph subgraphs, Dune queries, custom event listeners) — update the event ABI to 3 fields for `ReservationCapsUpdated` and 6 fields for `ReservationReanchored` (appended `minerFee` field). Backward-compatible decoders will read the new fields as the next positional argument; forward-compatible decoders ignore unknown fields. Adding the `maxActiveReservations` field to `ReservationCapsUpdated` changes its event signature hash (topic0), so off-chain indexers watching the pre-PR `ReservationCapsUpdated` event signature will silently stop matching entirely until updated. Note that off-chain indexers watching the pre-PR `ReservationReanchored` event signature will likewise silently stop matching events until updated.
+- Governance proposal builders must use the five-argument `updateReservationCaps` and `beginReservationCapsUpdate` signatures.
+- Indexers and dashboards must decode five fields in `ReservationCapsUpdated` and six fields in `ReservationReanchored`. Each signature has a different topic0 from earlier versions. Update event filters as well as positional decoders.
 - Monitoring alerts and circuit breakers keyed on `ReservationCapsUpdated` or `ReservationReanchored` — confirm the alerts still fire on the new signatures.
 
-**Note:** The `updateReservationCaps` selector change (3-arg vs 2-arg) means consumers MUST rebind/recompile against the new `IReservationBridge` interface. The interface in this PR declares the updated signature, but consumers that bind through it still need a recompile/rebind — the selector change (topic0 for events, 4-byte selector for functions) is not automatically absorbed by the interface binding alone.
+The five-argument `updateReservationCaps` selector is `0x78d76eda`. The old four-argument selector is not supported. `reservationCaps()` remains a four-value view; read `reservationHandoffReserveWallets()` separately. Rebuild clients and governance calldata against the new interface.
 
 ### m1 router ABI delta vs. inventory/router.md
 
