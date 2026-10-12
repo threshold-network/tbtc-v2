@@ -1,11 +1,17 @@
 {
+  "schemaVersion": 2,
+  "binding": {
+    "chainId": null,
+    "bridge": null,
+    "forkBlock": 11883858
+  },
   "mode": "fork",
   "network": "hardhat",
   "phase": "full",
   "startBlock": 11883858,
   "forkBlock": 11883858,
   "activationBlock": 11884578,
-  "runAt": "2026-10-12T11:12:50.678Z",
+  "runAt": "2026-10-12T09:40:38.630Z",
   "addresses": {
     "bridge": "0x2220acE07d86B508742D511478e517716B675940",
     "oldGov": "0x61700ebaCCfd9FB0100C35DDd38e4cC3e9057c5A",
@@ -63,8 +69,8 @@
     {
       "name": "02b-deploy-bridge-implementation",
       "status": "PASS",
-      "txHash": "0x21d4f2f53970b70b07b11d8ce7c3c0f64d4e3a83128ba97b22d4d0f578eca955",
-      "gasUsed": 5170643,
+      "txHash": "0x09a915f37d76782aed35e83a7afa2a52e66023b61d0cff3577ac161050915e8d",
+      "gasUsed": 5170655,
       "values": {
         "address": "0x2DB8355295C5f09da68Cf35A318F7209d90c0640"
       }
@@ -72,8 +78,8 @@
     {
       "name": "02c-deploy-reservation-router",
       "status": "PASS",
-      "txHash": "0x39b3de57598101e27a31944cac823d1b06f6f11bf2348c71d64b5f86c763080a",
-      "gasUsed": 1698040,
+      "txHash": "0xb525a99dce2978531153a73961f67b524af7347d8d0b25b341ba949e0bba3eaf",
+      "gasUsed": 1661827,
       "values": {
         "address": "0xd8F192488c6B2AF29c6E0a02040E68F87B9d5EAA"
       }
@@ -81,7 +87,7 @@
     {
       "name": "02d-deploy-reservation-vault",
       "status": "PASS",
-      "txHash": "0x9d072a93c7bb7d1b32000d1096c61c2a491d26f6dc7cc5aaa6d0576debeb7984",
+      "txHash": "0x13d948eedafdc86fdb88f1fefbc87c6919a23fda6fbbc30fda5443eff9bac640",
       "gasUsed": 1598272,
       "values": {
         "address": "0x222C73bc1440b97876B64C3F34077904deF93714"
@@ -99,7 +105,7 @@
     {
       "name": "02f-deploy-new-bridge-governance",
       "status": "PASS",
-      "txHash": "0x1fbb154cad7c575fa70a7681199ddb26067a11db6a50e71e2c27f8de5fbb560a",
+      "txHash": "0xf62c6918e11a6d98781187aa9c4fd81d1bfc621a7db16d9cc2fb7aa096990eaa",
       "gasUsed": 4768345,
       "values": {
         "address": "0xfb5C050a969921b882b9EB151a8862Bf56D5cBE0"
@@ -180,14 +186,14 @@
     {
       "name": "11-finalize-reservation-caps",
       "status": "PASS",
-      "txHash": "0xacb0b93472d48d4fb7f9dfa34c205f623b3b0760412b937d3c1ffba9d1c7c489",
-      "gasUsed": 105092
+      "txHash": "0xd1465e872fcc00843977a766a83571dfde8abea17034c1142215affd4cc08f21",
+      "gasUsed": 105114
     },
     {
       "name": "12-finalize-reservation-parameters",
       "status": "PASS",
-      "txHash": "0x35d1a06d62fd2dc08a7683f2327e10bd9e4f51d467609a65a001614db046e09c",
-      "gasUsed": 137720
+      "txHash": "0x50c9d7e59989099746e822c4bf55a19aa99c1a0d62c34f97e5fc1c3546463e5c",
+      "gasUsed": 137663
     },
     {
       "name": "13-update-fee-reserve-target",

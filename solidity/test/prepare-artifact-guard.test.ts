@@ -8,14 +8,18 @@ import {
   AddressKey,
   SEPOLIA_CHAIN_ID,
   REHEARSAL_CHAIN_ID,
+  PREPARE_ARTIFACT_SCHEMA_VERSION,
   parsePrepareArtifact,
   isAddressOrAbsent,
-  hasDeployedAddresses,
+  hasAllDeployedAddresses,
   prepareArtifactFiles,
   selectPrepareArtifact,
   bindingMismatch,
+  bindingPreflight,
   chainPreflight,
   buildFreshArtifact,
+  writePrepareArtifact,
+  prepareArtifactFilename,
 } from "../scripts/prepare-artifact-guard"
 
 const ZERO = "0x0000000000000000000000000000000000000000"
@@ -34,6 +38,7 @@ function liveArtifact(overrides: {
   network?: string
 } = {}): ParsedPrepareArtifact {
   return {
+    schemaVersion: PREPARE_ARTIFACT_SCHEMA_VERSION,
     mode: "live",
     network: overrides.network ?? "sepolia",
     phase: "prepare",
@@ -65,6 +70,7 @@ function liveArtifact(overrides: {
 function forkArtifact(): ParsedPrepareArtifact {
   return {
     ...liveArtifact(),
+    schemaVersion: PREPARE_ARTIFACT_SCHEMA_VERSION,
     mode: "fork",
     network: "hardhat",
     forkBlock: 11883858,
@@ -185,14 +191,15 @@ describe("prepare-artifact-guard", () => {
       bridge: A_BRIDGE,
     }
 
-    it("prefers a valid partial over a newer empty artifact", () => {
+    it("prefers a valid complete artifact over a newer empty one", () => {
+      // "complete" = all four deployed addresses present (hasAllDeployedAddresses=true)
+      // "empty" = all four deployed addresses null (hasAllDeployedAddresses=false)
       const empty = liveArtifact({
         addresses: {
           newImpl: null,
           router: null,
           vault: null,
           newGov: null,
-          oldImpl: null,
         },
       })
       writeSet(
@@ -207,8 +214,7 @@ describe("prepare-artifact-guard", () => {
         }
       )
       const selected = selectPrepareArtifact(dir, liveCtx, {
-        startBlock: 200,
-        requireDeployed: false,
+        requireComplete: false,
       })
       expect(selected.kind).to.equal("selected")
       if (selected.kind === "selected")
@@ -217,14 +223,12 @@ describe("prepare-artifact-guard", () => {
         )
     })
 
-    it("resumes the valid partial left by an interrupted run", () => {
-      const partial = liveArtifact({
-        addresses: { newGov: null, oldImpl: null },
-      })
-      writeSet(dir, { "reservations-sepolia-rehearsal-sepolia-100.json": partial })
+    it("resumes a valid complete artifact from an interrupted run", () => {
+      // Complete artifact: all deployed addresses set, interrupted mid-steps
+      const complete = liveArtifact()
+      writeSet(dir, { "reservations-sepolia-rehearsal-sepolia-100.json": complete })
       const selected = selectPrepareArtifact(dir, liveCtx, {
-        startBlock: 100,
-        requireDeployed: false,
+        requireComplete: false,
       })
       expect(selected.kind).to.equal("selected")
       if (selected.kind === "selected") {
@@ -243,8 +247,7 @@ describe("prepare-artifact-guard", () => {
         }
       )
       const result = selectPrepareArtifact(dir, liveCtx, {
-        startBlock: 200,
-        requireDeployed: false,
+        requireComplete: false,
       })
       expect(result.kind).to.equal("rejected")
       if (result.kind === "rejected")
@@ -265,8 +268,7 @@ describe("prepare-artifact-guard", () => {
         }
       )
       const result = selectPrepareArtifact(dir, liveCtx, {
-        startBlock: 200,
-        requireDeployed: false,
+        requireComplete: false,
       })
       expect(result.kind).to.equal("rejected")
       if (result.kind === "rejected")
@@ -276,8 +278,7 @@ describe("prepare-artifact-guard", () => {
     it("returns none when no artifact exists, and only deployed ones for activate", () => {
       expect(
         selectPrepareArtifact(dir, liveCtx, {
-          startBlock: 100,
-          requireDeployed: true,
+          requireComplete: true,
         }).kind
       ).to.equal("none")
       const empty = liveArtifact({
@@ -295,8 +296,7 @@ describe("prepare-artifact-guard", () => {
       )
       expect(
         selectPrepareArtifact(dir, liveCtx, {
-          startBlock: 100,
-          requireDeployed: true,
+          requireComplete: true,
         }).kind
       ).to.equal("none")
     })
@@ -314,8 +314,7 @@ describe("prepare-artifact-guard", () => {
       }
       writeSet(dir, { "reservations-sepolia-rehearsal-11883858.json": forkArtifact() })
       const forkResult = selectPrepareArtifact(dir, forkCtx, {
-        startBlock: 0,
-        requireDeployed: true,
+        requireComplete: true,
       })
       expect(forkResult.kind).to.equal("selected")
       if (forkResult.kind === "selected") {
@@ -391,12 +390,9 @@ describe("prepare-artifact-guard", () => {
 
   describe("chainPreflight", () => {
     it("passes the supported combinations", () => {
-      expect(
-        chainPreflight("sepolia", SEPOLIA_CHAIN_ID, true)
-      ).to.be.null
+      expect(chainPreflight("sepolia", SEPOLIA_CHAIN_ID, true)).to.be.null
       expect(chainPreflight("rehearsal", REHEARSAL_CHAIN_ID, true)).to.be.null
       expect(chainPreflight("hardhat", REHEARSAL_CHAIN_ID, false)).to.be.null
-      expect(chainPreflight("hardhat", SEPOLIA_CHAIN_ID, false)).to.be.null
     })
 
     it("fails a wrong chain before any signer is involved", () => {
@@ -405,14 +401,110 @@ describe("prepare-artifact-guard", () => {
         /not Sepolia/
       )
       expect(chainPreflight("rehearsal", SEPOLIA_CHAIN_ID, true)).to.match(
-        /31337/
+        /not 31337/
       )
       expect(chainPreflight("mainnet", SEPOLIA_CHAIN_ID, true)).to.match(
-        /not the expected live network/
+        /not a supported live network/
       )
-      expect(chainPreflight("hardhat", 1, false)).to.match(
-        /not a supported|not 31337/
+      expect(chainPreflight("hardhat", 1, false)).to.match(/not 31337/)
+      expect(chainPreflight("hardhat", SEPOLIA_CHAIN_ID, false)).to.match(
+        /not 31337/
       )
+    })
+  })
+
+  describe("bindingPreflight", () => {
+    it("passes a matching live artifact", () => {
+      expect(
+        bindingPreflight(liveArtifact(), {
+          live: true,
+          networkName: "sepolia",
+          chainId: SEPOLIA_CHAIN_ID,
+          forkBlock: 11883858,
+        })
+      ).to.be.null
+    })
+
+    it("rejects a sepolia artifact on a rehearsal context", () => {
+      expect(
+        bindingPreflight(liveArtifact(), {
+          live: true,
+          networkName: "rehearsal",
+          chainId: REHEARSAL_CHAIN_ID,
+          forkBlock: 11883858,
+        })
+      ).to.match(/chainId|network/)
+    })
+
+    it("rejects a rehearsal-node artifact on a sepolia context", () => {
+      expect(
+        bindingPreflight(
+          liveArtifact({ network: "rehearsal", chainId: REHEARSAL_CHAIN_ID }),
+          {
+            live: true,
+            networkName: "sepolia",
+            chainId: SEPOLIA_CHAIN_ID,
+            forkBlock: 11883858,
+          }
+        )
+      ).to.match(/chainId|network/)
+    })
+
+    it("rejects a fork artifact in a live context", () => {
+      expect(
+        bindingPreflight(forkArtifact(), {
+          live: true,
+          networkName: "sepolia",
+          chainId: SEPOLIA_CHAIN_ID,
+          forkBlock: 11883858,
+        })
+      ).to.match(/artifact mode is fork/)
+    })
+  })
+
+  describe("writePrepareArtifact", () => {
+    it("round-trips through parse", () => {
+      const artifact = liveArtifact()
+      const file = path.join(dir, "roundtrip.json")
+      writePrepareArtifact(file, artifact)
+      const raw = fs.readFileSync(file, "utf8")
+      const parsed = parsePrepareArtifact(raw)
+      expect(parsed.ok).to.be.true
+      if (parsed.ok) {
+        expect(parsed.value.addresses.router).to.equal(A_ROUTER)
+        expect(hasAllDeployedAddresses(parsed.value)).to.be.true
+      }
+    })
+
+    it("overwrites an existing file atomically", () => {
+      const artifact = liveArtifact()
+      const file = path.join(dir, "atomic.json")
+      fs.writeFileSync(file, "placeholder")
+      writePrepareArtifact(file, artifact)
+      const raw = fs.readFileSync(file, "utf8")
+      const parsed = parsePrepareArtifact(raw)
+      expect(parsed.ok).to.be.true
+      expect(raw).not.to.include("placeholder")
+    })
+  })
+
+  describe("prepareArtifactFilename", () => {
+    it("builds a live filename from network and startBlock", () => {
+      const name = prepareArtifactFilename(
+        { live: true, networkName: "sepolia", forkBlock: 0 },
+        "rehearsal",
+        11884979
+      )
+      expect(name).to.equal("reservations-sepolia-rehearsal-sepolia-11884979.json")
+    })
+
+    it("builds a fork filename from the pinned block", () => {
+      const name = prepareArtifactFilename(
+        { live: false, networkName: "hardhat", forkBlock: 11883858 },
+        "rehearsal",
+        0
+      )
+      expect(name).to.equal("reservations-sepolia-rehearsal-11883858.json")
     })
   })
 
@@ -442,21 +534,21 @@ describe("prepare-artifact-guard", () => {
       const parsed = parsePrepareArtifact(JSON.stringify(fresh))
       expect(parsed.ok).to.be.true
       if (parsed.ok) {
-        expect(hasDeployedAddresses(parsed.value)).to.be.false
-        expect(prepareArtifactFiles("/nonexistent", { ...liveCtxNo(), networkName: "sepolia" })).to.deep.equal(
-          []
-        )
+        // All four deployed addresses are null in a fresh artifact.
+        expect(hasAllDeployedAddresses(parsed.value)).to.be.false
+        // Addresses object is preserved through the round-trip.
+        expect(parsed.value.addresses.newImpl).to.be.null
+        expect(parsed.value.addresses.router).to.be.null
+        expect(
+          prepareArtifactFiles("/nonexistent", {
+            live: true,
+            networkName: "sepolia",
+            chainId: SEPOLIA_CHAIN_ID,
+            forkBlock: 11883858,
+            bridge: A_BRIDGE,
+          })
+        ).to.deep.equal([])
       }
     })
   })
 })
-
-function liveCtxNo() {
-  return {
-    live: true,
-    networkName: "sepolia",
-    chainId: SEPOLIA_CHAIN_ID,
-    forkBlock: 11883858,
-    bridge: A_BRIDGE,
-  }
-}

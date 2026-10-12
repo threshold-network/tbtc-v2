@@ -41,10 +41,29 @@
  * 4000000, max per wallet 1, action timeout 86400, renewal 86400) and are
  * checked against the live depositParameters before anything is staged.
  *
- * Artifacts in dryrun-artifacts/: fork reservations-sepolia-rehearsal-<fork
- * block>.json; live reservations-sepolia-rehearsal-<network>-<start
- * block>.json (prepare) and reservations-sepolia-activation-<network>-<start
- * block>.json (activate). They are rewritten after every step.
+ * Artifacts in dryrun-artifacts/ (schemaVersion 2, written atomically):
+ *   fork:     reservations-sepolia-rehearsal-<fork block>.json
+ *   live:     reservations-sepolia-rehearsal-<network>-<start block>.json
+ *   activate: reservations-sepolia-activation-<network>-<start block>.json
+ *
+ * Each artifact carries a `binding` block that ties it to the provider
+ * chain id and the exact Bridge proxy address it was produced against.
+ * On load we (a) parse the schema, (b) reject malformed/mismatched live
+ * artifacts (no silent redeploy), (c) verify the binding against the
+ * current provider and deployed Bridge before any send. Old JSON without
+ * `binding` is rejected; the human regenerates by deleting the file and
+ * re-running the matching PHASE. Writes are atomic (temp file + rename)
+ * so an interrupted save leaves the old valid file in place, never a
+ * half-written one.
+ *
+ * Network/chain gate (rejects before any signer/transaction):
+ *   live + network "sepolia":  requires provider chain 11155111
+ *   live + network "rehearsal": requires provider chain 31337 (local node,
+ *                              REHEARSAL_UNLOCKED_DEPLOYER=1 unlocks the
+ *                              deployer on the rehearsal node)
+ *   any other live network:    rejected
+ *   fork + network "hardhat":  in-memory hardhat fork with chain 31337
+ *   any other network:         rejected
  */
 import fs from "fs"
 import path from "path"
@@ -59,6 +78,20 @@ import {
 } from "ethers"
 
 import { assertReservedDepositsFeasible } from "../deploy/98_generate_reservation_mainnet_calldata"
+import {
+  SEPOLIA_CHAIN_ID,
+  REHEARSAL_CHAIN_ID,
+  prepareArtifactFilename,
+  selectPrepareArtifact,
+  bindingPreflight,
+  bindingMismatch,
+  chainPreflight,
+  writePrepareArtifact,
+  isAddressOrAbsent,
+  type ParsedPrepareArtifact,
+  type SelectionResult,
+  type ExecContext,
+} from "./prepare-artifact-guard"
 
 // Pinned fork block: latest Sepolia block read via SEPOLIA_RPC_URL on
 // 2026-10-10 was 11883878; pin to latest - 20 for a reproducible state.
@@ -206,6 +239,7 @@ interface RunState {
   phase: string
   networkName: string
   startBlock: number
+  chainId: number
   libs?: Record<string, string>
   snapshotBefore?: Record<string, string>
   snapshotAfter?: Record<string, string>
@@ -353,45 +387,56 @@ function artifactFile(state: RunState): string {
   return path.join(artifactDir(), `reservations-sepolia-${kind}-${base}.json`)
 }
 
-interface PrepareArtifact {
-  addresses?: Record<string, string | null>
+/**
+ * Returns true when the artifact's binding metadata is complete enough to
+ * write a schema-valid file. For live runs the chain id and Bridge
+ * address must be known; for fork runs the binding is always complete.
+ * The address fields must be either null or valid checksummed addresses —
+ * initial state uses empty strings, which are not valid.
+ */
+function bindingComplete(state: RunState): boolean {
+  if (!state.live) {
+    if (state.bridge !== "" && !isAddressOrAbsent(state.bridge)) return false
+  } else {
+    if (state.chainId === 0 || state.bridge === "") return false
+  }
+  for (const key of [
+    "bridge",
+    "oldGov",
+    "oldImpl",
+    "newImpl",
+    "newGov",
+    "router",
+    "vault",
+    "proxyAdmin",
+    "deployer",
+  ]) {
+    const v = (state as unknown as Record<string, unknown>)[key]
+    if (v !== null && v !== undefined && v !== "" && !isAddressOrAbsent(v)) return false
+  }
+  return true
 }
 
-// Newest prepare/rehearsal artifact of this network (fork: the pinned one).
-function loadPrepareArtifact(state: RunState): PrepareArtifact | null {
-  const dir = artifactDir()
-  if (!fs.existsSync(dir)) return null
-  const files = state.live
-    ? fs
-        .readdirSync(dir)
-        .filter(
-          (f) =>
-            f.startsWith(
-              `reservations-sepolia-rehearsal-${state.networkName}-`
-            ) && f.endsWith(".json")
-        )
-    : [`reservations-sepolia-rehearsal-${FORKING_BLOCK}.json`]
-  const found: { m: number; j: PrepareArtifact }[] = []
-  for (const f of files) {
-    try {
-      const p = path.join(dir, f)
-      found.push({
-        m: fs.statSync(p).mtimeMs,
-        j: JSON.parse(fs.readFileSync(p, "utf8")) as PrepareArtifact,
-      })
-    } catch {
-      // missing or half-written file: ignore, the chain is the source of truth
-    }
+function loadPrepareArtifact(state: RunState): SelectionResult {
+  const ctx: ExecContext = {
+    live: state.live,
+    networkName: state.networkName,
+    chainId: state.chainId,
+    forkBlock: FORKING_BLOCK,
+    bridge: "",
   }
-  // A rerun's own, still empty artifact must not mask the partial one.
-  const deployed = found.filter((f) =>
-    ["newImpl", "router", "vault", "newGov"].some((k) => !!f.j.addresses?.[k])
-  )
-  deployed.sort((a, b) => b.m - a.m)
-  return deployed.length > 0 ? deployed[0].j : null
+  return selectPrepareArtifact(artifactDir(), ctx, {
+    requireComplete: state.phase === "activate",
+  })
 }
 
 function saveArtifact(state: RunState): void {
+  if (!bindingComplete(state)) {
+    // Don't persist an artifact without a complete binding; the next run
+    // would reject the set as malformed. The chain remains the source of
+    // truth until readState succeeds and assigns the Bridge address.
+    return
+  }
   fs.mkdirSync(artifactDir(), { recursive: true })
   const failures = state.steps.filter((s) => s.status === "FAIL")
   const artifact = {
@@ -402,6 +447,11 @@ function saveArtifact(state: RunState): void {
     forkBlock: state.live ? null : FORKING_BLOCK,
     activationBlock: state.activationBlock,
     runAt: new Date().toISOString(),
+    binding: {
+      chainId: state.live ? state.chainId : null,
+      bridge: state.live ? state.bridge : null,
+      forkBlock: state.live ? null : FORKING_BLOCK,
+    },
     addresses: {
       bridge: state.bridge,
       oldGov: state.oldGov,
@@ -421,14 +471,10 @@ function saveArtifact(state: RunState): void {
     },
     steps: state.steps,
   }
-  fs.writeFileSync(
-    artifactFile(state),
-    JSON.stringify(
-      artifact,
-      (_k, value) => (typeof value === "bigint" ? value.toString() : value),
-      2
-    ) + "\n"
-  )
+  writePrepareArtifact(artifactFile(state), artifact, {
+    summary: artifact.summary,
+    steps: artifact.steps,
+  })
 }
 
 function finish(state: RunState): void {
@@ -654,9 +700,11 @@ async function getSigner(state: RunState): Promise<Signer | null> {
   }
   // Rehearsal-only: on the local `rehearsal` node the deployer EOA has no
   // key here, so the one-off RPC setup unlocks it on the node and it signs
-  // through the node. Never applies to any other network.
+  // through the node. Limited to the `rehearsal` network and chain 31337;
+  // never applies to any other network.
   if (
     network.name === "rehearsal" &&
+    state.chainId === REHEARSAL_CHAIN_ID &&
     process.env.REHEARSAL_UNLOCKED_DEPLOYER === "1"
   ) {
     done(state, {
@@ -1196,45 +1244,107 @@ async function main(): Promise<void> {
     bank: "",
     tbtcVault: "",
     activationBlock,
+    chainId: 0,
   }
 
-  const prevAddr = loadPrepareArtifact(state)?.addresses
-  if (phase === "activate") {
-    if (
-      !prevAddr?.newGov ||
-      !prevAddr?.router ||
-      !prevAddr?.vault ||
-      !prevAddr?.newImpl
-    ) {
+  // Chain preflight: rejects unsupported live networks and wrong chain ids
+  // before any signing or transaction. Set on state for binding checks below.
+  const providerNet = await ethers.provider.getNetwork()
+  // ethers v6 returns chainId as bigint; convert to number for the guard
+  // interfaces (which use plain number chain ids).
+  state.chainId = Number(providerNet.chainId)
+  const chainProblem = chainPreflight(network.name, state.chainId, live)
+  if (chainProblem !== null) {
+    record(state, { name: "00-chain-preflight", status: "FAIL", error: chainProblem })
+    return finish(state)
+  }
+
+  // Select the prepare artifact, parse it, and verify the binding against
+  // the execution context. Any malformed/mismatched live artifact is
+  // rejected, never silently redeployed.
+  const baseCtx: ExecContext = {
+    live,
+    networkName: network.name,
+    chainId: state.chainId,
+    forkBlock: FORKING_BLOCK,
+    bridge: "",
+  }
+  const requireComplete = phase === "activate"
+  const selection = selectPrepareArtifact(artifactDir(), baseCtx, { requireComplete })
+  if (selection.kind === "rejected") {
+    record(state, {
+      name: "00-load-prepare-artifact",
+      status: "FAIL",
+      error: selection.reason,
+    })
+    return finish(state)
+  }
+  if (requireComplete && selection.kind === "none") {
+    record(state, {
+      name: "00-load-prepare-artifact",
+      status: "FAIL",
+      error:
+        "no prepare artifact with all four deployed addresses found; run PHASE=prepare first",
+    })
+    return finish(state)
+  }
+  const prevArtifact =
+    selection.kind === "selected" ? selection.candidate.artifact : undefined
+
+  const allowed =
+    phase === "activate"
+      ? [prevArtifact?.addresses.newImpl]
+      : [KNOWN_OLD_IMPL, prevArtifact?.addresses.newImpl]
+  if (!(await readState(state, allowed))) return finish(state)
+
+  // Full binding check after readState (needs the deployed Bridge address).
+  if (prevArtifact !== undefined) {
+    const fullCtx: ExecContext = {
+      live,
+      networkName: network.name,
+      chainId: state.chainId,
+      forkBlock: FORKING_BLOCK,
+      bridge: state.bridge,
+    }
+    const mismatch = bindingMismatch(prevArtifact, fullCtx)
+    if (mismatch !== null) {
       record(state, {
         name: "00-load-prepare-artifact",
         status: "FAIL",
-        error:
-          "no prepare artifact with deployed addresses found; run PHASE=prepare first",
+        error: `${selection.kind === "selected" ? selection.candidate.file : ""}: ${mismatch}; no transaction was sent`,
       })
       return finish(state)
     }
-    Object.assign(state, {
-      newImpl: prevAddr.newImpl,
-      newGov: prevAddr.newGov,
-      router: prevAddr.router,
-      vault: prevAddr.vault,
-    })
+    if (phase === "activate") {
+      Object.assign(state, {
+        newImpl: prevArtifact.addresses.newImpl,
+        newGov: prevArtifact.addresses.newGov,
+        router: prevArtifact.addresses.router,
+        vault: prevArtifact.addresses.vault,
+      })
+    }
     record(state, {
       name: "00-load-prepare-artifact",
       status: "PASS",
-      values: prevAddr,
+      values: {
+        file: selection.kind === "selected" ? selection.candidate.file : "",
+        binding: prevArtifact.binding,
+        addresses: prevArtifact.addresses,
+      },
+    })
+  } else {
+    record(state, {
+      name: "00-load-prepare-artifact",
+      status: "PASS",
+      values: { note: "no prior prepare artifact; fresh prepare" },
     })
   }
 
-  const allowed =
-    phase === "activate" ? [state.newImpl] : [KNOWN_OLD_IMPL, prevAddr?.newImpl]
-  if (!(await readState(state, allowed))) return finish(state)
   const signer = await getSigner(state)
   if (signer === null) return finish(state)
 
   if (phase !== "activate") {
-    if (!(await prepare(state, signer, prevAddr ?? {}))) return finish(state)
+    if (!(await prepare(state, signer, prevArtifact?.addresses ?? {}))) return finish(state)
     if (phase === "prepare") {
       printAddresses(state)
       return finish(state)

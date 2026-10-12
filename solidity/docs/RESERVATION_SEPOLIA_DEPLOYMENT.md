@@ -248,6 +248,12 @@ PHASE=activate ACTIVATION_BLOCK=<B> npx hardhat run --network sepolia scripts/re
 
 What the script does on a live network:
 
+- **Chain preflight (rejects before any signer or transaction).** On
+  `--network sepolia` the script requires provider chain id `11155111`
+  and aborts with an actionable message otherwise. On `--network
+  rehearsal` (local fork node) the script requires provider chain id
+  `31337`. Any other live network name is rejected. Fork mode
+  (`--network hardhat`) requires chain id `31337`.
 - The signer is the first configured account. If it is not the deployer EOA,
   the script stops before sending any transaction.
 - It makes no `hardhat_*` or `evm_*` calls. The 60-second governance delays
@@ -262,6 +268,20 @@ What the script does on a live network:
   caps, parameters or the fee reserve differ from the runbook values, or if
   the reserved-deposit feasibility check fails against the live
   `depositParameters`.
+- **Artifact schema (version 2, no compatibility path).** Every prepare
+  artifact now carries a `binding` block that pins it to the provider
+  chain id and the exact Bridge proxy address it was produced against
+  (fork artifacts carry `chainId: null, bridge: null, forkBlock:
+  <pinned>`). On load the script (a) parses the schema, (b) rejects
+  malformed or mismatched live artifacts with an actionable error
+  naming the file (no silent redeploy), and (c) verifies the binding
+  against the current provider and deployed Bridge before any send.
+  Old artifacts without `binding` are no longer accepted; to resume from
+  an existing ceremony, delete the stale `dryrun-artifacts/` files for
+  that start block and re-run `PHASE=prepare` (or hand-add the
+  `schemaVersion` and `binding` block to a known-good artifact). Writes
+  are atomic (temp file + rename) so an interrupted save leaves the old
+  valid file in place.
 - Artifacts: `dryrun-artifacts/reservations-sepolia-rehearsal-sepolia-<start
   block>.json` (prepare) and `reservations-sepolia-activation-sepolia-<start
   block>.json` (activate), rewritten after every step. Commit the deployment
