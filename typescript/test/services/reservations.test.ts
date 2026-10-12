@@ -4,7 +4,12 @@ import { BigNumber } from "ethers"
 
 use(chaiAsPromised)
 
-import { WalletState, NewWalletRegisteredEvent } from "../../src/lib/contracts"
+import {
+  WalletState,
+  NewWalletRegisteredEvent,
+  Reservations,
+  ReservationOccupancy,
+} from "../../src/lib/contracts"
 import { Hex } from "../../src/lib/utils"
 import {
   ReservationsService,
@@ -402,6 +407,163 @@ describe("ReservationsService", () => {
         expect(result.go).to.be.false
         expect(result.reasons).to.include("locktime-slack-insufficient")
         expect(result.refundLocktime).to.be.undefined
+      })
+    })
+  })
+
+  describe("hand-off reserve gate", () => {
+    // The on-chain gate admits a new acceptance while
+    // `count + 1 <= max(0, live - reserve) * perWallet`.
+    // Live wallets L = 4, reserve R = 2, per-wallet count cap N = 1,
+    // so at most 2 positions may be open even though the global
+    // active-reservations cap allows 5.
+
+    function enableGate(mock: MockReservations, occupancy: ReservationOccupancy) {
+      mock.parameters.maxReservationsPerWallet = 1
+      mock.occupancy = occupancy
+      mock.liveWallets = 4
+      mock.handoffReserveWallets = 2
+    }
+
+    context("checkReserveFeasibility", () => {
+      beforeEach(() => {
+        mockReservations.registeredWallets = [makeWalletEvent(WALLET_A_PKH)]
+        mockReservations.setWalletState(WALLET_A_PKH, WalletState.Live)
+      })
+
+      it("should refuse both pre-funding paths when the gate is binding", async () => {
+        enableGate(mockReservations, { count: 2, maxActive: 5 })
+
+        const withWallet = await service.checkReserveFeasibility({
+          amount: BigNumber.from(500000),
+          walletPublicKeyHash: WALLET_A_PKH,
+        })
+        expect(withWallet.go).to.be.false
+        expect(withWallet.reasons).to.include("handoff-reserve-exceeded")
+
+        const autoSelected = await service.checkReserveFeasibility({
+          amount: BigNumber.from(500000),
+        })
+        expect(autoSelected.go).to.be.false
+        expect(autoSelected.reasons).to.include("handoff-reserve-exceeded")
+      })
+
+      it("should admit at the boundary count = 1", async () => {
+        enableGate(mockReservations, { count: 1, maxActive: 5 })
+
+        const result = await service.checkReserveFeasibility({
+          amount: BigNumber.from(500000),
+          walletPublicKeyHash: WALLET_A_PKH,
+        })
+
+        expect(result.reasons).to.not.include("handoff-reserve-exceeded")
+        expect(result.go).to.be.true
+      })
+
+      it("should refuse while live wallets are at or below the reserve", async () => {
+        enableGate(mockReservations, { count: 0, maxActive: 5 })
+
+        for (const live of [2, 1]) {
+          mockReservations.liveWallets = live
+          const result = await service.checkReserveFeasibility({
+            amount: BigNumber.from(500000),
+            walletPublicKeyHash: WALLET_A_PKH,
+          })
+          expect(result.go, `live = ${live}`).to.be.false
+          expect(result.reasons, `live = ${live}`).to.include(
+            "handoff-reserve-exceeded"
+          )
+        }
+      })
+
+      it("should refuse when the gate bites before the per-wallet caps", async () => {
+        // A free target with headroom under the ordinary caps, but the
+        // reserve gate is already exhausted by the open positions.
+        enableGate(mockReservations, { count: 2, maxActive: 5 })
+        mockReservations.setWalletReservations(
+          WALLET_A_PKH,
+          0,
+          BigNumber.from(0)
+        )
+
+        const result = await service.checkReserveFeasibility({
+          amount: BigNumber.from(500000),
+          walletPublicKeyHash: WALLET_A_PKH,
+        })
+
+        expect(result.reasons).to.not.include("wallet-count-cap-exceeded")
+        expect(result.reasons).to.not.include("wallet-amount-cap-exceeded")
+        expect(result.reasons).to.include("handoff-reserve-exceeded")
+      })
+    })
+
+    context("checkAcceptancePreflight", () => {
+      const depositKey = BigNumber.from(1)
+
+      beforeEach(() => {
+        mockReservations.addReservedDeposit(depositKey, {
+          amount: BigNumber.from(500000),
+          walletPublicKeyHash: WALLET_A_PKH,
+          isReserved: true,
+          revealedAt: Math.floor(Date.now() / 1000) - 3600,
+          depositor: TEST_DEPOSITOR,
+        })
+        mockReservations.setWalletState(WALLET_A_PKH, WalletState.Live)
+      })
+
+      it("should fail when the gate is binding while the ordinary caps have room", async () => {
+        enableGate(mockReservations, { count: 2, maxActive: 5 })
+
+        const result = await service.checkAcceptancePreflight(
+          depositKey,
+          WALLET_A_PKH
+        )
+
+        expect(result.ok).to.be.false
+        expect(result.failures).to.include(
+          "the hand-off reserve gate would be exceeded"
+        )
+      })
+
+      it("should pass at the boundary count = 1", async () => {
+        enableGate(mockReservations, { count: 1, maxActive: 5 })
+
+        const result = await service.checkAcceptancePreflight(
+          depositKey,
+          WALLET_A_PKH
+        )
+
+        expect(result.failures).to.not.include(
+          "the hand-off reserve gate would be exceeded"
+        )
+        expect(result.ok).to.be.true
+      })
+
+      it("should fail while live wallets are at or below the reserve", async () => {
+        enableGate(mockReservations, { count: 0, maxActive: 5 })
+
+        for (const live of [2, 1]) {
+          mockReservations.liveWallets = live
+          const result = await service.checkAcceptancePreflight(
+            depositKey,
+            WALLET_A_PKH
+          )
+          expect(result.failures, `live = ${live}`).to.include(
+            "the hand-off reserve gate would be exceeded"
+          )
+        }
+      })
+    })
+
+    context("read handles", () => {
+      it("should expose the live wallet count and the reserve through the service", async () => {
+        const reservations = mockReservations as unknown as Reservations
+
+        mockReservations.liveWallets = 3
+        mockReservations.handoffReserveWallets = 2
+
+        expect(await reservations.liveWalletsCount()).to.equal(3)
+        expect(await reservations.reservationHandoffReserveWallets()).to.equal(2)
       })
     })
   })

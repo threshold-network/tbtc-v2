@@ -254,6 +254,13 @@ export const reservationBridgeAbiFragments: AbiFragment[] = [
   },
   {
     type: "function",
+    name: "reservationHandoffReserveWallets",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ internalType: "uint32", name: "reserves", type: "uint32" }],
+  },
+  {
+    type: "function",
     name: "activeReservationsCount",
     stateMutability: "view",
     inputs: [],
