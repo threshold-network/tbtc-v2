@@ -46,7 +46,8 @@ contract TestReservation {
         uint64 maxReservationsAmountPerWallet,
         uint64 reservationMaxSingleAmount,
         uint32 maxActiveReservations,
-        uint32 maxThirdPartyReanchorHoldsPerWallet
+        uint32 maxThirdPartyReanchorHoldsPerWallet,
+        uint32 handoffReserveWallets
     );
     event ReservationOccupancyChanged(uint32 activeReservationsCount);
     event WalletMovingFunds(
@@ -116,6 +117,9 @@ contract TestReservation {
 
     function setMaxActiveReservations(uint32 count) external {
         state.maxActiveReservations = count;
+    }
+    function setHandoffReserveWallets(uint32 count) external {
+        state.handoffReserveWallets = count;
     }
 
     function setReservationTotalAmount(uint64 amount) external {
@@ -593,14 +597,16 @@ contract TestReservation {
         uint64 maxReservationsAmountPerWallet,
         uint64 reservationMaxSingleAmount,
         uint32 maxActiveReservations,
-        uint32 maxThirdPartyReanchorHoldsPerWallet
+        uint32 maxThirdPartyReanchorHoldsPerWallet,
+        uint32 handoffReserveWallets
     ) external {
         Reservation.updateReservationCaps(
             state,
             maxReservationsAmountPerWallet,
             reservationMaxSingleAmount,
             maxActiveReservations,
-            maxThirdPartyReanchorHoldsPerWallet
+            maxThirdPartyReanchorHoldsPerWallet,
+            handoffReserveWallets
         );
     }
 

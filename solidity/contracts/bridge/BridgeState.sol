@@ -494,6 +494,17 @@ library BridgeState {
         // blocked by the cap. `0` means third parties may not hold re-anchor
         // capacity at all (privileged callers only).
         uint32 maxThirdPartyReanchorHoldsPerWallet;
+        // Number of Live wallets held back from acceptance capacity by the
+        // hand-off reserve gate in `Reservation.reserveAcceptanceCapacity`:
+        // after every acceptance, any `handoffReserveWallets` Live wallets
+        // may retire together and all open positions still fit on the
+        // remaining Live wallets within `maxReservationsPerWallet`. Must be
+        // at least one, so a retiring wallet's reservation can always move;
+        // enforced by `Reservation.updateReservationCaps`. Packed into the
+        // free bytes of the same slot as `maxThirdPartyReanchorHoldsPerWallet`
+        // (both are 4 bytes; slot 39 has 24 free bytes), leaving no slot
+        // shift and no new `__gap` spend.
+        uint32 handoffReserveWallets;
         // Per-target-wallet count of pending third-party re-anchor holds:
         // one slot each, incremented when a non-privileged
         // `requestReservationReanchor` reserves a target wallet's capacity
@@ -519,7 +530,9 @@ library BridgeState {
         // `pendingThirdPartyReanchorHolds` into the gap (two slots), leaving
         // 37 slots as the shared budget for all future Bridge upgrades, not
         // reserved for reservations specifically - a later unrelated PR
-        // should not assume it can spend the rest.
+        // should not assume it can spend the rest. `handoffReserveWallets`
+        // is packed into the free bytes of `maxThirdPartyReanchorHoldsPerWallet`'s
+        // slot and spends none of that budget.
         // slither-disable-next-line unused-state
         uint256[37] __gap;
     }

@@ -187,7 +187,8 @@ contract ReservationRouter is Governable, Initializable {
         uint64 maxReservationsAmountPerWallet,
         uint64 reservationMaxSingleAmount,
         uint32 maxActiveReservations,
-        uint32 maxThirdPartyReanchorHoldsPerWallet
+        uint32 maxThirdPartyReanchorHoldsPerWallet,
+        uint32 handoffReserveWallets
     );
 
     event ReservationOccupancyChanged(uint32 activeReservationsCount);
@@ -428,12 +429,12 @@ contract ReservationRouter is Governable, Initializable {
 
     /// @notice Updates the amount-denominated reservation caps (per-wallet
     ///         total anchor amount and single-reservation maximum), the
-    ///         global open-position occupancy cap, and the per-target
-    ///         third-party re-anchor hold cap. A zero amount-cap value
-    ///         disables that amount cap. `maxActiveReservations` must be
-    ///         greater than zero — it is the milestone 1 launch gate.
-    ///         Caps are checked and reserved at request/authorization time,
-    ///         never at proof time.
+    ///         global open-position occupancy cap, the per-target
+    ///         third-party re-anchor hold cap, and the hand-off reserve.
+    ///         A zero amount-cap value disables that amount cap.
+    ///         `maxActiveReservations` must be greater than zero — it is
+    ///         the milestone 1 launch gate. Caps are checked and reserved
+    ///         at request/authorization time, never at proof time.
     /// @param maxReservationsAmountPerWallet New cap on the total satoshi
     ///        amount of anchors a single wallet can custody.
     /// @param reservationMaxSingleAmount New cap on the satoshi amount of
@@ -445,19 +446,24 @@ contract ReservationRouter is Governable, Initializable {
     ///        the number of concurrently pending third-party re-anchor
     ///        holds. Zero means third parties may not hold re-anchor
     ///        capacity at all (privileged callers only).
+    /// @param handoffReserveWallets New number of Live wallets held back
+    ///        from acceptance capacity by the hand-off reserve gate. Must
+    ///        be at least one.
     /// @dev Requirements:
     ///      - The caller must be the governance.
     function updateReservationCaps(
         uint64 maxReservationsAmountPerWallet,
         uint64 reservationMaxSingleAmount,
         uint32 maxActiveReservations,
-        uint32 maxThirdPartyReanchorHoldsPerWallet
+        uint32 maxThirdPartyReanchorHoldsPerWallet,
+        uint32 handoffReserveWallets
     ) external onlyGovernance {
         self.updateReservationCaps(
             maxReservationsAmountPerWallet,
             reservationMaxSingleAmount,
             maxActiveReservations,
-            maxThirdPartyReanchorHoldsPerWallet
+            maxThirdPartyReanchorHoldsPerWallet,
+            handoffReserveWallets
         );
     }
 
@@ -479,6 +485,17 @@ contract ReservationRouter is Governable, Initializable {
         maxActiveReservations = self.maxActiveReservations;
         maxThirdPartyReanchorHoldsPerWallet =
             self.maxThirdPartyReanchorHoldsPerWallet;
+    }
+
+    /// @notice Returns the number of Live wallets held back from
+    ///         acceptance capacity by the hand-off reserve gate: after
+    ///         every acceptance, any `handoffReserveWallets` Live wallets
+    ///         may retire together and all open positions still fit on
+    ///         the remaining Live wallets within the per-wallet count
+    ///         cap. Set by `updateReservationCaps`; always at least one.
+    /// @return The hand-off reserve in Live wallets.
+    function reservationHandoffReserveWallets() external view returns (uint32) {
+        return self.handoffReserveWallets;
     }
 
     /// @notice Returns the number of pending third-party re-anchor holds

@@ -403,7 +403,8 @@ library Reservation {
         uint64 maxReservationsAmountPerWallet,
         uint64 reservationMaxSingleAmount,
         uint32 maxActiveReservations,
-        uint32 maxThirdPartyReanchorHoldsPerWallet
+        uint32 maxThirdPartyReanchorHoldsPerWallet,
+        uint32 handoffReserveWallets
     );
 
     event ReservationRetryCreditMinted(uint256 indexed reservationKey);
@@ -731,10 +732,16 @@ library Reservation {
     ///      - At least one integer timestamp must remain between now and the
     ///        action-timeout safety margin, so every created action has a
     ///        proposal the `WalletProposalValidator` can sign,
-    ///      - The target wallet's reservation-count capacity must allow the
-    ///        move; the capacity is reserved by this call and released if
-    ///        the authorization times out,
-    ///      - The target wallet's amount capacity must allow the move.
+    ///      - For a non-privileged caller, the target wallet's pending
+    ///        third-party re-anchor hold count must be below the cap,
+    ///      - The target wallet's reservation-count and amount capacity
+    ///        must allow the move for third-party requests and for
+    ///        governance rotations off a Live source; the capacity is
+    ///        reserved by this call and released if the authorization
+    ///        times out. A privileged request from a MovingFunds/Closing
+    ///        source (the hand-off path) skips both caps: a retirement
+    ///        must stay possible even when the target's slots are
+    ///        saturated.
     /// @dev Re-anchor is intentionally unbounded in time in milestone 1,
     ///      with no dissolution path available yet. Milestone 2 must
     ///      decide whether to reintroduce a time-based eligibility gate on
@@ -877,30 +884,48 @@ library Reservation {
 
         // Reserve the target wallet's count and amount capacity; the
         // source wallet's are released at settlement (or kept on timeout).
+        // A privileged request from a retiring source — governance, the
+        // reservation owner, an SPV maintainer, or a proven source-wallet
+        // member — skips the target's per-wallet caps: the hand-off must
+        // stay possible even when the target's own slots are saturated,
+        // otherwise an anchored source wallet could never retire. Third-
+        // party requests and governance rotations off a Live source keep
+        // both caps. The counts and amounts are added on every path.
         {
-            uint32 targetCount = self
-                .walletReservationInfo[targetWalletPubKeyHash]
-                .count +
-                1;
-            require(
-                targetCount <= self.maxReservationsPerWallet,
-                "Wallet reservations cap exceeded"
-            );
-            self.walletReservationInfo[targetWalletPubKeyHash].count =
-                targetCount;
-        }
-        {
-            uint64 targetAmount = self
-                .walletReservationInfo[targetWalletPubKeyHash]
-                .amount +
-                anchorAmount;
-            require(
-                self.maxReservationsAmountPerWallet == 0 ||
-                    targetAmount <= self.maxReservationsAmountPerWallet,
-                "Wallet reserved amount cap exceeded"
-            );
-            self.walletReservationInfo[targetWalletPubKeyHash].amount =
-                targetAmount;
+            Wallets.WalletState sourceState = self
+                .registeredWallets[reservation.walletPubKeyHash]
+                .state;
+            bool skipTargetCaps =
+                isPrivileged && sourceState != Wallets.WalletState.Live;
+            {
+                uint32 targetCount = self
+                    .walletReservationInfo[targetWalletPubKeyHash]
+                    .count +
+                    1;
+                if (!skipTargetCaps) {
+                    require(
+                        targetCount <= self.maxReservationsPerWallet,
+                        "Wallet reservations cap exceeded"
+                    );
+                }
+                self.walletReservationInfo[targetWalletPubKeyHash].count =
+                    targetCount;
+            }
+            {
+                uint64 targetAmount = self
+                    .walletReservationInfo[targetWalletPubKeyHash]
+                    .amount +
+                    anchorAmount;
+                if (!skipTargetCaps) {
+                    require(
+                        self.maxReservationsAmountPerWallet == 0 ||
+                            targetAmount <= self.maxReservationsAmountPerWallet,
+                        "Wallet reserved amount cap exceeded"
+                    );
+                }
+                self.walletReservationInfo[targetWalletPubKeyHash].amount =
+                    targetAmount;
+            }
         }
 
         reservation.state = ReservationState.ActionPending;
@@ -996,6 +1021,11 @@ library Reservation {
     ///         acceptance generation, enforcing every cap and emitting the
     ///         occupancy signal. Mirrors `releaseAcceptanceCapacity`; the
     ///         settlement releases the miner-fee delta.
+    /// @dev Additionally enforces the hand-off reserve gate: after this
+    ///      acceptance, any `handoffReserveWallets` Live wallets may retire
+    ///      together and every open position still fits on the remaining
+    ///      Live wallets within the per-wallet count cap. A gate breach
+    ///      reverts with "Hand-off reserve exceeded".
     function reserveAcceptanceCapacity(
         BridgeState.Storage storage self,
         bytes20 walletPubKeyHash,
@@ -1006,6 +1036,23 @@ library Reservation {
             "Active reservations cap exceeded"
         );
         self.activeReservationsCount += 1;
+
+        // Hand-off reserve gate: keep enough Live wallets free to retire
+        // together so that, whatever `handoffReserveWallets` reserves, all
+        // open positions still fit on the remaining Live wallets within
+        // the per-wallet count cap. A breach turns a future retirement
+        // cliff into a revert now, at acceptance time.
+        uint32 liveWalletsCount = self.liveWalletsCount;
+        uint32 handoffReserveWallets = self.handoffReserveWallets;
+        uint256 activeAfterThis = self.activeReservationsCount;
+        uint256 remaining = liveWalletsCount > handoffReserveWallets
+            ? liveWalletsCount - handoffReserveWallets
+            : 0;
+        require(
+            activeAfterThis <= remaining * self.maxReservationsPerWallet,
+            "Hand-off reserve exceeded"
+        );
+
         emit ReservationOccupancyChanged(self.activeReservationsCount);
 
         uint64 newTotal = self.reservationTotalAmount + amount;
@@ -1471,14 +1518,18 @@ library Reservation {
         );
     }
 
-    /// @notice Updates the amount-denominated reservation caps and the
-    ///         global open-position occupancy cap. Amount caps are checked
-    ///         and reserved at request/authorization time, never at proof
-    ///         time; a zero amount-cap value disables that amount cap.
-    ///         `maxActiveReservations` must be greater than zero — it is
-    ///         the milestone 1 launch gate.
+    /// @notice Updates the amount-denominated reservation caps, the
+    ///         global open-position occupancy cap, and the hand-off
+    ///         reserve. Amount caps are checked and reserved at
+    ///         request/authorization time, never at proof time; a zero
+    ///         amount-cap value disables that amount cap. `maxActiveReservations`
+    ///         must be greater than zero — it is the milestone 1 launch
+    ///         gate. `handoffReserveWallets` must be at least one: every
+    ///         Live wallet may retire, so the reserve gate must always
+    ///         hold back at least one wallet.
     /// @dev Requirements:
     ///      - `maxActiveReservations` must be greater than zero,
+    ///      - `handoffReserveWallets` must be greater than zero,
     ///      - Stored `reservationMaxTotalAmount` must not exceed the slot
     ///        capacity `maxActiveReservations * reservationMaxSingleAmount`
     ///        (skipped when either operand is zero/disabled).
@@ -1496,11 +1547,16 @@ library Reservation {
         uint64 maxReservationsAmountPerWallet,
         uint64 reservationMaxSingleAmount,
         uint32 maxActiveReservations,
-        uint32 maxThirdPartyReanchorHoldsPerWallet
+        uint32 maxThirdPartyReanchorHoldsPerWallet,
+        uint32 handoffReserveWallets
     ) external {
         require(
             maxActiveReservations > 0,
             "Active reservations cap must be greater than zero"
+        );
+        require(
+            handoffReserveWallets > 0,
+            "Hand-off reserve must be greater than zero"
         );
 
         // Decision 1 (option 2): mirror of the invariant enforced in
@@ -1535,12 +1591,14 @@ library Reservation {
         // unaffected.
         self.maxThirdPartyReanchorHoldsPerWallet =
             maxThirdPartyReanchorHoldsPerWallet;
+        self.handoffReserveWallets = handoffReserveWallets;
 
         emit ReservationCapsUpdated(
             maxReservationsAmountPerWallet,
             reservationMaxSingleAmount,
             maxActiveReservations,
-            maxThirdPartyReanchorHoldsPerWallet
+            maxThirdPartyReanchorHoldsPerWallet,
+            handoffReserveWallets
         );
     }
 }

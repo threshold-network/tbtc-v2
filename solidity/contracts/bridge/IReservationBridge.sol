@@ -242,11 +242,15 @@ interface IReservationBridge {
     ///        the number of concurrently pending third-party re-anchor
     ///        holds; zero means third parties may not hold re-anchor
     ///        capacity at all (privileged callers only).
+    /// @param handoffReserveWallets New number of Live wallets held back
+    ///        from acceptance capacity by the hand-off reserve gate;
+    ///        must be at least one.
     event ReservationCapsUpdated(
         uint64 maxReservationsAmountPerWallet,
         uint64 reservationMaxSingleAmount,
         uint32 maxActiveReservations,
-        uint32 maxThirdPartyReanchorHoldsPerWallet
+        uint32 maxThirdPartyReanchorHoldsPerWallet,
+        uint32 handoffReserveWallets
     );
 
     /// @notice Emitted whenever the global count of open reservation
@@ -294,12 +298,16 @@ interface IReservationBridge {
     ///      exempt from the cap. Callable only by Bridge governance when
     ///      the source wallet is still Live (an approved rotation).
     ///      Reverts unless: the reservation is Active; the target wallet is
-    ///      Live and different from the source; the target wallet's
-    ///      reservation-count and amount capacity allow the move; a valid
-    ///      signing window remains before the action-timeout safety margin;
-    ///      and, for a non-privileged caller, the target wallet's pending
-    ///      third-party re-anchor hold count is below the cap. A non-
-    ///      privileged call additionally reverts if the reservation's
+    ///      Live and different from the source; for a non-privileged caller,
+    ///      the target wallet's pending third-party re-anchor hold count is
+    ///      below the cap; and a valid signing window remains before the
+    ///      action-timeout safety margin. The target wallet's
+    ///      reservation-count and amount capacity must allow the move for
+    ///      third-party requests and for governance rotations off a Live
+    ///      source; a privileged request from a MovingFunds/Closing source
+    ///      (the hand-off path) skips both caps so a retirement stays
+    ///      possible even when the target's slots are saturated. A
+    ///      non-privileged call additionally reverts if the reservation's
     ///      re-anchor cooldown has not elapsed. A caller passing a
     ///      non-empty `walletMembersIDs` proof that fails validation
     ///      reverts. See
@@ -503,20 +511,22 @@ interface IReservationBridge {
 
     /// @notice Updates the amount-denominated reservation caps (per-wallet
     ///         total anchor amount and single-reservation maximum), the
-    ///         global open-position occupancy cap, and the per-target
-    ///         third-party re-anchor hold cap. Caps are checked and
-    ///         reserved at request/authorization time, never at proof time.
+    ///         global open-position occupancy cap, the per-target
+    ///         third-party re-anchor hold cap, and the hand-off reserve.
+    ///         Caps are checked and reserved at request/authorization
+    ///         time, never at proof time.
     /// @dev Caller must be Bridge governance. Reverts unless
     ///      `maxActiveReservations` is greater than zero (the milestone 1
-    ///      launch gate) and the stored `reservationMaxTotalAmount` does
-    ///      not exceed the slot capacity `maxActiveReservations *
+    ///      launch gate), `handoffReserveWallets` is greater than zero,
+    ///      and the stored `reservationMaxTotalAmount` does not exceed
+    ///      the slot capacity `maxActiveReservations *
     ///      reservationMaxSingleAmount` (skipped when either operand is
     ///      zero/disabled). See `Reservation.updateReservationCaps`.
     /// @param maxReservationsAmountPerWallet New cap on the total satoshi
     ///        amount of anchors a single wallet can custody; zero disables
     ///        the cap.
-    /// @param reservationMaxSingleAmount New cap on the satoshi amount of a
-    ///        single reservation; zero disables the cap.
+    /// @param reservationMaxSingleAmount New cap on the satoshi amount of
+    ///        a single reservation; zero disables the cap.
     /// @param maxActiveReservations New global cap on open reservation
     ///        positions (pending acceptances reserved against it). Must be
     ///        greater than zero. Milestone 1 launch gate.
@@ -524,11 +534,15 @@ interface IReservationBridge {
     ///        the number of concurrently pending third-party re-anchor
     ///        holds. Zero means third parties may not hold re-anchor
     ///        capacity at all (privileged callers only).
+    /// @param handoffReserveWallets New number of Live wallets held back
+    ///        from acceptance capacity by the hand-off reserve gate.
+    ///        Must be at least one.
     function updateReservationCaps(
         uint64 maxReservationsAmountPerWallet,
         uint64 reservationMaxSingleAmount,
         uint32 maxActiveReservations,
-        uint32 maxThirdPartyReanchorHoldsPerWallet
+        uint32 maxThirdPartyReanchorHoldsPerWallet,
+        uint32 handoffReserveWallets
     ) external;
 
     /// @notice Returns the reservation caps: per-wallet anchor amount cap,
@@ -554,6 +568,18 @@ interface IReservationBridge {
             uint32 maxActiveReservations,
             uint32 maxThirdPartyReanchorHoldsPerWallet
         );
+
+    /// @notice Returns the number of Live wallets held back from
+    ///         acceptance capacity by the hand-off reserve gate: after
+    ///         every acceptance, any `handoffReserveWallets` Live wallets
+    ///         may retire together and all open positions still fit on
+    ///         the remaining Live wallets within the per-wallet count
+    ///         cap. Set by `updateReservationCaps`; always at least one.
+    /// @return The hand-off reserve in Live wallets.
+    function reservationHandoffReserveWallets()
+        external
+        view
+        returns (uint32);
 
     /// @notice Returns the number of pending third-party re-anchor holds
     ///         currently reserved against the given target wallet.
