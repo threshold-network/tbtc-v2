@@ -724,6 +724,47 @@ describe("ReservationVault", () => {
       })
     })
 
+    context("when the vault balance covers only part of the debt", () => {
+      // The repaid part must not divide the debt evenly: then a full
+      // repayment and a partial one leave different remainders.
+      const debtSat = 500_000
+      const availableFeeSat = 200_000
+
+      before(async () => {
+        await createSnapshot()
+
+        await vault.connect(bridge.wallet).financeInKindFee(debtSat)
+
+        const initiationFeeBps = await vault.initiationFeeBps()
+        const depositSat = Math.ceil(
+          (availableFeeSat * 10000) / Number(initiationFeeBps)
+        )
+        await bank
+          .connect(bridge.wallet)
+          .increaseBalanceAndCall(vault.target, [account2.address], [depositSat])
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should reduce the debt by exactly the repaid amount", async () => {
+        const repaidSat =
+          (await tbtc.balanceOf(vault.target)) / satsToTbtc(1)
+        expect(repaidSat).to.be.greaterThan(0n)
+        expect(repaidSat).to.be.lessThan(BigInt(debtSat))
+
+        const tx = await vault.sweepFees(account1.address)
+
+        expect(await vault.inKindFeeDebtSat()).to.equal(
+          BigInt(debtSat) - repaidSat
+        )
+        await expect(tx)
+          .to.emit(vault, "InKindFeeDebtRepaid")
+          .withArgs(vault.target, repaidSat)
+      })
+    })
+
     context("when debt is outstanding and nothing remains to sweep", () => {
       const debtSat = 500_000
       const reserveTargetSat = 1_000_000
