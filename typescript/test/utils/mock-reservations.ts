@@ -54,6 +54,8 @@ export class MockReservations implements Reservations {
     txMaxFee: BigNumber
     revealAheadPeriodSeconds: number
   }
+  liveWallets: number
+  handoffReserveWallets: number
 
   // --- recorded interactions ----------------------------------------
   releaseCalls: Array<{ depositKey: BigNumber; vault: ChainIdentifier }> = []
@@ -91,6 +93,8 @@ export class MockReservations implements Reservations {
       txMaxFee: BigNumber.from(20000),
       revealAheadPeriodSeconds: 1296000,
     }
+    this.liveWallets = 4
+    this.handoffReserveWallets = 2
   }
 
   /**
@@ -211,8 +215,16 @@ export class MockReservations implements Reservations {
     return this.caps
   }
 
+  async reservationHandoffReserveWallets(): Promise<number> {
+    return this.handoffReserveWallets
+  }
+
   async activeReservationsCount(): Promise<ReservationOccupancy> {
     return this.occupancy
+  }
+
+  async liveWalletsCount(): Promise<number> {
+    return this.liveWallets
   }
 
   async walletReservationsAmount(walletPublicKeyHash: Hex): Promise<BigNumber> {

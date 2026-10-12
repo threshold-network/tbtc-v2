@@ -329,6 +329,16 @@ export interface Reservations {
   reservationCaps(): Promise<ReservationCaps>
 
   /**
+   * Gets the number of Live wallets held back from acceptance capacity by
+   * the hand-off reserve gate: after every acceptance, this many Live
+   * wallets may retire together and all open positions still fit on the
+   * remaining Live wallets within the per-wallet count cap. Always at
+   * least one.
+   * @returns The hand-off reserve in Live wallets.
+   */
+  reservationHandoffReserveWallets(): Promise<number>
+
+  /**
    * Gets the global reservation occupancy: the count of active
    * reservations and its governance cap.
    * @returns On-chain global reservation occupancy.
@@ -373,6 +383,12 @@ export interface Reservations {
    * @returns Number of pending holds.
    */
   pendingThirdPartyReanchorHolds(walletPublicKeyHash: Hex): Promise<number>
+
+  /**
+   * Gets the current count of wallets in the Live state.
+   * @returns The number of Live wallets.
+   */
+  liveWalletsCount(): Promise<number>
 
   /**
    * Gets whether the deposit with the given key was revealed as reserved

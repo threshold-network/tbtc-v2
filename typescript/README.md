@@ -150,7 +150,21 @@ Notes for integrators:
   `amount-below-minimum`, `amount-below-dust`, `amount-above-single-cap`,
   `global-amount-cap-exceeded`, `wallet-not-live`,
   `wallet-count-cap-exceeded`, `wallet-amount-cap-exceeded`,
-  `global-count-cap-exceeded`, `no-free-wallet`.
+  `global-count-cap-exceeded`, `handoff-reserve-exceeded`, `no-free-wallet`.
+- **Hand-off reserve.** The Bridge holds back a governance-configured
+  number of Live wallets from acceptance capacity (`reservationHandoffReserveWallets`).
+  An acceptance is admitted only while
+  `activeReservationsCount + 1 <= max(0, liveWalletsCount - handoffReserveWallets) * maxReservationsPerWallet`;
+  otherwise the on-chain request reverts with "Hand-off reserve exceeded".
+  The gate checks **admission at acceptance time only**: it does not
+  reserve a specific wallet or slot, and neither `checkReserveFeasibility`
+  nor `checkAcceptancePreflight` can make the funding or the acceptance
+  itself race-free. A check that passes can be overtaken by concurrent
+  acceptances, rotating or retiring wallets, late proof delivery or a
+  cap change. `handoff-reserve-exceeded` (pre-funding) and the matching
+  failure entry (acceptance preflight) report that the next acceptance
+  would be refused by the gate even though the ordinary global and
+  per-wallet caps still have room.
 - **Release to pool.** `releaseToPool` is only valid for a reserved
   deposit that never received an acceptance request; the vault target is
   the zero address or a trusted vault other than the reservation vault.
