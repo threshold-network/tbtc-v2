@@ -408,6 +408,23 @@ library Reservation {
 
     event ReservationRetryCreditMinted(uint256 indexed reservationKey);
     event ReservedDepositMarkedStale(uint256 indexed depositKey);
+
+    /// @notice Emitted when the deposit's depositor releases a revealed
+    ///         reserved deposit that never received an acceptance request
+    ///         back to the ordinary deposit pool, so an ordinary sweep can
+    ///         pick it up and credit the chosen vault. The full
+    ///         `pendingReservedDeposit` record is deleted and the deposit is
+    ///         re-routed to `vault` (or to the zero address).
+    /// @param depositKey The deposit key of the released reserved deposit.
+    /// @param depositor The deposit's depositor; equal to
+    ///        `msg.sender` of the call.
+    /// @param vault The target vault for the released deposit, or the zero
+    ///        address for a plain pool sweep.
+    event ReservedDepositReleasedToPool(
+        uint256 indexed depositKey,
+        address indexed depositor,
+        address vault
+    );
     // Emitted whenever the global active-reservation count changes, letting
     // indexers track occupancy against maxActiveReservations from logs alone.
     // Declared here and in `ReservationProofs` (same signature, same topic0)
@@ -1314,7 +1331,126 @@ library Reservation {
         emit ReservedDepositMarkedStale(depositKey);
     }
 
-    /// @notice Validates the Decision-1 relational invariant between the
+    /// @notice Lets the depositor hand a revealed reserved deposit that
+    ///         never received an acceptance request back to the ordinary
+    ///         deposit pool: the reserved mark is cleared, the deposit is
+    ///         re-routed to the chosen vault (or to the zero address), and
+    ///         an ordinary sweep can settle it.
+    /// @dev Reverts unless:
+    ///      - the deposit is revealed and not swept,
+    ///      - the caller is the deposit's own depositor,
+    ///      - the deposit is currently a pending reserved deposit
+    ///        (`isReserved` and a non-zero designated wallet, so a
+    ///        stale-marked entry is rejected),
+    ///      - no acceptance or re-anchor request was ever made for the
+    ///        deposit (the position's `requestNonce` is still zero): once
+    ///        the wallet may have signed an anchor for an acceptance
+    ///        generation, a late proof of that anchor must still settle,
+    ///        and a pool sweep of the already-spent input is impossible,
+    ///      - the deposit's snapshotted refund deadline still leaves the
+    ///        24-hour `DEPOSIT_REFUND_SAFETY_MARGIN` open in the future, so
+    ///        an ordinary sweep can be proposed and validated now (this is
+    ///        the same margin the `WalletProposalValidator` enforces on
+    ///        sweep proposal validation),
+    ///      - the target is the zero address, or a trusted vault that is
+    ///        not the reservation vault itself. A pooled sweep into the
+    ///        reservation vault would let
+    ///        `ReservationVault.receiveBalanceIncrease` mint TBTC for any
+    ///        credit it receives, so the re-route is refused.
+    ///      Effects: deletes the `pendingReservedDeposit` record (so
+    ///      `isReservedDeposit` and `reservedDepositWallet` both read zero,
+    ///      and ordinary sweeps / the stale and acceptance notification
+    ///      paths all reject the deposit), decrements
+    ///      `pendingReservedDeposits`, and writes the new vault on
+    ///      `deposits[key].vault`. The `deposit.treasuryFee` recorded at
+    ///      reveal (the rebate was skipped for reserved deposits) is now
+    ///      charged by an ordinary sweep; no rebate is added or applied
+    ///      here.
+    /// @param depositKey The deposit key of the reserved deposit to release.
+    /// @param vault The vault to re-route the deposit to, or the zero
+    ///        address for a plain pool sweep. MUST NOT be the reservation
+    ///        vault.
+    function releaseReservedDepositToPool(
+        BridgeState.Storage storage self,
+        uint256 depositKey,
+        address vault
+    ) external {
+        Deposit.DepositRequest storage deposit = self.deposits[depositKey];
+        require(deposit.revealedAt != 0, "Deposit not revealed");
+        require(deposit.sweptAt == 0, "Deposit already swept");
+        require(
+            msg.sender == deposit.depositor,
+            "Caller is not the deposit's depositor"
+        );
+
+        BridgeState.PendingReservedDeposit storage pendingDeposit = self
+            .pendingReservedDeposit[depositKey];
+        require(
+            pendingDeposit.isReserved,
+            "Deposit was not revealed as reserved"
+        );
+        require(
+            pendingDeposit.walletPubKeyHash != bytes20(0),
+            "Not a pending reserved deposit"
+        );
+
+        // The `requestNonce` of the reservation position is the monotonic
+        // acceptance/re-anchor generation counter, starting at zero and
+        // incremented on every action request. A non-zero value means an
+        // acceptance was requested at some point - and the wallet may have
+        // signed the anchor for that generation, which a late proof can
+        // still settle, while a pool sweep of an already-spent input is
+        // impossible. Refuse the release.
+        require(
+            self.reservations[depositKey].requestNonce == 0,
+            "Acceptance was already requested"
+        );
+
+        // The validator requires `block.timestamp < refundDeadline - MARGIN`
+        // for an ordinary sweep proposal to validate. The same margin is
+        // enforced here at release time so the deposit can be picked up by
+        // a normal sweep now. `pendingDeposit.refundDeadline` is the exact
+        // deadline captured at reveal; the refund safety margin comes from
+        // `WalletProposalValidatorConstants.DEPOSIT_REFUND_SAFETY_MARGIN`
+        // (24 hours), the same value the validator uses.
+        require(
+            pendingDeposit.refundDeadline >
+                WalletProposalValidatorConstants
+                    .DEPOSIT_REFUND_SAFETY_MARGIN &&
+                /* solhint-disable-next-line not-rely-on-time */
+                block.timestamp <
+                    uint256(pendingDeposit.refundDeadline) -
+                        WalletProposalValidatorConstants
+                            .DEPOSIT_REFUND_SAFETY_MARGIN,
+            "Deposit refund safety margin is not preserved"
+        );
+
+        require(
+            vault == address(0) ||
+                (self.isVaultTrusted[vault] &&
+                    vault != self.reservationVault),
+            "Vault must be the zero address or a trusted vault other than the reservation vault"
+        );
+
+        // Reset every field of the `pendingReservedDeposit` record. The
+        // record is stored as a mapping value: Solidity 0.8 forbids `delete`
+        // on a struct storage pointer, so the individual fields are cleared
+        // explicitly. `isReserved` becomes false, `walletPubKeyHash` zero
+        // (so `isReservedDeposit` and `reservedDepositWallet` both read
+        // false/zero), and the refund-deadline fields are zeroed as well.
+        pendingDeposit.isReserved = false;
+        pendingDeposit.walletPubKeyHash = bytes20(0);
+        pendingDeposit.refundDeadline = 0;
+        pendingDeposit.refundDeadlineValidated = false;
+        self.pendingReservedDeposits -= 1;
+        deposit.vault = vault;
+
+        emit ReservedDepositReleasedToPool(
+            depositKey,
+            deposit.depositor,
+            vault
+        );
+    }
     ///         total amount cap and slot capacity.
     /// @dev Requires that `reservationMaxTotalAmount` does not exceed the
     ///      worst-case slot capacity `maxActiveReservations * reservationMaxSingleAmount`.

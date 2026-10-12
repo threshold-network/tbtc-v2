@@ -176,6 +176,23 @@ interface IReservationBridge {
     ///        stale.
     event ReservedDepositMarkedStale(uint256 indexed depositKey);
 
+    /// @notice Emitted when the deposit's depositor releases a revealed
+    ///         reserved deposit that never received an acceptance request
+    ///         back to the ordinary deposit pool, so an ordinary sweep can
+    ///         pick it up and credit the chosen vault. The full
+    ///         `pendingReservedDeposit` record is deleted and the deposit
+    ///         is re-routed to `vault` (or to the zero address).
+    /// @param depositKey The deposit key of the released reserved deposit.
+    /// @param depositor The deposit's depositor; equal to `msg.sender` of
+    ///        the call.
+    /// @param vault The target vault for the released deposit, or the zero
+    ///        address for a plain pool sweep.
+    event ReservedDepositReleasedToPool(
+        uint256 indexed depositKey,
+        address indexed depositor,
+        address vault
+    );
+
     /// @notice Emitted when an idle reservation custodied by a terminated,
     ///         closed, or dissolution-eligible closing wallet is stranded:
     ///         the position closes and capacity is released while the
@@ -486,6 +503,28 @@ interface IReservationBridge {
     ///      `Reservation.forceStaleReservedDeposit`.
     /// @param depositKey The deposit key of the reserved deposit.
     function forceStaleReservedDeposit(uint256 depositKey) external;
+
+    /// @notice Depositor-only release of a revealed reserved deposit that
+    ///         never received an acceptance request, returning it to the
+    ///         ordinary deposit pool so a normal sweep can pick it up.
+    /// @dev Caller must be the deposit's own depositor. Reverts unless: the
+    ///      deposit is revealed to the reservation vault and not swept; the
+    ///      deposit is currently a pending reserved deposit (revealed,
+    ///      reserved, and not stale); no acceptance or re-anchor request
+    ///      was ever made for the deposit (its `requestNonce` is still
+    ///      zero); the snapshotted refund deadline still leaves the
+    ///      24-hour `DEPOSIT_REFUND_SAFETY_MARGIN` open so an ordinary
+    ///      sweep can be proposed and validated now; and `vault` is the
+    ///      zero address or a trusted vault that is not the reservation
+    ///      vault itself (a pooled sweep into the reservation vault would
+    ///      let `ReservationVault.receiveBalanceIncrease` mint TBTC for
+    ///      any credit it receives). See `Reservation.releaseReservedDepositToPool`.
+    /// @param depositKey The deposit key of the reserved deposit to release.
+    /// @param vault The vault to re-route the deposit to, or the zero
+    ///        address for a plain pool sweep. MUST NOT be the reservation
+    ///        vault.
+    function releaseReservedDepositToPool(uint256 depositKey, address vault)
+        external;
 
     /// @notice Marks a reservation custodied by a terminated or closed
     ///         wallet as stranded, or one custodied by a closing wallet once
