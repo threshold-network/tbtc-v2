@@ -3586,7 +3586,7 @@ describe("WalletProposalValidator", () => {
         const safetyMarginViolatedAt = await lastBlockTime()
         const depositRefundableAt =
           safetyMarginViolatedAt +
-          (await walletProposalValidator.DEPOSIT_REFUND_SAFETY_MARGIN())
+          Number(await walletProposalValidator.DEPOSIT_REFUND_SAFETY_MARGIN())
         const depositRevealedAt = depositRefundableAt - depositLocktime
 
         deposit = createTestDeposit(
