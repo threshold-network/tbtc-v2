@@ -137,19 +137,19 @@ read-only.
      `depositDustThreshold` (otherwise no reveal fits under the cap);
    - `depositRevealAheadPeriod <= RESERVATION_TERM_SECONDS + 86400`
      (otherwise the refund-deadline window is empty);
-   - `RESERVATION_MAX_ACTIVE` well below `liveWalletsCount ×
-     RESERVATION_MAX_PER_WALLET` (the free slots). A retiring wallet can only
-     close after its anchors move to a Live wallet with a free slot. A
-     re-anchor holds the target slot and keeps the source slot until it
-     settles, and third-party holds and retiring wallets also use up slots.
-     With no free slot, a retiring wallet stays stuck in MovingFunds. Leave
-     room for at least two handoffs;
+   - `RESERVATION_HANDOFF_RESERVE_WALLETS > 0`. Each new acceptance must
+     fit within `(liveWalletsCount - handoffReserveWallets) *
+     maxReservationsPerWallet`, as well as `maxActiveReservations`.
+     The reserve is admission headroom, not a permanently empty wallet.
+     Privileged hand-offs from `MovingFunds` or `Closing` can exceed
+     the target's count and amount caps; third-party requests cannot;
    - `RESERVATION_MAX_TOTAL_AMOUNT_SATS <= RESERVATION_MAX_ACTIVE × RESERVATION_SINGLE_AMOUNT_CAP_SATS`.
 
-   Nothing on-chain checks the first two. Script 98 and the fork dry-run
-   check them (`assertReservedDepositsFeasible`), and script 97 refuses its
-   local test values on live networks. The `cast` calls in step 6 check
-   nothing, so read the live values first:
+   The Bridge checks amount and locktime feasibility when governance
+   writes these values. It checks the Live-wallet reserve at acceptance
+   time. Script 98 checks feasibility before producing calldata, and
+   script 97 refuses its local values on live networks. Read the live
+   values before the ceremony:
 
    ```sh
    cast call $BRIDGE 'depositParameters()(uint64,uint64,uint64,uint32)' --rpc-url $SEPOLIA_RPC_URL
@@ -158,13 +158,14 @@ read-only.
    # 2026-10-09: 4
    ```
 
-   The Sepolia values used in step 6 (feasible against those readings):
-   per-wallet cap 2000000, single cap 2000000, max active 2 (leaves 2 of
-   the 4 slots for handoffs), third-party holds 1, min amount 10000, tx max fee 1000,
-   term 7776000 (90 days), dissolution delay 86400, max total 4000000, max
-   per wallet 1, action timeout 86400, renewal window 86400. Re-check them
-   against the live readings on the day of the ceremony: if
-   `liveWalletsCount` is below 4, lower max active and max total to match.
+   The Sepolia values used in step 6:
+   per-wallet cap 2000000, single cap 2000000, max active 2,
+   third-party holds 1, hand-off reserve 2, min amount 10000,
+   tx max fee 1000, term 7776000 (90 days), dissolution delay 86400,
+   max total 4000000, max per wallet 1, action timeout 86400,
+   renewal window 86400. Four Live wallets give an admission budget of
+   `(4 - 2) * 1 = 2`. If fewer than four remain, stop and review the
+   drill capacity. Do not lower the approved reserve to admit more deposits.
 
 2. **Key check.** The deployer EOA you hold matches the owners found in the
    live-state table (ProxyAdmin owner and BridgeGovernance owner both
@@ -620,8 +621,8 @@ already owned by that EOA).
 Execute, in order, as the deployer/governance EOA (all against `$NEW_GOV`):
 
 ```sh
-# 6.1 begin caps:  (perWalletCap, singleAmount, maxActive, thirdPartyHolds)
-cast send $NEW_GOV 'beginReservationCapsUpdate(uint64,uint64,uint32,uint32)' 2000000 2000000 2 1 \
+# 6.1 begin caps: (perWalletCap, singleAmount, maxActive, thirdPartyHolds, handoffReserveWallets)
+cast send $NEW_GOV 'beginReservationCapsUpdate(uint64,uint64,uint32,uint32,uint32)' 2000000 2000000 2 1 2 \
   --rpc-url $SEPOLIA_RPC_URL --private-key $SEPOLIA_PRIVATE_KEY
 # 6.2 begin parameters: (vault, min, txMaxFee, term, dissolutionDelay, maxTotal, perWallet, actionTimeout, renewalWindow)
 cast send $NEW_GOV 'beginReservationParametersUpdate(address,uint64,uint64,uint32,uint32,uint64,uint32,uint32,uint32)' \
@@ -642,6 +643,8 @@ proxy** — encode against the router ABI and call `$BRIDGE`):
 ```sh
 cast call $BRIDGE 'reservationCaps()(uint64,uint64,uint32,uint32)' --rpc-url $SEPOLIA_RPC_URL
 # -> (2000000, 2000000, 2, 1)
+cast call $BRIDGE 'reservationHandoffReserveWallets()(uint32)' --rpc-url $SEPOLIA_RPC_URL
+# -> 2
 cast call $BRIDGE 'reservationParameters()(address,uint64,uint64,uint32,uint32,uint64,uint32,uint32,uint32,uint32)' --rpc-url $SEPOLIA_RPC_URL
 # -> vault == $VAULT, maxTotalAmount == 4000000, ...
 ```
@@ -845,6 +848,8 @@ Bridge fallback).
 # 12.1 caps
 cast call $BRIDGE 'reservationCaps()(uint64,uint64,uint32,uint32)' --rpc-url $SEPOLIA_RPC_URL
 # -> (2000000, 2000000, 2, 1) — must equal the staged caps
+cast call $BRIDGE 'reservationHandoffReserveWallets()(uint32)' --rpc-url $SEPOLIA_RPC_URL
+# -> 2
 # 12.2 parameters (1st field = $VAULT, 6th = staged max total amount;
 #     10-value tuple per IReservationBridge.reservationParameters)
 cast call $BRIDGE 'reservationParameters()(address,uint64,uint64,uint32,uint32,uint64,uint32,uint32,uint32,uint32)' \

@@ -168,6 +168,7 @@ const SEPOLIA_VALUES = {
   singleAmountCap: 2_000_000n,
   maxActive: 2,
   maxThirdPartyReanchorHolds: 1,
+  handoffReserveWallets: 2,
   minAmount: 10_000n,
   txMaxFee: 1_000n,
   termSeconds: 7_776_000,
@@ -518,11 +519,13 @@ async function routerView(state: RunState, name: string): Promise<eth.Result> {
 async function capsApplied(state: RunState): Promise<boolean> {
   try {
     const r = await routerView(state, "reservationCaps")
+    const reserve = await routerView(state, "reservationHandoffReserveWallets")
     return (
       r[0] === V.perWalletCap &&
       r[1] === V.singleAmountCap &&
       Number(r[2]) === V.maxActive &&
-      Number(r[3]) === V.maxThirdPartyReanchorHolds
+      Number(r[3]) === V.maxThirdPartyReanchorHolds &&
+      Number(reserve[0]) === V.handoffReserveWallets
     )
   } catch {
     return false
@@ -940,7 +943,8 @@ async function prepare(
           V.perWalletCap,
           V.singleAmountCap,
           V.maxActive,
-          V.maxThirdPartyReanchorHolds
+          V.maxThirdPartyReanchorHolds,
+          V.handoffReserveWallets
         )
       )
       const r = await sendStep(state, "10-begin-reservation-parameters", () =>
@@ -1100,6 +1104,9 @@ async function activate(state: RunState, signer: Signer): Promise<boolean> {
     // Step 12: post-activation checks
     const caps = await routerView(state, "reservationCaps")
     const params = await routerView(state, "reservationParameters")
+    const reserve = await routerView(state, "reservationHandoffReserveWallets")
+    if (Number(reserve[0]) !== V.handoffReserveWallets)
+      throw new Error(`hand-off reserve ${reserve[0]} != ${V.handoffReserveWallets}`)
     if (!(await bridge.isVaultTrusted(state.vault)))
       throw new Error("vault not trusted")
     if (params[6] !== 0n)
@@ -1110,6 +1117,7 @@ async function activate(state: RunState, signer: Signer): Promise<boolean> {
       values: {
         reservationCaps: caps.map(String),
         reservationParameters: params.map(String),
+        handoffReserveWallets: Number(reserve[0]),
         router: state.router,
         vaultTrusted: true,
         feeReserveTarget: V.feeReserveTarget,
