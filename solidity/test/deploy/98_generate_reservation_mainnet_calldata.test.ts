@@ -69,6 +69,7 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
     RESERVATION_SINGLE_AMOUNT_CAP_SATS: "100000",
     RESERVATION_MAX_ACTIVE: "5",
     RESERVATION_MAX_THIRD_PARTY_REANCHOR_HOLDS: "1",
+    RESERVATION_HANDOFF_RESERVE_WALLETS: "1",
     RESERVATION_MIN_AMOUNT_SATS: "10000",
     RESERVATION_TX_MAX_FEE_SATS: "1000",
     RESERVATION_TERM_SECONDS: "7776000", // 90 days = MIN_RESERVATION_TERM
@@ -260,6 +261,7 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
       singleAmountCap: BigInt(100_000),
       maxActive: 5,
       maxThirdPartyReanchorHolds: 1,
+      handoffReserveWallets: 1,
       minAmount: BigInt(10_000),
       txMaxFee: BigInt(1_000),
       termSeconds: 7_776_000,
@@ -295,6 +297,7 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
         params.singleAmountCap,
         params.maxActive,
         params.maxThirdPartyReanchorHolds,
+        params.handoffReserveWallets,
       ])
     })
 
@@ -478,6 +481,12 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
       process.env.RESERVATION_ACTION_TIMEOUT_SECONDS = "7200" // exactly the margin
       const { mockHre } = createMockHre()
       await expectRejection(func(mockHre), /ACTION_TIMEOUT_SECONDS/)
+    })
+
+    it("should throw when RESERVATION_HANDOFF_RESERVE_WALLETS is zero", async () => {
+      process.env.RESERVATION_HANDOFF_RESERVE_WALLETS = "0"
+      const { mockHre } = createMockHre()
+      await expectRejection(func(mockHre), /HANDOFF_RESERVE_WALLETS/)
     })
   })
 
