@@ -689,6 +689,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     singleAmountCap: SINGLE_AMOUNT_CAP,
     maxActive: MAX_ACTIVE,
     maxThirdPartyReanchorHolds: MAX_THIRD_PARTY_REANCHOR_HOLDS,
+    handoffReserveWallets: HANDOFF_RESERVE_WALLETS,
     minAmount: RES_MIN_AMOUNT,
     txMaxFee: RES_TX_MAX_FEE,
     termSeconds: RES_TERM_SECONDS,
