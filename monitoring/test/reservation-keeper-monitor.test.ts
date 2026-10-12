@@ -52,12 +52,23 @@ function sampleMetrics(
 
 function monitorFrom(
   text: string,
-  options: { chainTime?: number; maxAge?: number } = {}
+  options: {
+    chainTime?: number
+    maxAge?: number
+    latestTime?: number
+  } = {}
 ): ReservationKeeperMonitor {
+  const latestOptions =
+    options.latestTime === undefined
+      ? {}
+      : { latestBlockTimestamp: async () => options.latestTime }
   return new ReservationKeeperMonitor(metricsUrl, {
     observationMaxAgeSeconds: options.maxAge ?? 1800,
     blockTimestamp: async () => options.chainTime ?? chainTime,
     fetcher: async () => text,
+    // latestBlockTimestamp is threaded only when supplied so the test file
+    // stays compatible while the option is rolled out.
+    ...latestOptions,
   })
 }
 
@@ -233,9 +244,43 @@ test("an observation older than the max age is a critical stale alert", async ()
   assertNoUrlLeak(events)
 })
 
-test("an observation ahead of the chain block time is a critical stale alert", async () => {
+test("a catch-up scan of an old window does not flag a healthy keeper", async () => {
+  // The Manager may scan an old toBlock on catch-up while the keeper
+  // observes against the chain head, so its timestamp is current.
   const events = await monitorFrom(
-    sampleMetrics({}, { timestamp: String(chainTime + 1) })
+    sampleMetrics({}, { timestamp: String(chainTime) }),
+    { chainTime: chainTime - 7200, latestTime: chainTime }
+  ).check(100, 200)
+
+  assert.deepStrictEqual(events, [])
+})
+
+test("a stale keeper is flagged even when the scanned window is old", async () => {
+  const events = await monitorFrom(
+    sampleMetrics({}, { timestamp: String(chainTime - 7200) }),
+    { chainTime: chainTime - 7200, latestTime: chainTime }
+  ).check(100, 200)
+
+  assert.strictEqual(events.length, 1)
+  assert.strictEqual(events[0].type, SystemEventType.Critical)
+  assert.strictEqual(events[0].title, "Reservation keeper metrics stale")
+  assertNoUrlLeak(events)
+})
+
+test("an observation up to the max age ahead of the latest block time is fresh", async () => {
+  // The keeper's RPC may lead the monitor's RPC; tolerate up to the max age.
+  const events = await monitorFrom(
+    sampleMetrics({}, { timestamp: String(chainTime + 600) }),
+    { latestTime: chainTime, maxAge: 600 }
+  ).check(100, 200)
+
+  assert.deepStrictEqual(events, [])
+})
+
+test("an observation more than the max age ahead of the latest block time is a critical stale alert", async () => {
+  const events = await monitorFrom(
+    sampleMetrics({}, { timestamp: String(chainTime + 601) }),
+    { maxAge: 600 }
   ).check(100, 200)
 
   assert.strictEqual(events.length, 1)
