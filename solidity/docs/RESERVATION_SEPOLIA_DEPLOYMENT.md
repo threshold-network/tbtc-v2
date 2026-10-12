@@ -6,6 +6,10 @@ mirrors the 22-step activation dry-run in `scripts/reservations-fork-dryrun.ts`
 (branch `reservations-fork-dryrun`) and the activation order in
 `RESERVATION_CAPS_DEPLOYMENT.md`.
 
+Run deployment commands from the reviewed `reservations-sepolia-rehearsal`
+branch. It contains the reserve-aware contracts, matching ABI and live signer script.
+A documentation-only checkout is not a deployment source.
+
 Scope: upgrading the live Sepolia Bridge proxy, deploying the
 `ReservationRouter`/`ReservationVault`, swapping `BridgeGovernance`, and the
 governance begin/finalize activation ceremony. Out of scope: lifecycle
@@ -118,6 +122,7 @@ read-only.
    RESERVATION_SINGLE_AMOUNT_CAP_SATS=2000000 \
    RESERVATION_MAX_ACTIVE=5 \
    RESERVATION_MAX_THIRD_PARTY_REANCHOR_HOLDS=1 \
+   RESERVATION_HANDOFF_RESERVE_WALLETS=1 \
    RESERVATION_MIN_AMOUNT_SATS=10000 \
    RESERVATION_TX_MAX_FEE_SATS=1000 \
    RESERVATION_TERM_SECONDS=12960000 \
