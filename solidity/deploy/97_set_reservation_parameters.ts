@@ -134,7 +134,11 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
     PER_WALLET_CAP, // maxReservationsAmountPerWallet
     SINGLE_AMOUNT_CAP, // reservationMaxSingleAmount
     BigInt("100"), // maxActiveReservations
-    BigInt("1") // maxThirdPartyReanchorHoldsPerWallet
+    BigInt("1"), // maxThirdPartyReanchorHoldsPerWallet
+    // One Live wallet is held back from acceptance capacity by the
+    // hand-off reserve gate, so a wallet retiring always leaves room for
+    // its open positions on the remaining Live wallets.
+    BigInt("1") // handoffReserveWallets
   )
   if (isLocalNetwork) {
     await passGovernanceDelay()
