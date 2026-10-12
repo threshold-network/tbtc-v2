@@ -173,7 +173,7 @@ before(async () => {
   // reservation - found 2026-08-26.
   await reservationRouter
     .connect(bridgeGovernanceSigner)
-    .updateReservationCaps(RESERVATION_MAX_TOTAL, RESERVATION_MAX_TOTAL, 10, 1) // 10 = 1 wallet * MAX_RESERVATIONS_PER_WALLET, satisfying the Item-3 sizing relation with this fixture's single default Live wallet
+    .updateReservationCaps(RESERVATION_MAX_TOTAL, RESERVATION_MAX_TOTAL, 10, 1, 1) // 10 = 2 wallets * MAX_RESERVATIONS_PER_WALLET, satisfying the Item-3 sizing relation with this fixture's two Live wallets; 1 = hand-off reserve, leaving one remaining Live wallet with 10 positions
   await reservationRouter
     .connect(bridgeGovernanceSigner)
     .updateReservationParameters(
@@ -195,6 +195,9 @@ before(async () => {
   await bridge.setDepositTxMaxFee(2000)
   await bridge.setDepositRevealAheadPeriod(0)
   await liveWallet(walletPubKeyHash)
+  // A second Live wallet so the hand-off reserve gate (one Live wallet
+  // held back) still leaves a remaining Live wallet with capacity.
+  await liveWallet(secondWalletPubKeyHash)
 
   const tbtcOwner = await impersonateContract(await tbtc.owner())
   await tbtc.connect(tbtcOwner).transferOwnership(tbtcVault.target)
@@ -247,12 +250,16 @@ async function establishReservationPreconditions() {
     "0x8AC7230489E80000",
   ])
   await liveWallet(walletPubKeyHash)
+  // Re-register both Live wallets: an intervening suite may have left the
+  // second wallet in a non-Live state, which would tighten the hand-off
+  // reserve gate below its configured capacity.
+  await liveWallet(secondWalletPubKeyHash)
   await bridge
     .connect(bridgeGovernanceSigner)
     .setVaultStatus(reservationVault.target, true)
   await reservationRouter
     .connect(bridgeGovernanceSigner)
-    .updateReservationCaps(RESERVATION_MAX_TOTAL, RESERVATION_MAX_TOTAL, 10, 1) // 10 = 1 wallet * MAX_RESERVATIONS_PER_WALLET, satisfying the Item-3 sizing relation with this fixture's single default Live wallet
+    .updateReservationCaps(RESERVATION_MAX_TOTAL, RESERVATION_MAX_TOTAL, 10, 1, 1) // 10 = 2 wallets * MAX_RESERVATIONS_PER_WALLET; 1 = hand-off reserve, leaving one remaining Live wallet with 10 positions
   const currentTotal = (await reservationRouter.reservationParameters())
     .reservationTotalAmount
   await reservationRouter

@@ -4707,6 +4707,7 @@ describe("Bridge - Governance", () => {
     const newReservationMaxSingleAmount = 1200000 // at least the 1,000,000-sat dust threshold
     const newMaxActiveReservations = 150
     const newMaxThirdPartyReanchorHoldsPerWallet = 1
+    const newHandoffReserveWallets = 1
 
     context("when the caller is not the owner", () => {
       it("should revert", async () => {
@@ -4717,7 +4718,8 @@ describe("Bridge - Governance", () => {
               newMaxReservationsAmountPerWallet,
               newReservationMaxSingleAmount,
               newMaxActiveReservations,
-              newMaxThirdPartyReanchorHoldsPerWallet
+              newMaxThirdPartyReanchorHoldsPerWallet,
+              newHandoffReserveWallets
             )
         ).to.be.revertedWith("Ownable: caller is not the owner")
       })
@@ -4747,7 +4749,8 @@ describe("Bridge - Governance", () => {
               newMaxReservationsAmountPerWallet,
               newReservationMaxSingleAmount,
               newMaxActiveReservations,
-              newMaxThirdPartyReanchorHoldsPerWallet
+              newMaxThirdPartyReanchorHoldsPerWallet,
+              newHandoffReserveWallets
             )
       })
 
@@ -4776,6 +4779,7 @@ describe("Bridge - Governance", () => {
             newReservationMaxSingleAmount,
             newMaxActiveReservations,
             newMaxThirdPartyReanchorHoldsPerWallet,
+            newHandoffReserveWallets,
             blockTimestamp
           )
       })
@@ -4787,6 +4791,7 @@ describe("Bridge - Governance", () => {
     const newReservationMaxSingleAmount = 1200000 // at least the 1,000,000-sat dust threshold
     const newMaxActiveReservations = 150
     const newMaxThirdPartyReanchorHoldsPerWallet = 1
+    const newHandoffReserveWallets = 1
 
     context("when the caller is not the owner", () => {
       it("should revert", async () => {
@@ -4814,7 +4819,8 @@ describe("Bridge - Governance", () => {
             newMaxReservationsAmountPerWallet,
             newReservationMaxSingleAmount,
             newMaxActiveReservations,
-            newMaxThirdPartyReanchorHoldsPerWallet
+            newMaxThirdPartyReanchorHoldsPerWallet,
+            newHandoffReserveWallets
           )
 
         await helpers.time.increaseTime(constants.governanceDelay - 60) // -1min
@@ -4845,7 +4851,8 @@ describe("Bridge - Governance", () => {
               newMaxReservationsAmountPerWallet,
               newReservationMaxSingleAmount,
               newMaxActiveReservations,
-              newMaxThirdPartyReanchorHoldsPerWallet
+              newMaxThirdPartyReanchorHoldsPerWallet,
+              newHandoffReserveWallets
             )
 
           await helpers.time.increaseTime(constants.governanceDelay)
@@ -4870,6 +4877,9 @@ describe("Bridge - Governance", () => {
           const { maxActive } =
             await reservationRouter.activeReservationsCount()
           expect(maxActive).to.be.equal(newMaxActiveReservations)
+          expect(
+            await reservationRouter.reservationHandoffReserveWallets()
+          ).to.be.equal(newHandoffReserveWallets)
         })
 
         it("should emit ReservationCapsUpdated event", async () => {
@@ -4879,7 +4889,8 @@ describe("Bridge - Governance", () => {
               newMaxReservationsAmountPerWallet,
               newReservationMaxSingleAmount,
               newMaxActiveReservations,
-              newMaxThirdPartyReanchorHoldsPerWallet
+              newMaxThirdPartyReanchorHoldsPerWallet,
+              newHandoffReserveWallets
             )
         })
       }
