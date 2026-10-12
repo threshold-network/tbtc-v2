@@ -17,6 +17,7 @@ import "@typechain/hardhat"
 import "./tasks/typechain-external"
 import "hardhat-dependency-compiler"
 import "solidity-docgen"
+import "solidity-coverage"
 
 // Preserve explicit verification in deploy scripts; do not wrap ethers transactions.
 setupTenderly({ automaticVerifications: false })
