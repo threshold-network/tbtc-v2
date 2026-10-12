@@ -131,7 +131,7 @@ In Milestone 1, `maxActiveReservations` acts as an occupancy launch gate and cap
 
 ### Emergency Step: Free Target Slots Run Low
 
-If free per-wallet target slots run low and a retiring wallet's hand-off re-anchor would otherwise fail, governance raises `maxReservationsPerWallet` (and the per-wallet amount cap, `maxReservationsAmountPerWallet`, if it is on). `maxReservationsPerWallet` is set through `beginReservationParametersUpdate` / `finalizeReservationParametersUpdate`; `maxReservationsAmountPerWallet` is set through `beginReservationCapsUpdate` / `finalizeReservationCapsUpdate`. Each takes effect after the governance delay and the on-chain feasibility guard. The hand-off reserve gate then re-evaluates at every acceptance with the wider per-wallet headroom, so the raised caps unblock both new acceptances and the pending re-anchors of retiring wallets.
+Privileged hand-offs from `MovingFunds` or `Closing` do not need ordinary target headroom. Raise `maxReservationsPerWallet` or `maxReservationsAmountPerWallet` only when governance wants more ordinary admission, third-party target headroom or Live-source rotation capacity. `maxReservationsPerWallet` uses the delayed reservation-parameters update. `maxReservationsAmountPerWallet` uses the delayed caps update and must include the current hand-off reserve. Raising the per-wallet count increases the reserve-gated admission budget; it does not override `maxActiveReservations` or change existing pending actions.
 
 ### Monitoring and Alerting (Occupancy & Risk Signals)
 
