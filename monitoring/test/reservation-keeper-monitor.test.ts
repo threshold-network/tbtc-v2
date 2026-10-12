@@ -1,5 +1,7 @@
 import http from "http"
 import assert from "assert"
+import { promises as fs } from "fs"
+import { join } from "path"
 
 import {
   ReservationKeeperMonitor,
@@ -201,6 +203,34 @@ test("labeled samples and unrelated metrics parse without extra alerts", async (
 
   assert.strictEqual(events.length, 1)
   assert.strictEqual(events[0].data.vaultFeeDebtSat, "7")
+})
+
+test("a real keep-core exposition (performance_ prefixed) produces the matching alert", async () => {
+  // Verbatim keep-core clientinfo capture; keep-core exports these gauges
+  // with a "performance_" prefix and a trailing timestamp field per line.
+  const fixture = await fs.readFile(
+    join(process.cwd(), "test", "fixtures", "keep-core-reservation-metrics.txt"),
+    "utf8"
+  )
+  const fresh = freshTimestamp
+  const late = "performance_reservation_acceptance_late_proof_at_risk_count"
+  const observation = "performance_reservation_keeper_observation_timestamp"
+  // Substitute only the observation timestamp's value to a fresh time and one
+  // count to 1; keep the exact names, the "# TYPE" lines, and the trailing
+  // timestamp field.
+  const text = fixture
+    .replace(`${observation} 0 0`, `${observation} ${fresh} 0`)
+    .replace(`${late} 0 0`, `${late} 1 0`)
+  const events = await monitorFrom(text, { chainTime }).check(100, 200)
+
+  assert.strictEqual(events.length, 1)
+  assert.strictEqual(events[0].type, SystemEventType.Critical)
+  assert.strictEqual(
+    events[0].title,
+    "Reservation keeper late acceptance proofs at risk"
+  )
+  assert.strictEqual(events[0].data.lateProofAtRiskCount, "1")
+  assert.ok(!events.some((event) => event.title === "Reservation keeper metrics stale"))
 })
 
 test("a missing observation timestamp is a critical stale alert", async () => {
