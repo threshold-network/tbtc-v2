@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 2,
+  "mode": "live",
+  "network": "rehearsal",
+  "phase": "activate",
+  "startBlock": 11900088,
+  "forkBlock": null,
+  "activationBlock": 1,
+  "runAt": "2026-10-12T16:12:56.706Z",
+  "binding": {
+    "chainId": 31337,
+    "bridge": "0x2220acE07d86B508742D511478e517716B675940",
+    "forkBlock": null
+  },
+  "addresses": {
+    "bridge": "0x2220acE07d86B508742D511478e517716B675940",
+    "oldGov": "0x61700ebaCCfd9FB0100C35DDd38e4cC3e9057c5A",
+    "oldImpl": "0xc9CEec54a8b25D7051B702322675ee3014bA4685",
+    "newImpl": null,
+    "newGov": null,
+    "router": null,
+    "vault": null,
+    "proxyAdmin": "0x0E9bD483CC8Fb649636e0cd7a60BC48b6C040103",
+    "deployer": "0xb9B8a92677fcad86dc8d36fe947184283B03b3C8"
+  },
+  "summary": {
+    "total": 2,
+    "pass": 1,
+    "fail": 1,
+    "skip": 0
+  },
+  "steps": [
+    {
+      "name": "00-read-sepolia-state",
+      "status": "PASS",
+      "values": {
+        "bridge": "0x2220acE07d86B508742D511478e517716B675940",
+        "oldGov": "0x61700ebaCCfd9FB0100C35DDd38e4cC3e9057c5A",
+        "implementation": "0x2DB8355295C5f09da68Cf35A318F7209d90c0640",
+        "proxyAdmin": "0x0E9bD483CC8Fb649636e0cd7a60BC48b6C040103",
+        "governanceDelay": "60",
+        "liveWalletsCount": "4",
+        "depositParameters": "1000000,2000,100000,1296000"
+      }
+    },
+    {
+      "name": "00-load-prepare-artifact",
+      "status": "FAIL",
+      "error": "reservations-sepolia-rehearsal-rehearsal-99999998.json: binding bridge 0x1111111111111111111111111111111111111111 != deployed Bridge 0x2220acE07d86B508742D511478e517716B675940; no transaction was sent"
+    }
+  ]
+}

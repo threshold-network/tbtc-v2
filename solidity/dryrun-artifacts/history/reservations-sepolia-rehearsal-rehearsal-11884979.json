@@ -1,10 +1,4 @@
 {
-  "schemaVersion": 2,
-  "binding": {
-    "chainId": 31337,
-    "bridge": "0x2220acE07d86B508742D511478e517716B675940",
-    "forkBlock": null
-  },
   "mode": "live",
   "network": "rehearsal",
   "phase": "prepare",

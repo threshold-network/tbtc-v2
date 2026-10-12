@@ -276,12 +276,15 @@ What the script does on a live network:
   malformed or mismatched live artifacts with an actionable error
   naming the file (no silent redeploy), and (c) verifies the binding
   against the current provider and deployed Bridge before any send.
-  Old artifacts without `binding` are no longer accepted; to resume from
-  an existing ceremony, delete the stale `dryrun-artifacts/` files for
-  that start block and re-run `PHASE=prepare` (or hand-add the
-  `schemaVersion` and `binding` block to a known-good artifact). Writes
-  are atomic (temp file + rename) so an interrupted save leaves the old
-  valid file in place.
+  Artifacts without `binding` are rejected. No Sepolia prepare artifact
+  exists from before this change. Do not edit an artifact by hand: if the
+  script rejects one, stop and report the error instead of deleting or
+  repairing the file, because the file holds the deployed addresses that a
+  resumed prepare needs. Writes are atomic (temp file + rename), so an
+  interrupted save leaves the previous valid file in place.
+- Earlier live-rehearsal records predate the binding block. They are kept
+  unchanged under `dryrun-artifacts/history/`, where the loader does not
+  look.
 - Artifacts: `dryrun-artifacts/reservations-sepolia-rehearsal-sepolia-<start
   block>.json` (prepare) and `reservations-sepolia-activation-sepolia-<start
   block>.json` (activate), rewritten after every step. Commit the deployment
