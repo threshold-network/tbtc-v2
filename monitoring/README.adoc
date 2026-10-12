@@ -275,13 +275,15 @@ event types for this monitor.
 
 The monitor fetches the endpoint with a bounded timeout on every run, parses
 only the five metric samples by exact name, and converts them into system
-events:
+events. keep-core's clientinfo performance registry exports these application
+gauges with a `performance_` prefix, so the samples are keyed by those
+exported names:
 
 [cols="2,1,5"]
 |===
 |Metric |Severity |Escalation
 
-|`reservation_acceptance_late_proof_at_risk_count`
+|`performance_reservation_acceptance_late_proof_at_risk_count`
 |Critical
 |A positive count means unproven acceptance generations (Pending or TimedOut,
 not Settled) whose snapshotted `timeoutAt + termSeconds` window is within
@@ -291,7 +293,7 @@ uncredited. Escalate to the SPV maintainers to resubmit the acceptance
 proofs, and if the maintainers are also down, escalate to governance for
 manual settlement.
 
-|`reservation_reanchor_no_eligible_target_count`
+|`performance_reservation_reanchor_no_eligible_target_count`
 |Critical
 |A positive count means active reservations on MovingFunds or Closing wallets
 for which no re-anchor target exists under the rules a source-wallet member
@@ -301,12 +303,12 @@ chain head time, and pass the contract checks that still apply to privileged
 callers (the per-wallet count and amount caps are skipped). Escalate to
 governance to adjust caps and wallets before the moving-funds timeout expires.
 
-|`reservation_vault_fee_debt_sat`
+|`performance_reservation_vault_fee_debt_sat`
 |Warning
 |A positive value means the vault owes fees it could not cover. Escalate the
 decision to top up the treasury to the governance and treasury operators.
 
-|`reservation_unrequested_deposit_deadline_at_risk_count`
+|`performance_reservation_unrequested_deposit_deadline_at_risk_count`
 |Warning
 |A positive count means reserved deposits for which no acceptance request was
 ever made whose last possible request time (refund deadline minus the 24-hour
@@ -314,7 +316,7 @@ safety margin and the action timeout, matching the contract's request check in
 `requestReservationAcceptance`) is within 1 day of the chain head. Escalate
 to notify the depositor of the Bitcoin refund path before the window closes.
 
-|`reservation_keeper_observation_timestamp`
+|`performance_reservation_keeper_observation_timestamp`
 |Critical
 |The chain head unix time of the last fully successful keeper observation
 pass. Freshness is measured against the latest Ethereum block time, not the

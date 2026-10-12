@@ -209,7 +209,12 @@ test("a real keep-core exposition (performance_ prefixed) produces the matching 
   // Verbatim keep-core clientinfo capture; keep-core exports these gauges
   // with a "performance_" prefix and a trailing timestamp field per line.
   const fixture = await fs.readFile(
-    join(process.cwd(), "test", "fixtures", "keep-core-reservation-metrics.txt"),
+    join(
+      process.cwd(),
+      "test",
+      "fixtures",
+      "keep-core-reservation-metrics.txt"
+    ),
     "utf8"
   )
   const fresh = freshTimestamp
@@ -230,7 +235,9 @@ test("a real keep-core exposition (performance_ prefixed) produces the matching 
     "Reservation keeper late acceptance proofs at risk"
   )
   assert.strictEqual(events[0].data.lateProofAtRiskCount, "1")
-  assert.ok(!events.some((event) => event.title === "Reservation keeper metrics stale"))
+  assert.ok(
+    !events.some((event) => event.title === "Reservation keeper metrics stale")
+  )
 })
 
 test("a missing observation timestamp is a critical stale alert", async () => {

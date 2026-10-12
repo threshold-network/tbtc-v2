@@ -5,12 +5,14 @@ import { SystemEventType } from "./system-event"
 import type { Monitor, SystemEvent } from "./system-event"
 
 export const reservationKeeperMetricNames = {
-  lateProofAtRiskCount: "reservation_acceptance_late_proof_at_risk_count",
-  noEligibleTargetCount: "reservation_reanchor_no_eligible_target_count",
-  vaultFeeDebtSat: "reservation_vault_fee_debt_sat",
+  lateProofAtRiskCount:
+    "performance_reservation_acceptance_late_proof_at_risk_count",
+  noEligibleTargetCount:
+    "performance_reservation_reanchor_no_eligible_target_count",
+  vaultFeeDebtSat: "performance_reservation_vault_fee_debt_sat",
   unrequestedDepositDeadlineAtRiskCount:
-    "reservation_unrequested_deposit_deadline_at_risk_count",
-  observationTimestamp: "reservation_keeper_observation_timestamp",
+    "performance_reservation_unrequested_deposit_deadline_at_risk_count",
+  observationTimestamp: "performance_reservation_keeper_observation_timestamp",
 } as const
 
 type MetricFetcher = (url: string, timeoutMs: number) => Promise<string>
