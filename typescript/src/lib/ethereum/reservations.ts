@@ -328,6 +328,20 @@ export class EthereumReservations
 
   // eslint-disable-next-line valid-jsdoc
   /**
+   * @see {Reservations#reservationHandoffReserveWallets}
+   */
+  async reservationHandoffReserveWallets(): Promise<number> {
+    return backoffRetrier<number>(this._totalRetryAttempts)(async () => {
+      return BigNumber.from(
+        await this._instance.functions[
+          "reservationHandoffReserveWallets"
+        ]()
+      ).toNumber()
+    })
+  }
+
+  // eslint-disable-next-line valid-jsdoc
+  /**
    * @see {Reservations#activeReservationsCount}
    */
   async activeReservationsCount(): Promise<ReservationOccupancy> {
@@ -341,6 +355,18 @@ export class EthereumReservations
       count: BigNumber.from(record[0]).toNumber(),
       maxActive: BigNumber.from(record[1]).toNumber(),
     }
+  }
+
+  // eslint-disable-next-line valid-jsdoc
+  /**
+   * @see {Reservations#liveWalletsCount}
+   */
+  async liveWalletsCount(): Promise<number> {
+    return backoffRetrier<number>(this._totalRetryAttempts)(async () => {
+      return BigNumber.from(
+        await this._instance.functions["liveWalletsCount"]()
+      ).toNumber()
+    })
   }
 
   // eslint-disable-next-line valid-jsdoc
