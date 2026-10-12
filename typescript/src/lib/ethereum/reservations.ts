@@ -333,9 +333,7 @@ export class EthereumReservations
   async reservationHandoffReserveWallets(): Promise<number> {
     return backoffRetrier<number>(this._totalRetryAttempts)(async () => {
       return BigNumber.from(
-        await this._instance.functions[
-          "reservationHandoffReserveWallets"
-        ]()
+        await this._instance.functions["reservationHandoffReserveWallets"]()
       ).toNumber()
     })
   }

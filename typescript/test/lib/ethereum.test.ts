@@ -1031,5 +1031,4 @@ describe("Ethereum", () => {
       expect(await handle.reservationHandoffReserveWallets()).to.equal(2)
     })
   })
-
 })

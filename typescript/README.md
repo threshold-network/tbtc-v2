@@ -111,11 +111,19 @@ if (!feasibility.go) {
   // "amount-below-minimum", "wallet-count-cap-exceeded", "no-free-wallet".
 }
 
-// 2. Initiate the reserved deposit. The receipt refund locktime is chosen
-//    inside the on-chain window with a default 30-day reveal slack, so the
-//    depositor has days of margin between address generation and reveal.
+// 2. Initiate the reserved deposit with the intended amount in satoshis.
+//    The receipt refund locktime is chosen inside the on-chain window
+//    with a default 30-day reveal slack, so the depositor has days of
+//    margin between address generation and reveal. The amount selects a
+//    Live wallet with room for it (preferring the active wallet when it
+//    is eligible) and gates the receipt on every admission rule; pass
+//    { walletPublicKeyHash } to validate an explicitly chosen wallet
+//    against the same rules instead.
 const { deposit, receipt, walletPublicKeyHash } =
-  await sdk.reservations.initiateReservedDeposit(bitcoinRecoveryAddress)
+  await sdk.reservations.initiateReservedDeposit(
+    bitcoinRecoveryAddress,
+    500_000
+  )
 
 // 3. Fund the Bitcoin deposit address, then reveal to the reservation vault.
 await deposit.detectFunding()
