@@ -1,6 +1,7 @@
 import { DepositsService } from "./deposits"
 import { MaintenanceService } from "./maintenance"
 import { RedemptionsService } from "./redemptions"
+import { ReservationsService } from "./reservations"
 import { Chains, TBTCContracts } from "../lib/contracts"
 import { BitcoinClient, BitcoinNetwork } from "../lib/bitcoin"
 import {
@@ -35,6 +36,10 @@ export class TBTC {
    */
   public readonly redemptions: RedemptionsService
   /**
+   * Service supporting the tBTC v2 UTXO reservation flow.
+   */
+  public readonly reservations: ReservationsService
+  /**
    * Handle to tBTC contracts for low-level access.
    */
   public readonly tbtcContracts: TBTCContracts
@@ -50,6 +55,7 @@ export class TBTC {
     this.deposits = new DepositsService(tbtcContracts, bitcoinClient)
     this.maintenance = new MaintenanceService(tbtcContracts, bitcoinClient)
     this.redemptions = new RedemptionsService(tbtcContracts, bitcoinClient)
+    this.reservations = new ReservationsService(tbtcContracts, bitcoinClient)
     this.tbtcContracts = tbtcContracts
     this.bitcoinClient = bitcoinClient
   }
@@ -131,6 +137,7 @@ export class TBTC {
     // If signer address can be resolved, set it as default depositor.
     if (signerAddress !== undefined) {
       tbtc.deposits.setDefaultDepositor(signerAddress)
+      tbtc.reservations.setDefaultDepositor(signerAddress)
     }
 
     return tbtc

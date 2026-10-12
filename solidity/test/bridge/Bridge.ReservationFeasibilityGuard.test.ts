@@ -48,6 +48,7 @@ const caps = {
   reservationMaxSingleAmount: 1_000_000,
   maxActiveReservations: 4,
   maxThirdPartyReanchorHoldsPerWallet: 1,
+  handoffReserveWallets: 1,
 }
 
 async function deployTestReservation(): Promise<TestReservation> {
@@ -109,7 +110,8 @@ function updateReservationCaps(
     c.maxReservationsAmountPerWallet,
     c.reservationMaxSingleAmount,
     c.maxActiveReservations,
-    c.maxThirdPartyReanchorHoldsPerWallet
+    c.maxThirdPartyReanchorHoldsPerWallet,
+    c.handoffReserveWallets
   )
 }
 

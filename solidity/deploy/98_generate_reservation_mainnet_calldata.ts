@@ -137,6 +137,7 @@ export function buildReservationActionDefinitions(params: {
   singleAmountCap: bigint
   maxActive: number
   maxThirdPartyReanchorHolds: number
+  handoffReserveWallets: number
   minAmount: bigint
   txMaxFee: bigint
   termSeconds: number
@@ -165,6 +166,7 @@ export function buildReservationActionDefinitions(params: {
         params.singleAmountCap,
         params.maxActive,
         params.maxThirdPartyReanchorHolds,
+        params.handoffReserveWallets,
       ],
       label: "beginReservationCapsUpdate (stages the reservation caps update)",
       details: {
@@ -173,6 +175,7 @@ export function buildReservationActionDefinitions(params: {
         "Max active reservations": params.maxActive.toString(),
         "Max third-party re-anchor holds per target wallet":
           params.maxThirdPartyReanchorHolds.toString(),
+        "Hand-off reserve wallets": params.handoffReserveWallets.toString(),
         "Governance delay": "172800s (48h)",
         Note:
           "Finalize order matters: finalizeReservationCapsUpdate must execute " +
@@ -500,6 +503,9 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const RES_RENEWAL_WINDOW = requireEnvNumber(
     "RESERVATION_RENEWAL_WINDOW_SECONDS"
   )
+  const HANDOFF_RESERVE_WALLETS = requireEnvNumber(
+    "RESERVATION_HANDOFF_RESERVE_WALLETS"
+  )
 
   // Hard-fail the launch-posture invariants that are already decided,
   // rather than warning and letting the operator copy bad calldata into
@@ -508,6 +514,13 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     throw new Error(
       "RESERVATION_MAX_PER_WALLET must be 1 (decided M1 launch value), got " +
         `${MAX_RESERVATIONS_PER_WALLET}`
+    )
+  }
+  if (HANDOFF_RESERVE_WALLETS <= 0) {
+    throw new Error(
+      `RESERVATION_HANDOFF_RESERVE_WALLETS (${HANDOFF_RESERVE_WALLETS}) must ` +
+        "be greater than zero (mirrors updateReservationCaps's 'Hand-off " +
+        "reserve must be greater than zero' require)"
     )
   }
   if (RES_TERM_SECONDS < MIN_RESERVATION_TERM) {

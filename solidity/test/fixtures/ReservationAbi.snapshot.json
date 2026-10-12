@@ -85,6 +85,12 @@
       "outputs": ["uint64", "uint64", "uint32", "uint32"]
     },
     {
+      "name": "reservationHandoffReserveWallets",
+      "selector": "0xcf098fc5",
+      "inputs": [],
+      "outputs": ["uint32"]
+    },
+    {
       "name": "reservationParameters",
       "selector": "0xf75b4b1c",
       "inputs": [],
@@ -139,8 +145,8 @@
     },
     {
       "name": "updateReservationCaps",
-      "selector": "0xf858967d",
-      "inputs": ["uint64", "uint64", "uint32", "uint32"],
+      "selector": "0x78d76eda",
+      "inputs": ["uint64", "uint64", "uint32", "uint32", "uint32"],
       "outputs": []
     },
     {
@@ -215,8 +221,8 @@
     },
     {
       "name": "ReservationCapsUpdated",
-      "topic0": "0x11af1b44d097c7893ef437ea940dea2e21b5c822807b98a3c4d4d9f7f0f11e5d",
-      "inputs": ["uint64", "uint64", "uint32", "uint32"]
+      "topic0": "0x964ef9bd68fafce7168d52b1d95f0da86e3be014f9843a793b021652e4e28daa",
+      "inputs": ["uint64", "uint64", "uint32", "uint32", "uint32"]
     },
     {
       "name": "ReservationLateSettled",
