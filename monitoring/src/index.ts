@@ -20,6 +20,8 @@ import { SupplyMonitor } from "./supply-monitor"
 import { RedemptionMonitor } from "./redemption-monitor"
 import { RedemptionChain } from "./redemption-chain"
 import { RedemptionLifecycleMonitor } from "./redemption-lifecycle-monitor"
+import { ReservationKeeperMonitor } from "./reservation-keeper-monitor"
+import { blocks } from "./blocks"
 
 import type {
   Monitor as SystemEventMonitor,
@@ -64,6 +66,22 @@ async function setupMonitoring(sdk: TBTC): Promise<SystemEventManager> {
       context.redemptionTimeoutWarningSeconds
     ),
   ]
+
+  const keeperMetricsUrl = context.reservationKeeperMetricsUrl
+  if (keeperMetricsUrl) {
+    // eslint-disable-next-line no-console
+    console.log("registered reservation keeper monitor")
+    monitors.push(
+      new ReservationKeeperMonitor(keeperMetricsUrl, {
+        observationMaxAgeSeconds:
+          context.reservationKeeperObservationMaxAgeSeconds,
+        blockTimestamp: blocks.blockTimestamp,
+      })
+    )
+  } else {
+    // eslint-disable-next-line no-console
+    console.log("reservation keeper monitor not configured")
+  }
 
   const receivers: SystemEventReceiver[] = ((): SystemEventReceiver[] => {
     const registered: SystemEventReceiver[] = []
