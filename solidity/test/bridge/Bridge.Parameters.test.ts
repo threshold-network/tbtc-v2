@@ -29,7 +29,9 @@ describe("Bridge - Parameters", () => {
   describe("updateDepositParameters", () => {
     context("when caller is the contract guvnor", () => {
       context("when all new parameter values are correct", () => {
-        const newDepositDustThreshold = constants.depositDustThreshold * 2
+        // The reservation caps equal the fixture dust threshold, and a
+        // dust threshold above them is rejected, so lower it instead.
+        const newDepositDustThreshold = constants.depositDustThreshold / 2
         const newDepositTreasuryFeeDivisor =
           constants.depositTreasuryFeeDivisor * 2
         const newDepositTxMaxFee = constants.depositTxMaxFee * 3
