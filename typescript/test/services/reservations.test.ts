@@ -497,7 +497,10 @@ describe("ReservationsService", () => {
         )
 
         await expect(
-          freshService.initiateReservedDeposit(TESTNET_RECOVERY_ADDRESS)
+          freshService.initiateReservedDeposit(
+            TESTNET_RECOVERY_ADDRESS,
+            BigNumber.from(500000)
+          )
         ).to.be.rejectedWith("Default depositor is not set")
       })
     })
@@ -509,7 +512,10 @@ describe("ReservationsService", () => {
 
       it("should throw", async () => {
         await expect(
-          service.initiateReservedDeposit(TESTNET_RECOVERY_ADDRESS)
+          service.initiateReservedDeposit(
+            TESTNET_RECOVERY_ADDRESS,
+            BigNumber.from(500000)
+          )
         ).to.be.rejectedWith("Reservations are currently disabled")
       })
     })
@@ -524,7 +530,8 @@ describe("ReservationsService", () => {
         mockBitcoinClient.network = BitcoinNetwork.Testnet
 
         const result = await service.initiateReservedDeposit(
-          TESTNET_RECOVERY_ADDRESS
+          TESTNET_RECOVERY_ADDRESS,
+          BigNumber.from(500000)
         )
 
         expect(result.walletPublicKeyHash.equals(WALLET_A_PKH)).to.be.true
@@ -554,6 +561,7 @@ describe("ReservationsService", () => {
 
         const result = await service.initiateReservedDeposit(
           TESTNET_RECOVERY_ADDRESS,
+          BigNumber.from(500000),
           { walletPublicKeyHash: WALLET_B_PKH }
         )
 
@@ -562,16 +570,190 @@ describe("ReservationsService", () => {
 
       it("should reject a recovery address that is not P2PKH or P2WPKH", async () => {
         await expect(
-          service.initiateReservedDeposit("2N5WZpig3vgpSdjSherS2Lv7GnPuxCvkQjT")
+          service.initiateReservedDeposit(
+            "2N5WZpig3vgpSdjSherS2Lv7GnPuxCvkQjT",
+            BigNumber.from(500000)
+          )
         ).to.be.rejectedWith("Bitcoin recovery address must be P2PKH or P2WPKH")
       })
     })
 
-    context("when no wallet can be resolved", () => {
+    context("when no wallet is eligible for the amount", () => {
       it("should throw when there is no active wallet and no registered wallet", async () => {
         await expect(
-          service.initiateReservedDeposit(TESTNET_RECOVERY_ADDRESS)
-        ).to.be.rejectedWith("Could not resolve a wallet")
+          service.initiateReservedDeposit(
+            TESTNET_RECOVERY_ADDRESS,
+            BigNumber.from(500000)
+          )
+        ).to.be.rejectedWith("No eligible wallet has reservation capacity")
+      })
+    })
+
+    context("when the active wallet is full and a second Live wallet is free", () => {
+      beforeEach(() => {
+        mockReservations.registeredWallets = [
+          makeWalletEvent(ACTIVE_WALLET_PKH),
+          makeWalletEvent(WALLET_B_PKH),
+        ]
+        mockReservations.setWalletState(ACTIVE_WALLET_PKH, WalletState.Live)
+        mockReservations.setWalletState(WALLET_B_PKH, WalletState.Live)
+        tbtcContracts.bridge.setActiveWalletPublicKey(ACTIVE_WALLET_PK)
+        mockBitcoinClient.network = BitcoinNetwork.Testnet
+      })
+
+      it("should produce a receipt for the second wallet when the active wallet's amount cap is full", async () => {
+        mockReservations.caps.maxAmountPerWallet = BigNumber.from(1000000)
+        mockReservations.setWalletReservations(
+          ACTIVE_WALLET_PKH,
+          0,
+          BigNumber.from(1000000)
+        )
+
+        const result = await service.initiateReservedDeposit(
+          TESTNET_RECOVERY_ADDRESS,
+          BigNumber.from(500000)
+        )
+
+        expect(result.walletPublicKeyHash.equals(WALLET_B_PKH)).to.be.true
+        expect(result.receipt.walletPublicKeyHash.equals(WALLET_B_PKH)).to.be
+          .true
+      })
+
+      it("should produce a receipt for the second wallet when the active wallet's count cap is full", async () => {
+        mockReservations.parameters.maxReservationsPerWallet = 1
+        mockReservations.setWalletReservations(
+          ACTIVE_WALLET_PKH,
+          1,
+          BigNumber.from(0)
+        )
+
+        const result = await service.initiateReservedDeposit(
+          TESTNET_RECOVERY_ADDRESS,
+          BigNumber.from(500000)
+        )
+
+        expect(result.walletPublicKeyHash.equals(WALLET_B_PKH)).to.be.true
+      })
+    })
+
+    context("when the amount exceeds the chosen wallet's room", () => {
+      beforeEach(() => {
+        mockReservations.registeredWallets = [
+          makeWalletEvent(WALLET_A_PKH),
+          makeWalletEvent(WALLET_B_PKH),
+        ]
+        mockReservations.setWalletState(WALLET_A_PKH, WalletState.Live)
+        mockReservations.setWalletState(WALLET_B_PKH, WalletState.Live)
+        mockReservations.caps.maxAmountPerWallet = BigNumber.from(400000)
+        mockBitcoinClient.network = BitcoinNetwork.Testnet
+      })
+
+      it("should not choose a wallet with less room than the amount, explicitly", async () => {
+        await expect(
+          service.initiateReservedDeposit(
+            TESTNET_RECOVERY_ADDRESS,
+            BigNumber.from(500000),
+            { walletPublicKeyHash: WALLET_A_PKH }
+          )
+        ).to.be.rejectedWith("wallet-amount-cap-exceeded")
+      })
+
+      it("should not choose a wallet with a full count cap, explicitly", async () => {
+        mockReservations.parameters.maxReservationsPerWallet = 1
+        mockReservations.setWalletReservations(
+          WALLET_B_PKH,
+          1,
+          BigNumber.from(0)
+        )
+
+        await expect(
+          service.initiateReservedDeposit(
+            TESTNET_RECOVERY_ADDRESS,
+            BigNumber.from(500000),
+            { walletPublicKeyHash: WALLET_B_PKH }
+          )
+        ).to.be.rejectedWith("wallet-count-cap-exceeded")
+      })
+
+      it("should not choose a non-Live wallet, explicitly", async () => {
+        mockReservations.setWalletState(WALLET_A_PKH, WalletState.Closing)
+
+        await expect(
+          service.initiateReservedDeposit(
+            TESTNET_RECOVERY_ADDRESS,
+            BigNumber.from(500000),
+            { walletPublicKeyHash: WALLET_A_PKH }
+          )
+        ).to.be.rejectedWith("wallet-not-live")
+      })
+
+      it("should throw when no wallet has room for the amount", async () => {
+        // Both wallets are full at the 400k cap; 500k fits neither.
+        mockReservations.setWalletReservations(
+          WALLET_A_PKH,
+          0,
+          BigNumber.from(400000)
+        )
+        mockReservations.setWalletReservations(
+          WALLET_B_PKH,
+          0,
+          BigNumber.from(400000)
+        )
+
+        await expect(
+          service.initiateReservedDeposit(
+            TESTNET_RECOVERY_ADDRESS,
+            BigNumber.from(500000)
+          )
+        ).to.be.rejectedWith("No eligible wallet has reservation capacity")
+      })
+    })
+
+    context("when the global active-reservations cap is full", () => {
+      beforeEach(() => {
+        mockReservations.registeredWallets = [makeWalletEvent(WALLET_A_PKH)]
+        mockReservations.setWalletState(WALLET_A_PKH, WalletState.Live)
+        mockReservations.occupancy = { count: 1000, maxActive: 1000 }
+        mockBitcoinClient.network = BitcoinNetwork.Testnet
+      })
+
+      it("should throw for the default selection path", async () => {
+        await expect(
+          service.initiateReservedDeposit(
+            TESTNET_RECOVERY_ADDRESS,
+            BigNumber.from(500000)
+          )
+        ).to.be.rejectedWith("global-count-cap-exceeded")
+      })
+
+      it("should throw for an explicitly chosen wallet", async () => {
+        await expect(
+          service.initiateReservedDeposit(
+            TESTNET_RECOVERY_ADDRESS,
+            BigNumber.from(500000),
+            { walletPublicKeyHash: WALLET_A_PKH }
+          )
+        ).to.be.rejectedWith("global-count-cap-exceeded")
+      })
+    })
+
+    context("when the active wallet is feasible for the amount", () => {
+      it("should keep preferring the active wallet", async () => {
+        mockReservations.registeredWallets = [
+          makeWalletEvent(WALLET_A_PKH),
+          makeWalletEvent(ACTIVE_WALLET_PKH),
+        ]
+        mockReservations.setWalletState(ACTIVE_WALLET_PKH, WalletState.Live)
+        mockReservations.setWalletState(WALLET_A_PKH, WalletState.Live)
+        tbtcContracts.bridge.setActiveWalletPublicKey(ACTIVE_WALLET_PK)
+        mockBitcoinClient.network = BitcoinNetwork.Testnet
+
+        const result = await service.initiateReservedDeposit(
+          TESTNET_RECOVERY_ADDRESS,
+          BigNumber.from(500000)
+        )
+
+        expect(result.walletPublicKeyHash.equals(ACTIVE_WALLET_PKH)).to.be.true
       })
     })
   })
