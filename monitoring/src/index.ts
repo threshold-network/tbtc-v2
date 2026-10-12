@@ -76,6 +76,7 @@ async function setupMonitoring(sdk: TBTC): Promise<SystemEventManager> {
         observationMaxAgeSeconds:
           context.reservationKeeperObservationMaxAgeSeconds,
         blockTimestamp: blocks.blockTimestamp,
+        latestBlockTimestamp: blocks.latestBlockTimestamp,
       })
     )
   } else {

@@ -317,13 +317,16 @@ to notify the depositor of the Bitcoin refund path before the window closes.
 |`reservation_keeper_observation_timestamp`
 |Critical
 |The chain head unix time of the last fully successful keeper observation
-pass. When it is missing, unparseable, ahead of the checked Ethereum block
-time, or older than `RESERVATION_KEEPER_OBSERVATION_MAX_AGE_SECONDS`
-(default 30 minutes), or when the endpoint is unreachable or malformed, the
-monitor emits a single critical `Reservation keeper metrics stale` event.
-Missing data is never treated as healthy: the failure indicates the keeper
-process itself may be down or wedged, so treat it as a keeper health alert
-and page the keeper operators.
+pass. Freshness is measured against the latest Ethereum block time, not the
+scanned window's end block, so a catch-up scan of an old window cannot flag a
+healthy keeper. A deviation of up to `RESERVATION_KEEPER_OBSERVATION_MAX_AGE_SECONDS`
+(default 30 minutes) either ahead of or behind that block time is tolerated
+for RPC skew. When the sample is missing, unparseable, or deviates beyond
+that window, or when the endpoint is unreachable or malformed, the monitor
+emits a critical `Reservation keeper metrics stale` event. Missing data is
+never treated as healthy: the failure indicates the keeper process itself may
+be down or wedged, so treat it as a keeper health alert and page the keeper
+operators.
 |===
 
 

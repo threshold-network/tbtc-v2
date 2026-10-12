@@ -18,6 +18,12 @@ type MetricFetcher = (url: string, timeoutMs: number) => Promise<string>
 export interface ReservationKeeperMonitorOptions {
   observationMaxAgeSeconds: number
   blockTimestamp: (block: number) => Promise<number>
+  // Time of the chain head the keeper observed against. When supplied,
+  // freshness is judged against this time instead of the scanned window's
+  // end block, so a catch-up scan of an old window cannot flag a healthy
+  // keeper. Tolerated on both sides: the keeper's RPC may lead or lag the
+  // monitor's RPC by up to one observation max age.
+  latestBlockTimestamp?: () => Promise<number>
   fetcher?: MetricFetcher
 }
 
@@ -81,8 +87,18 @@ export class ReservationKeeperMonitor implements Monitor {
 
   async check(fromBlock: number, toBlock: number): Promise<SystemEvent[]> {
     const names = reservationKeeperMetricNames
-    const { observationMaxAgeSeconds, blockTimestamp, fetcher } = this.options
-    const chainTime = await blockTimestamp(toBlock)
+    const {
+      observationMaxAgeSeconds,
+      blockTimestamp,
+      latestBlockTimestamp,
+      fetcher,
+    } = this.options
+    const scannedTime = await blockTimestamp(toBlock)
+    // Judge freshness against the chain head the keeper observed, not the
+    // scanned window's end block, which can lag the head on a catch-up pass.
+    const referenceTime = latestBlockTimestamp
+      ? await latestBlockTimestamp()
+      : scannedTime
     const events: SystemEvent[] = []
 
     let text: string
@@ -91,7 +107,7 @@ export class ReservationKeeperMonitor implements Monitor {
     } catch (error) {
       // A failed endpoint is stale keeper data, not a healthy system.
       events.push(
-        staleEvent(toBlock, chainTime, "metrics endpoint unavailable")
+        staleEvent(toBlock, scannedTime, "metrics endpoint unavailable")
       )
       return events
     }
@@ -100,7 +116,9 @@ export class ReservationKeeperMonitor implements Monitor {
     try {
       samples = parseMetricSamples(text)
     } catch (error) {
-      events.push(staleEvent(toBlock, chainTime, "metrics response malformed"))
+      events.push(
+        staleEvent(toBlock, scannedTime, "metrics response malformed")
+      )
       return events
     }
 
@@ -127,7 +145,7 @@ export class ReservationKeeperMonitor implements Monitor {
       events.push(
         staleEvent(
           toBlock,
-          chainTime,
+          scannedTime,
           "metrics response malformed: missing or invalid sample"
         )
       )
@@ -171,22 +189,37 @@ export class ReservationKeeperMonitor implements Monitor {
 
     const rawTimestamp = samples[names.observationTimestamp]
     const timestamp = parseNonNegativeNumber(rawTimestamp)
-    if (
-      rawTimestamp === undefined ||
-      timestamp === null ||
-      timestamp > chainTime ||
-      chainTime - timestamp > observationMaxAgeSeconds
-    ) {
+    if (rawTimestamp === undefined || timestamp === null) {
       events.push(
         staleEvent(
           toBlock,
-          chainTime,
-          rawTimestamp === undefined || timestamp === null
-            ? `missing ${names.observationTimestamp} sample`
-            : "keeper observation older than the maximum age",
-          rawTimestamp
+          referenceTime,
+          `missing ${names.observationTimestamp} sample`
         )
       )
+    } else {
+      // Tolerate RPC skew: the keeper and the monitor may read the chain head
+      // up to one observation max age apart without either being wrong.
+      const deviation = timestamp - referenceTime
+      if (deviation < -observationMaxAgeSeconds) {
+        events.push(
+          staleEvent(
+            toBlock,
+            referenceTime,
+            "keeper observation older than the maximum age",
+            rawTimestamp
+          )
+        )
+      } else if (deviation > observationMaxAgeSeconds) {
+        events.push(
+          staleEvent(
+            toBlock,
+            referenceTime,
+            "keeper observation ahead of the maximum age",
+            rawTimestamp
+          )
+        )
+      }
     }
 
     return events

@@ -58,10 +58,11 @@ function monitorFrom(
     latestTime?: number
   } = {}
 ): ReservationKeeperMonitor {
+  const { latestTime } = options
   const latestOptions =
-    options.latestTime === undefined
+    latestTime === undefined
       ? {}
-      : { latestBlockTimestamp: async () => options.latestTime }
+      : { latestBlockTimestamp: async () => latestTime }
   return new ReservationKeeperMonitor(metricsUrl, {
     observationMaxAgeSeconds: options.maxAge ?? 1800,
     blockTimestamp: async () => options.chainTime ?? chainTime,
