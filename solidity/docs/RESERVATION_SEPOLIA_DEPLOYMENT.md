@@ -159,8 +159,8 @@ read-only.
    ```
 
    The Sepolia values used in step 6 (feasible against those readings):
-   per-wallet cap 2000000, single cap 2000000, max active 2 (2 of the 4
-   slots stay free), third-party holds 1, min amount 10000, tx max fee 1000,
+   per-wallet cap 2000000, single cap 2000000, max active 2 (leaves 2 of
+   the 4 slots for handoffs), third-party holds 1, min amount 10000, tx max fee 1000,
    term 7776000 (90 days), dissolution delay 86400, max total 4000000, max
    per wallet 1, action timeout 86400, renewal window 86400. Re-check them
    against the live readings on the day of the ceremony: if
