@@ -54,6 +54,7 @@ export type ReservationNoGoReason =
   | "locktime-window-infeasible"
   | "locktime-slack-insufficient"
   | "amount-below-minimum"
+  | "amount-below-dust"
   | "amount-above-single-cap"
   | "global-amount-cap-exceeded"
   | "wallet-not-live"
@@ -212,6 +213,11 @@ export class ReservationsService {
     if (input.amount.lt(minimum)) {
       reasons.push("amount-below-minimum")
     }
+    const { dustThreshold } =
+      await this.tbtcContracts.reservations.depositParameters()
+    if (input.amount.lt(dustThreshold)) {
+      reasons.push("amount-below-dust")
+    }
     if (caps.maxSingleAmount.gt(0) && input.amount.gt(caps.maxSingleAmount)) {
       reasons.push("amount-above-single-cap")
     }
@@ -220,6 +226,14 @@ export class ReservationsService {
       params.totalAmount.add(input.amount).gt(params.maxTotalAmount)
     ) {
       reasons.push("global-amount-cap-exceeded")
+    }
+
+    // Acceptance always checks the global count, also when the caller
+    // picks the wallet.
+    const occupancy =
+      await this.tbtcContracts.reservations.activeReservationsCount()
+    if (occupancy.count + 1 > occupancy.maxActive) {
+      reasons.push("global-count-cap-exceeded")
     }
 
     if (input.walletPublicKeyHash !== undefined) {
@@ -240,15 +254,10 @@ export class ReservationsService {
       ) {
         reasons.push("wallet-amount-cap-exceeded")
       }
-    } else {
-      const occupancy =
-        await this.tbtcContracts.reservations.activeReservationsCount()
-      if (occupancy.count + 1 > occupancy.maxActive) {
-        reasons.push("global-count-cap-exceeded")
-      }
-      if ((await this.selectReservationWallet(input.amount)) === undefined) {
-        reasons.push("no-free-wallet")
-      }
+    } else if (
+      (await this.selectReservationWallet(input.amount)) === undefined
+    ) {
+      reasons.push("no-free-wallet")
     }
 
     return {

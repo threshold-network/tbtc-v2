@@ -216,6 +216,24 @@ describe("ReservationsService", () => {
         expect(below.reasons).to.include("amount-below-minimum")
       })
 
+      it("should report amount-below-dust below the Bridge deposit dust threshold", async () => {
+        // The reveal itself reverts below dust, after the BTC is sent.
+        mockReservations.depositParams.dustThreshold = BigNumber.from(1000000)
+
+        const atDust = await service.checkReserveFeasibility({
+          amount: BigNumber.from(1000000),
+          walletPublicKeyHash: WALLET_A_PKH,
+        })
+        expect(atDust.reasons).to.not.include("amount-below-dust")
+
+        const below = await service.checkReserveFeasibility({
+          amount: BigNumber.from(999999),
+          walletPublicKeyHash: WALLET_A_PKH,
+        })
+        expect(below.go).to.be.false
+        expect(below.reasons).to.include("amount-below-dust")
+      })
+
       it("should report amount-above-single-cap when the cap is exceeded", async () => {
         const result = await service.checkReserveFeasibility({
           amount: BigNumber.from(1000001),
@@ -290,6 +308,18 @@ describe("ReservationsService", () => {
 
         expect(result.go).to.be.false
         expect(result.reasons).to.include("wallet-amount-cap-exceeded")
+      })
+
+      it("should report global-count-cap-exceeded for a chosen wallet when the active cap is full", async () => {
+        mockReservations.occupancy = { count: 1000, maxActive: 1000 }
+
+        const result = await service.checkReserveFeasibility({
+          amount: BigNumber.from(500000),
+          walletPublicKeyHash: WALLET_A_PKH,
+        })
+
+        expect(result.go).to.be.false
+        expect(result.reasons).to.include("global-count-cap-exceeded")
       })
     })
 

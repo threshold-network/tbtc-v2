@@ -141,12 +141,13 @@ Notes for integrators:
 
 - **Reveal deadline.** `checkReserveFeasibility` reports a `revealBy`
   timestamp (refund locktime minus the reveal-ahead period). The reveal
-  must be mined by that timestamp; after it the deposit becomes
-  refundable and a later reveal reverts.
+  must be mined by that timestamp. A later reveal reverts ("Deposit refund
+  locktime is too close"), and the BTC can then only be refunded on
+  Bitcoin after the refund locktime.
 - **No-go reasons.** The go/no-go check reports a machine-readable
   `reasons` array: `reservations-disabled`,
   `locktime-window-infeasible`, `locktime-slack-insufficient`,
-  `amount-below-minimum`, `amount-above-single-cap`,
+  `amount-below-minimum`, `amount-below-dust`, `amount-above-single-cap`,
   `global-amount-cap-exceeded`, `wallet-not-live`,
   `wallet-count-cap-exceeded`, `wallet-amount-cap-exceeded`,
   `global-count-cap-exceeded`, `no-free-wallet`.
@@ -158,7 +159,6 @@ Notes for integrators:
   must control a Bitcoin wallet that can sign the script-path refund; a
   plain P2WPKH address that cannot produce the witness for the script
   cannot refund it.
-
 
 ## Contributing
 
