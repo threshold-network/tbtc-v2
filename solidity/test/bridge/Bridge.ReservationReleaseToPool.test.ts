@@ -118,6 +118,7 @@ describe("Bridge - Reservation release to pool", () => {
         RESERVATION_MAX_TOTAL,
         RESERVATION_MAX_TOTAL,
         10,
+        1,
         1
       )
     await reservationRouter
@@ -141,6 +142,7 @@ describe("Bridge - Reservation release to pool", () => {
     await bridge.setDepositTxMaxFee(SWEEP_FEE)
     await bridge.setDepositRevealAheadPeriod(0)
     await liveWallet(walletPubKeyHash)
+    await liveWallet(`0x${"44".repeat(20)}`)
   })
 
   async function impersonateContract(
