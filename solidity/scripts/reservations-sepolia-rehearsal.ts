@@ -36,9 +36,9 @@
  *   PHASE=prepare npx hardhat run --network sepolia scripts/reservations-sepolia-rehearsal.ts
  *   PHASE=activate ACTIVATION_BLOCK=<B> npx hardhat run --network sepolia scripts/reservations-sepolia-rehearsal.ts
  *
- * Values are the runbook's Sepolia values (caps 2000000/2000000/4/1, min
+ * Values are the runbook's Sepolia values (caps 2000000/2000000/2/1, min
  * 10000, tx max fee 1000, term 7776000, dissolution 86400, max total
- * 8000000, max per wallet 1, action timeout 86400, renewal 86400) and are
+ * 4000000, max per wallet 1, action timeout 86400, renewal 86400) and are
  * checked against the live depositParameters before anything is staged.
  *
  * Artifacts in dryrun-artifacts/: fork reservations-sepolia-rehearsal-<fork
@@ -161,17 +161,18 @@ const VAULT_ARTIFACT = "contracts/vault/ReservationVault.sol:ReservationVault"
 
 // The runbook's Sepolia values (docs/RESERVATION_SEPOLIA_DEPLOYMENT.md
 // pre-flight check 1, sized 2026-10-10 against the live deposit
-// parameters).
+// parameters). maxActive stays 2 below the 4 Live wallet slots so that
+// retiring wallets can hand off their anchors.
 const SEPOLIA_VALUES = {
   perWalletCap: 2_000_000n,
   singleAmountCap: 2_000_000n,
-  maxActive: 4,
+  maxActive: 2,
   maxThirdPartyReanchorHolds: 1,
   minAmount: 10_000n,
   txMaxFee: 1_000n,
   termSeconds: 7_776_000,
   dissolutionDelay: 86_400,
-  maxTotalAmount: 8_000_000n,
+  maxTotalAmount: 4_000_000n,
   maxReservationsPerWallet: 1,
   actionTimeout: 86_400,
   renewalWindowSeconds: 86_400,

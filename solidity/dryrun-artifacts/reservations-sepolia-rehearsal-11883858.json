@@ -5,7 +5,7 @@
   "startBlock": 11883858,
   "forkBlock": 11883858,
   "activationBlock": 11884578,
-  "runAt": "2026-10-10T14:05:16.792Z",
+  "runAt": "2026-10-12T09:40:38.630Z",
   "addresses": {
     "bridge": "0x2220acE07d86B508742D511478e517716B675940",
     "oldGov": "0x61700ebaCCfd9FB0100C35DDd38e4cC3e9057c5A",
@@ -168,13 +168,13 @@
     {
       "name": "09-begin-reservation-caps",
       "status": "PASS",
-      "txHash": "0x00cec6079abea5103dec9afe554d36df3367bd2361df2a31dca58688133dd9bd",
+      "txHash": "0xeba4e659b1cc621bc177a2ac07876b5aa90a929e375fefaccdced145b7b7900d",
       "gasUsed": 96836
     },
     {
       "name": "10-begin-reservation-parameters",
       "status": "PASS",
-      "txHash": "0x459fa1a49024773b71c512adb2d361883072402ab7627d98f8de5b0f515eb35b",
+      "txHash": "0x2a9a0f11a9558dc0189aca46f8f91432c2a7482b0468b9ef9dba3e92c7afc042",
       "gasUsed": 124558
     },
     {
@@ -241,7 +241,7 @@
         "reservationCaps": [
           "2000000",
           "2000000",
-          "4",
+          "2",
           "1"
         ],
         "reservationParameters": [
@@ -250,7 +250,7 @@
           "1000",
           "7776000",
           "86400",
-          "8000000",
+          "4000000",
           "0",
           "1",
           "86400",
