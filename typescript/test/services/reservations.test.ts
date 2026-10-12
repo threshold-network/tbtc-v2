@@ -199,21 +199,21 @@ describe("ReservationsService", () => {
         mockReservations.caps.maxSingleAmount = BigNumber.from(1000000)
       })
 
-      it("should report amount-below-minimum below minAmount + txMaxFee", async () => {
-        // 100000 + 20000 = 120000 is the effective minimum.
-        const result = await service.checkReserveFeasibility({
-          amount: BigNumber.from(120000),
+      it("should report amount-below-minimum up to minAmount + 2 * txMaxFee", async () => {
+        // 100000 + 2 * 20000 = 140000 is still too small: the anchor could
+        // pay the full fee and land on the re-anchor floor.
+        const atFloor = await service.checkReserveFeasibility({
+          amount: BigNumber.from(140000),
           walletPublicKeyHash: WALLET_A_PKH,
         })
-        // At the boundary the amount is accepted.
-        expect(result.reasons).to.not.include("amount-below-minimum")
+        expect(atFloor.go).to.be.false
+        expect(atFloor.reasons).to.include("amount-below-minimum")
 
-        const below = await service.checkReserveFeasibility({
-          amount: BigNumber.from(119999),
+        const aboveFloor = await service.checkReserveFeasibility({
+          amount: BigNumber.from(140001),
           walletPublicKeyHash: WALLET_A_PKH,
         })
-        expect(below.go).to.be.false
-        expect(below.reasons).to.include("amount-below-minimum")
+        expect(aboveFloor.reasons).to.not.include("amount-below-minimum")
       })
 
       it("should report amount-below-dust below the Bridge deposit dust threshold", async () => {
@@ -692,7 +692,7 @@ describe("ReservationsService", () => {
 
     it("should reject a deposit below the reservation minimum", async () => {
       mockReservations.addReservedDeposit(BigNumber.from(5), {
-        amount: BigNumber.from(119999),
+        amount: BigNumber.from(140000),
         walletPublicKeyHash: WALLET_A_PKH,
         isReserved: true,
         revealedAt: 1,

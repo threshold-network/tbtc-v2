@@ -151,6 +151,10 @@ Notes for integrators:
   `global-amount-cap-exceeded`, `wallet-not-live`,
   `wallet-count-cap-exceeded`, `wallet-amount-cap-exceeded`,
   `global-count-cap-exceeded`, `no-free-wallet`.
+- **Minimum amount.** A reservation needs a deposit amount strictly above
+  `minAmount + 2 * txMaxFee` (from `reservationParameters`). Below that,
+  `checkReserveFeasibility` reports `amount-below-minimum` and the
+  acceptance request reverts.
 - **Release to pool.** `releaseToPool` is only valid for a reserved
   deposit that never received an acceptance request; the vault target is
   the zero address or a trusted vault other than the reservation vault.
