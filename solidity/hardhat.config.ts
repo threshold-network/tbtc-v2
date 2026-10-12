@@ -148,7 +148,9 @@ const config: HardhatUserConfig = {
       // their test hooks run out of gas. A pre-OSAKA hardfork has no such
       // cap. Normal builds and tests leave the variable unset and keep the
       // default hardfork.
-      hardfork: process.env.COVERAGE_HARDFORK,
+      ...(process.env.COVERAGE_HARDFORK
+        ? { hardfork: process.env.COVERAGE_HARDFORK }
+        : {}),
       forking: {
         // forking is enabled only if FORKING_URL env is provided
         enabled: !!process.env.FORKING_URL,
