@@ -1,0 +1,256 @@
+name: Reservations nightly
+
+# Nightly reservation-verification jobs for the tBTC tooling.
+#
+# GitHub only fires `schedule` triggers from the default branch, and `main`
+# does not carry the reservation tooling. Each job therefore checks out the
+# named reservation branch explicitly with `actions/checkout` `ref:`. A manual
+# `workflow_dispatch` run accepts the branch to test through the string inputs
+# below; the scheduled run and a no-input dispatch fall back to the defaults.
+#
+#   medusa   - Foundry/Medusa invariant suite on the fizz branch. Fails the
+#              job (and files a GitHub issue) when a property fails.
+#   coverage - solidity-coverage run on the coverage branch. Non-blocking: it
+#              only uploads the report and summarises reservation-file
+#              coverage; the 18 known gas-assertion failures are tolerated.
+
+on:
+  schedule:
+    - cron: "25 03 * * *" # daily, off the top of the hour
+  workflow_dispatch:
+    inputs:
+      fizz_ref:
+        description: "Branch to run the Medusa invariant suite against"
+        required: false
+        default: "tooling/reservations-fizz"
+      coverage_ref:
+        description: "Branch to run the coverage suite against"
+        required: false
+        default: "tooling/reservations-coverage"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  medusa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      issues: write
+    env:
+      FOUNDRY_PROFILE: ci
+    defaults:
+      run:
+        working-directory: ./solidity
+    steps:
+      - name: Check out the Medusa branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.fizz_ref || 'tooling/reservations-fizz' }}
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24.11.1"
+
+      - name: Enable Corepack
+        run: |
+          corepack enable
+          corepack prepare yarn@4.12.0 --activate
+
+      - name: Configure HTTPS for legacy git dependencies
+        run: git config --global url."https://".insteadOf git://
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1
+        with:
+          version: v1.5.1
+          cache: true
+
+      - name: Cache pinned forge-std
+        id: forge-std-cache
+        uses: actions/cache@v4
+        with:
+          path: solidity/lib/forge-std
+          # Fixed key per forge-std commit. A miss installs that exact
+          # revision; a hit reuses the populated directory.
+          key: forge-std-8e40513d678f392f398620b3ef2b418648b33e89
+
+      - name: Install pinned forge-std
+        if: steps.forge-std-cache.outputs.cache-hit != 'true'
+        run: yarn foundry:install
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.10.8"
+
+      - name: Install Medusa
+        run: |
+          set -euo pipefail
+          medusa_url="https://github.com/crytic/medusa/releases/download/v1.5.1/medusa-linux-x64.tar.gz"
+          # SHA-256 of medusa-linux-x64.tar.gz from the v1.5.1 release,
+          # verified with `sha256sum` on the downloaded tarball.
+          medusa_sha256="ddfe1517ae9028ef9fc331b00f5a6a9d5406f3fcd11a715d60c6b6fb3e4546d3"
+          workdir="$(mktemp -d)"
+          curl -Lsfso "$workdir/medusa-linux-x64.tar.gz" "$medusa_url"
+          echo "$medusa_sha256  $workdir/medusa-linux-x64.tar.gz" | sha256sum -c -
+          tar -xzf "$workdir/medusa-linux-x64.tar.gz" -C "$workdir"
+          sudo install -m 0755 "$workdir/medusa" /usr/local/bin/medusa
+          medusa --version
+
+      - name: Install crytic-compile
+        run: pip install crytic-compile==0.4.2
+
+      - name: Run Medusa invariant suite
+        id: medusa
+        run: medusa fuzz --config medusa-reservations.json --timeout 1800
+
+      - name: Compute medusa artifact exclusion
+        id: medusa-artifact-exclusion
+        if: always()
+        run: |
+          corpus="cache_forge/medusa-reservations/corpus"
+          # Relative to the `solidity/` working directory; the artifact `path`
+          # below is relative to the workspace root instead.
+          if [ -d "$corpus" ]; then
+            size_mb="$(du -sm "$corpus" | cut -f1)"
+            if [ "$size_mb" -gt 300 ]; then
+              echo "exclude=cache_forge/medusa-reservations/corpus/**" >> "$GITHUB_OUTPUT"
+              echo "Medusa corpus is ${size_mb} MB (over 300 MB); excluding it from the artifact"
+            else
+              echo "exclude=" >> "$GITHUB_OUTPUT"
+              echo "Medusa corpus is ${size_mb} MB; including it in the artifact"
+            fi
+          else
+            echo "exclude=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload medusa logs and coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: medusa-reservations-nightly
+          path: solidity/cache_forge/medusa-reservations/
+          exclude: ${{ steps.medusa-artifact-exclusion.outputs.exclude }}
+          if-no-files-found: warn
+
+      - name: File invariant failure issue
+        # Only a failed Medusa run files an issue; setup failures just fail
+        # the job.
+        if: failure() && steps.medusa.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          MEDUSA_REF: ${{ github.event.inputs.fizz_ref || 'tooling/reservations-fizz' }}
+        run: |
+          set -euo pipefail
+          title="Nightly reservation invariant failure"
+          run_url="https://github.com/${GH_REPO}/actions/runs/${GITHUB_RUN_ID}"
+          body_file="$(mktemp)"
+          {
+            echo "The nightly Medusa reservation invariant suite failed on \`${MEDUSA_REF}\`."
+            echo
+            echo "Failing run: ${run_url}"
+            echo
+            echo "Full Medusa log and coverage are in the \`medusa-reservations-nightly\` artifact of that run."
+          } > "$body_file"
+          # The branch name comes from a workflow_dispatch input; it is passed
+          # to this step through `env:` so it is never spliced into the shell
+          # command template.
+          jq_expr='.[] | select(.title == "'"${title}"'" and (.pull_request == null)) | .number'
+          existing="$(gh api "repos/${GH_REPO}/issues?state=open&per_page=100" --paginate -q "$jq_expr" | head -n 1 || true)"
+          if [ -n "${existing:-}" ]; then
+            echo "Commenting on existing open issue #${existing}"
+            gh issue comment "${existing}" --body-file "$body_file"
+          else
+            echo "Creating issue '${title}'"
+            gh issue create --title "${title}" --body-file "$body_file"
+          fi
+
+  coverage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: ./solidity
+    steps:
+      - name: Check out the coverage branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.coverage_ref || 'tooling/reservations-coverage' }}
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24.11.1"
+
+      - name: Enable Corepack
+        run: |
+          corepack enable
+          corepack prepare yarn@4.12.0 --activate
+
+      - name: Configure HTTPS for legacy git dependencies
+        run: git config --global url."https://".insteadOf git://
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Run coverage
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
+        run: |
+          # Hardhat only enables forking when FORKING_URL is set; unset both
+          # so the run is self-contained against the local compiler.
+          unset FORKING_URL FORKING_BLOCK
+          set +e
+          yarn coverage
+          status=$?
+          set -e
+          # The 18 gas-assertion tests always fail under instrumentation, so a
+          # non-zero exit here is expected and must not fail the job.
+          echo "yarn coverage exited with status ${status} (the 18 gas-assertion failures are expected)"
+
+      - name: Verify coverage report
+        run: test -s coverage/lcov.info
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reservations-coverage-nightly
+          path: solidity/coverage/
+          if-no-files-found: error
+
+      - name: Summarise reservation-file coverage
+        if: always()
+        run: |
+          set -euo pipefail
+          {
+            echo "## Reservation file coverage"
+            echo
+            echo "Per-file line coverage for source files whose path contains \`Reservation\`:"
+            echo
+            awk '
+              /^SF:/ { sf = substr($0, 4); inres = (sf ~ /Reservation/) }
+              /^LF:/ && inres { lf = substr($0, 4) + 0 }
+              /^LH:/ && inres {
+                lh = substr($0, 4) + 0
+                pct = (lf > 0) ? (100 * lh / lf) : 100
+                printf "\`%s\`: lines %d/%d (%.1f%%)\n", sf, lh, lf, pct
+                inres = ""
+              }
+            ' coverage/lcov.info
+          } >> "$GITHUB_STEP_SUMMARY"
