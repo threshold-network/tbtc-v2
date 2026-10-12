@@ -130,6 +130,23 @@ export interface AcceptancePreflightResult {
 }
 
 /**
+ * Returns whether `amount` is large enough for a reservation. The Bridge
+ * requires `amount > minAmount + 2 * txMaxFee`: the anchor may pay up to
+ * `txMaxFee` and must then stay above the re-anchor floor
+ * `minAmount + txMaxFee`, so the position can be handed off when its wallet
+ * retires.
+ * @param amount Deposit amount in satoshi.
+ * @param params The current reservation minimum amount and fee cap.
+ * @returns True if the amount is above `minAmount + 2 * txMaxFee`.
+ */
+function meetsReservationMinimum(
+  amount: BigNumber,
+  params: Pick<ReservationParameters, "minAmount" | "txMaxFee">
+): boolean {
+  return amount.gt(params.minAmount.add(params.txMaxFee.mul(2)))
+}
+
+/**
  * Service exposing the UTXO-reservation features of the tBTC v2 bridge.
  *
  * A reservation routes a deposit to the reservation vault so that a tBTC
@@ -210,8 +227,7 @@ export class ReservationsService {
       }
     }
 
-    const minimum = params.minAmount.add(params.txMaxFee)
-    if (input.amount.lt(minimum)) {
+    if (!meetsReservationMinimum(input.amount, params)) {
       reasons.push("amount-below-minimum")
     }
     const { dustThreshold } =
@@ -536,8 +552,7 @@ export class ReservationsService {
       failures.push("wallet is not in Live state")
     }
 
-    const minimum = params.minAmount.add(params.txMaxFee)
-    if (record.amount.lt(minimum)) {
+    if (!meetsReservationMinimum(record.amount, params)) {
       failures.push("deposit amount is below the reservation minimum")
     }
     if (caps.maxSingleAmount.gt(0) && record.amount.gt(caps.maxSingleAmount)) {
