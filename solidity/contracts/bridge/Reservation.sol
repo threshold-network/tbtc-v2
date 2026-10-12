@@ -574,8 +574,12 @@ library Reservation {
         uint64 txMaxFee = self.reservationTxMaxFee;
         uint64 minAmount = self.reservationMinAmount;
 
+        // The anchor may pay up to `txMaxFee` and must then stay strictly
+        // above the re-anchor floor `minAmount + txMaxFee`, or the position
+        // could never be handed off when its wallet retires.
         require(
-            deposit.amount >= minAmount + txMaxFee,
+            uint256(deposit.amount) >
+                uint256(minAmount) + 2 * uint256(txMaxFee),
             "Deposit amount too small for a reservation"
         );
 
@@ -866,6 +870,8 @@ library Reservation {
         // (initial anchor - minAmount). Restored per adjudication reversing
         // review finding [6] (which had dropped the `minAmount` term; its
         // rationale did not account for the cumulative exposure).
+        // The acceptance floor `minAmount + 2 * txMaxFee` makes every new
+        // position clear this floor for its first hop.
         {
             uint64 minAmount = self.reservationMinAmount;
             require(
