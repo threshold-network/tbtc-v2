@@ -88,6 +88,92 @@ sdk.tbtcContracts.(...)
 sdk.bitcoinClient.(...)
 ```
 
+## Reservations
+
+The SDK supports the tBTC v2 UTXO-reservation flow through
+`sdk.reservations` (`ReservationsService`). A reservation routes a
+deposit to the reservation vault so that a tBTC wallet anchors the
+funds in its own UTXO instead of the shared pool, protecting the
+wallet from sweep-capacity races.
+
+Typical flow:
+
+```typescript
+// 1. Pre-funding go/no-go check for a reserved deposit.
+const feasibility = await sdk.reservations.checkReserveFeasibility({
+  amount: 500_000n,
+  // walletPublicKeyHash: optional - when omitted, any Live wallet with
+  // free reservation capacity is considered.
+})
+if (!feasibility.go) {
+  console.error("Cannot reserve right now:", feasibility.reasons)
+  // reasons are machine-readable, e.g. "reservations-disabled",
+  // "amount-below-minimum", "wallet-count-cap-exceeded", "no-free-wallet".
+}
+
+// 2. Initiate the reserved deposit. The receipt refund locktime is chosen
+//    inside the on-chain window with a default 30-day reveal slack, so the
+//    depositor has days of margin between address generation and reveal.
+const { deposit, receipt, walletPublicKeyHash } =
+  await sdk.reservations.initiateReservedDeposit(bitcoinRecoveryAddress)
+
+// 3. Fund the Bitcoin deposit address, then reveal to the reservation vault.
+await deposit.detectFunding()
+await sdk.reservations.revealReservedDeposit(deposit)
+
+// 4. Request acceptance (only the depositor may do this). The preflight
+//    explains which rule would fail without submitting the transaction.
+const preflight = await sdk.reservations.checkAcceptancePreflight(
+  depositKey,
+  walletPublicKeyHash
+)
+if (!preflight.ok) {
+  console.error("Acceptance blocked:", preflight.failures)
+}
+await sdk.reservations.requestAcceptance(depositKey, walletPublicKeyHash)
+
+// 5. If the wallet never anchors, the depositor can release the deposit
+//    back to the pool so ordinary sweeps accept it again.
+await sdk.reservations.releaseToPool(depositKey)
+```
+
+Notes for integrators:
+
+- **Reveal deadline.** `checkReserveFeasibility` reports a `revealBy`
+  timestamp (refund locktime minus the reveal-ahead period). The reveal
+  must be mined by that timestamp. A later reveal reverts ("Deposit refund
+  locktime is too close"), and the BTC can then only be refunded on
+  Bitcoin after the refund locktime.
+- **No-go reasons.** The go/no-go check reports a machine-readable
+  `reasons` array: `reservations-disabled`,
+  `locktime-window-infeasible`, `locktime-slack-insufficient`,
+  `amount-below-minimum`, `amount-below-dust`, `amount-above-single-cap`,
+  `global-amount-cap-exceeded`, `wallet-not-live`,
+  `wallet-count-cap-exceeded`, `wallet-amount-cap-exceeded`,
+  `global-count-cap-exceeded`, `handoff-reserve-exceeded`, `no-free-wallet`.
+- **Hand-off reserve.** The Bridge holds back a governance-configured
+  number of Live wallets from acceptance capacity (`reservationHandoffReserveWallets`).
+  An acceptance is admitted only while
+  `activeReservationsCount + 1 <= max(0, liveWalletsCount - handoffReserveWallets) * maxReservationsPerWallet`;
+  otherwise the on-chain request reverts with "Hand-off reserve exceeded".
+  The gate checks **admission at acceptance time only**: it does not
+  reserve a specific wallet or slot, and neither `checkReserveFeasibility`
+  nor `checkAcceptancePreflight` can make the funding or the acceptance
+  itself race-free. A check that passes can be overtaken by concurrent
+  acceptances, rotating or retiring wallets, late proof delivery or a
+  cap change. `handoff-reserve-exceeded` (pre-funding) and the matching
+  failure entry (acceptance preflight) report that the next acceptance
+  would be refused by the gate even though the ordinary global and
+  per-wallet caps still have room.
+- **Release to pool.** `releaseToPool` is only valid for a reserved
+  deposit that never received an acceptance request; the vault target is
+  the zero address or a trusted vault other than the reservation vault.
+- **Refunds.** A reserved deposit refunds through a Bitcoin script path
+  (OP_IF/OP_ELSE with the refund public key and locktime). The depositor
+  must control a Bitcoin wallet that can sign the script-path refund; a
+  plain P2WPKH address that cannot produce the witness for the script
+  cannot refund it.
+
 ## Contributing
 
 Contributions are always welcome! Feel free to open any issue or send a pull request.

@@ -23,6 +23,7 @@ contract ReservationCapsGovernanceExecutor {
         uint64 newReservationMaxSingleAmount,
         uint32 newMaxActiveReservations,
         uint32 newMaxThirdPartyReanchorHoldsPerWallet,
+        uint32 newHandoffReserveWallets,
         uint256 timestamp
     );
 
@@ -35,13 +36,15 @@ contract ReservationCapsGovernanceExecutor {
         uint64 _newMaxReservationsAmountPerWallet,
         uint64 _newReservationMaxSingleAmount,
         uint32 _newMaxActiveReservations,
-        uint32 _newMaxThirdPartyReanchorHoldsPerWallet
+        uint32 _newMaxThirdPartyReanchorHoldsPerWallet,
+        uint32 _newHandoffReserveWallets
     ) external {
         reservationCapsData.beginReservationCapsUpdate(
             _newMaxReservationsAmountPerWallet,
             _newReservationMaxSingleAmount,
             _newMaxActiveReservations,
-            _newMaxThirdPartyReanchorHoldsPerWallet
+            _newMaxThirdPartyReanchorHoldsPerWallet,
+            _newHandoffReserveWallets
         );
     }
 
@@ -56,6 +59,7 @@ contract ReservationCapsGovernanceExecutor {
             staged.newReservationMaxSingleAmount,
             staged.newMaxActiveReservations,
             staged.newMaxThirdPartyReanchorHoldsPerWallet,
+            staged.newHandoffReserveWallets,
             staged.reservationCapsChangeInitiated
         );
     }
@@ -68,6 +72,7 @@ contract ReservationCapsGovernanceExecutor {
             uint64 newReservationMaxSingleAmount,
             uint32 newMaxActiveReservations,
             uint32 newMaxThirdPartyReanchorHoldsPerWallet,
+            uint32 newHandoffReserveWallets,
             uint256 changeInitiated
         )
     {
@@ -79,6 +84,7 @@ contract ReservationCapsGovernanceExecutor {
             reservationCapsData.newMaxActiveReservations;
         newMaxThirdPartyReanchorHoldsPerWallet =
             reservationCapsData.newMaxThirdPartyReanchorHoldsPerWallet;
+        newHandoffReserveWallets = reservationCapsData.newHandoffReserveWallets;
         changeInitiated = reservationCapsData.reservationCapsChangeInitiated;
     }
 }

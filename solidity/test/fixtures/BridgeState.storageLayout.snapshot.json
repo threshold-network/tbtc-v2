@@ -553,6 +553,13 @@
       "numberOfBytes": "4"
     },
     {
+      "label": "handoffReserveWallets",
+      "slot": "39",
+      "offset": 4,
+      "type": "uint32",
+      "numberOfBytes": "4"
+    },
+    {
       "label": "pendingThirdPartyReanchorHolds",
       "slot": "40",
       "offset": 0,
