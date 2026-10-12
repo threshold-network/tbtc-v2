@@ -47,7 +47,7 @@ describe("ReservationProofs", () => {
 
   function uint64ToLittleEndianHex(val: BigNumberish): string {
     const bn = BigInt(val)
-    const hex = bn.toString(16).substring(2).padStart(16, "0")
+    const hex = bn.toString(16).padStart(16, "0")
     return Buffer.from(hex, "hex").reverse().toString("hex")
   }
 
@@ -103,6 +103,7 @@ describe("ReservationProofs", () => {
       retryCreditSourceNonce: 0,
       termSeconds,
       dissolutionDelay,
+      thirdPartyHold: false,
       ...overrides,
     }
   }
@@ -153,7 +154,7 @@ describe("ReservationProofs", () => {
     ).deploy(bank.target)) as TestReservationProofs
 
     relay = await createMock<IRelay>("IRelay")
-    await testReservationProofs.setRelay(relay.target)
+    await testReservationProofs.setRelay(relay.address)
 
     await bank.connect(deployer).updateBridge(testReservationProofs.target)
 

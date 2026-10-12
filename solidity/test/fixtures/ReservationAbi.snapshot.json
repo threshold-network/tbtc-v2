@@ -49,6 +49,12 @@
       "outputs": ["uint32"]
     },
     {
+      "name": "releaseReservedDepositToPool",
+      "selector": "0x49fdfb19",
+      "inputs": ["uint256", "address"],
+      "outputs": []
+    },
+    {
       "name": "requestReservationAcceptance",
       "selector": "0xbc78a18e",
       "inputs": ["uint256", "bytes20"],
@@ -276,6 +282,11 @@
       "name": "ReservedDepositMarkedStale",
       "topic0": "0xf4a10f7395c3a5e8165714c665ddb7f2e320f8bc2a21d9f8722f48f8d1d71eab",
       "inputs": ["uint256"]
+    },
+    {
+      "name": "ReservedDepositReleasedToPool",
+      "topic0": "0x78476656031064a25d6ce0c0ecaa81585836369a97ded013658cd7fd20c74291",
+      "inputs": ["uint256", "address", "address"]
     }
   ],
   "structs": {

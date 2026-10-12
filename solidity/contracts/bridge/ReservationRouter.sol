@@ -163,6 +163,12 @@ contract ReservationRouter is Governable, Initializable {
 
     event ReservedDepositMarkedStale(uint256 indexed depositKey);
 
+    event ReservedDepositReleasedToPool(
+        uint256 indexed depositKey,
+        address indexed depositor,
+        address vault
+    );
+
     event ReservationStranded(
         uint256 indexed reservationKey,
         bytes20 indexed walletPubKeyHash,
@@ -413,6 +419,22 @@ contract ReservationRouter is Governable, Initializable {
         onlyGovernance
     {
         self.forceStaleReservedDeposit(depositKey);
+    }
+
+    /// @notice Depositor-only release of a revealed reserved deposit that
+    ///         never received an acceptance request, returning it to the
+    ///         ordinary deposit pool so a normal sweep can pick it up.
+    ///         See `Reservation.releaseReservedDepositToPool` for the full
+    ///         requirement list.
+    /// @dev Reverts unless the caller is the deposit's own depositor.
+    /// @param depositKey The deposit key of the reserved deposit to release.
+    /// @param vault The vault to re-route the deposit to, or the zero
+    ///        address for a plain pool sweep. MUST NOT be the reservation
+    ///        vault.
+    function releaseReservedDepositToPool(uint256 depositKey, address vault)
+        external
+    {
+        self.releaseReservedDepositToPool(depositKey, vault);
     }
 
     /// @notice Marks a reservation custodied by a terminated or closed
