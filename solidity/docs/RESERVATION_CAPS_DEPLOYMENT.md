@@ -46,6 +46,7 @@ DEPLOY_RESERVATION_BOOTSTRAP_CALDATA=true yarn deploy --tags GenerateReservation
 | `RESERVATION_SINGLE_AMOUNT_CAP_SATS` | `beginReservationCapsUpdate._newReservationMaxSingleAmount` | |
 | `RESERVATION_MAX_ACTIVE` | `beginReservationCapsUpdate._newMaxActiveReservations` | |
 | `RESERVATION_MAX_THIRD_PARTY_REANCHOR_HOLDS` | `beginReservationCapsUpdate._newMaxThirdPartyReanchorHoldsPerWallet` | 0 blocks third-party holds |
+| `RESERVATION_HANDOFF_RESERVE_WALLETS` | `beginReservationCapsUpdate._newHandoffReserveWallets` | must be > 0 (mirrors `updateReservationCaps`'s "Hand-off reserve must be greater than zero" require) |
 | `RESERVATION_MIN_AMOUNT_SATS` | `beginReservationParametersUpdate._newReservationMinAmount` | must exceed the tx max fee |
 | `RESERVATION_TX_MAX_FEE_SATS` | `beginReservationParametersUpdate._newReservationTxMaxFee` | must be > 0 |
 | `RESERVATION_TERM_SECONDS` | `beginReservationParametersUpdate._newReservationTermSeconds` | 90 to 730 days |
@@ -122,11 +123,15 @@ In Milestone 1, `maxActiveReservations` acts as an occupancy launch gate and cap
 - **Occupancy lifecycle and release paths in M1:** Once reservation requests are authorized and accepted on-chain, `activeReservationsCount` increments. Voluntary protocol-level exits from an accepted reservation position (such as dissolution, veto, and dedicated reservation redemptions) are deferred to Milestone 2. However, `activeReservationsCount` is decremented on the two variant-B release paths that exist in M1: acceptance timeout (when acceptance proofs expire) and stranding (when a wallet closes or terminates). Thus, while not a strictly monotonic one-way ratchet, capacity releases occur exclusively through non-voluntary timeout/stranding paths rather than depositor-initiated exits. Occupancy is not derivable from a single field or event: the `ReservationOccupancyChanged` event alone reports only the raw `activeReservationsCount` counter, not effective occupancy. Deriving effective occupancy from current on-chain views requires combining `IReservationBridge.activeReservationsCount()` with `reservationParameters()` (for `maxReservationsPerWallet`) and the live-wallet count. This yields two distinct quantities that should not be conflated: aggregate wallet-slot utilization (`activeReservationsCount` against `liveWalletsCount * maxReservationsPerWallet`) and governance-cap utilization (`activeReservationsCount` against the global `maxActiveReservations` ceiling).
 - **Underlying tBTC funds are not locked:** This occupancy accounting applies only to the position of the dedicated-UTXO reservation. Depositor funds are not locked: upon `settleAcceptance`, the depositor is already credited liquid tBTC via the standard Bridge/vault deposit-crediting (mint) path (this mint/credit flow is completely unrelated to the distinct `redeemReservation` feature, which is disabled in Milestone 1). Only the dedicated-UTXO reservation position itself lacks an early voluntary close mechanism in M1.
 - **Wallet-closing gate dependency:** The safety story for `maxActiveReservations` relies on wallets not being able to retire while they still hold live reservation anchors. The `walletReservationInfo[wallet].count == 0` precondition is enforced at the two points that can still block _before_ any Bitcoin funds have moved: `moveFunds`'s routing decision (a wallet with a nonzero reservation count is always routed through `MovingFunds`, never straight to `Closing`) and `notifyWalletClosingPeriodElapsed`. It is deliberately _absent_ from `beginWalletClosing` and `finalizeWalletClosing`: both are reached only after a moving-funds Bitcoin transaction has already been proven on-chain via SPV proof, and blocking wallet retirement at that point (with funds already gone) would leave the wallet stuck mid-closing while its `movingFundsTimeout` clock keeps running, eventually triggering operator slashing for a state the protocol itself created. A wallet can therefore complete closing while still holding a live reservation anchor if reservations were requested against it after the `moveFunds` decision was made; the anchor itself is separately recovered via `notifyReservationStranded` once the wallet reaches `Terminated`/`Closed`/dissolution-eligible-`Closing`.
-- **Procedure for raising capacity:** When active occupancy saturates or additional headroom is required, governance can raise the occupancy limit by calling `updateReservationCaps(maxReservationsAmountPerWallet, reservationMaxSingleAmount, newMaxActiveReservations, maxThirdPartyReanchorHoldsPerWallet)` with a higher `newMaxActiveReservations` value and the current value of every other cap.
+- **Procedure for raising capacity:** When active occupancy saturates or additional headroom is required, governance can raise the occupancy limit by calling `updateReservationCaps(maxReservationsAmountPerWallet, reservationMaxSingleAmount, newMaxActiveReservations, maxThirdPartyReanchorHoldsPerWallet, handoffReserveWallets)` with a higher `newMaxActiveReservations` value and the current value of every other cap.
 - **Sizing constraint:** Any update to `maxActiveReservations` or `reservationMaxSingleAmount` must maintain the Decision 1 relational invariant:
   `reservationMaxTotalAmount <= maxActiveReservations * reservationMaxSingleAmount`
   (unless `reservationMaxSingleAmount == 0`, which disables the amount cap). If lowering caps or raising `reservationMaxTotalAmount`, governance must ensure the new slot capacity accommodates `reservationMaxTotalAmount`.
 - **Operational timeline considerations:** Whether the Milestone 1 launch is expected to reach reservation term expiry before Milestone 2 ships is an open operational question that the deploying team and governance should confirm prior to setting initial term lengths and occupancy limits.
+
+### Emergency Step: Free Target Slots Run Low
+
+Privileged hand-offs from `MovingFunds` or `Closing` do not need ordinary target headroom. Raise `maxReservationsPerWallet` or `maxReservationsAmountPerWallet` only when governance wants more ordinary admission, third-party target headroom or Live-source rotation capacity. `maxReservationsPerWallet` uses the delayed reservation-parameters update. `maxReservationsAmountPerWallet` uses the delayed caps update and must include the current hand-off reserve. Raising the per-wallet count increases the reserve-gated admission budget; it does not override `maxActiveReservations` or change existing pending actions.
 
 ### Monitoring and Alerting (Occupancy & Risk Signals)
 
@@ -178,6 +183,15 @@ function updateReservationCaps(
   uint32 maxThirdPartyReanchorHoldsPerWallet
 ) external;
 
+// Milestone 1, hand-off reserve
+function updateReservationCaps(
+  uint64 maxReservationsAmountPerWallet,
+  uint64 reservationMaxSingleAmount,
+  uint32 maxActiveReservations,
+  uint32 maxThirdPartyReanchorHoldsPerWallet,
+  uint32 handoffReserveWallets
+) external;
+
 ```
 
 `ReservationCapsUpdated` event signature change:
@@ -202,6 +216,15 @@ event ReservationCapsUpdated(
     uint64 reservationMaxSingleAmount,
     uint32 maxActiveReservations,
     uint32 maxThirdPartyReanchorHoldsPerWallet
+);
+
+// Milestone 1, hand-off reserve
+event ReservationCapsUpdated(
+    uint64 maxReservationsAmountPerWallet,
+    uint64 reservationMaxSingleAmount,
+    uint32 maxActiveReservations,
+    uint32 maxThirdPartyReanchorHoldsPerWallet,
+    uint32 handoffReserveWallets
 );
 ```
 
@@ -231,11 +254,11 @@ event ReservationReanchored(
 
 Off-chain tooling updates required:
 
-- Governance proposal builders (Defender, Safe Transaction Builder, Tenderly, custom multisend helpers) — regenerate the encoded calldata with the 3-argument signature for `updateReservationCaps`.
-- Indexers and dashboards (The Graph subgraphs, Dune queries, custom event listeners) — update the event ABI to 3 fields for `ReservationCapsUpdated` and 6 fields for `ReservationReanchored` (appended `minerFee` field). Backward-compatible decoders will read the new fields as the next positional argument; forward-compatible decoders ignore unknown fields. Adding the `maxActiveReservations` field to `ReservationCapsUpdated` changes its event signature hash (topic0), so off-chain indexers watching the pre-PR `ReservationCapsUpdated` event signature will silently stop matching entirely until updated. Note that off-chain indexers watching the pre-PR `ReservationReanchored` event signature will likewise silently stop matching events until updated.
+- Governance proposal builders must use the five-argument `updateReservationCaps` and `beginReservationCapsUpdate` signatures.
+- Indexers and dashboards must decode five fields in `ReservationCapsUpdated` and six fields in `ReservationReanchored`. Each signature has a different topic0 from earlier versions. Update event filters as well as positional decoders.
 - Monitoring alerts and circuit breakers keyed on `ReservationCapsUpdated` or `ReservationReanchored` — confirm the alerts still fire on the new signatures.
 
-**Note:** The `updateReservationCaps` selector change (3-arg vs 2-arg) means consumers MUST rebind/recompile against the new `IReservationBridge` interface. The interface in this PR declares the updated signature, but consumers that bind through it still need a recompile/rebind — the selector change (topic0 for events, 4-byte selector for functions) is not automatically absorbed by the interface binding alone.
+The five-argument `updateReservationCaps` selector is `0x78d76eda`. The old four-argument selector is not supported. `reservationCaps()` remains a four-value view; read `reservationHandoffReserveWallets()` separately. Rebuild clients and governance calldata against the new interface.
 
 ### m1 router ABI delta vs. inventory/router.md
 

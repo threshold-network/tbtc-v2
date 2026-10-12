@@ -351,13 +351,180 @@ describe("Bridge - reservation third-party re-anchor holds (per-target cap)", ()
       expect(await executor.pendingThirdPartyReanchorHolds(targetPk)).to.equal(1)
     })
   })
+  // Privileged hand-off (design C): a privileged re-anchor from a retiring
+  // source (MovingFunds/Closing) may exceed the target's ordinary
+  // per-wallet count and amount caps, so a retirement stays possible even
+  // when the target's slots are saturated. Third-party requests and
+  // governance rotations off a Live source keep the caps.
+  describe("privileged hand-off: a retiring source may exceed the target's caps", () => {
+    const holderKey = `0x${"c0".repeat(32)}`
+    const callerKey = `0x${"c1".repeat(32)}`
+    // Distinct third-party owner: a reservation `caller` does not own,
+    // so a re-anchor request from it keeps the ordinary caps.
+    const thirdPartyOwner = ethers.Wallet.createRandom().address
 
-  // Known limit of the cap: the exemption covers only the third-party cap.
-  // Every pending hold still consumes the target's ordinary per-wallet
-  // capacity (`maxReservationsPerWallet` / `maxReservationsAmountPerWallet`),
-  // so a privileged re-request against a target whose single free slot a
-  // third-party hold occupies reverts on the ordinary per-wallet cap until
-  // the hold is released (timeout, supersede-unwind, or settlement).
+    // Fill the target's only ordinary slot with a third-party hold: the
+    // target's count cap is 1 and the hold fills it.
+    async function fillTargetSlot() {
+      await executor.seedWallet(targetWallet, ZERO_BYTES32, walletStateEnum.Live)
+      await executor.setMaxReservationsPerWallet(1)
+      // The holder request is a third-party hold, so the per-target hold
+      // cap must leave room for it and the follow-up third-party requests
+      // below.
+      await executor.setMaxThirdPartyReanchorHoldsPerWallet(3)
+      // A distinct third-party reservation on the second source wallet
+      // holds the target's one free slot.
+      await executor.seedWallet(secondSourceWallet, ZERO_BYTES32, walletStateEnum.MovingFunds)
+      await executor.seedReservation(
+        holderKey,
+        thirdPartyOwner,
+        secondSourceWallet,
+        1_000_000,
+        `0x${"37".repeat(32)}`,
+        0,
+        1 // Active
+      )
+      await executor.requestReservationReanchor(holderKey, targetWallet, false, [], 0)
+      expect(await executor.walletReservationsCount(targetWallet)).to.equal(1)
+    }
+
+    // A caller-owned reservation on the first source wallet, re-anchorable
+    // to the same target, so the caller is privileged.
+    async function seedCallerReanchorable(source = walletStateEnum.MovingFunds) {
+      await executor.seedWallet(sourceWallet, ZERO_BYTES32, source)
+      await executor.seedReservation(
+        callerKey,
+        caller,
+        sourceWallet,
+        1_000_000,
+        `0x${"38".repeat(32)}`,
+        0,
+        1 // Active
+      )
+    }
+
+    // Seed a target whose reserved amount, plus a second re-anchor,
+    // exceeds the per-wallet amount cap, while the count cap stays
+    // generous (the default 5) so the amount cap is the binding check.
+    async function fillTargetAmount(cap: number) {
+      await executor.seedWallet(targetWallet, ZERO_BYTES32, walletStateEnum.Live)
+      await executor.setMaxReservationsAmountPerWallet(cap)
+      await executor.setMaxThirdPartyReanchorHoldsPerWallet(3)
+      await executor.seedWallet(secondSourceWallet, ZERO_BYTES32, walletStateEnum.MovingFunds)
+      await executor.seedReservation(
+        holderKey,
+        thirdPartyOwner,
+        secondSourceWallet,
+        1_000_000,
+        `0x${"37".repeat(32)}`,
+        0,
+        1 // Active
+      )
+      await executor.requestReservationReanchor(holderKey, targetWallet, false, [], 0)
+      expect(await executor.walletReservationsAmount(targetWallet)).to.equal(1_000_000)
+    }
+
+    it("owner: a MovingFunds re-anchor to a full target succeeds and the target count becomes cap+1", async () => {
+      await fillTargetSlot()
+      await seedCallerReanchorable()
+
+      await executor.requestReservationReanchor(callerKey, targetWallet, false, [], 0)
+      expect(await executor.walletReservationsCount(targetWallet)).to.equal(2)
+    })
+
+    it("owner: a Closing re-anchor to a full target succeeds", async () => {
+      await fillTargetSlot()
+      await seedCallerReanchorable(walletStateEnum.Closing)
+
+      await executor.requestReservationReanchor(callerKey, targetWallet, false, [], 0)
+      expect(await executor.walletReservationsCount(targetWallet)).to.equal(2)
+    })
+
+    it("SPV maintainer: a MovingFunds re-anchor to a full target succeeds", async () => {
+      await fillTargetSlot()
+      await seedCallerReanchorable()
+      await executor.setSpvMaintainer(caller, true)
+
+      await executor.requestReservationReanchor(callerKey, targetWallet, false, [], 0)
+      expect(await executor.walletReservationsCount(targetWallet)).to.equal(2)
+    })
+
+    it("proven source-wallet member: a MovingFunds re-anchor to a full target succeeds", async () => {
+      await fillTargetSlot()
+      const registry = await createMock<IWalletRegistry>("IWalletRegistry")
+      await executor.setEcdsaWalletRegistry(registry.address)
+      await seedCallerReanchorable()
+      await executor.seedWallet(sourceWallet, sourceEcdsaId, walletStateEnum.MovingFunds)
+      await registry.isWalletMember
+        .whenCalledWith(sourceEcdsaId, [1, 2, 3], caller, 2)
+        .returns(true)
+
+      await executor.requestReservationReanchor(callerKey, targetWallet, false, [1, 2, 3], 2)
+      expect(await executor.walletReservationsCount(targetWallet)).to.equal(2)
+    })
+
+    it("a third party into the full target still reverts on the count cap", async () => {
+      await fillTargetSlot()
+      // A second third-party reservation re-anchoring to the same full
+      // target exceeds the count cap.
+      await executor.seedReservation(
+        `0x${"c2".repeat(32)}`,
+        thirdPartyOwner,
+        secondSourceWallet,
+        1_000_000,
+        `0x${"39".repeat(32)}`,
+        0,
+        1 // Active
+      )
+
+      await expect(
+        executor.requestReservationReanchor(`0x${"c2".repeat(32)}`, targetWallet, false, [], 0)
+      ).to.be.revertedWith("Wallet reservations cap exceeded")
+    })
+
+    it("governance (privileged) from a Live source into a full target still reverts on the count cap", async () => {
+      await fillTargetSlot()
+      await seedCallerReanchorable(walletStateEnum.Live)
+
+      await expect(
+        executor.requestReservationReanchor(callerKey, targetWallet, true, [], 0)
+      ).to.be.revertedWith("Wallet reservations cap exceeded")
+    })
+
+    it("a privileged MovingFunds re-anchor may exceed the target's amount cap", async () => {
+      await fillTargetAmount(1_500_000)
+      await seedCallerReanchorable()
+
+      await executor.requestReservationReanchor(callerKey, targetWallet, false, [], 0)
+      expect(await executor.walletReservationsAmount(targetWallet)).to.equal(2_000_000)
+    })
+
+    it("a third party into a target over its amount cap still reverts", async () => {
+      await fillTargetAmount(1_500_000)
+      await executor.seedReservation(
+        `0x${"c3".repeat(32)}`,
+        randomOwner,
+        secondSourceWallet,
+        1_000_000,
+        `0x${"3a".repeat(32)}`,
+        0,
+        1 // Active
+      )
+
+      await expect(
+        executor.requestReservationReanchor(`0x${"c3".repeat(32)}`, targetWallet, false, [], 0)
+      ).to.be.revertedWith("Wallet reserved amount cap exceeded")
+    })
+
+  })
+  // The hand-off exemption extends past the third-party hold cap to the
+  // target's ordinary per-wallet caps, but only for a privileged re-request
+  // off a retiring source (MovingFunds/Closing). A pending third-party hold
+  // still occupies the target's ordinary slot and still counts against the
+  // third-party cap; it merely no longer blocks a privileged hand-off.
+  // A third-party re-request into the same saturated target still reverts
+  // on the ordinary per-wallet cap until the hold is released (timeout,
+  // supersede-unwind, or settlement).
   describe("cap limit: a third-party hold still uses the target's ordinary capacity", () => {
     const memberKey = `0x${"bb".repeat(32)}`
 
@@ -383,15 +550,16 @@ describe("Bridge - reservation third-party re-anchor holds (per-target cap)", ()
         .returns(true)
     }
 
-    it("a third-party hold still uses the target's ordinary per-wallet slot", async () => {
+    it("a privileged hand-off skips the target's ordinary cap when a hold occupies the slot", async () => {
       await seedThirdPartyHold()
       await seedMemberRequest()
 
-      // The member proof is exempt from the third-party cap, but the pending
-      // hold already consumed the target's only ordinary slot.
-      await expect(
-        executor.requestReservationReanchor(memberKey, targetWallet, false, [1, 2, 3], 2)
-      ).to.be.revertedWith("Wallet reservations cap exceeded")
+      // The hold consumed the target's only ordinary slot. A privileged
+      // re-request off the retiring (MovingFunds) source skips the target's
+      // per-wallet caps, so it succeeds into the saturated target instead of
+      // reverting on the count cap.
+      await executor.requestReservationReanchor(memberKey, targetWallet, false, [1, 2, 3], 2)
+      expect(await executor.walletReservationsCount(targetWallet)).to.equal(2)
     })
 
     it("the member request succeeds after the third-party hold times out", async () => {
@@ -415,10 +583,11 @@ describe("Bridge - reservation third-party re-anchor holds (per-target cap)", ()
     it("stages and finalizes the cap through the begin/finalize ceremony", async () => {
       const cap = await loadFixture(deployCapsGovernanceExecutor)
 
-      await cap.beginReservationCapsUpdate(1_000_000, 100_000, 100, 2)
+      await cap.beginReservationCapsUpdate(1_000_000, 100_000, 100, 2, 1)
 
       const staged = await cap.staged()
       expect(staged.newMaxThirdPartyReanchorHoldsPerWallet).to.equal(2)
+      expect(staged.newHandoffReserveWallets).to.equal(1)
       expect(staged.newMaxActiveReservations).to.equal(100)
       expect(staged.changeInitiated).to.be.greaterThan(0)
 
@@ -426,12 +595,12 @@ describe("Bridge - reservation third-party re-anchor holds (per-target cap)", ()
       await cap.finalizeReservationCapsUpdate(0)
       const cleared = await cap.staged()
       expect(cleared.newMaxThirdPartyReanchorHoldsPerWallet).to.equal(0)
-      expect(cleared.changeInitiated).to.equal(0)
+      expect(cleared.newHandoffReserveWallets).to.equal(0)
     })
 
     it("reverts finalize before the governance delay elapses", async () => {
       const cap = await loadFixture(deployCapsGovernanceExecutor)
-      await cap.beginReservationCapsUpdate(1_000_000, 100_000, 100, 2)
+      await cap.beginReservationCapsUpdate(1_000_000, 100_000, 100, 2, 1)
       // The executor was deployed with a zero delay, so passing a nonzero delay
       // to the finalizer enforces a window that has not yet elapsed.
       await expect(cap.finalizeReservationCapsUpdate(60)).to.be.revertedWith(

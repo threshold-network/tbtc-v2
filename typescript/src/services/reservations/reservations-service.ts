@@ -61,6 +61,7 @@ export type ReservationNoGoReason =
   | "wallet-count-cap-exceeded"
   | "wallet-amount-cap-exceeded"
   | "global-count-cap-exceeded"
+  | "handoff-reserve-exceeded"
   | "no-free-wallet"
 
 export interface ReserveFeasibilityResult {
@@ -234,6 +235,14 @@ export class ReservationsService {
       await this.tbtcContracts.reservations.activeReservationsCount()
     if (occupancy.count + 1 > occupancy.maxActive) {
       reasons.push("global-count-cap-exceeded")
+    }
+    if (
+      await this.handoffReserveExceeded(
+        occupancy.count,
+        params.maxReservationsPerWallet
+      )
+    ) {
+      reasons.push("handoff-reserve-exceeded")
     }
 
     if (input.walletPublicKeyHash !== undefined) {
@@ -540,6 +549,14 @@ export class ReservationsService {
     if (occupancy.count + 1 > occupancy.maxActive) {
       failures.push("the global active-reservations cap would be exceeded")
     }
+    if (
+      await this.handoffReserveExceeded(
+        occupancy.count,
+        params.maxReservationsPerWallet
+      )
+    ) {
+      failures.push("the hand-off reserve gate would be exceeded")
+    }
     const wc = await this.walletReservationFacts(walletPublicKeyHash)
     if (
       params.maxReservationsPerWallet > 0 &&
@@ -658,6 +675,35 @@ export class ReservationsService {
       this.tbtcContracts.reservations.walletReservationsAmount(pkh),
     ])
     return { count, amount }
+  }
+
+  /**
+   * Evaluates the on-chain hand-off reserve gate from the caller's side:
+   * the next acceptance is admitted only when
+   * `count + 1 <= max(0, live - reserve) * perWallet`. The product is
+   * computed with BigNumber so uint32 operands cannot overflow the
+   * JavaScript-safe integer range.
+   *
+   * The gate is inactive while the per-wallet count cap is unset
+   * (zero): on-chain, the cap is set to a positive value whenever the
+   * reservation vault is enabled, so the gate only ever binds with a
+   * nonzero cap.
+   */
+  private async handoffReserveExceeded(
+    currentCount: number,
+    maxReservationsPerWallet: number
+  ): Promise<boolean> {
+    if (maxReservationsPerWallet === 0) {
+      return false
+    }
+    const [liveCount, reserve] = await Promise.all([
+      this.tbtcContracts.reservations.liveWalletsCount(),
+      this.tbtcContracts.reservations.reservationHandoffReserveWallets(),
+    ])
+    const remaining = BigNumber.from(Math.max(0, liveCount - reserve))
+    return BigNumber.from(currentCount)
+      .add(1)
+      .gt(remaining.mul(maxReservationsPerWallet))
   }
 
   private async enumerateWallets(): Promise<ReservedWallet[]> {
