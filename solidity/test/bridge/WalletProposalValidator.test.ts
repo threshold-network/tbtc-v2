@@ -4318,6 +4318,78 @@ describe("WalletProposalValidator", () => {
         expect(result).to.be.true
       })
     })
+
+    context(
+      "when the target exceeds the per-wallet caps (the request already reserved that capacity)",
+      () => {
+        before(async () => {
+          await createSnapshot()
+
+          const now = await lastBlockTime()
+
+          await reservationBridge.reservationActions.returns(
+            buildReservationAction({
+              timeoutAt: now + day,
+              txMaxFee: reservationTxMaxFee,
+            })
+          )
+          await reservationBridge.reservations.returns(buildReservationRequest())
+          // The target's reserved position is one past its per-wallet count
+          // cap and over its reserved-amount cap; the on-chain request has
+          // already reserved that capacity, so the proposal must still
+          // validate.
+          await reservationBridge.reservationParameters.returns([
+            AddressZero,
+            reservationMinAmount,
+            reservationTxMaxFee,
+            0,
+            0,
+            0,
+            0,
+            1, // maxReservationsPerWallet
+            0,
+            0,
+          ])
+          await reservationBridge.reservationCaps.returns([
+            100, // maxReservationsAmountPerWallet
+            0,
+            0,
+            0,
+          ])
+          await reservationBridge.walletReservationsCount
+            .whenCalledWith(targetWalletPubKeyHash)
+            .returns(2)
+          await reservationBridge.walletReservationsAmount
+            .whenCalledWith(targetWalletPubKeyHash)
+            .returns(200)
+          await bridge.wallets
+            .whenCalledWith(targetWalletPubKeyHash)
+            .returns(buildWallet(walletState.Live))
+        })
+
+        after(async () => {
+          await reservationBridge.reservationActions.reset()
+          await reservationBridge.reservations.reset()
+          await reservationBridge.reservationParameters.reset()
+          await reservationBridge.reservationCaps.reset()
+          await reservationBridge.walletReservationsCount.reset()
+          await reservationBridge.walletReservationsAmount.reset()
+          await bridge.wallets.reset()
+
+          await restoreSnapshot()
+        })
+
+        it("should pass validation", async () => {
+          const result =
+            await walletProposalValidator.validateReservationReanchorProposal(
+              buildProposal()
+            )
+
+          // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+          expect(result).to.be.true
+        })
+      }
+    )
   })
 })
 
