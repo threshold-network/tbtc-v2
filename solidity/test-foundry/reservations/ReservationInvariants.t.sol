@@ -122,7 +122,7 @@ contract ReservationInvariantsTest is Test {
     }
 
     function test_lateAcceptanceAfterTimeout() public {
-        handler.revealReservedDeposit(0, 0, 0);
+        handler.revealReservedDeposit(0, 500_000, 0);
         handler.requestAcceptance(0);
         handler.warp(7 hours);
         handler.notifyAcceptanceTimedOut(0);
@@ -215,7 +215,7 @@ contract ReservationInvariantsTest is Test {
                 uint32(2)
             )
         );
-        handler.revealReservedDeposit(0, 0, 0);
+        handler.revealReservedDeposit(0, 500_000, 0);
         handler.requestAcceptance(0);
         assertFalse(handler.property_capsHoldAfterEveryRequest());
     }

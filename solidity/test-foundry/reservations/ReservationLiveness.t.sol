@@ -20,7 +20,7 @@ contract ReservationLivenessTest is Test {
     }
 
     function test_holdsWhenALiveWalletHasCapacity() public {
-        acceptOn(0, 500_000);
+        acceptOn(0, 500_000, 0);
         handler.advanceWallet(0, false);
 
         assertTrue(handler.property_everyRetiringPositionHasAnExit());
@@ -34,7 +34,7 @@ contract ReservationLivenessTest is Test {
     function test_firesWhenEveryLiveWalletIsFull() public {
         handler.updateLimits(0, 6_000_000); // max 1 reservation per wallet
         for (uint256 i = 0; i < 4; i++) {
-            acceptOn(i, 500_000);
+            acceptOn(i, 500_000, 0);
         }
         handler.advanceWallet(0, false);
 
@@ -53,25 +53,52 @@ contract ReservationLivenessTest is Test {
         assertEq(handler.successes("requestReanchor"), 1);
     }
 
-    /// @dev An anchor at or below `min + txMaxFee` passes acceptance but
-    ///      fails the re-anchor amount floor, so it cannot be handed off
-    ///      even when every other wallet is empty.
-    function test_firesWhenTheAnchorIsAtTheReanchorFloor() public {
-        acceptOn(0, 0); // deposit = min + txMaxFee, zero miner fee
+    /// @dev A deposit at `min + 2 * txMaxFee` could pay the full fee and
+    ///      land on the re-anchor floor, so acceptance rejects it.
+    function test_acceptanceRejectsADepositThatCouldNotHandOff() public {
+        handler.revealReservedDeposit(0, 10_000, 0); // min + 2 * txMaxFee
+        handler.requestAcceptance(0);
+        assertEq(handler.successes("requestAcceptance"), 0);
+    }
+
+    /// @dev The smallest accepted deposit, anchored with the full fee,
+    ///      still clears the re-anchor floor: the first hand-off works.
+    function test_firstHandOffWorksAtTheSmallestAcceptedAmount() public {
+        acceptOn(0, 10_001, 10_000); // min + 2 * txMaxFee + 1, full fee
         handler.advanceWallet(0, false);
+
+        assertTrue(handler.property_everyRetiringPositionHasAnExit());
+        handler.requestReanchor(0, 1, 0);
+        assertEq(handler.successes("requestReanchor"), 1);
+    }
+
+    /// @dev The acceptance floor guarantees one hop only. If that hop also
+    ///      pays the full fee, the anchor lands on the re-anchor floor and a
+    ///      second retirement blocks the position.
+    function test_secondHandOffCanStillBeBlocked() public {
+        acceptOn(0, 10_001, 10_000);
+        handler.advanceWallet(0, false);
+        handler.requestReanchor(0, 1, 0);
+        handler.proveReanchor(0, 1, 10_000); // full fee again
+        assertEq(handler.successes("proveReanchor"), 1);
+        handler.advanceWallet(1, false);
 
         assertFalse(handler.property_everyRetiringPositionHasAnExit());
         (, uint8 reason) = handler.firstStuckPosition();
         assertEq(reason, handler.ANCHOR_AT_REANCHOR_FLOOR());
-        handler.requestReanchor(0, 1, 0);
-        assertEq(handler.successes("requestReanchor"), 0, "library agrees");
+        handler.requestReanchor(0, 2, 0);
+        assertEq(handler.successes("requestReanchor"), 1, "library agrees");
     }
 
-    function acceptOn(uint256 walletIndex, uint64 amountSeed) internal {
+    function acceptOn(
+        uint256 walletIndex,
+        uint64 amountSeed,
+        uint64 feeSeed
+    ) internal {
         uint256 index = handler.keyCount();
         handler.revealReservedDeposit(walletIndex, amountSeed, 0);
         handler.requestAcceptance(index);
-        handler.proveAcceptance(index, 0, 0);
+        handler.proveAcceptance(index, 0, feeSeed);
         assertEq(handler.successes("proveAcceptance"), index + 1, "accepted");
     }
 }
