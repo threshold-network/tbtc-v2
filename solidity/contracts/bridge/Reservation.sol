@@ -1073,26 +1073,32 @@ library Reservation {
     }
 
     /// @notice Marks a reservation custodied by a terminated or closed
-    ///         wallet as stranded: an idle position closes, capacity
-    ///         is released and the owner's minted balance remains an ordinary
-    ///         pooled claim. Pending actions remain proof-eligible and
-    ///         cannot be stranded.
+    ///         wallet, or past its dissolution eligibility, as stranded: an
+    ///         idle position closes, capacity is released and the owner's
+    ///         minted balance remains an ordinary pooled claim. Pending
+    ///         actions remain proof-eligible and cannot be stranded.
     /// @param reservationKey The key of the stranded reservation.
     /// @dev Requirements:
     ///      - The custodying wallet must be in the Terminated or Closed state,
-    ///        or in the Closing state once both the reservation's
-    ///        `dissolutionEligibleAt` and the wallet's closing period
+    ///        or in the Live state once the reservation's
+    ///        `dissolutionEligibleAt` has passed, or in the Closing state once
+    ///        both `dissolutionEligibleAt` and the wallet's closing period
     ///        (`closingStartedAt + walletClosingPeriod`) have passed.
-    ///        `requestReservationReanchor` accepts a Closing source wallet,
-    ///        so the closing period is an exclusive re-anchor window: every
-    ///        position on a Closing wallet gets at least one full closing
-    ///        period to move before anyone may strand it. Without it a wallet
-    ///        pushed Live -> MovingFunds -> Closing by permissionless calls
-    ///        could be stranded in the same transaction, before the owner
-    ///        could request a re-anchor. After both deadlines a re-anchor
-    ///        and a strand are both callable; both require
-    ///        `reservation.state == Active`, so whichever lands first flips
-    ///        the state and the other reverts.
+    ///      - Live: an expired position otherwise pinned its wallet's and the
+    ///        global capacity forever, because milestone 1 has no other
+    ///        release path (`closeReservation` has no caller). Only
+    ///        governance can re-anchor from a Live wallet, so an extra
+    ///        exclusive window would protect no owner action.
+    ///      - Closing: `requestReservationReanchor` accepts a Closing source
+    ///        wallet, so the closing period is an exclusive re-anchor window:
+    ///        every position on a Closing wallet gets at least one full
+    ///        closing period to move before anyone may strand it. Without it
+    ///        a wallet pushed Live -> MovingFunds -> Closing by permissionless
+    ///        calls could be stranded in the same transaction, before the
+    ///        owner could request a re-anchor.
+    ///      After the deadlines a re-anchor and a strand are both callable;
+    ///      both require `reservation.state == Active`, so whichever lands
+    ///      first flips the state and the other reverts.
     function notifyReservationStranded(
         BridgeState.Storage storage self,
         uint256 reservationKey
@@ -1109,12 +1115,14 @@ library Reservation {
             reservation.walletPubKeyHash
         ];
         Wallets.WalletState walletState = wallet.state;
+        /* solhint-disable-next-line not-rely-on-time */
+        bool eligible = block.timestamp >= reservation.dissolutionEligibleAt;
         require(
             walletState == Wallets.WalletState.Terminated ||
                 walletState == Wallets.WalletState.Closed ||
+                (walletState == Wallets.WalletState.Live && eligible) ||
                 (walletState == Wallets.WalletState.Closing &&
-                    /* solhint-disable-next-line not-rely-on-time */
-                    block.timestamp >= reservation.dissolutionEligibleAt &&
+                    eligible &&
                     /* solhint-disable-next-line not-rely-on-time */
                     block.timestamp >=
                     uint256(wallet.closingStartedAt) +

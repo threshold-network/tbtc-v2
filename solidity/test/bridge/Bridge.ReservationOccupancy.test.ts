@@ -291,7 +291,7 @@ describe("Reservation - occupancy tracking", () => {
     expect(await testReservation.activeReservationsCount()).to.equal(0)
   })
 
-  it("notifyReservationStranded reverts on a Live wallet", async () => {
+  async function activeOnLiveWallet(dissolutionEligibleAt: number) {
     await testReservation.setMaxActiveReservations(5)
     await testReservation.setActiveReservationsCount(1)
 
@@ -310,10 +310,35 @@ describe("Reservation - occupancy tracking", () => {
       1 /* Active */,
       1
     )
+    await testReservation.setReservationDissolutionEligibleAt(
+      reservationKey,
+      dissolutionEligibleAt
+    )
+    return { walletPubKeyHash, reservationKey }
+  }
+
+  it("notifyReservationStranded reverts on a Live wallet before dissolution eligibility", async () => {
+    const now = (await ethers.provider.getBlock("latest")).timestamp
+    const { reservationKey } = await activeOnLiveWallet(now + 86400)
 
     await expect(
       testReservation.notifyReservationStranded(reservationKey)
     ).to.be.revertedWith("Wallet is not terminated")
+  })
+
+  it("notifyReservationStranded releases an expired position on a Live wallet", async () => {
+    const now = (await ethers.provider.getBlock("latest")).timestamp
+    const { walletPubKeyHash, reservationKey } = await activeOnLiveWallet(now)
+
+    await testReservation.notifyReservationStranded(reservationKey)
+
+    expect(await testReservation.activeReservationsCount()).to.equal(0)
+    expect(
+      await testReservation.walletReservationsCount(walletPubKeyHash)
+    ).to.equal(0)
+    expect(
+      await testReservation.walletReservationsAmount(walletPubKeyHash)
+    ).to.equal(0)
   })
 
   it("prepareReservationForSettlement restores activeReservationsCount on late settlement of stranded reservation and emits ReservationOccupancyChanged", async () => {

@@ -491,6 +491,15 @@ contract TestReservation {
         reservation.requestNonce = requestNonce;
     }
 
+    function setReservationDissolutionEligibleAt(
+        uint256 reservationKey,
+        uint32 dissolutionEligibleAt
+    ) external {
+        state
+            .reservations[reservationKey]
+            .dissolutionEligibleAt = dissolutionEligibleAt;
+    }
+
     function setWalletState(
         bytes20 walletPubKeyHash,
         Wallets.WalletState newState
