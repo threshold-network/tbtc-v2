@@ -1,6 +1,13 @@
 module.exports = {
   root: true,
   extends: ["@thesis-co"],
+  settings: {
+    "import/resolver": {
+      typescript: {
+        project: ["./tsconfig.json", "./tsconfig.test.json"],
+      },
+    },
+  },
   rules: {
     "spaced-comment": "off",
     "@typescript-eslint/no-use-before-define": "off",
