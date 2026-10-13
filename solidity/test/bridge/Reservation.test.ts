@@ -1240,9 +1240,45 @@ describe("Reservation", () => {
       expect(await testReservation.reservationState(key)).to.equal(1) // still Active
     })
 
-    it("should strand a settlement whose target wallet is Closing", async () => {
+    it("should not strand a settlement whose target wallet is Closing", async () => {
+      // A settlement against a Closing target wallet no longer strands the
+      // position: Closing is also an acceptable re-anchor source, so the
+      // owner keeps the re-anchor right through the wallet's closing period.
+      // Only terminal states strand here.
       const key = 104
       await testReservation.setWalletState(walletPubKeyHash, 3) // 3 = Closing
+      await testReservation.setReservationFullState(
+        key,
+        owner,
+        walletPubKeyHash,
+        anchorAmount,
+        1, // Active
+        requestNonce
+      )
+      await testReservation.setWalletReservationsCounters(
+        walletPubKeyHash,
+        1,
+        anchorAmount
+      )
+      await testReservation.setGlobalReservationCounters(anchorAmount, 1)
+      const tx = await testReservation.strandLateSettlementIfTargetWalletClosed(
+        key,
+        false // evidenceAlreadyEmitted
+      )
+      // The position stays Active and nothing is released.
+      expect(await testReservation.reservationState(key)).to.equal(1) // Active
+      expect(
+        await testReservation.walletReservationsCount(walletPubKeyHash)
+      ).to.equal(1)
+      expect(await testReservation.activeReservationsCount()).to.equal(1)
+      await expect(tx).to.not.emit(testReservation, "ReservationStranded")
+    })
+
+    it("should strand a settlement whose target wallet is Closed", async () => {
+      // The Closed terminal-state counterpart: the settlement strand hook
+      // still releases the position.
+      const key = 108
+      await testReservation.setWalletState(walletPubKeyHash, 4) // 4 = Closed
       await testReservation.setReservationFullState(
         key,
         owner,

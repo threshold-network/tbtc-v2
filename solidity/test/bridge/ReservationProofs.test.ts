@@ -1279,7 +1279,7 @@ describe("ReservationProofs", () => {
       expect(reservation.state).to.equal(1) // Active
     })
 
-    it("should strand on late settlement if wallet is Closing (3)", async () => {
+    it("should not strand on late settlement if wallet is Closing (3)", async () => {
       // WalletState.Closing = 3
       await testReservationProofs.setWalletState(walletPubKeyHash, 3)
 
@@ -1317,40 +1317,38 @@ describe("ReservationProofs", () => {
       const tx =
         await testReservationProofs.strandLateSettlementIfTargetWalletClosed(
           sampleReservationKey,
-          false // evidenceAlreadyEmitted = false
+          false // evidenceAlreadyEmitted
         )
 
-      // State becomes Stranded (4)
+      // A Closing target wallet keeps the position Active so the owner
+      // still has the re-anchor right; no capacity is released and no strand
+      // evidence is emitted. (Closed and Terminated still strand: see the
+      // sibling tests in this file.)
       const reservation = await testReservationProofs.getReservation(
         sampleReservationKey
       )
-      expect(reservation.state).to.equal(4) // Stranded
+      expect(reservation.state).to.equal(1) // still Active
 
-      // Counts decremented
+      // Counts untouched.
       expect(
         await testReservationProofs.getWalletReservationsCount(walletPubKeyHash)
-      ).to.equal(0)
+      ).to.equal(1)
       expect(
         await testReservationProofs.getWalletReservationsAmount(
           walletPubKeyHash
         )
-      ).to.equal(0)
+      ).to.equal(anchorAmount)
       expect(await testReservationProofs.getReservationTotalAmount()).to.equal(
-        0
+        anchorAmount
       )
       expect(await testReservationProofs.getActiveReservationsCount()).to.equal(
-        0
+        1
       )
 
-      // ReservationStranded event emitted
-      await expect(tx)
-        .to.emit(testReservationProofs, "ReservationStranded")
-        .withArgs(
-          sampleReservationKey,
-          walletPubKeyHash,
-          depositor.address,
-          anchorAmount
-        )
+      await expect(tx).to.not.emit(
+        testReservationProofs,
+        "ReservationStranded"
+      )
     })
 
     it("should strand on late settlement if wallet is Closed (4)", async () => {
