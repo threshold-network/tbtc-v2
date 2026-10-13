@@ -10,7 +10,7 @@ import type { Monitor as SystemEventMonitor, SystemEvent } from "./system-event"
 import type {
   Bridge,
   RedemptionRequestedEvent as RedemptionRequestedChainEvent,
-} from "@keep-network/tbtc-v2.ts"
+} from "@keep-network/tbtc-v2.ts/core"
 
 // The time after which a pending redemption request is considered stale.
 // Typically, a redemption request processing time should not exceed 5 hours.

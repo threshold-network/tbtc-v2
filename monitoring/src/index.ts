@@ -2,7 +2,7 @@ import {
   ElectrumClient,
   loadEthereumCoreContracts,
   TBTC,
-} from "@keep-network/tbtc-v2.ts"
+} from "@keep-network/tbtc-v2.ts/core"
 import { providers } from "ethers"
 
 import { Manager as SystemEventManager } from "./system-event"

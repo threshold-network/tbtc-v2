@@ -138,14 +138,20 @@ only warnings and critical events.
 
 Please make sure you have the following prerequisites installed on your machine:
 
-- https://nodejs.org[Node.js] =14 (newer versions are not supported temporarily)
-- https://yarnpkg.com[Yarn] >1.22.0
+- https://nodejs.org[Node.js] >=22.12.0
+- Corepack for the repository SDK's Yarn 4 install, and Yarn 1.22.22 for monitoring
 
 === Install dependencies
 
-To install dependencies, run:
+The monitor links to the SDK in `../typescript`. This keeps network detection
+and contract addresses in step with the checked-out SDK. From `monitoring/`,
+build the SDK before installing the monitor:
 ```
-yarn install
+cd ../typescript
+corepack yarn install --immutable
+npm run build
+cd ../monitoring
+npx --yes yarn@1.22.22 install --frozen-lockfile
 ```
 
 **NOTE:** This package contains some transitive dependencies that are referenced
@@ -166,7 +172,7 @@ git config --global url."https://".insteadOf git://
 
 To build the library, invoke:
 ```
-yarn build
+npx --yes yarn@1.22.22 build
 ```
 A `dist` directory containing the resulting artifacts will be created.
 
@@ -182,7 +188,7 @@ The behavior can be configured using the following env variables:
 |===
 |Variable |Description |Mandatory
 
-|*ENVIRONMENT* |_mainnet_ or _testnet_ |Yes
+|*ENVIRONMENT* |_mainnet_ selects Ethereum and Bitcoin mainnets. _testnet_ selects Ethereum Sepolia and Bitcoin testnet4. Testnet3 Electrum servers are rejected. |Yes
 
 |*ETHEREUM_URL* |URL of the Ethereum node |Yes
 
@@ -204,6 +210,21 @@ The behavior can be configured using the following env variables:
 |===
 
 === Deployment
+
+Build the image from the repository root so it includes the same SDK source:
+```
+docker build -f monitoring/Dockerfile -t tbtc-v2-monitoring:local .
+```
+
+==== Supply monitoring with a zero baseline
+
+An unchanged zero supply produces no supply-change alert. An increase from
+zero produces the critical `High TBTC token total supply change` event with
+the reference supply and difference in token base units. Its percentage and
+percentage threshold are undefined, not zero. After that alert, its block
+becomes the reference block, as with an ordinary percentage alert.
+Non-zero reference supplies keep the existing percentage thresholds.
+
 
 ==== Redemption lifecycle rollout
 
