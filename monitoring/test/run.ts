@@ -9,6 +9,7 @@ async function main() {
   await import("./system-event-manager.test")
   await import("./receiver-isolation.test")
   await import("./redemption-chain.test")
+  await import("./reservation-keeper-monitor.test")
   await import("./redemption-lifecycle-monitor.test")
 
   await runTests()

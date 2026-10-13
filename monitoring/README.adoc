@@ -198,7 +198,9 @@ The behavior can be configured using the following env variables:
 
 |*SENTRY_DSN* |DSN of the Sentry receiver. If not set, events are not dispatched to Sentry |No
 
-|*DISCORD_WEBHOOK_URL* |URL of the Discord receiver webhook. If not set, events are not dispatched to Discord |No
+|*RESERVATION_KEEPER_METRICS_URL* |URL of the keep-core reservation keeper maintainer Prometheus metrics endpoint. When set, the reservation keeper monitor is registered |No
+
+|*RESERVATION_KEEPER_OBSERVATION_MAX_AGE_SECONDS* |Maximum age in seconds of the keeper observation timestamp relative to the checked Ethereum block time. Default: _1800_ (30 minutes) |No
 |===
 
 === Deployment
@@ -260,6 +262,75 @@ Before rolling back to an image without delivery-queue support, finish deliverin
 checkpoint has advanced. Preserve the data directory and its backup. Account for
 lifecycle notifications already delivered when replaying the checkpoint after
 re-enabling this monitor.
+
+==== Reservation keeper rollout
+
+Set `RESERVATION_KEEPER_METRICS_URL` to the keep-core reservation keeper
+maintainer's Prometheus metrics endpoint to enable the reservation keeper
+monitor. Without it, the monitor is not registered and the tool logs that
+the reservation keeper monitor is not configured. All critical events reach
+Sentry and all warning events reach Sentry, so configure `SENTRY_DSN` before
+relying on the escalation paths below; `DISCORD_WEBHOOK_URL` adds no extra
+event types for this monitor.
+
+The monitor fetches the endpoint with a bounded timeout on every run, parses
+only the five metric samples by exact name, and converts them into system
+events. keep-core's clientinfo performance registry exports these application
+gauges with a `performance_` prefix, so the samples are keyed by those
+exported names:
+
+[cols="2,1,5"]
+|===
+|Metric |Severity |Escalation
+
+|`performance_reservation_acceptance_late_proof_at_risk_count`
+|Critical
+|A positive count means unproven acceptance generations (Pending or TimedOut,
+not Settled) whose snapshotted `timeoutAt + termSeconds` window is within
+7 days of the chain head. A late acceptance proof reverts after that point,
+so an outage this close to the deadline can leave a confirmed anchor
+uncredited. Escalate to the SPV maintainers to resubmit the acceptance
+proofs, and if the maintainers are also down, escalate to governance for
+manual settlement.
+
+|`performance_reservation_reanchor_no_eligible_target_count`
+|Critical
+|A positive count means active reservations on MovingFunds or Closing wallets
+for which no re-anchor target exists under the rules a source-wallet member
+(a privileged caller) faces after the hand-off capacity change: the target
+must be Live, different from the source, past the wallet creation period by
+chain head time, and pass the contract checks that still apply to privileged
+callers (the per-wallet count and amount caps are skipped). Escalate to
+governance to adjust caps and wallets before the moving-funds timeout expires.
+
+|`performance_reservation_vault_fee_debt_sat`
+|Warning
+|A positive value means the vault owes fees it could not cover. Escalate the
+decision to top up the treasury to the governance and treasury operators.
+
+|`performance_reservation_unrequested_deposit_deadline_at_risk_count`
+|Warning
+|A positive count means reserved deposits for which no acceptance request was
+ever made whose last possible request time (refund deadline minus the 24-hour
+safety margin and the action timeout, matching the contract's request check in
+`requestReservationAcceptance`) is within 1 day of the chain head. Escalate
+to notify the depositor of the Bitcoin refund path before the window closes.
+
+|`performance_reservation_keeper_observation_timestamp`
+|Critical
+|The chain head unix time of the last fully successful keeper observation
+pass. Freshness is measured against the latest Ethereum block time, not the
+scanned window's end block, so a catch-up scan of an old window cannot flag a
+healthy keeper. A deviation of up to `RESERVATION_KEEPER_OBSERVATION_MAX_AGE_SECONDS`
+(default 30 minutes) either ahead of or behind that block time is tolerated
+for RPC skew. When the sample is missing, unparseable, or deviates beyond
+that window, or when the endpoint is unreachable or malformed, the monitor
+emits a critical `Reservation keeper metrics stale` event. Missing data is
+never treated as healthy: the failure indicates the keeper process itself may
+be down or wedged, so treat it as a keeper health alert and page the keeper
+operators.
+|===
+
 
 ==== Docker image
 
