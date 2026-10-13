@@ -1,4 +1,4 @@
-import { BigNumber } from "@ethersproject/bignumber"
+import { BigNumber, BigNumberish } from "@ethersproject/bignumber"
 import * as crypto from "crypto"
 import {
   ChainIdentifier,
@@ -295,12 +295,15 @@ export class ReservationsService {
   }
 
   /**
-   * Deterministically selects a Live wallet with free reservation capacity.
+   * Deterministically selects a Live wallet with reservation headroom for
+   * the intended amount.
    *
    * Candidates are enumerated from the NewWalletRegistered event log,
    * filtered to Live wallets whose per-wallet count and amount caps have
    * headroom for the given amount. The active wallet is preferred when
-   * eligible; otherwise the lowest public key hash is chosen.
+   * eligible; otherwise the lowest public key hash is chosen. A full
+   * admission check - global count, hand-off reserve gate and amount
+   * bounds - is applied by the caller on top of this selection.
    *
    * @param amount The amount the deposit would reserve against the wallet.
    * @returns The selected wallet, or undefined when none is eligible.
@@ -358,15 +361,30 @@ export class ReservationsService {
    * locktime lies inside the on-chain reservation window, for reveal to the
    * reservation vault.
    *
+   * The intended deposit amount is required: wallet selection and the
+   * pre-reveal admission checks both depend on it. Without an explicitly
+   * chosen wallet, the service selects a Live wallet with headroom for
+   * that amount (preferring the active wallet when it is eligible) and
+   * admits it only when every on-chain admission rule - including the
+   * hand-off reserve gate - passes for the intended amount. An explicitly
+   * chosen wallet is validated against the same rules instead of being
+   * trusted on its own.
+   *
    * @param bitcoinRecoveryAddress P2PKH or P2WPKH address that can refund.
+   * @param amount Intended deposit amount in satoshis. Selects a wallet
+   *        with room for it and is admitted against the minimum, dust,
+   *        single-amount, global-amount, global-count, hand-off reserve
+   *        and per-wallet rules before the receipt is generated.
    * @param options Optional chosen wallet and locktime buffer.
    * @returns The deposit handle, the receipt and the designated wallet pkh.
    * @throws When the default depositor is not set, reservations are
-   *         disabled, no eligible wallet is found, or the locktime window is
+   *         disabled, no eligible wallet is found, the chosen wallet
+   *         fails an admission rule, or the locktime window is
    *         infeasible.
    */
   async initiateReservedDeposit(
     bitcoinRecoveryAddress: string,
+    amount: BigNumberish,
     options?: InitiateReservedDepositOptions
   ): Promise<ReservedDepositResult> {
     if (this.#defaultDepositor === undefined) {
@@ -374,6 +392,8 @@ export class ReservationsService {
         "Default depositor is not set; use setDefaultDepositor first"
       )
     }
+
+    const intendedAmount = BigNumber.from(amount)
 
     const params = await this.tbtcContracts.reservations.reservationParameters()
     const now = Math.floor(Date.now() / 1000)
@@ -403,14 +423,42 @@ export class ReservationsService {
 
     const refundLocktime = this.computeRefundLocktime(locktime)
 
-    let walletPkh =
-      options?.walletPublicKeyHash ?? (await this.activeWalletPublicKeyHash())
-    if (walletPkh === undefined) {
-      walletPkh = (await this.selectReservationWallet(BigNumber.from(0)))
-        ?.publicKeyHash
-    }
-    if (walletPkh === undefined) {
-      throw new Error("Could not resolve a wallet for the reserved deposit")
+    let walletPkh: Hex
+    if (options?.walletPublicKeyHash !== undefined) {
+      const feasibility = await this.checkReserveFeasibility({
+        amount: intendedAmount,
+        walletPublicKeyHash: options.walletPublicKeyHash,
+        revealSlackSeconds: revealSlack,
+        upperMarginSeconds: upperMargin,
+        now,
+      })
+      if (!feasibility.go) {
+        throw new Error(
+          `Reserved deposit initiation blocked: ${feasibility.reasons.join(
+            ", "
+          )}`
+        )
+      }
+      walletPkh = options.walletPublicKeyHash
+    } else {
+      const selected = await this.selectReservationWallet(intendedAmount)
+      if (selected === undefined) {
+        throw new Error("No eligible wallet has reservation capacity")
+      }
+      const feasibility = await this.checkReserveFeasibility({
+        amount: intendedAmount,
+        revealSlackSeconds: revealSlack,
+        upperMarginSeconds: upperMargin,
+        now,
+      })
+      if (!feasibility.go) {
+        throw new Error(
+          `Reserved deposit initiation blocked: ${feasibility.reasons.join(
+            ", "
+          )}`
+        )
+      }
+      walletPkh = selected.publicKeyHash
     }
 
     const refundPublicKeyHash = await this.refundPublicKeyHashFromRecovery(
@@ -703,6 +751,9 @@ export class ReservationsService {
    * (zero): on-chain, the cap is set to a positive value whenever the
    * reservation vault is enabled, so the gate only ever binds with a
    * nonzero cap.
+   * @param currentCount The current global active-reservations count.
+   * @param maxReservationsPerWallet The per-wallet count cap.
+   * @returns True when the next admission would exceed the reserve gate.
    */
   private async handoffReserveExceeded(
     currentCount: number,
