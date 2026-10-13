@@ -11,6 +11,8 @@ const {
   DATA_DIR_PATH,
   SENTRY_DSN,
   DISCORD_WEBHOOK_URL,
+  RESERVATION_KEEPER_METRICS_URL,
+  RESERVATION_KEEPER_OBSERVATION_MAX_AGE_SECONDS,
 } = process.env
 
 export enum Environment {
@@ -61,6 +63,28 @@ const resolveElectrumUrl = () => {
   return ELECTRUM_URL
 }
 
+const keeperMetricsUrl =
+  RESERVATION_KEEPER_METRICS_URL === undefined ||
+  RESERVATION_KEEPER_METRICS_URL === ""
+    ? undefined
+    : RESERVATION_KEEPER_METRICS_URL
+
+const resolveKeeperObservationMaxAgeSeconds = () => {
+  const raw = RESERVATION_KEEPER_OBSERVATION_MAX_AGE_SECONDS
+  const parsed = Number(raw)
+
+  if (raw !== undefined && raw !== "") {
+    if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+      throw new Error(
+        "RESERVATION_KEEPER_OBSERVATION_MAX_AGE_SECONDS must be a positive integer (seconds)"
+      )
+    }
+    return parsed
+  }
+
+  return 30 * 60 // 30 minutes by default
+}
+
 export const context = {
   environment: resolveEnvironment(),
   ethereumUrl: resolveEthereumUrl(),
@@ -73,6 +97,9 @@ export const context = {
   dataDirPath: DATA_DIR_PATH ?? "./data",
   sentryDsn: SENTRY_DSN,
   discordWebhookUrl: DISCORD_WEBHOOK_URL,
+  reservationKeeperMetricsUrl: keeperMetricsUrl,
+  reservationKeeperObservationMaxAgeSeconds:
+    resolveKeeperObservationMaxAgeSeconds(),
   ethereumEnvironmentMapping,
   bitcoinEnvironmentMapping,
 }
