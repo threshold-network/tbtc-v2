@@ -1192,6 +1192,14 @@ describe("ReservationProofs", () => {
       )
       await testReservationProofs.setReservationTotalAmount(anchorAmount)
       await testReservationProofs.setActiveReservationsCount(1)
+      // Seed the proven-anchor custody ledger: this position was settled
+      // into a Closed wallet, and the strand release below must balance the
+      // anchored entry a settled acceptance would have created.
+      await testReservationProofs.setWalletAnchoredCounters(
+        walletPubKeyHash,
+        1,
+        anchorAmount
+      )
 
       // Call strand hook with late = false: an honest on-time proof must
       // still strand against a wallet that left Live while the proof was
@@ -1384,6 +1392,13 @@ describe("ReservationProofs", () => {
       )
       await testReservationProofs.setReservationTotalAmount(anchorAmount)
       await testReservationProofs.setActiveReservationsCount(1)
+      // Seed the proven-anchor custody ledger so the strand release on the
+      // Closed wallet balances.
+      await testReservationProofs.setWalletAnchoredCounters(
+        walletPubKeyHash,
+        1,
+        anchorAmount
+      )
 
       const tx =
         await testReservationProofs.strandLateSettlementIfTargetWalletClosed(
@@ -1466,6 +1481,13 @@ describe("ReservationProofs", () => {
       )
       await testReservationProofs.setReservationTotalAmount(anchorAmount)
       await testReservationProofs.setActiveReservationsCount(1)
+      // Seed the proven-anchor custody ledger so the strand release on the
+      // Terminated wallet balances.
+      await testReservationProofs.setWalletAnchoredCounters(
+        walletPubKeyHash,
+        1,
+        anchorAmount
+      )
 
       // When evidenceAlreadyEmitted is true, strandLateSettlementIfTargetWalletClosed strands but does not emit duplicate event
       const tx =
@@ -1621,6 +1643,14 @@ describe("ReservationProofs", () => {
       await testReservationProofs.setReservationByAnchorUtxo(
         oldAnchorUtxoKey,
         anchorReservationKey
+      )
+      // The source wallet already custodies the proven acceptance anchor;
+      // seed its anchored custody ledger so the re-anchor settlement's
+      // `removeAnchoredCustody` at the source balances.
+      await testReservationProofs.setWalletAnchoredCounters(
+        oldWalletPubKeyHash,
+        1,
+        reanchorAmount
       )
 
       // Pre-reanchor assertions

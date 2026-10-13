@@ -482,24 +482,32 @@ library BridgeState {
         // must keep accepting late proofs of their confirmed Bitcoin
         // transactions.
         mapping(uint256 => Reservation.ReservationAction) reservationActions;
+        // Count and amount of the reservations whose proven anchor UTXO
+        // currently sits at the wallet (Active or ActionPending positions
+        // custodied there). Unlike `walletReservationInfo`, it excludes the
+        // capacity reserved for pending acceptance and re-anchor targets,
+        // which no Bitcoin proof backs yet. Used by the wallet lifecycle
+        // checks that must tell real custody from reserved capacity.
+        mapping(bytes20 => WalletReservationInfo) walletAnchoredInfo;
         // Reserved storage space in case we need to add more variables.
         // The convention from OpenZeppelin suggests the storage space should
         // add up to 50 slots. Here we want to have more slots as there are
         // planned upgrades of the Bridge contract. If more entires are added to
         // the struct in the upcoming versions we need to reduce the array size.
         // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
-        // This milestone consumed 9 of the original 48 slots for the
+        // This milestone consumed 10 of the original 48 slots for the
         // reservation feature (down from an initial 15 after this PR
         // dropped `maxCumulativeReanchorFee`, `reservationDissolutionTxMaxFee`,
         // `walletPendingDissolution`, `reservationRetryCreditActionNonce`,
         // `reservationMaxBackingFractionBps`, `walletReservationKeys`, and
         // `walletReservationKeyIndex`
-        // as unused/dead, freeing 6 slots via re-packing). The remaining 39
+        // as unused/dead, freeing 6 slots via re-packing, then adding
+        // `walletAnchoredInfo`). The remaining 38
         // slots are shared budget for all future Bridge upgrades, not
         // reserved for reservations specifically - a later unrelated PR
         // should not assume it can spend the rest.
         // slither-disable-next-line unused-state
-        uint256[39] __gap;
+        uint256[38] __gap;
     }
 
     event DepositParametersUpdated(

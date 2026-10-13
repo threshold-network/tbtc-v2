@@ -127,6 +127,11 @@ describe("Reservation - occupancy tracking", () => {
       1
     )
 
+    // Seed the proven-anchor custody ledger entry the way a settled
+    // acceptance would have, so `strandReservation`'s
+    // `removeAnchoredCustody` release stays balanced.
+    await testReservation.setWalletAnchoredCounters(walletPubKeyHash, 1, 100)
+
     await expect(testReservation.notifyReservationStranded(reservationKey))
       .to.emit(testReservation, "ReservationStranded")
       .withArgs(
@@ -162,6 +167,11 @@ describe("Reservation - occupancy tracking", () => {
       1 /* Active */,
       1
     )
+
+    // Seed the proven-anchor custody ledger entry the way a settled
+    // acceptance would have, so `strandReservation`'s
+    // `removeAnchoredCustody` release stays balanced.
+    await testReservation.setWalletAnchoredCounters(walletPubKeyHash, 1, 100)
 
     await expect(testReservation.notifyReservationStranded(reservationKey))
       .to.emit(testReservation, "ReservationStranded")
@@ -284,6 +294,10 @@ describe("Reservation - occupancy tracking", () => {
       reanchorCooldownUntil: 0,
     })
 
+    // Seed the proven-anchor custody ledger entry the way a settled
+    // acceptance would have, so `strandReservation`'s
+    // `removeAnchoredCustody` release stays balanced.
+    await testReservation.setWalletAnchoredCounters(walletPubKeyHash, 1, 100)
     await expect(testReservation.notifyReservationStranded(reservationKey))
       .to.emit(testReservation, "ReservationStranded")
       .to.emit(testReservation, "ReservationOccupancyChanged")
@@ -299,6 +313,10 @@ describe("Reservation - occupancy tracking", () => {
     await testReservation.setWalletReservationsCount(walletPubKeyHash, 1)
     await testReservation.setWalletReservationsAmount(walletPubKeyHash, 100)
     await testReservation.setReservationTotalAmount(100)
+    // The helper models an Active position whose anchor is proven; seed the
+    // proven-anchor ledger alongside the capacity counters so the strand
+    // release stays balanced.
+    await testReservation.setWalletAnchoredCounters(walletPubKeyHash, 1, 100)
     await testReservation.setWalletState(walletPubKeyHash, walletState.Live)
 
     const reservationKey = 1

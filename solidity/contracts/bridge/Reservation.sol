@@ -548,10 +548,10 @@ library Reservation {
 
         // The acceptance anchor pays up to `txMaxFee`, so it is at least
         // `deposit.amount - txMaxFee`. A re-anchor needs an anchor strictly
-        // above `minAmount + txMaxFee` (requestReservationReanchor).
-        // Requiring `deposit.amount > minAmount + 2 * txMaxFee` makes every
-        // accepted anchor re-anchorable under the same parameters; with the
-        // old `>= minAmount + txMaxFee` anchors in [minAmount, minAmount +
+        // above `minAmount + txMaxFee` (requestReservationReanchor). Requiring
+        // `deposit.amount > minAmount + 2 * txMaxFee` makes every accepted
+        // anchor re-anchorable under the same parameters; with the old
+        // `>= minAmount + txMaxFee` anchors in [minAmount, minAmount +
         // txMaxFee] could never move.
         require(
             uint256(deposit.amount) >
@@ -991,6 +991,29 @@ library Reservation {
         self.walletReservationInfo[targetWalletPubKeyHash].amount -= amount;
     }
 
+    /// @notice Records a proven anchor arriving at a wallet (acceptance or
+    ///         re-anchor settlement, or the reconstruction of a stranded
+    ///         lineage for a late proof).
+    function addAnchoredCustody(
+        BridgeState.Storage storage self,
+        bytes20 walletPubKeyHash,
+        uint64 anchorAmount
+    ) internal {
+        self.walletAnchoredInfo[walletPubKeyHash].count += 1;
+        self.walletAnchoredInfo[walletPubKeyHash].amount += anchorAmount;
+    }
+
+    /// @notice Records a proven anchor leaving a wallet's tracked custody
+    ///         (re-anchor settlement at the source, strand or close).
+    function removeAnchoredCustody(
+        BridgeState.Storage storage self,
+        bytes20 walletPubKeyHash,
+        uint64 anchorAmount
+    ) internal {
+        self.walletAnchoredInfo[walletPubKeyHash].count -= 1;
+        self.walletAnchoredInfo[walletPubKeyHash].amount -= anchorAmount;
+    }
+
     /// @notice Strands a reservation: releases its tracked capacity and
     ///         emits the canonical recovery evidence. The caller decides
     ///         whether the anchor was honestly spent before invoking this
@@ -1007,6 +1030,7 @@ library Reservation {
 
         if (!alreadyStranded) {
             releaseAcceptanceCapacity(self, walletPubKeyHash, anchorAmount);
+            removeAnchoredCustody(self, walletPubKeyHash, anchorAmount);
             delete self.reservationsByAnchorUtxo[
                 uint256(
                     keccak256(
@@ -1055,6 +1079,11 @@ library Reservation {
             "Reservation must be Active or ActionPending"
         );
         releaseAcceptanceCapacity(
+            self,
+            reservation.walletPubKeyHash,
+            reservation.anchorAmount
+        );
+        removeAnchoredCustody(
             self,
             reservation.walletPubKeyHash,
             reservation.anchorAmount
