@@ -229,7 +229,7 @@ export class EthereumReservations
     const record: ReservationsRecord = await backoffRetrier<ReservationsRecord>(
       this._totalRetryAttempts
     )(async () => {
-      return await this._instance.functions["reservations"](depositKey)
+      return await this._instance.callStatic["reservations"](depositKey)
     })
 
     return {
@@ -260,7 +260,7 @@ export class EthereumReservations
     const record: ReservationActionsRecord =
       await backoffRetrier<ReservationActionsRecord>(this._totalRetryAttempts)(
         async () => {
-          return await this._instance.functions["reservationActions"](
+          return await this._instance.callStatic["reservationActions"](
             depositKey,
             requestNonce
           )
@@ -289,7 +289,7 @@ export class EthereumReservations
       await backoffRetrier<ReservationParametersRecord>(
         this._totalRetryAttempts
       )(async () => {
-        return await this._instance.functions["reservationParameters"]()
+        return await this._instance.callStatic["reservationParameters"]()
       })
 
     return {
@@ -314,7 +314,7 @@ export class EthereumReservations
     const record: ReservationCapsRecord =
       await backoffRetrier<ReservationCapsRecord>(this._totalRetryAttempts)(
         async () => {
-          return await this._instance.functions["reservationCaps"]()
+          return await this._instance.callStatic["reservationCaps"]()
         }
       )
 
@@ -333,7 +333,7 @@ export class EthereumReservations
   async reservationHandoffReserveWallets(): Promise<number> {
     return backoffRetrier<number>(this._totalRetryAttempts)(async () => {
       return BigNumber.from(
-        await this._instance.functions["reservationHandoffReserveWallets"]()
+        await this._instance.callStatic["reservationHandoffReserveWallets"]()
       ).toNumber()
     })
   }
@@ -346,7 +346,7 @@ export class EthereumReservations
     const record: OccupancyRecord = await backoffRetrier<OccupancyRecord>(
       this._totalRetryAttempts
     )(async () => {
-      return await this._instance.functions["activeReservationsCount"]()
+      return await this._instance.callStatic["activeReservationsCount"]()
     })
 
     return {
@@ -362,7 +362,7 @@ export class EthereumReservations
   async liveWalletsCount(): Promise<number> {
     return backoffRetrier<number>(this._totalRetryAttempts)(async () => {
       return BigNumber.from(
-        await this._instance.functions["liveWalletsCount"]()
+        await this._instance.callStatic["liveWalletsCount"]()
       ).toNumber()
     })
   }
@@ -374,7 +374,7 @@ export class EthereumReservations
   async walletReservationsAmount(walletPublicKeyHash: Hex): Promise<BigNumber> {
     return backoffRetrier<BigNumber>(this._totalRetryAttempts)(async () => {
       return BigNumber.from(
-        await this._instance.functions["walletReservationsAmount"](
+        await this._instance.callStatic["walletReservationsAmount"](
           walletPublicKeyHash.toPrefixedString()
         )
       )
@@ -388,7 +388,7 @@ export class EthereumReservations
   async walletReservationsCount(walletPublicKeyHash: Hex): Promise<number> {
     return backoffRetrier<number>(this._totalRetryAttempts)(async () => {
       return BigNumber.from(
-        await this._instance.functions["walletReservationsCount"](
+        await this._instance.callStatic["walletReservationsCount"](
           walletPublicKeyHash.toPrefixedString()
         )
       ).toNumber()
@@ -402,7 +402,7 @@ export class EthereumReservations
   async pendingReservedDeposits(): Promise<number> {
     return backoffRetrier<number>(this._totalRetryAttempts)(async () => {
       return BigNumber.from(
-        await this._instance.functions["pendingReservedDeposits"]()
+        await this._instance.callStatic["pendingReservedDeposits"]()
       ).toNumber()
     })
   }
@@ -415,7 +415,7 @@ export class EthereumReservations
     return backoffRetrier<Hex>(this._totalRetryAttempts)(async () => {
       return Hex.from(
         with0x(
-          await this._instance.functions["reservedDepositWallet"](depositKey)
+          await this._instance.callStatic["reservedDepositWallet"](depositKey)
         )
       )
     })
@@ -430,7 +430,7 @@ export class EthereumReservations
   ): Promise<number> {
     return backoffRetrier<number>(this._totalRetryAttempts)(async () => {
       return BigNumber.from(
-        await this._instance.functions["pendingThirdPartyReanchorHolds"](
+        await this._instance.callStatic["pendingThirdPartyReanchorHolds"](
           walletPublicKeyHash.toPrefixedString()
         )
       ).toNumber()
@@ -443,7 +443,7 @@ export class EthereumReservations
    */
   async isReservedDeposit(depositKey: BigNumber): Promise<boolean> {
     return backoffRetrier<boolean>(this._totalRetryAttempts)(async () => {
-      return await this._instance.functions["isReservedDeposit"](depositKey)
+      return await this._instance.callStatic["isReservedDeposit"](depositKey)
     })
   }
 
@@ -462,7 +462,7 @@ export class EthereumReservations
     const record: DepositRecord = await backoffRetrier<DepositRecord>(
       this._totalRetryAttempts
     )(async () => {
-      return await this._instance.functions["deposits"](depositKey)
+      return await this._instance.callStatic["deposits"](depositKey)
     })
 
     return {
@@ -487,7 +487,7 @@ export class EthereumReservations
     const record: WalletRecord = await backoffRetrier<WalletRecord>(
       this._totalRetryAttempts
     )(async () => {
-      return await this._instance.functions["wallets"](
+      return await this._instance.callStatic["wallets"](
         walletPublicKeyHash.toPrefixedString()
       )
     })
@@ -504,7 +504,7 @@ export class EthereumReservations
    */
   async isVaultTrusted(vault: ChainIdentifier): Promise<boolean> {
     return backoffRetrier<boolean>(this._totalRetryAttempts)(async () => {
-      return await this._instance.functions["isVaultTrusted"](
+      return await this._instance.callStatic["isVaultTrusted"](
         `0x${vault.identifierHex}`
       )
     })
@@ -523,7 +523,7 @@ export class EthereumReservations
     const record: DepositParametersRecord =
       await backoffRetrier<DepositParametersRecord>(this._totalRetryAttempts)(
         async () => {
-          return await this._instance.functions["depositParameters"]()
+          return await this._instance.callStatic["depositParameters"]()
         }
       )
 
