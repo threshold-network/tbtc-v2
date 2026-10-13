@@ -1,0 +1,17 @@
+**
+!monitoring/
+!monitoring/package.json
+!monitoring/yarn.lock
+!monitoring/tsconfig.json
+!monitoring/src/
+!monitoring/src/**
+!typescript/
+!typescript/package.json
+!typescript/yarn.lock
+!typescript/.yarnrc.yml
+!typescript/tsconfig*.json
+!typescript/typings.d.ts
+!typescript/src/
+!typescript/src/**
+!typescript/scripts/
+!typescript/scripts/rewrite-typechain-ethers-imports.js

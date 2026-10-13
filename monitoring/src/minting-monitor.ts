@@ -10,7 +10,7 @@ import type {
   OptimisticMintingCancelledEvent as OptimisticMintingCancelledChainEvent,
   OptimisticMintingRequestedEvent as OptimisticMintingRequestedChainEvent,
   OptimisticMintingFinalizedEvent as OptimisticMintingFinalizedChainEvent,
-} from "@keep-network/tbtc-v2.ts"
+} from "@keep-network/tbtc-v2.ts/core"
 import type { SystemEvent, Monitor as SystemEventMonitor } from "./system-event"
 import type { BigNumber } from "ethers"
 

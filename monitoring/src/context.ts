@@ -1,4 +1,4 @@
-import { BitcoinNetwork, Chains } from "@keep-network/tbtc-v2.ts"
+import { BitcoinNetwork, Chains } from "@keep-network/tbtc-v2.ts/core"
 
 // List of environment variables used by the monitoring package.
 const {
@@ -27,7 +27,7 @@ const ethereumEnvironmentMapping = {
 
 const bitcoinEnvironmentMapping = {
   [Environment.Mainnet]: BitcoinNetwork.Mainnet,
-  [Environment.Testnet]: BitcoinNetwork.Testnet,
+  [Environment.Testnet]: BitcoinNetwork.Testnet4,
 }
 
 const resolveEnvironment = () => {
