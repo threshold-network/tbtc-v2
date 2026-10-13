@@ -137,12 +137,10 @@ describe("ReservationProofs", () => {
     const BankFactory = await ethers.getContractFactory("Bank")
     bank = (await BankFactory.connect(deployer).deploy()) as Bank
 
-    const ReservationProofsFactory = await ethers.getContractFactory(
-      "ReservationProofs"
-    )
-    const reservationProofsLibrary = await ReservationProofsFactory.connect(
-      deployer
-    ).deploy()
+    const ReservationProofsFactory =
+      await ethers.getContractFactory("ReservationProofs")
+    const reservationProofsLibrary =
+      await ReservationProofsFactory.connect(deployer).deploy()
     const TestReservationProofsFactory = await ethers.getContractFactory(
       "TestReservationProofs",
       {
@@ -167,9 +165,7 @@ describe("ReservationProofs", () => {
       deployer
     ).deploy(bank.target)) as MockReservationVault
 
-    await testReservationProofs.setReservationVault(
-      mockReservationVault.target
-    )
+    await testReservationProofs.setReservationVault(mockReservationVault.target)
     await testReservationProofs.setVaultTrusted(
       mockReservationVault.target,
       true
@@ -634,9 +630,8 @@ describe("ReservationProofs", () => {
       expect(action.state).to.equal(2) // Settled
 
       // 2. Reservation state becomes Active (1)
-      const reservation = await testReservationProofs.getReservation(
-        sampleReservationKey
-      )
+      const reservation =
+        await testReservationProofs.getReservation(sampleReservationKey)
       expect(reservation.state).to.equal(1) // Active
       expect(reservation.owner).to.equal(depositor.address)
       expect(reservation.mintedAmount).to.equal(anchorAmount)
@@ -645,7 +640,9 @@ describe("ReservationProofs", () => {
       expect(reservation.anchorTxHash).to.equal(sampleAnchorTxHash)
       expect(reservation.anchorTxOutputIndex).to.equal(0)
 
-      const currentBlock = (await ethers.provider.getBlock(receipt.blockNumber))!
+      const currentBlock = (await ethers.provider.getBlock(
+        receipt.blockNumber
+      ))!
       const expectedExpiresAt = currentBlock.timestamp + termSeconds
       const expectedDissolutionAt = expectedExpiresAt + dissolutionDelay
       expect(reservation.expiresAt).to.equal(expectedExpiresAt)
@@ -661,9 +658,8 @@ describe("ReservationProofs", () => {
       ).to.equal(sampleReservationKey)
 
       // 5. Deposit marked as swept
-      const deposit = await testReservationProofs.getDeposit(
-        sampleReservationKey
-      )
+      const deposit =
+        await testReservationProofs.getDeposit(sampleReservationKey)
       expect(deposit.sweptAt).to.equal(currentBlock.timestamp)
 
       // 6. Pending-reserved deposit consumed and counter decremented
@@ -735,9 +731,8 @@ describe("ReservationProofs", () => {
       )
       await tx.wait()
 
-      const reservation = await testReservationProofs.getReservation(
-        sampleReservationKey
-      )
+      const reservation =
+        await testReservationProofs.getReservation(sampleReservationKey)
       expect(reservation.state).to.equal(1) // Active
       expect(reservation.anchorAmount).to.equal(anchorAmount)
     })
@@ -878,9 +873,8 @@ describe("ReservationProofs", () => {
         sampleReservationKey
       )
 
-      const deposit = await testReservationProofs.getDeposit(
-        sampleReservationKey
-      )
+      const deposit =
+        await testReservationProofs.getDeposit(sampleReservationKey)
       expect(deposit.sweptAt).to.be.gt(0)
 
       // Second consume reverts
@@ -974,9 +968,8 @@ describe("ReservationProofs", () => {
         .withArgs(sampleReservationKey, olderNonce, 1) // Acceptance = 1
 
       // Reservation becomes Active
-      const reservation = await testReservationProofs.getReservation(
-        sampleReservationKey
-      )
+      const reservation =
+        await testReservationProofs.getReservation(sampleReservationKey)
       expect(reservation.state).to.equal(1) // Active
       expect(reservation.anchorAmount).to.equal(anchorAmount)
     })
@@ -1091,9 +1084,8 @@ describe("ReservationProofs", () => {
       )
 
       // Reservation position becomes Active on older anchor
-      const reservation = await testReservationProofs.getReservation(
-        sampleReservationKey
-      )
+      const reservation =
+        await testReservationProofs.getReservation(sampleReservationKey)
       expect(reservation.state).to.equal(1) // Active
       expect(reservation.anchorAmount).to.equal(anchorAmount)
     })
@@ -1266,9 +1258,8 @@ describe("ReservationProofs", () => {
       )
 
       // Reservation becomes Stranded, not left Active
-      const reservation = await testReservationProofs.getReservation(
-        sampleReservationKey
-      )
+      const reservation =
+        await testReservationProofs.getReservation(sampleReservationKey)
       expect(reservation.state).to.equal(4) // Stranded
       expect(await testReservationProofs.getActiveReservationsCount()).to.equal(
         0
@@ -1303,9 +1294,8 @@ describe("ReservationProofs", () => {
         false
       )
 
-      const reservation = await testReservationProofs.getReservation(
-        sampleReservationKey
-      )
+      const reservation =
+        await testReservationProofs.getReservation(sampleReservationKey)
       expect(reservation.state).to.equal(1) // Active
     })
 
@@ -1337,9 +1327,8 @@ describe("ReservationProofs", () => {
         false
       )
 
-      const reservation = await testReservationProofs.getReservation(
-        sampleReservationKey
-      )
+      const reservation =
+        await testReservationProofs.getReservation(sampleReservationKey)
       expect(reservation.state).to.equal(1) // Active
     })
 
@@ -1385,9 +1374,8 @@ describe("ReservationProofs", () => {
         )
 
       // State becomes Stranded (4)
-      const reservation = await testReservationProofs.getReservation(
-        sampleReservationKey
-      )
+      const reservation =
+        await testReservationProofs.getReservation(sampleReservationKey)
       expect(reservation.state).to.equal(4) // Stranded
 
       // Counts decremented
@@ -1457,9 +1445,8 @@ describe("ReservationProofs", () => {
           false
         )
 
-      const reservation = await testReservationProofs.getReservation(
-        sampleReservationKey
-      )
+      const reservation =
+        await testReservationProofs.getReservation(sampleReservationKey)
       expect(reservation.state).to.equal(4) // Stranded
       expect(
         await testReservationProofs.getWalletReservationsCount(walletPubKeyHash)
@@ -1489,9 +1476,8 @@ describe("ReservationProofs", () => {
       )
 
       // Reservation ends in Stranded state
-      const reservation = await testReservationProofs.getReservation(
-        sampleReservationKey
-      )
+      const reservation =
+        await testReservationProofs.getReservation(sampleReservationKey)
       expect(reservation.state).to.equal(4) // Stranded
 
       // Both ReservationAccepted and ReservationStranded emitted
@@ -1540,9 +1526,8 @@ describe("ReservationProofs", () => {
           true // evidenceAlreadyEmitted = true
         )
 
-      const reservation = await testReservationProofs.getReservation(
-        sampleReservationKey
-      )
+      const reservation =
+        await testReservationProofs.getReservation(sampleReservationKey)
       expect(reservation.state).to.equal(4) // Stranded
 
       // Should NOT emit duplicate ReservationStranded event
@@ -1600,9 +1585,8 @@ describe("ReservationProofs", () => {
       )
 
       await expect(tx).to.emit(testReservationProofs, "ReservationAccepted")
-      const reservation = await testReservationProofs.getReservation(
-        anchorReservationKey
-      )
+      const reservation =
+        await testReservationProofs.getReservation(anchorReservationKey)
       expect(reservation.state).to.equal(1) // Active
       expect(reservation.anchorAmount).to.equal(anchorAmount)
       expect(await mockReservationVault.totalReceived()).to.equal(anchorAmount)
@@ -1625,9 +1609,8 @@ describe("ReservationProofs", () => {
         )
       ).to.be.reverted
 
-      const reservation = await testReservationProofs.getReservation(
-        anchorReservationKey
-      )
+      const reservation =
+        await testReservationProofs.getReservation(anchorReservationKey)
       expect(reservation.state).to.equal(0) // still Unknown, no mutation
       expect(await mockReservationVault.totalReceived()).to.equal(0)
     })
@@ -1778,9 +1761,8 @@ describe("ReservationProofs", () => {
 
       // (c) Subsequent strand of re-anchored reservation succeeds without panic
       await testReservationProofs.setWalletState(newWalletPubKeyHash, 5) // Terminated
-      const strandTx = await testReservationProofs.strandReservation(
-        anchorReservationKey
-      )
+      const strandTx =
+        await testReservationProofs.strandReservation(anchorReservationKey)
 
       await expect(strandTx)
         .to.emit(testReservationProofs, "ReservationStranded")
@@ -1791,9 +1773,8 @@ describe("ReservationProofs", () => {
           newAnchorAmount
         )
 
-      const strandedReservation = await testReservationProofs.getReservation(
-        anchorReservationKey
-      )
+      const strandedReservation =
+        await testReservationProofs.getReservation(anchorReservationKey)
       expect(strandedReservation.state).to.equal(4) // Stranded
       expect(
         await testReservationProofs.getWalletReservationsCount(

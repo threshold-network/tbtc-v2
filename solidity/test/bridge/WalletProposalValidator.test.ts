@@ -3758,7 +3758,6 @@ describe("WalletProposalValidator", () => {
             deposit.extraInfo
           )
 
-        // eslint-disable-next-line @typescript-eslint/no-unused-expressions
         expect(result).to.be.true
       })
     })
@@ -3824,7 +3823,6 @@ describe("WalletProposalValidator", () => {
               deposit.extraInfo
             )
 
-          // eslint-disable-next-line @typescript-eslint/no-unused-expressions
           expect(result).to.be.true
         })
       }
@@ -3959,7 +3957,6 @@ describe("WalletProposalValidator", () => {
               deposit.extraInfo
             )
 
-          // eslint-disable-next-line @typescript-eslint/no-unused-expressions
           expect(result).to.be.true
         })
       }
@@ -4314,7 +4311,6 @@ describe("WalletProposalValidator", () => {
             buildProposal()
           )
 
-        // eslint-disable-next-line @typescript-eslint/no-unused-expressions
         expect(result).to.be.true
       })
     })
