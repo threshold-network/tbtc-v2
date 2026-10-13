@@ -184,6 +184,12 @@ Notes for integrators:
   Bitcoin miner fee. The reservation initiation fee does not apply after
   release. Reserved reveals do not claim a treasury-fee rebate, so release
   does not retroactively apply one.
+- **Status reads.** `isReservedDeposit(depositKey)` returns a boolean for
+  the current pending-reserved mark. After release to the pool it is
+  `false`; it is not a history of whether the deposit was ever reserved.
+  Use `getReservedDepositReleasedToPoolEvents` on the reservations
+  contract handle to read release history. `reservationRecord` and
+  `reservationAction` return the decoded on-chain position and generation.
 - **Refunds.** A reserved deposit refunds through a Bitcoin script path
   (OP_IF/OP_ELSE with the refund public key and locktime). The depositor
   must control a Bitcoin wallet that can sign the script-path refund; a
