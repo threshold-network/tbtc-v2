@@ -546,8 +546,16 @@ library Reservation {
         uint64 txMaxFee = self.reservationTxMaxFee;
         uint64 minAmount = self.reservationMinAmount;
 
+        // The acceptance anchor pays up to `txMaxFee`, so it is at least
+        // `deposit.amount - txMaxFee`. A re-anchor needs an anchor strictly
+        // above `minAmount + txMaxFee` (requestReservationReanchor).
+        // Requiring `deposit.amount > minAmount + 2 * txMaxFee` makes every
+        // accepted anchor re-anchorable under the same parameters; with the
+        // old `>= minAmount + txMaxFee` anchors in [minAmount, minAmount +
+        // txMaxFee] could never move.
         require(
-            deposit.amount >= minAmount + txMaxFee,
+            uint256(deposit.amount) >
+                uint256(minAmount) + 2 * uint256(txMaxFee),
             "Deposit amount too small for a reservation"
         );
 

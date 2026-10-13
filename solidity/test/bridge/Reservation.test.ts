@@ -363,16 +363,16 @@ describe("Reservation", () => {
       })
     })
 
-    describe("guard 11: deposit.amount >= reservationMinAmount + reservationTxMaxFee", () => {
-      it("should revert if deposit amount is smaller than min amount + tx max fee (amount == min + fee - 1)", async () => {
+    describe("guard 11: deposit.amount > reservationMinAmount + 2 * reservationTxMaxFee", () => {
+      it("should revert if deposit amount equals min amount + 2 * tx max fee (the anchor could not be re-anchored)", async () => {
         const minAmount = 100000
         const txMaxFee = 10000
-        const tooSmallAmount = minAmount + txMaxFee - 1 // 109999
+        const boundaryAmount = minAmount + 2 * txMaxFee // 120000
 
         await setupValidDeposit(reservationKey1, walletPubKeyHash, {
           minAmount,
           txMaxFee,
-          depositAmount: tooSmallAmount,
+          depositAmount: boundaryAmount,
         })
 
         await expect(
@@ -382,15 +382,32 @@ describe("Reservation", () => {
         ).to.be.revertedWith("Deposit amount too small for a reservation")
       })
 
-      it("should succeed if deposit amount equals min amount + tx max fee (amount == min + fee)", async () => {
+      it("should revert at the old floor min amount + tx max fee", async () => {
         const minAmount = 100000
         const txMaxFee = 10000
-        const exactAmount = minAmount + txMaxFee // 110000
 
         await setupValidDeposit(reservationKey1, walletPubKeyHash, {
           minAmount,
           txMaxFee,
-          depositAmount: exactAmount,
+          depositAmount: minAmount + txMaxFee,
+        })
+
+        await expect(
+          testReservation
+            .connect(depositor)
+            .requestReservationAcceptance(reservationKey1, walletPubKeyHash)
+        ).to.be.revertedWith("Deposit amount too small for a reservation")
+      })
+
+      it("should succeed if deposit amount is min amount + 2 * tx max fee + 1", async () => {
+        const minAmount = 100000
+        const txMaxFee = 10000
+        const smallestAmount = minAmount + 2 * txMaxFee + 1 // 120001
+
+        await setupValidDeposit(reservationKey1, walletPubKeyHash, {
+          minAmount,
+          txMaxFee,
+          depositAmount: smallestAmount,
         })
 
         await expect(
