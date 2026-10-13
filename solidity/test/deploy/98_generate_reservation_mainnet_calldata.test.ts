@@ -461,8 +461,8 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
       await expectRejection(func(mockHre), /RENEWAL_WINDOW_SECONDS/)
     })
 
-    it("should throw when the action timeout does not exceed the safety margin", async () => {
-      process.env.RESERVATION_ACTION_TIMEOUT_SECONDS = "7200" // exactly the margin
+    it("should throw when the action timeout leaves a fresh deposit no signing window", async () => {
+      process.env.RESERVATION_ACTION_TIMEOUT_SECONDS = "14401" // 2h margin + 2h min age + 1
       const { mockHre } = createMockHre()
       await expectRejection(func(mockHre), /ACTION_TIMEOUT_SECONDS/)
     })

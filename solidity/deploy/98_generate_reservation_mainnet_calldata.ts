@@ -31,8 +31,10 @@ const EIP_1967_ADMIN_SLOT =
 // submitted and staged.
 const MIN_RESERVATION_TERM = 7_776_000 // 90 days
 const MAX_RESERVATION_TERM = 63_072_000 // 730 days
-// Mirrored from WalletProposalValidatorConstants.REQUEST_TIMEOUT_SAFETY_MARGIN.
+// Mirrored from WalletProposalValidatorConstants.REQUEST_TIMEOUT_SAFETY_MARGIN
+// and DEPOSIT_MIN_AGE.
 const REQUEST_TIMEOUT_SAFETY_MARGIN = 7_200 // 2 hours
+const DEPOSIT_MIN_AGE = 7_200 // 2 hours
 // Mirrored from WalletProposalValidatorConstants.DEPOSIT_REFUND_SAFETY_MARGIN;
 // Deposit.sol caps a reserved deposit's refund locktime at the reveal time
 // plus the reservation term plus this margin.
@@ -494,13 +496,13 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
         "than the term' require)"
     )
   }
-  if (RES_ACTION_TIMEOUT <= REQUEST_TIMEOUT_SAFETY_MARGIN) {
+  if (RES_ACTION_TIMEOUT <= REQUEST_TIMEOUT_SAFETY_MARGIN + DEPOSIT_MIN_AGE + 1) {
     throw new Error(
       `RESERVATION_ACTION_TIMEOUT_SECONDS (${RES_ACTION_TIMEOUT}) must ` +
-        "exceed the wallet validator's REQUEST_TIMEOUT_SAFETY_MARGIN " +
-        `(${REQUEST_TIMEOUT_SAFETY_MARGIN}s / 2h) (mirrors ` +
-        "updateReservationParameters's 'Reservation action timeout must " +
-        "exceed the safety margin' require)"
+        "exceed REQUEST_TIMEOUT_SAFETY_MARGIN + DEPOSIT_MIN_AGE + 1 " +
+        `(${REQUEST_TIMEOUT_SAFETY_MARGIN + DEPOSIT_MIN_AGE + 1}s) (mirrors ` +
+        "updateReservationParameters's 'Reservation action timeout leaves " +
+        "no signing window' require)"
     )
   }
 

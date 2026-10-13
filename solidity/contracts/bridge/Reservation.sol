@@ -1288,10 +1288,18 @@ library Reservation {
                 reservationRenewalWindowSeconds < reservationTermSeconds,
             "Renewal window must be shorter than the term"
         );
+        // A request on a deposit revealed in the same block can sign no
+        // earlier than `now + DEPOSIT_MIN_AGE + 1` and no later than
+        // `now + reservationActionTimeout - REQUEST_TIMEOUT_SAFETY_MARGIN`.
+        // Any smaller timeout leaves that request without a signing window,
+        // and at `REQUEST_TIMEOUT_SAFETY_MARGIN + 1` every acceptance and
+        // re-anchor request reverts.
         require(
             reservationActionTimeout >
-                WalletProposalValidatorConstants.REQUEST_TIMEOUT_SAFETY_MARGIN,
-            "Reservation action timeout must exceed the safety margin"
+                WalletProposalValidatorConstants.REQUEST_TIMEOUT_SAFETY_MARGIN +
+                    WalletProposalValidatorConstants.DEPOSIT_MIN_AGE +
+                    1,
+            "Reservation action timeout leaves no signing window"
         );
         require(
             maxReservationsPerWallet > 0,
