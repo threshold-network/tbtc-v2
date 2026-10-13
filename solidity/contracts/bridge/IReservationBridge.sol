@@ -266,15 +266,22 @@ interface IReservationBridge {
     ///      this deposit does not exceed the per-wallet amount cap; the
     ///      active reservations count stays below the global occupancy
     ///      cap; and a valid signing window exists between the deposit's
-    ///      minimum age and its refund deadline. See
-    ///      `Reservation.requestReservationAcceptance` for the full
+    ///      minimum age and its refund deadline. The deposit's funding
+    ///      transaction must carry a valid SPV proof; the reservation key is
+    ///      `keccak256(fundingTxHash | fundingOutputIndex)` of the proven
+    ///      transaction. See `ReservationRouter.requestReservationAcceptance`
+    ///      and `Reservation.requestReservationAcceptance` for the full
     ///      requirement list.
-    /// @param reservationKey The deposit key of the revealed reserved
-    ///        deposit (doubles as the reservation key).
+    /// @param fundingTx Bitcoin funding transaction of the deposit.
+    /// @param fundingProof SPV proof of `fundingTx`.
+    /// @param fundingOutputIndex Index of the deposit output in
+    ///        `fundingTx`.
     /// @param walletPubKeyHash 20-byte public key hash of the wallet that
     ///        will anchor the deposit.
     function requestReservationAcceptance(
-        uint256 reservationKey,
+        BitcoinTx.Info calldata fundingTx,
+        BitcoinTx.Proof calldata fundingProof,
+        uint32 fundingOutputIndex,
         bytes20 walletPubKeyHash
     ) external;
 

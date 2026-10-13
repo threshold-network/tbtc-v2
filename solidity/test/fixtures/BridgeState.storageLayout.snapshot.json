@@ -546,11 +546,18 @@
       "numberOfBytes": "32"
     },
     {
-      "label": "__gap",
+      "label": "walletAnchoredInfo",
       "slot": "39",
       "offset": 0,
-      "type": "uint256[39]",
-      "numberOfBytes": "1248"
+      "type": "mapping(bytes20 => struct BridgeState.WalletReservationInfo)",
+      "numberOfBytes": "32"
+    },
+    {
+      "label": "__gap",
+      "slot": "40",
+      "offset": 0,
+      "type": "uint256[38]",
+      "numberOfBytes": "1216"
     }
   ],
   "structMembers": {

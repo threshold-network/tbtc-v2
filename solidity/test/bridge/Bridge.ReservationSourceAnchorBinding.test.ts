@@ -377,7 +377,12 @@ describe("Bridge - Reservation source-anchor binding", () => {
 
     await reservationRouter
       .connect(thirdParty)
-      .requestReservationAcceptance(reservationKey, custodian)
+      .requestReservationAcceptance(
+        fundingTx.info,
+        proofFor(fundingTx.txHash),
+        0,
+        custodian
+      )
 
     const anchorTx = buildTx(
       [{ txHash: fundingTx.txHash, index: 0 }],
