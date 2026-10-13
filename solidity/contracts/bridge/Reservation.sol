@@ -1080,22 +1080,19 @@ library Reservation {
     /// @param reservationKey The key of the stranded reservation.
     /// @dev Requirements:
     ///      - The custodying wallet must be in the Terminated or Closed state,
-    ///        or in the Closing state once the reservation's
-    ///        `dissolutionEligibleAt` has passed (i.e., `block.timestamp >=
-    ///        reservation.dissolutionEligibleAt`). Closing is excluded before
-    ///        that point: `requestReservationReanchor` accepts a Closing source
-    ///        wallet, so allowing a Closing wallet to also be stranded here
-    ///        would race a legitimate reanchor with a permissionless strand.
-    ///        `requestReservationReanchor` no longer gates on
-    ///        `dissolutionEligibleAt` (that on-chain check was deliberately
-    ///        removed; see the field's own doc comment on
-    ///        `dissolutionEligibleAt`), so after the deadline passes both a
-    ///        reanchor and a strand become independently callable. They
-    ///        still cannot race unsafely: both require
-    ///        `reservation.state == Active` as a precondition, so whichever
-    ///        transaction lands first flips the state and the other
-    ///        reverts, making Closing eligible for stranding a safe
-    ///        milestone-1 release path.
+    ///        or in the Closing state once both the reservation's
+    ///        `dissolutionEligibleAt` and the wallet's closing period
+    ///        (`closingStartedAt + walletClosingPeriod`) have passed.
+    ///        `requestReservationReanchor` accepts a Closing source wallet,
+    ///        so the closing period is an exclusive re-anchor window: every
+    ///        position on a Closing wallet gets at least one full closing
+    ///        period to move before anyone may strand it. Without it a wallet
+    ///        pushed Live -> MovingFunds -> Closing by permissionless calls
+    ///        could be stranded in the same transaction, before the owner
+    ///        could request a re-anchor. After both deadlines a re-anchor
+    ///        and a strand are both callable; both require
+    ///        `reservation.state == Active`, so whichever lands first flips
+    ///        the state and the other reverts.
     function notifyReservationStranded(
         BridgeState.Storage storage self,
         uint256 reservationKey
@@ -1108,15 +1105,20 @@ library Reservation {
             "Reservation is not active"
         );
 
-        Wallets.WalletState walletState = self
-            .registeredWallets[reservation.walletPubKeyHash]
-            .state;
+        Wallets.Wallet storage wallet = self.registeredWallets[
+            reservation.walletPubKeyHash
+        ];
+        Wallets.WalletState walletState = wallet.state;
         require(
             walletState == Wallets.WalletState.Terminated ||
                 walletState == Wallets.WalletState.Closed ||
                 (walletState == Wallets.WalletState.Closing &&
                     /* solhint-disable-next-line not-rely-on-time */
-                    block.timestamp >= reservation.dissolutionEligibleAt),
+                    block.timestamp >= reservation.dissolutionEligibleAt &&
+                    /* solhint-disable-next-line not-rely-on-time */
+                    block.timestamp >=
+                    uint256(wallet.closingStartedAt) +
+                        self.walletClosingPeriod),
             "Wallet is not terminated, closed, or a dissolution-eligible closing wallet"
         );
 

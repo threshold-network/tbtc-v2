@@ -498,6 +498,18 @@ contract TestReservation {
         state.registeredWallets[walletPubKeyHash].state = newState;
     }
 
+    function setWalletClosingPeriod(uint32 closingPeriod) external {
+        state.walletClosingPeriod = closingPeriod;
+    }
+
+    function setWalletClosingStartedAt(
+        bytes20 walletPubKeyHash,
+        uint32 closingStartedAt
+    ) external {
+        state.registeredWallets[walletPubKeyHash].closingStartedAt =
+            closingStartedAt;
+    }
+
     function setLiveWalletsCount(uint32 count) external {
         state.liveWalletsCount = count;
     }

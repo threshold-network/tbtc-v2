@@ -210,6 +210,87 @@ describe("Reservation - occupancy tracking", () => {
     ).to.be.revertedWith("Wallet is not terminated")
   })
 
+  it("notifyReservationStranded reverts on a Closing wallet whose closing period has not elapsed, even past dissolution eligibility", async () => {
+    await testReservation.setMaxActiveReservations(5)
+    await testReservation.setActiveReservationsCount(1)
+
+    const walletPubKeyHash = `0x${"1".repeat(40)}`
+    await testReservation.setWalletReservationsCount(walletPubKeyHash, 1)
+    await testReservation.setWalletReservationsAmount(walletPubKeyHash, 100)
+    await testReservation.setReservationTotalAmount(100)
+    await testReservation.setWalletState(walletPubKeyHash, walletState.Closing)
+
+    // Closing just started: the closing period runs far into the future.
+    const now = (await ethers.provider.getBlock("latest")).timestamp
+    await testReservation.setWalletClosingStartedAt(walletPubKeyHash, now)
+    await testReservation.setWalletClosingPeriod(1_000_000)
+
+    const reservationKey = 1
+    // Dissolution is already eligible, so only the closing period blocks.
+    await testReservation.setReservation(reservationKey, {
+      owner: ethers.constants.AddressZero,
+      mintedAmount: 100,
+      acceptedAt: 0,
+      walletPubKeyHash,
+      anchorAmount: 100,
+      expiresAt: 0,
+      anchorTxHash: ethers.constants.HashZero,
+      anchorTxOutputIndex: 0,
+      state: 1 /* Active */,
+      requestNonce: 1,
+      retryCredit: false,
+      dissolutionEligibleAt: now,
+      cumulativeReanchorFee: 0,
+      reanchorCooldownUntil: 0,
+    })
+
+    await expect(
+      testReservation.notifyReservationStranded(reservationKey)
+    ).to.be.revertedWith(
+      "Wallet is not terminated, closed, or a dissolution-eligible closing wallet"
+    )
+  })
+
+  it("notifyReservationStranded strands a Closing wallet once both dissolution eligibility and the closing period have passed", async () => {
+    await testReservation.setMaxActiveReservations(5)
+    await testReservation.setActiveReservationsCount(1)
+
+    const walletPubKeyHash = `0x${"1".repeat(40)}`
+    await testReservation.setWalletReservationsCount(walletPubKeyHash, 1)
+    await testReservation.setWalletReservationsAmount(walletPubKeyHash, 100)
+    await testReservation.setReservationTotalAmount(100)
+    await testReservation.setWalletState(walletPubKeyHash, walletState.Closing)
+
+    // The closing period ended long ago and dissolution is eligible.
+    const now = (await ethers.provider.getBlock("latest")).timestamp
+    await testReservation.setWalletClosingStartedAt(walletPubKeyHash, now - 5000)
+    await testReservation.setWalletClosingPeriod(1000)
+
+    const reservationKey = 1
+    await testReservation.setReservation(reservationKey, {
+      owner: ethers.constants.AddressZero,
+      mintedAmount: 100,
+      acceptedAt: 0,
+      walletPubKeyHash,
+      anchorAmount: 100,
+      expiresAt: 0,
+      anchorTxHash: ethers.constants.HashZero,
+      anchorTxOutputIndex: 0,
+      state: 1 /* Active */,
+      requestNonce: 1,
+      retryCredit: false,
+      dissolutionEligibleAt: now - 10,
+      cumulativeReanchorFee: 0,
+      reanchorCooldownUntil: 0,
+    })
+
+    await expect(testReservation.notifyReservationStranded(reservationKey))
+      .to.emit(testReservation, "ReservationStranded")
+      .to.emit(testReservation, "ReservationOccupancyChanged")
+      .withArgs(0)
+    expect(await testReservation.activeReservationsCount()).to.equal(0)
+  })
+
   it("notifyReservationStranded reverts on a Live wallet", async () => {
     await testReservation.setMaxActiveReservations(5)
     await testReservation.setActiveReservationsCount(1)
