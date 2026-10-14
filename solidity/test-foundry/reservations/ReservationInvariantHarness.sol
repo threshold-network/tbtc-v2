@@ -84,6 +84,12 @@ contract ReservationInvariantHarness is ReservationHarnessState {
         wallet.state = newState;
     }
 
+    function isWalletLive(bytes20 walletPubKeyHash) external view returns (bool) {
+        return
+            state.registeredWallets[walletPubKeyHash].state ==
+            Wallets.WalletState.Live;
+    }
+
     /// @dev The records `Deposit.revealDeposit` writes for a deposit routed
     ///      to the reservation vault.
     function revealReservedDeposit(
@@ -131,14 +137,16 @@ contract ReservationInvariantHarness is ReservationHarnessState {
         uint64 maxReservationsAmountPerWallet,
         uint64 reservationMaxSingleAmount,
         uint32 maxActiveReservations,
-        uint32 maxThirdPartyReanchorHoldsPerWallet
+        uint32 maxThirdPartyReanchorHoldsPerWallet,
+        uint32 handoffReserveWallets
     ) external {
         Reservation.updateReservationCaps(
             state,
             maxReservationsAmountPerWallet,
             reservationMaxSingleAmount,
             maxActiveReservations,
-            maxThirdPartyReanchorHoldsPerWallet
+            maxThirdPartyReanchorHoldsPerWallet,
+            handoffReserveWallets
         );
     }
 

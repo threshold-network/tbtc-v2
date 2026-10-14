@@ -33,7 +33,7 @@ contract ReservationHandler is ReservationProperties {
     constructor() {
         harness = new ReservationInvariantHarness();
         // Caps first: enabling the vault requires a positive active cap.
-        harness.updateReservationCaps(3_000_000, 2_000_000, 4, 1);
+        harness.updateReservationCaps(3_000_000, 2_000_000, 4, 1, 1);
         harness.updateReservationParameters(
             100_000, // min amount
             10_000, // tx max fee
@@ -158,12 +158,20 @@ contract ReservationHandler is ReservationProperties {
         bytes20 target = wallets[targetSeed % wallets.length];
         mode = mode % 3;
 
+        // A privileged request off a retiring (non-Live) source skips the
+        // target's per-wallet caps on purpose, so the hand-off stays possible
+        // when the target's own slots are full (Reservation.sol, hand-off
+        // capacity). Every other request keeps them. Computed before the
+        // prank, which applies to the next call only.
+        bool exemptHandoff = mode != 1 &&
+            !harness.isWalletLive(harness.reservation(key).walletPubKeyHash);
+
         if (mode == 1) {
             vm.prank(THIRD_PARTY);
         }
         try harness.requestReservationReanchor(key, target, mode == 2) {
             successes["requestReanchor"] += 1;
-            checkCapsAfterReanchor(target, mode == 1);
+            checkCapsAfterReanchor(target, mode == 1, exemptHandoff);
         } catch {}
     }
 
@@ -257,14 +265,16 @@ contract ReservationHandler is ReservationProperties {
         uint64 perWalletAmountSeed,
         uint64 singleSeed,
         uint32 maxActiveSeed,
-        uint32 holdsSeed
+        uint32 holdsSeed,
+        uint32 reserveSeed
     ) external {
         try
             harness.updateReservationCaps(
                 perWalletAmountSeed % 6_000_000,
                 singleSeed % 4_000_000,
                 1 + (maxActiveSeed % 8),
-                holdsSeed % 3
+                holdsSeed % 3,
+                1 + (reserveSeed % 2)
             )
         {
             successes["updateCaps"] += 1;
@@ -310,9 +320,13 @@ contract ReservationHandler is ReservationProperties {
         }
     }
 
-    function checkCapsAfterReanchor(bytes20 target, bool thirdParty) internal {
+    function checkCapsAfterReanchor(
+        bytes20 target,
+        bool thirdParty,
+        bool exemptHandoff
+    ) internal {
         if (
-            !walletCapsHold(target) ||
+            (!exemptHandoff && !walletCapsHold(target)) ||
             (thirdParty && !thirdPartyHoldCapHolds(target))
         ) {
             capViolation = true;

@@ -28,28 +28,25 @@ contract ReservationLivenessTest is Test {
         assertEq(handler.successes("requestReanchor"), 1);
     }
 
-    /// @dev One reservation per wallet with a per-wallet cap of one: when a
-    ///      custodian retires, every Live wallet is full. Raising the cap
-    ///      restores the hand-off.
-    function test_firesWhenEveryLiveWalletIsFull() public {
+    /// @dev One reservation per wallet with a per-wallet cap of one and a
+    ///      hand-off reserve of one wallet: acceptance admits at most
+    ///      `live wallets - reserve` positions, so a free target always
+    ///      remains when a custodian retires. The fourth acceptance is
+    ///      rejected and the retiring position can still be handed off.
+    function test_reserveKeepsAFreeTargetWhenEveryOtherWalletIsFull() public {
         handler.updateLimits(0, 6_000_000); // max 1 reservation per wallet
-        for (uint256 i = 0; i < 4; i++) {
+        for (uint256 i = 0; i < 3; i++) {
             acceptOn(i, 500_000, 0);
         }
+        uint256 fourth = handler.keyCount();
+        handler.revealReservedDeposit(3, 500_000, 0);
+        handler.requestAcceptance(fourth);
+        assertEq(handler.successes("requestAcceptance"), 3, "reserve admits 3");
+
         handler.advanceWallet(0, false);
 
-        assertFalse(handler.property_everyRetiringPositionHasAnExit());
-        (uint256 key, uint8 reason) = handler.firstStuckPosition();
-        assertEq(key, handler.keyAt(0));
-        assertEq(reason, handler.NO_TARGET_WITH_CAPACITY());
-        for (uint256 target = 1; target < 4; target++) {
-            handler.requestReanchor(0, target, 0);
-        }
-        assertEq(handler.successes("requestReanchor"), 0, "library agrees");
-
-        handler.updateLimits(1, 6_000_000); // max 2 reservations per wallet
         assertTrue(handler.property_everyRetiringPositionHasAnExit());
-        handler.requestReanchor(0, 1, 0);
+        handler.requestReanchor(0, 3, 0);
         assertEq(handler.successes("requestReanchor"), 1);
     }
 
