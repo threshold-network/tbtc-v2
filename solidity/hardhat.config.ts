@@ -202,6 +202,17 @@ const config: HardhatUserConfig = {
         return Number.isFinite(gwei) && gwei > 0 ? gwei * 1e9 : 5e9 // 5 gwei default
       })(),
     },
+    // Local `hardhat node --fork` of Sepolia on port 8547, used to rehearse
+    // the live path of scripts/reservations-sepolia-rehearsal.ts. Same
+    // signer source as `sepolia`. A forked `hardhat node` keeps chain id
+    // 31337 whatever it forks.
+    rehearsal: {
+      url: "http://127.0.0.1:8547",
+      chainId: 31337,
+      accounts: process.env.ACCOUNTS_PRIVATE_KEYS
+        ? process.env.ACCOUNTS_PRIVATE_KEYS.split(",")
+        : undefined,
+    },
     mainnet: {
       url: process.env.CHAIN_API_URL || "",
       chainId: 1,
