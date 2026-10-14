@@ -1700,6 +1700,72 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       ).to.be.revertedWith("Wallet reservations cap exceeded")
     })
 
+    it("rejects a re-anchor whose anchor is exactly the min amount plus tx fee floor", async () => {
+      // Request-time floor is `anchorAmount > txMaxFee + minAmount`
+      // (Reservation.sol, "Reanchor would fall below the minimum
+      // reservation amount"). Pin `minAmount` so the fixture's anchor sits
+      // exactly ON that floor: the strict `>` must refuse it, leaving the
+      // anchor no room for the next hop's miner fee.
+      await executor.setReservationMinAmount(anchorAmount - txMaxFee)
+
+      await expect(
+        executor.requestReservationReanchor(
+          reservationKey,
+          targetWallet,
+          false,
+          [],
+          0
+        )
+      ).to.be.revertedWith(
+        "Reanchor would fall below the minimum reservation amount"
+      )
+    })
+
+    it("rejects a governance re-anchor of a Live wallet whose anchor is exactly the floor", async () => {
+      // Same boundary, reached through the governance-discriminated
+      // (`privileged`) path off a Live source, so the floor is the only
+      // thing that can refuse the request.
+      await executor.setReservationMinAmount(anchorAmount - txMaxFee)
+      await executor.seedWallet(
+        sourceWallet,
+        ZERO_BYTES32,
+        walletStateEnum.Live
+      )
+
+      await expect(
+        executor.requestReservationReanchor(
+          reservationKey,
+          targetWallet,
+          true,
+          [],
+          0
+        )
+      ).to.be.revertedWith(
+        "Reanchor would fall below the minimum reservation amount"
+      )
+    })
+
+    it("accepts a re-anchor one satoshi above the min amount plus tx fee floor", async () => {
+      // Boundary counterpart: exactly one satoshi of headroom clears the
+      // floor, so a `>=` variant of the guard cannot pass this test.
+      await executor.setReservationMinAmount(anchorAmount - txMaxFee - 1)
+
+      await executor.requestReservationReanchor(
+        reservationKey,
+        targetWallet,
+        false,
+        [],
+        0
+      )
+
+      expect(await executor.reservationState(reservationKey)).to.equal(
+        reservationStateEnum.ActionPending
+      )
+      expect(await executor.walletReservationsAmount(targetWallet)).to.equal(
+        anchorAmount
+      )
+    })
+
     it("rejects when target wallet reserved amount cap is exceeded", async () => {
       await setReservationConfig(executor.target as string, {
         maxReservationsAmountPerWallet: 1_500_000,

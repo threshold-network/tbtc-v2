@@ -499,6 +499,247 @@ describe("Bridge - reservation third-party re-anchor holds (per-target cap)", ()
       expect(await executor.walletReservationsAmount(targetWallet)).to.equal(2_000_000)
     })
 
+    it("a third party landing the target's amount exactly on the cap is accepted, one satoshi over reverts", async () => {
+      // `targetAmount <= maxReservationsAmountPerWallet` is an inclusive
+      // bound: the holder below reserves 1,000,000, so with a 2,000,000 cap
+      // a third-party re-anchor of another 1,000,000 lands exactly on the
+      // cap and must be authorized. One satoshi more must be refused.
+      await fillTargetAmount(2_000_000)
+      await executor.seedReservation(
+        `0x${"c3".repeat(32)}`,
+        randomOwner,
+        secondSourceWallet,
+        1_000_000,
+        `0x${"3a".repeat(32)}`,
+        0,
+        1
+      )
+
+      await executor.requestReservationReanchor(
+        `0x${"c3".repeat(32)}`,
+        targetWallet,
+        false,
+        [],
+        0
+      )
+      expect(await executor.walletReservationsAmount(targetWallet)).to.equal(
+        2_000_000
+      )
+      expect(await executor.walletReservationsCount(targetWallet)).to.equal(2)
+
+      // One satoshi past the inclusive bound is refused with the existing
+      // amount-cap message.
+      await executor.seedReservation(
+        `0x${"c7".repeat(32)}`,
+        randomOwner,
+        secondSourceWallet,
+        1_000_001,
+        `0x${"3f".repeat(32)}`,
+        0,
+        1
+      )
+
+      await expect(
+        executor.requestReservationReanchor(
+          `0x${"c7".repeat(32)}`,
+          targetWallet,
+          false,
+          [],
+          0
+        )
+      ).to.be.revertedWith("Wallet reserved amount cap exceeded")
+    })
+
+    it("governance (privileged) off a retiring source reaches a target whose holds cap is zero", async () => {
+      // The third-party hold cap is a third-party-only throttle. A
+      // governance request is exempt from it, so a zero cap must not block
+      // the hand-off - and off a retiring source it skips the target's
+      // ordinary count cap as well.
+      await executor.seedWallet(
+        targetWallet,
+        ZERO_BYTES32,
+        walletStateEnum.Live
+      )
+      await executor.setMaxReservationsPerWallet(1)
+      await executor.setMaxReservationsAmountPerWallet(0) // disabled
+      await executor.setMaxThirdPartyReanchorHoldsPerWallet(0)
+
+      // The zero cap forbids any counted third-party hold, so the target's
+      // single ordinary slot is filled directly instead: the count cap is
+      // what the privileged hand-off has to skip.
+      await executor.seedWallet(
+        secondSourceWallet,
+        ZERO_BYTES32,
+        walletStateEnum.MovingFunds
+      )
+      await executor.seedReservation(
+        holderKey,
+        thirdPartyOwner,
+        secondSourceWallet,
+        1_000_000,
+        `0x${"37".repeat(32)}`,
+        0,
+        1 // Active
+      )
+      await executor.seedWallet(
+        sourceWallet,
+        ZERO_BYTES32,
+        walletStateEnum.MovingFunds
+      )
+      await executor.seedReservation(
+        callerKey,
+        thirdPartyOwner,
+        sourceWallet,
+        1_000_000,
+        `0x${"38".repeat(32)}`,
+        0,
+        1 // Active
+      )
+      await executor.setWalletReservationsCounters(targetWallet, 1, 1_000_000)
+
+      // A third party would be refused here, twice over (hold cap at zero,
+      // count cap full).
+      await expect(
+        executor.requestReservationReanchor(
+          holderKey,
+          targetWallet,
+          false,
+          [],
+          0
+        )
+      ).to.be.revertedWith("Target third-party re-anchor holds exceeded")
+
+      await executor.requestReservationReanchor(
+        callerKey,
+        targetWallet,
+        true,
+        [],
+        0
+      )
+      expect(await executor.walletReservationsCount(targetWallet)).to.equal(2)
+      // Privileged requests never take a hold, so the zero cap stays zero.
+      expect(
+        await executor.pendingThirdPartyReanchorHolds(targetWallet)
+      ).to.equal(0)
+    })
+
+    it("governance (privileged) off a retiring source reaches a target whose holds cap is already reached", async () => {
+      // Same exemption with the hold cap saturated rather than zero: the
+      // target's only free slot is occupied by a counted third-party hold,
+      // and a governance hand-off must still succeed.
+      await fillTargetSlot()
+
+      await executor.setMaxThirdPartyReanchorHoldsPerWallet(1)
+      expect(
+        await executor.pendingThirdPartyReanchorHolds(targetWallet)
+      ).to.equal(1)
+
+      await executor.seedWallet(
+        sourceWallet,
+        ZERO_BYTES32,
+        walletStateEnum.MovingFunds
+      )
+      await executor.seedReservation(
+        callerKey,
+        thirdPartyOwner,
+        sourceWallet,
+        1_000_000,
+        `0x${"38".repeat(32)}`,
+        0,
+        1 // Active
+      )
+
+      // A third party is refused at the reached hold cap...
+      await executor.seedReservation(
+        `0x${"c8".repeat(32)}`,
+        thirdPartyOwner,
+        secondSourceWallet,
+        1_000_000,
+        `0x${"41".repeat(32)}`,
+        0,
+        1 // Active
+      )
+      await expect(
+        executor.requestReservationReanchor(
+          `0x${"c8".repeat(32)}`,
+          targetWallet,
+          false,
+          [],
+          0
+        )
+      ).to.be.revertedWith("Target third-party re-anchor holds exceeded")
+
+      // ...while the governance hand-off into the very same target succeeds.
+      await executor.requestReservationReanchor(
+        callerKey,
+        targetWallet,
+        true,
+        [],
+        0
+      )
+      expect(await executor.walletReservationsCount(targetWallet)).to.equal(2)
+      expect(
+        await executor.pendingThirdPartyReanchorHolds(targetWallet)
+      ).to.equal(1)
+    })
+
+    it("governance (privileged) off a retiring source is exempt from the target's count cap", async () => {
+      // Governance's privilege flag alone (the caller owns no reservation, is
+      // no maintainer and passes no member proof) is what makes the hand-off
+      // skip the target's ordinary caps.
+      await fillTargetSlot()
+      await executor.seedWallet(
+        sourceWallet,
+        ZERO_BYTES32,
+        walletStateEnum.MovingFunds
+      )
+      await executor.seedReservation(
+        callerKey,
+        thirdPartyOwner,
+        sourceWallet,
+        1_000_000,
+        `0x${"38".repeat(32)}`,
+        0,
+        1 // Active
+      )
+
+      await executor.requestReservationReanchor(
+        callerKey,
+        targetWallet,
+        true,
+        [],
+        0
+      )
+      expect(await executor.walletReservationsCount(targetWallet)).to.equal(2)
+    })
+
+    it("governance (privileged) off a Closing source is exempt from the target's count cap", async () => {
+      await fillTargetSlot()
+      await executor.seedWallet(
+        sourceWallet,
+        ZERO_BYTES32,
+        walletStateEnum.Closing
+      )
+      await executor.seedReservation(
+        callerKey,
+        thirdPartyOwner,
+        sourceWallet,
+        1_000_000,
+        `0x${"38".repeat(32)}`,
+        0,
+        1 // Active
+      )
+
+      await executor.requestReservationReanchor(
+        callerKey,
+        targetWallet,
+        true,
+        [],
+        0
+      )
+      expect(await executor.walletReservationsCount(targetWallet)).to.equal(2)
+    })
+
     it("a third party into a target over its amount cap still reverts", async () => {
       await fillTargetAmount(1_500_000)
       await executor.seedReservation(
@@ -576,6 +817,276 @@ describe("Bridge - reservation third-party re-anchor holds (per-target cap)", ()
       await executor.requestReservationReanchor(memberKey, targetWallet, false, [1, 2, 3], 2)
       // The member request is privileged, so it does not count as a hold.
       expect(await executor.pendingThirdPartyReanchorHolds(targetWallet)).to.equal(0)
+    })
+  })
+
+  // The anchored-custody ledger (`walletAnchoredInfo`) tracks the anchors a
+  // wallet provably holds, independently of the reserved capacity that
+  // `walletReservationsCount`/`walletReservationsAmount` track: a proven
+  // anchor arriving at a wallet adds to it, and a re-anchor settlement moves
+  // the entry from the source wallet to the target wallet.
+  describe("anchored custody ledger across settlement", () => {
+    const custodyKey = `0x${"d0".repeat(32)}`
+    const custodySource = `0x${"d1".repeat(20)}` as `0x${string}`
+    const custodyTarget = movedFundsSweepData.wallet.pubKeyHash as `0x${string}`
+    const custodyAnchorTxHash =
+      movedFundsSweepData.movedFundsSweepRequest.txHash
+    const custodyAnchorValue = Number(
+      movedFundsSweepData.movedFundsSweepRequest.txOutputValue
+    )
+    // The fixture's re-anchor transaction pays 16,500 sats, so this hop's
+    // miner fee is 2,000 sats: the amount in the ledger changes across the
+    // hop even though the position itself is the same.
+    const custodyNewAnchorValue = 16_500
+    const custodyMinerFee = custodyAnchorValue - custodyNewAnchorValue
+
+    // The anchor the re-anchor proof spends, as `Reservation` hashes it.
+    const custodyAnchorUtxoKey = ethers.solidityPackedKeccak256(
+      ["bytes32", "uint32"],
+      [custodyAnchorTxHash, 0]
+    )
+
+    // The settled generation's action record. `state` 1 (Pending) settles on
+    // time, 3 (TimedOut) settles late. `thirdPartyHold: false` keeps the
+    // settlement's on-time hold release out of the picture.
+    function buildAction(actionType: number, state: number) {
+      return {
+        targetWalletPubKeyHash: custodyTarget,
+        requestedAt: 0,
+        timeoutAt: 0,
+        txMaxFee: 5_000,
+        actionType,
+        state,
+        feePaid: false,
+        redeemer: ethers.ZeroAddress,
+        actionDataHash: ethers.ZeroHash,
+        sourceAnchorUtxoHash: custodyAnchorUtxoKey,
+        amount: custodyAnchorValue,
+        usedRetryCredit: false,
+        watchtowerDefaultDelay: 0,
+        watchtowerLevelOneDelay: 0,
+        watchtowerLevelTwoDelay: 0,
+        retryCreditSourceNonce: 0,
+        isPartial: false,
+        termSeconds: 0,
+        dissolutionDelay: 0,
+        minAmount: 0,
+        thirdPartyHold: false,
+      }
+    }
+
+    // Wires the SPV relay the settling proof is validated against.
+    async function wireRelay() {
+      const relay = await createMock<IRelay>("IRelay")
+      await executor.setRelay(relay.address)
+      await relay.getCurrentEpochDifficulty.returns(
+        movedFundsSweepData.chainDifficulty
+      )
+      await relay.getPrevEpochDifficulty.returns(
+        movedFundsSweepData.chainDifficulty
+      )
+    }
+
+    // Wires the vault that finances the re-anchor's in-kind miner fee, and
+    // the Bank that the settlement credits. `setBank` alone is enough for the
+    // acceptance path, whose untrusted-vault branch calls
+    // `Bank.increaseBalances` (guarded by `onlyBridge`).
+    async function wireVaultAndBank(depositKey: string) {
+      const BankFactory = await ethers.getContractFactory("Bank")
+      const bank = (await BankFactory.deploy()) as Bank
+      await bank.updateBridge(executor.target)
+      await executor.setBank(bank.target)
+      const VaultFactory = await ethers.getContractFactory(
+        "MockReservationVault"
+      )
+      const vault = (await VaultFactory.deploy(
+        bank.target
+      )) as MockReservationVault
+      await executor.setDeposit(
+        depositKey,
+        randomOwner,
+        custodyAnchorValue,
+        await lastBlockTime(),
+        vault.target
+      )
+      return { bank, vault }
+    }
+
+    it("moves the source wallet's custody to the target wallet on an on-time re-anchor", async () => {
+      await executor.seedWallet(
+        custodySource,
+        ZERO_BYTES32,
+        walletStateEnum.MovingFunds
+      )
+      await executor.seedWallet(
+        custodyTarget,
+        ZERO_BYTES32,
+        walletStateEnum.Live
+      )
+      // Before the hop: the source wallet custodies exactly one anchor worth
+      // the pre-hop anchor value; the target custodies nothing.
+      await executor.seedReservation(
+        custodyKey,
+        randomOwner,
+        custodySource,
+        custodyAnchorValue,
+        custodyAnchorTxHash,
+        0,
+        1 // Active
+      )
+      expect(await executor.walletAnchoredInfo(custodySource)).to.deep.equal([
+        1,
+        custodyAnchorValue,
+      ])
+      expect(await executor.walletAnchoredInfo(custodyTarget)).to.deep.equal([
+        0, 0,
+      ])
+
+      await wireVaultAndBank(custodyKey)
+      await wireRelay()
+      await executor.setAction(custodyKey, 0, buildAction(3 /* Reanchor */, 1))
+      // Target capacity was reserved at request time, at the pre-hop value.
+      await executor.setWalletReservationsCounters(
+        custodyTarget,
+        1,
+        custodyAnchorValue
+      )
+
+      await executor.submitReservationReanchorProof(
+        movedFundsSweepData.sweepTx,
+        movedFundsSweepData.sweepProof,
+        custodyKey,
+        0
+      )
+
+      // After the hop the source custody drops by exactly the old anchor and
+      // the target's rises by exactly the new anchor value - the miner fee is
+      // what makes the two differ.
+      expect(custodyMinerFee).to.equal(2_000)
+      expect(await executor.walletAnchoredInfo(custodySource)).to.deep.equal([
+        0, 0,
+      ])
+      expect(await executor.walletAnchoredInfo(custodyTarget)).to.deep.equal([
+        1,
+        custodyNewAnchorValue,
+      ])
+    })
+
+    it("rebuilds then releases the source custody when a stranded position settles late", async () => {
+      // A stranded position's ledger starts empty: the late settlement
+      // reconstructs one custody at the source wallet and then releases it
+      // again, so the source ends empty and the target holds the proven anchor.
+      await executor.seedWallet(
+        custodySource,
+        ZERO_BYTES32,
+        walletStateEnum.MovingFunds
+      )
+      await executor.seedWallet(
+        custodyTarget,
+        ZERO_BYTES32,
+        walletStateEnum.Live
+      )
+      await executor.seedReservation(
+        custodyKey,
+        randomOwner,
+        custodySource,
+        custodyAnchorValue,
+        custodyAnchorTxHash,
+        0,
+        4 // Stranded: every counter already released
+      )
+      expect(await executor.walletAnchoredInfo(custodySource)).to.deep.equal([
+        0, 0,
+      ])
+
+      await wireVaultAndBank(custodyKey)
+      await wireRelay()
+      await executor.setAction(
+        custodyKey,
+        0,
+        buildAction(3 /* Reanchor */, 3 /* TimedOut -> late */)
+      )
+
+      await executor.submitReservationReanchorProof(
+        movedFundsSweepData.sweepTx,
+        movedFundsSweepData.sweepProof,
+        custodyKey,
+        0
+      )
+
+      expect(await executor.walletAnchoredInfo(custodySource)).to.deep.equal([
+        0, 0,
+      ])
+      expect(await executor.walletAnchoredInfo(custodyTarget)).to.deep.equal([
+        1,
+        custodyNewAnchorValue,
+      ])
+    })
+
+    it("adds the settled anchor to the wallet's custody on acceptance settlement", async () => {
+      // `settleAcceptance` records the proven anchor in the target wallet's
+      // anchored-custody ledger exactly once, for exactly the settled anchor
+      // value. This wallet custodies nothing before the proof, so the ledger
+      // must read count 1 / amount = settled anchor value afterwards.
+      // The fixture's sweep transaction spends the moved-funds sweep request
+      // outpoint, which doubles as the reserved deposit's key.
+      const acceptanceKey = custodyAnchorUtxoKey
+
+      await executor.seedWallet(
+        custodyTarget,
+        ZERO_BYTES32,
+        walletStateEnum.Live
+      )
+      expect(await executor.walletAnchoredInfo(custodyTarget)).to.deep.equal([
+        0, 0,
+      ])
+
+      await wireVaultAndBank(acceptanceKey)
+      await wireRelay()
+      // The revealed-but-unswept reserved deposit the anchor spends. No vault
+      // is trusted here, so the settlement credits through
+      // `Bank.increaseBalances`.
+      // Also books the pending-reserved counter the settlement consumes.
+      await executor.seedPendingReservedDepositBasic(
+        acceptanceKey,
+        custodyTarget,
+        (await lastBlockTime()) + 89 * 24 * 60 * 60,
+        true
+      )
+      // The on-time acceptance path requires the position's current
+      // generation to be the one being proven.
+      await executor.setReservationFullState(
+        acceptanceKey,
+        randomOwner,
+        custodyTarget,
+        custodyAnchorValue,
+        0, // Unknown: the position does not exist until this settlement
+        1 // requestNonce
+      )
+      await executor.setAction(
+        acceptanceKey,
+        1,
+        buildAction(1 /* Acceptance */, 1 /* Pending */)
+      )
+      // Capacity reserved at acceptance-request time, at the deposit value.
+      await executor.setWalletReservationsCounters(
+        custodyTarget,
+        1,
+        custodyAnchorValue
+      )
+      await executor.setGlobalReservationCounters(custodyAnchorValue, 1)
+
+      await executor.submitReservationAcceptanceProof(
+        movedFundsSweepData.sweepTx,
+        movedFundsSweepData.sweepProof,
+        acceptanceKey,
+        1
+      )
+
+      expect(await executor.walletAnchoredInfo(custodyTarget)).to.deep.equal([
+        1,
+        custodyNewAnchorValue,
+      ])
     })
   })
 
