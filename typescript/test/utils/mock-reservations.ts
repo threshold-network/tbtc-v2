@@ -13,6 +13,7 @@ import {
   ChainEvent,
 } from "../../src/lib/contracts"
 import { Hex } from "../../src/lib/utils"
+import { BitcoinRawTxVectors, BitcoinSpvProof } from "../../src/lib/bitcoin"
 
 /**
  * Shape of a ReservedDepositReleasedToPool event.
@@ -60,7 +61,9 @@ export class MockReservations implements Reservations {
   // --- recorded interactions ----------------------------------------
   releaseCalls: Array<{ depositKey: BigNumber; vault: ChainIdentifier }> = []
   requestAcceptanceCalls: Array<{
-    depositKey: BigNumber
+    fundingTx: BitcoinRawTxVectors
+    fundingProof: BitcoinSpvProof
+    fundingOutputIndex: number
     walletPublicKeyHash: Hex
   }> = []
 
@@ -158,10 +161,17 @@ export class MockReservations implements Reservations {
   // --- Reservations interface ---------------------------------------
 
   async requestReservationAcceptance(
-    depositKey: BigNumber,
+    fundingTx: BitcoinRawTxVectors,
+    fundingProof: BitcoinSpvProof,
+    fundingOutputIndex: number,
     walletPublicKeyHash: Hex
   ): Promise<Hex> {
-    this.requestAcceptanceCalls.push({ depositKey, walletPublicKeyHash })
+    this.requestAcceptanceCalls.push({
+      fundingTx,
+      fundingProof,
+      fundingOutputIndex,
+      walletPublicKeyHash,
+    })
     return Hex.from("0xdeadbeef")
   }
 

@@ -126,7 +126,7 @@ const { deposit, receipt, walletPublicKeyHash } =
   )
 
 // 3. Fund the Bitcoin deposit address, then reveal to the reservation vault.
-await deposit.detectFunding()
+const [fundingOutpoint] = await deposit.detectFunding()
 await sdk.reservations.revealReservedDeposit(deposit)
 
 // 4. Request acceptance (only the depositor may do this). The preflight
@@ -138,7 +138,14 @@ const preflight = await sdk.reservations.checkAcceptancePreflight(
 if (!preflight.ok) {
   console.error("Acceptance blocked:", preflight.failures)
 }
-await sdk.reservations.requestAcceptance(depositKey, walletPublicKeyHash)
+//    The Bridge checks an SPV proof of the funding transaction. The SDK
+//    builds it and throws, without sending a transaction, when the funding
+//    transaction has fewer confirmations than the Bridge requires.
+await sdk.reservations.requestAcceptance(
+  fundingOutpoint.transactionHash,
+  fundingOutpoint.outputIndex,
+  walletPublicKeyHash
+)
 
 // 5. If the wallet never anchors, the depositor can release the deposit
 //    back to the pool so ordinary sweeps accept it again.

@@ -17,6 +17,7 @@ import {
   NewWalletRegisteredEvent,
   ChainEvent,
 } from "../contracts"
+import { BitcoinRawTxVectors, BitcoinSpvProof } from "../bitcoin"
 import { Hex } from "../utils"
 import { backoffRetrier } from "../utils"
 import {
@@ -194,11 +195,30 @@ export class EthereumReservations
    * @see {Reservations#requestReservationAcceptance}
    */
   async requestReservationAcceptance(
-    depositKey: BigNumber,
+    fundingTx: BitcoinRawTxVectors,
+    fundingProof: BitcoinSpvProof,
+    fundingOutputIndex: number,
     walletPublicKeyHash: Hex
   ): Promise<Hex> {
+    const fundingTxParam = {
+      version: `0x${fundingTx.version}`,
+      inputVector: `0x${fundingTx.inputs}`,
+      outputVector: `0x${fundingTx.outputs}`,
+      locktime: `0x${fundingTx.locktime}`,
+    }
+
+    const fundingProofParam = {
+      merkleProof: fundingProof.merkleProof.toPrefixedString(),
+      txIndexInBlock: fundingProof.txIndexInBlock,
+      bitcoinHeaders: fundingProof.bitcoinHeaders.toPrefixedString(),
+      coinbasePreimage: fundingProof.coinbasePreimage.toPrefixedString(),
+      coinbaseProof: fundingProof.coinbaseProof.toPrefixedString(),
+    }
+
     const tx = await this._instance.functions["requestReservationAcceptance"](
-      depositKey,
+      fundingTxParam,
+      fundingProofParam,
+      fundingOutputIndex,
       walletPublicKeyHash.toPrefixedString()
     )
 

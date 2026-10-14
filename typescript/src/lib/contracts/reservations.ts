@@ -1,4 +1,5 @@
 import { BigNumber } from "@ethersproject/bignumber"
+import { BitcoinRawTxVectors, BitcoinSpvProof } from "../bitcoin"
 import { ChainIdentifier, GetChainEvents, WalletState } from "."
 import { Hex } from "../utils"
 import { ChainEvent } from "./chain-event"
@@ -271,15 +272,25 @@ export interface Reservations {
    * Requests the acceptance of a revealed reserved deposit: the
    * authorization for the designated wallet to perform the anchor spend.
    * Only the depositor of the deposit may call this.
-   * @param depositKey Deposit key of the revealed reserved deposit
-   *                   (doubles as the reservation key).
+   *
+   * The Bridge checks the SPV proof of the deposit's funding transaction
+   * and derives the reservation key from the proven transaction hash and
+   * the output index. The funding transaction must therefore be confirmed
+   * with the Bridge's required number of confirmations.
+   * @param fundingTx Raw vectors of the deposit's funding transaction, the
+   *        same data the deposit was revealed with.
+   * @param fundingProof SPV proof of the funding transaction.
+   * @param fundingOutputIndex Index of the deposit output in the funding
+   *        transaction.
    * @param walletPublicKeyHash 20-byte public key hash of the wallet that
    *        will anchor the deposit. Must be the deposit's designated
    *        wallet.
    * @returns Transaction hash of the request acceptance transaction.
    */
   requestReservationAcceptance(
-    depositKey: BigNumber,
+    fundingTx: BitcoinRawTxVectors,
+    fundingProof: BitcoinSpvProof,
+    fundingOutputIndex: number,
     walletPublicKeyHash: Hex
   ): Promise<Hex>
 

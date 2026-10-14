@@ -19,6 +19,64 @@ import { EthereumAddress, BitcoinNetwork } from "../../src"
 import { MockBitcoinClient } from "../utils/mock-bitcoin-client"
 import { MockTBTCContracts } from "../utils/mock-tbtc-contracts"
 import { MockReservations } from "../utils/mock-reservations"
+import { singleInputProofTestData, ProofTestData } from "../data/proof"
+import {
+  BitcoinHashUtils,
+  BitcoinRawTx,
+  BitcoinTx,
+  BitcoinTxHash,
+  BitcoinTxMerkleBranch,
+} from "../../src/lib/bitcoin"
+
+/**
+ * Loads the chain data of a proof fixture into the mock Bitcoin client, with
+ * the given number of accumulated confirmations for the funding transaction.
+ * It does not modify the shared fixture.
+ * @param client Mock Bitcoin client to fill.
+ * @param data Proof fixture of the funding transaction.
+ * @param confirmations Confirmations the funding transaction has.
+ * @returns {void}
+ */
+function loadFundingChainData(
+  client: MockBitcoinClient,
+  data: ProofTestData,
+  confirmations: number
+): void {
+  const chain = data.bitcoinChainData
+  const fundingTxHash = chain.transaction.transactionHash
+  const txBlockHeight = chain.latestBlockHeight - confirmations + 1
+  const coinbaseTxHash = BitcoinTxHash.from(
+    BitcoinHashUtils.computeHash256(
+      Hex.from(chain.coinbaseRawTransaction.transactionHex)
+    ).toString()
+  )
+
+  client.transactions = new Map<string, BitcoinTx>([
+    [fundingTxHash.toString(), chain.transaction],
+  ])
+  client.rawTransactions = new Map<string, BitcoinRawTx>([
+    [fundingTxHash.toString(), chain.rawTransaction],
+    [coinbaseTxHash.toString(), chain.coinbaseRawTransaction],
+  ])
+  client.confirmations = new Map<string, number>([
+    [fundingTxHash.toString(), confirmations],
+  ])
+  client.latestHeight = chain.latestBlockHeight
+  client.headersChain = chain.headersChain
+  client.coinbaseHashes = new Map<number, BitcoinTxHash>([
+    [txBlockHeight, coinbaseTxHash],
+  ])
+  client.transactionMerkle = new Map<string, BitcoinTxMerkleBranch>([
+    [
+      `${fundingTxHash.toString()}${txBlockHeight.toString(16)}`,
+      chain.transactionMerkleBranch,
+    ],
+    [
+      `${coinbaseTxHash.toString()}${txBlockHeight.toString(16)}`,
+      chain.coinbaseMerkleBranch,
+    ],
+  ])
+}
 
 const TEST_DEPOSITOR = EthereumAddress.from(
   "0x1234567890abcdef1234567890abcdef12345678"
@@ -942,15 +1000,85 @@ describe("ReservationsService", () => {
       mockReservations.setWalletState(WALLET_A_PKH, WalletState.Live)
     })
 
-    it("should submit the acceptance request to the designated wallet", async () => {
-      const txHash = await service.requestAcceptance(depositKey, WALLET_A_PKH)
+    context("when the funding transaction is confirmed", () => {
+      const funding = singleInputProofTestData.bitcoinChainData
+      const fundingTxHash = funding.transaction.transactionHash
 
-      expect(txHash.toPrefixedString()).to.equal("0xdeadbeef")
-      expect(
-        mockReservations.requestAcceptanceCalls[0].walletPublicKeyHash.equals(
+      beforeEach(() => {
+        loadFundingChainData(
+          mockBitcoinClient,
+          singleInputProofTestData,
+          // Not `accumulatedTxConfirmations`: the bitcoin suite overwrites
+          // that field of the shared fixture.
+          singleInputProofTestData.requiredConfirmations
+        )
+      })
+
+      it("should submit the funding transaction, its proof and the output index", async () => {
+        const txHash = await service.requestAcceptance(
+          fundingTxHash,
+          1,
           WALLET_A_PKH
         )
-      ).to.be.true
+
+        expect(txHash.toPrefixedString()).to.equal("0xdeadbeef")
+        expect(mockReservations.requestAcceptanceCalls).to.have.length(1)
+        const call = mockReservations.requestAcceptanceCalls[0]
+        const rawHex = funding.rawTransaction.transactionHex
+        expect(call.fundingTx.version.toString()).to.equal(rawHex.slice(0, 8))
+        expect(call.fundingTx.locktime.toString()).to.equal(rawHex.slice(-8))
+        expect(
+          rawHex.includes(call.fundingTx.inputs.toString()) &&
+            rawHex.includes(call.fundingTx.outputs.toString())
+        ).to.be.true
+        const expected = singleInputProofTestData.expectedProof
+        expect(call.fundingProof.merkleProof).to.deep.equal(
+          expected.merkleProof
+        )
+        expect(call.fundingProof.txIndexInBlock).to.equal(
+          expected.txIndexInBlock
+        )
+        expect(call.fundingProof.bitcoinHeaders).to.deep.equal(
+          expected.bitcoinHeaders
+        )
+        expect(call.fundingProof.coinbasePreimage).to.deep.equal(
+          expected.coinbasePreimage
+        )
+        expect(call.fundingProof.coinbaseProof).to.deep.equal(
+          expected.coinbaseProof
+        )
+        expect(call.fundingOutputIndex).to.equal(1)
+        expect(call.walletPublicKeyHash.equals(WALLET_A_PKH)).to.be.true
+      })
+    })
+
+    context("when the funding transaction has too few confirmations", () => {
+      const funding = singleInputProofTestData.bitcoinChainData
+
+      beforeEach(() => {
+        loadFundingChainData(
+          mockBitcoinClient,
+          singleInputProofTestData,
+          singleInputProofTestData.requiredConfirmations - 1
+        )
+      })
+
+      it("should fail without sending a transaction", async () => {
+        await expect(
+          service.requestAcceptance(
+            funding.transaction.transactionHash,
+            0,
+            WALLET_A_PKH
+          )
+        ).to.be.rejectedWith(
+          `Transaction confirmations number[${
+            singleInputProofTestData.requiredConfirmations - 1
+          }] is not enough, required [${
+            singleInputProofTestData.requiredConfirmations
+          }]`
+        )
+        expect(mockReservations.requestAcceptanceCalls).to.have.length(0)
+      })
     })
 
     it("should preflight-clean for a valid deposit", async () => {

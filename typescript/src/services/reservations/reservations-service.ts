@@ -13,11 +13,13 @@ import {
 } from "../../lib/contracts"
 import { Hex } from "../../lib/utils"
 import {
+  assembleBitcoinSpvProof,
   BitcoinAddressConverter,
   BitcoinClient,
   BitcoinHashUtils,
   BitcoinLocktimeUtils,
   BitcoinScriptUtils,
+  BitcoinTxHash,
   extractBitcoinRawTxVectors,
 } from "../../lib/bitcoin"
 import { Deposit } from "../deposits"
@@ -521,17 +523,39 @@ export class ReservationsService {
    * Only the depositor who revealed the deposit may call this. The request
    * authorizes the designated wallet to anchor the deposit in its own UTXO.
    *
-   * @param depositKey The deposit key (doubles as the reservation key).
+   * The Bridge requires an SPV proof of the funding transaction. This method
+   * builds it from the Bitcoin client, with the number of confirmations the
+   * Bridge requires (`txProofDifficultyFactor`). It throws before sending a
+   * transaction when the funding transaction has fewer confirmations.
+   *
+   * @param fundingTxHash Hash of the deposit's funding transaction, the one
+   *        the deposit was revealed with.
+   * @param fundingOutputIndex Index of the deposit output in the funding
+   *        transaction.
    * @param walletPublicKeyHash The designated wallet's 20-byte pkh. Must
    *        match the wallet the deposit was revealed for.
    * @returns Transaction hash of the acceptance request.
    */
   async requestAcceptance(
-    depositKey: BigNumber,
+    fundingTxHash: BitcoinTxHash,
+    fundingOutputIndex: number,
     walletPublicKeyHash: Hex
   ): Promise<Hex> {
+    const requiredConfirmations =
+      await this.tbtcContracts.bridge.txProofDifficultyFactor()
+    const fundingProof = await assembleBitcoinSpvProof(
+      fundingTxHash,
+      requiredConfirmations,
+      this.bitcoinClient
+    )
+    const fundingTx = extractBitcoinRawTxVectors(
+      await this.bitcoinClient.getRawTransaction(fundingTxHash)
+    )
+
     return this.tbtcContracts.reservations.requestReservationAcceptance(
-      depositKey,
+      fundingTx,
+      fundingProof,
+      fundingOutputIndex,
       walletPublicKeyHash
     )
   }

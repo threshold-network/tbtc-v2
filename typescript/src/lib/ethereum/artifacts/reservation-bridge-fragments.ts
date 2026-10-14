@@ -130,7 +130,38 @@ export const reservationBridgeAbiFragments: AbiFragment[] = [
     name: "requestReservationAcceptance",
     stateMutability: "nonpayable",
     inputs: [
-      { internalType: "uint256", name: "reservationKey", type: "uint256" },
+      {
+        components: [
+          { internalType: "bytes4", name: "version", type: "bytes4" },
+          { internalType: "bytes", name: "inputVector", type: "bytes" },
+          { internalType: "bytes", name: "outputVector", type: "bytes" },
+          { internalType: "bytes4", name: "locktime", type: "bytes4" },
+        ],
+        internalType: "struct BitcoinTx.Info",
+        name: "fundingTx",
+        type: "tuple",
+      },
+      {
+        components: [
+          { internalType: "bytes", name: "merkleProof", type: "bytes" },
+          { internalType: "uint256", name: "txIndexInBlock", type: "uint256" },
+          { internalType: "bytes", name: "bitcoinHeaders", type: "bytes" },
+          {
+            internalType: "bytes32",
+            name: "coinbasePreimage",
+            type: "bytes32",
+          },
+          { internalType: "bytes", name: "coinbaseProof", type: "bytes" },
+        ],
+        internalType: "struct BitcoinTx.Proof",
+        name: "fundingProof",
+        type: "tuple",
+      },
+      {
+        internalType: "uint32",
+        name: "fundingOutputIndex",
+        type: "uint32",
+      },
       { internalType: "bytes20", name: "walletPubKeyHash", type: "bytes20" },
     ],
     outputs: [],
