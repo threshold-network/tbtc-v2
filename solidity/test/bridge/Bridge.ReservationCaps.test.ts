@@ -406,5 +406,35 @@ describe("Reservation - governance ceremony argument forwarding", () => {
         "handoffReserveWallets"
       ).to.equal(newHandoffReserveWallets)
     })
+    it("reads every reservation cap and the hand-off reserve back from the router", async () => {
+      const caps = await reservationRouter.reservationCaps()
+      expect(
+        caps.maxReservationsAmountPerWallet,
+        "maxReservationsAmountPerWallet"
+      ).to.equal(newMaxReservationsAmountPerWallet)
+      expect(
+        caps.reservationMaxSingleAmount,
+        "reservationMaxSingleAmount"
+      ).to.equal(newReservationMaxSingleAmount)
+      expect(caps.maxActiveReservations, "maxActiveReservations").to.equal(
+        newMaxActiveReservations
+      )
+      expect(
+        caps.maxThirdPartyReanchorHoldsPerWallet,
+        "maxThirdPartyReanchorHoldsPerWallet"
+      ).to.equal(newMaxThirdPartyReanchorHoldsPerWallet)
+      expect(
+        await reservationRouter.reservationHandoffReserveWallets(),
+        "handoffReserveWallets"
+      ).to.equal(newHandoffReserveWallets)
+    })
+
+    it("reports the router address the Bridge delegates to", async () => {
+      const routerContract =
+        await helpers.contracts.getContract("ReservationRouter")
+      expect(await reservationRouter.reservationRouter()).to.equal(
+        routerContract.target
+      )
+    })
   })
 })

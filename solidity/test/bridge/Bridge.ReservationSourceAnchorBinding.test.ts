@@ -568,4 +568,75 @@ describe("Bridge - Reservation source-anchor binding", () => {
     //   // is m2-only (does not exist in m1).
     // })
   })
+  // The router's read-only surface must reflect the on-chain state it is
+  // delegate-called against: the pending third-party hold counter and the
+  // anchor-outpoint index are the two mappings the router exposes, and the
+  // mutations above are the ones that populate them.
+  describe("router getters", () => {
+    beforeEach(async () => {
+      await createSnapshot()
+    })
+
+    afterEach(async () => {
+      await restoreSnapshot()
+    })
+
+    it("reads the pending third-party re-anchor hold back from the router", async () => {
+      const { reservationKey } = await makeAcceptedReservation()
+      const custodianWallet = await bridge.wallets(walletPubKeyHash)
+      await bridge.setWallet(walletPubKeyHash, {
+        ecdsaWalletID: custodianWallet.ecdsaWalletID,
+        mainUtxoHash: custodianWallet.mainUtxoHash,
+        pendingRedemptionsValue: custodianWallet.pendingRedemptionsValue,
+        createdAt: custodianWallet.createdAt,
+        movingFundsRequestedAt: await lastBlockTime(),
+        closingStartedAt: custodianWallet.closingStartedAt,
+        pendingMovedFundsSweepRequestsCount:
+          custodianWallet.pendingMovedFundsSweepRequestsCount,
+        state: walletState.MovingFunds,
+        movingFundsTargetWalletsCommitmentHash:
+          custodianWallet.movingFundsTargetWalletsCommitmentHash,
+      })
+
+      // A third-party (non-privileged) request: the position owner is
+      // `thirdParty`, `governance` is neither the owner nor the SPV
+      // maintainer, and no member proof is presented, so the request counts
+      // the target's pending hold against the governance cap.
+      await reservationRouter
+        .connect(governance)
+        .requestReservationReanchor(
+          reservationKey,
+          secondWalletPubKeyHash,
+          [],
+          0
+        )
+
+      expect(
+        await reservationRouter.pendingThirdPartyReanchorHolds(
+          secondWalletPubKeyHash
+        )
+      ).to.equal(1)
+    })
+
+    it("reads the proven anchor's reservation key back from the router", async () => {
+      const { anchorTx, reservationKey } = await makeAcceptedReservation()
+
+      // The settled acceptance registers the anchor outpoint under exactly
+      // its (hash, index-0) key.
+      expect(
+        await reservationRouter.reservationByAnchorUtxo(anchorTx.txHash, 0)
+      ).to.equal(reservationKey)
+      // No other output index of the same transaction, and no foreign
+      // transaction, is tracked.
+      expect(
+        await reservationRouter.reservationByAnchorUtxo(anchorTx.txHash, 1)
+      ).to.equal(0n)
+      expect(
+        await reservationRouter.reservationByAnchorUtxo(
+          ethers.hexlify(ethers.randomBytes(32)),
+          0
+        )
+      ).to.equal(0n)
+    })
+  })
 })
