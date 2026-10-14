@@ -390,8 +390,9 @@ interface IReservationBridge {
     ///      `Reservation.notifyReservationAcceptanceTimedOut`.
     /// @param reservationKey The deposit key of the revealed reserved
     ///        deposit, which doubles as the reservation key.
-    function notifyReservationAcceptanceTimedOut(uint256 reservationKey)
-        external;
+    function notifyReservationAcceptanceTimedOut(
+        uint256 reservationKey
+    ) external;
 
     /// @notice Updates parameters of reservations, including the
     ///         reservation vault address. Deposits revealed with the
@@ -545,10 +546,9 @@ interface IReservationBridge {
     /// @return The reservation position record; a zeroed struct
     ///         (`state == ReservationState.Unknown`) when no reservation
     ///         exists for the key.
-    function reservations(uint256 reservationKey)
-        external
-        view
-        returns (Reservation.ReservationRequest memory);
+    function reservations(
+        uint256 reservationKey
+    ) external view returns (Reservation.ReservationRequest memory);
 
     /// @notice Returns the action record of the given reservation
     ///         generation. See the `Reservation.ReservationAction` struct
@@ -558,10 +558,10 @@ interface IReservationBridge {
     /// @return The action record; a zeroed struct
     ///         (`state == ActionState.Unknown`) when no such generation
     ///         exists.
-    function reservationActions(uint256 reservationKey, uint64 requestNonce)
-        external
-        view
-        returns (Reservation.ReservationAction memory);
+    function reservationActions(
+        uint256 reservationKey,
+        uint64 requestNonce
+    ) external view returns (Reservation.ReservationAction memory);
 
     /// @notice Returns the current values of Bridge reservation parameters.
     /// @return reservationVault Address of the reservation vault. Deposits
@@ -605,19 +605,17 @@ interface IReservationBridge {
     ///         custodied by the given wallet.
     /// @param walletPubKeyHash 20-byte public key hash of the wallet.
     /// @return Total reserved amount, in satoshi, custodied by the wallet.
-    function walletReservationsAmount(bytes20 walletPubKeyHash)
-        external
-        view
-        returns (uint64);
+    function walletReservationsAmount(
+        bytes20 walletPubKeyHash
+    ) external view returns (uint64);
 
     /// @notice Returns the number of reservations custodied by the given
     ///         wallet (including reserved capacity of pending actions).
     /// @param walletPubKeyHash 20-byte public key hash of the wallet.
     /// @return Number of reservations custodied by the wallet.
-    function walletReservationsCount(bytes20 walletPubKeyHash)
-        external
-        view
-        returns (uint32);
+    function walletReservationsCount(
+        bytes20 walletPubKeyHash
+    ) external view returns (uint32);
 
     /// @notice Returns the reservation key whose current anchor is the
     ///         given outpoint, or zero when the outpoint is not a tracked
@@ -637,10 +635,9 @@ interface IReservationBridge {
     /// @param depositKey The deposit key of the reserved deposit.
     /// @return 20-byte public key hash of the designated wallet, or zero
     ///         when the deposit is not a pending reserved deposit.
-    function reservedDepositWallet(uint256 depositKey)
-        external
-        view
-        returns (bytes20);
+    function reservedDepositWallet(
+        uint256 depositKey
+    ) external view returns (bytes20);
 
     /// @notice Returns the number of revealed reserved deposits that were
     ///         neither accepted nor marked stale yet.

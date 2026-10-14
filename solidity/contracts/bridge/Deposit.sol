@@ -212,8 +212,8 @@ library Deposit {
             "Vault is not trusted"
         );
 
-        bool isReserved = reveal.vault != address(0) &&
-            reveal.vault == self.reservationVault;
+        bool isReserved =
+            reveal.vault != address(0) && reveal.vault == self.reservationVault;
         uint32 refundDeadline = 0;
         bool refundDeadlineValidated = false;
         if (self.depositRevealAheadPeriod > 0) {

@@ -343,9 +343,9 @@ contract ReservationRouter is Governable, Initializable {
     ///        `ActionState.Pending`),
     ///      - `block.timestamp` must be at or after the generation's
     ///        `timeoutAt`.
-    function notifyReservationAcceptanceTimedOut(uint256 reservationKey)
-        external
-    {
+    function notifyReservationAcceptanceTimedOut(
+        uint256 reservationKey
+    ) external {
         self.notifyReservationAcceptanceTimedOut(reservationKey);
     }
 
@@ -419,10 +419,9 @@ contract ReservationRouter is Governable, Initializable {
     ///      - The caller must be the governance,
     ///      - See `Reservation.forceStaleReservedDeposit` for the remaining
     ///        requirements.
-    function forceStaleReservedDeposit(uint256 depositKey)
-        external
-        onlyGovernance
-    {
+    function forceStaleReservedDeposit(
+        uint256 depositKey
+    ) external onlyGovernance {
         self.forceStaleReservedDeposit(depositKey);
     }
 
@@ -487,22 +486,18 @@ contract ReservationRouter is Governable, Initializable {
     ///         (and reserved capacity of pending reservation actions)
     ///         custodied by the given wallet.
     /// @param walletPubKeyHash 20-byte public key hash of the wallet.
-    function walletReservationsAmount(bytes20 walletPubKeyHash)
-        external
-        view
-        returns (uint64)
-    {
+    function walletReservationsAmount(
+        bytes20 walletPubKeyHash
+    ) external view returns (uint64) {
         return self.walletReservationInfo[walletPubKeyHash].amount;
     }
 
     /// @notice Returns the number of reservations custodied by the given
     ///         wallet (including reserved capacity of pending actions).
     /// @param walletPubKeyHash 20-byte public key hash of the wallet.
-    function walletReservationsCount(bytes20 walletPubKeyHash)
-        external
-        view
-        returns (uint32)
-    {
+    function walletReservationsCount(
+        bytes20 walletPubKeyHash
+    ) external view returns (uint32) {
         return self.walletReservationInfo[walletPubKeyHash].count;
     }
 
@@ -529,11 +524,9 @@ contract ReservationRouter is Governable, Initializable {
     /// @notice Returns the designated wallet of a pending reserved deposit
     ///         (zero when the deposit is not pending).
     /// @param depositKey The deposit key of the reserved deposit.
-    function reservedDepositWallet(uint256 depositKey)
-        external
-        view
-        returns (bytes20)
-    {
+    function reservedDepositWallet(
+        uint256 depositKey
+    ) external view returns (bytes20) {
         return self.pendingReservedDeposit[depositKey].walletPubKeyHash;
     }
 
@@ -547,11 +540,9 @@ contract ReservationRouter is Governable, Initializable {
     ///         deposit key of the underlying reserved deposit, i.e.
     ///         `keccak256(fundingTxHash | fundingOutputIndex)`.
     /// @param reservationKey The key of the reservation.
-    function reservations(uint256 reservationKey)
-        external
-        view
-        returns (Reservation.ReservationRequest memory)
-    {
+    function reservations(
+        uint256 reservationKey
+    ) external view returns (Reservation.ReservationRequest memory) {
         return self.reservations[reservationKey];
     }
 
@@ -559,11 +550,10 @@ contract ReservationRouter is Governable, Initializable {
     ///         generation.
     /// @param reservationKey The key of the reservation.
     /// @param requestNonce The action generation.
-    function reservationActions(uint256 reservationKey, uint64 requestNonce)
-        external
-        view
-        returns (Reservation.ReservationAction memory)
-    {
+    function reservationActions(
+        uint256 reservationKey,
+        uint64 requestNonce
+    ) external view returns (Reservation.ReservationAction memory) {
         return
             self.reservationActions[
                 Reservation.actionKey(reservationKey, requestNonce)

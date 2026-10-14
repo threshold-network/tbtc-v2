@@ -405,11 +405,10 @@ library Reservation {
 
     /// @notice Computes the storage key of the action record of the given
     ///         reservation generation.
-    function actionKey(uint256 reservationKey, uint64 requestNonce)
-        internal
-        pure
-        returns (uint256)
-    {
+    function actionKey(
+        uint256 reservationKey,
+        uint64 requestNonce
+    ) internal pure returns (uint256) {
         return
             uint256(keccak256(abi.encodePacked(reservationKey, requestNonce)));
     }
@@ -427,11 +426,9 @@ library Reservation {
     /// @notice Returns the canonical hash of a reservation anchor outpoint.
     ///         Action generations snapshot this value so a late proof can
     ///         only consume the exact anchor that generation authorized.
-    function anchorUtxoHash(ReservationRequest storage reservation)
-        internal
-        view
-        returns (bytes32)
-    {
+    function anchorUtxoHash(
+        ReservationRequest storage reservation
+    ) internal view returns (bytes32) {
         return
             keccak256(
                 abi.encodePacked(
@@ -560,15 +557,16 @@ library Reservation {
         );
 
         /* solhint-disable-next-line not-rely-on-time */
-        uint32 timeoutAt = uint32(block.timestamp) +
-            self.reservationActionTimeout;
+        uint32 timeoutAt =
+            uint32(block.timestamp) + self.reservationActionTimeout;
 
         // Proposal timestamps are integer seconds and must be later than both
         // the strict deposit-age boundary and the block creating the action.
         // The first admissible timestamp is therefore one second after the
         // greater of those two lower bounds.
-        uint256 signingLowerBound = uint256(deposit.revealedAt) +
-            WalletProposalValidatorConstants.DEPOSIT_MIN_AGE;
+        uint256 signingLowerBound =
+            uint256(deposit.revealedAt) +
+                WalletProposalValidatorConstants.DEPOSIT_MIN_AGE;
         /* solhint-disable-next-line not-rely-on-time */
         if (signingLowerBound < block.timestamp) {
             /* solhint-disable-next-line not-rely-on-time */
@@ -576,8 +574,9 @@ library Reservation {
         }
         uint256 earliestSigningAt = signingLowerBound + 1;
 
-        uint256 actionSigningDeadline = uint256(timeoutAt) -
-            WalletProposalValidatorConstants.REQUEST_TIMEOUT_SAFETY_MARGIN;
+        uint256 actionSigningDeadline =
+            uint256(timeoutAt) -
+                WalletProposalValidatorConstants.REQUEST_TIMEOUT_SAFETY_MARGIN;
         require(
             earliestSigningAt < actionSigningDeadline,
             "Acceptance authorization has no signing window"
@@ -598,9 +597,9 @@ library Reservation {
             uint256(reservedDeposit.refundDeadline) >
                 WalletProposalValidatorConstants.DEPOSIT_REFUND_SAFETY_MARGIN &&
                 earliestSigningAt <
-                uint256(reservedDeposit.refundDeadline) -
-                    WalletProposalValidatorConstants
-                        .DEPOSIT_REFUND_SAFETY_MARGIN,
+                    uint256(reservedDeposit.refundDeadline) -
+                        WalletProposalValidatorConstants
+                            .DEPOSIT_REFUND_SAFETY_MARGIN,
             "Deposit refund deadline allows no signing window"
         );
 
@@ -783,8 +782,8 @@ library Reservation {
         uint64 minAmount = self.reservationMinAmount;
 
         /* solhint-disable-next-line not-rely-on-time */
-        uint32 timeoutAt = uint32(block.timestamp) +
-            self.reservationActionTimeout;
+        uint32 timeoutAt =
+            uint32(block.timestamp) + self.reservationActionTimeout;
 
         // A re-anchor authorization carries no deposit-reveal age floor
         // (unlike acceptance): the earliest admissible signing timestamp is
@@ -798,9 +797,9 @@ library Reservation {
                     .REQUEST_TIMEOUT_SAFETY_MARGIN &&
                 /* solhint-disable-next-line not-rely-on-time */
                 uint256(block.timestamp) + 1 <
-                uint256(timeoutAt) -
-                    WalletProposalValidatorConstants
-                        .REQUEST_TIMEOUT_SAFETY_MARGIN,
+                    uint256(timeoutAt) -
+                        WalletProposalValidatorConstants
+                            .REQUEST_TIMEOUT_SAFETY_MARGIN,
             "Reanchor authorization has no signing window"
         );
         // Request-time amount floor: this is the only on-chain bound on
@@ -818,26 +817,24 @@ library Reservation {
 
         // Reserve the target wallet's count and amount capacity; the
         // source wallet's are released at settlement (or kept on timeout).
-        uint32 targetCount = self
-            .walletReservationInfo[targetWalletPubKeyHash]
-            .count + 1;
+        uint32 targetCount =
+            self.walletReservationInfo[targetWalletPubKeyHash].count + 1;
         require(
             targetCount <= self.maxReservationsPerWallet,
             "Wallet reservations cap exceeded"
         );
         self.walletReservationInfo[targetWalletPubKeyHash].count = targetCount;
 
-        uint64 targetAmount = self
-            .walletReservationInfo[targetWalletPubKeyHash]
-            .amount + anchorAmount;
+        uint64 targetAmount =
+            self.walletReservationInfo[targetWalletPubKeyHash].amount +
+                anchorAmount;
         require(
             self.maxReservationsAmountPerWallet == 0 ||
                 targetAmount <= self.maxReservationsAmountPerWallet,
             "Wallet reserved amount cap exceeded"
         );
-        self
-            .walletReservationInfo[targetWalletPubKeyHash]
-            .amount = targetAmount;
+        self.walletReservationInfo[targetWalletPubKeyHash].amount =
+            targetAmount;
 
         reservation.state = ReservationState.ActionPending;
         uint64 requestNonce = ++reservation.requestNonce;
@@ -912,8 +909,7 @@ library Reservation {
 
         /* solhint-disable not-rely-on-time */
         reservation.reanchorCooldownUntil =
-            uint32(block.timestamp) +
-            (action.timeoutAt - action.requestedAt);
+            uint32(block.timestamp) + (action.timeoutAt - action.requestedAt);
         /* solhint-enable not-rely-on-time */
 
         emit ReservationReanchorTimedOut(
@@ -946,18 +942,16 @@ library Reservation {
         );
         self.reservationTotalAmount = newTotal;
 
-        uint32 walletCount = self
-            .walletReservationInfo[walletPubKeyHash]
-            .count + 1;
+        uint32 walletCount =
+            self.walletReservationInfo[walletPubKeyHash].count + 1;
         require(
             walletCount <= self.maxReservationsPerWallet,
             "Wallet reservations cap exceeded"
         );
         self.walletReservationInfo[walletPubKeyHash].count = walletCount;
 
-        uint64 walletAmount = self
-            .walletReservationInfo[walletPubKeyHash]
-            .amount + amount;
+        uint64 walletAmount =
+            self.walletReservationInfo[walletPubKeyHash].amount + amount;
         require(
             self.maxReservationsAmountPerWallet == 0 ||
                 walletAmount <= self.maxReservationsAmountPerWallet,
@@ -1154,8 +1148,8 @@ library Reservation {
                     eligible &&
                     /* solhint-disable-next-line not-rely-on-time */
                     block.timestamp >=
-                    uint256(wallet.closingStartedAt) +
-                        self.walletClosingPeriod),
+                        uint256(wallet.closingStartedAt) +
+                            self.walletClosingPeriod),
             "Wallet is not terminated, closed, or a dissolution-eligible closing wallet"
         );
 
@@ -1274,7 +1268,7 @@ library Reservation {
             reservationMaxSingleAmount == 0 ||
                 maxActiveReservations == 0 ||
                 reservationMaxTotalAmount <=
-                uint256(maxActiveReservations) * reservationMaxSingleAmount,
+                    uint256(maxActiveReservations) * reservationMaxSingleAmount,
             "Amount cap exceeds slot capacity"
         );
     }

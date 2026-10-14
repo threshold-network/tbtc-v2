@@ -206,7 +206,7 @@ library ReservationProofs {
                 expectedType != Reservation.ActionType.Acceptance ||
                 /* solhint-disable-next-line not-rely-on-time */
                 block.timestamp <=
-                uint256(action.timeoutAt) + action.termSeconds,
+                    uint256(action.timeoutAt) + action.termSeconds,
             "Late acceptance settlement window expired"
         );
     }
@@ -269,12 +269,12 @@ library ReservationProofs {
         Reservation.ReservationRequest storage reservation,
         bool late
     ) internal {
-        bool stranded = reservation.state ==
-            Reservation.ReservationState.Stranded;
+        bool stranded =
+            reservation.state == Reservation.ReservationState.Stranded;
         require(
             reservation.state == Reservation.ReservationState.Active ||
                 reservation.state ==
-                Reservation.ReservationState.ActionPending ||
+                    Reservation.ReservationState.ActionPending ||
                 (stranded && late),
             "Reservation is not settleable"
         );
@@ -533,9 +533,8 @@ library ReservationProofs {
             // and the anchor is already confirmed on Bitcoin.
             self.reservationTotalAmount += anchorAmount;
             self.walletReservationInfo[targetWalletPubKeyHash].count += 1;
-            self
-                .walletReservationInfo[targetWalletPubKeyHash]
-                .amount += anchorAmount;
+            self.walletReservationInfo[targetWalletPubKeyHash].amount +=
+                anchorAmount;
             // The timeout also released activeReservationsCount (see
             // `Reservation.notifyReservationAcceptanceTimedOut`); re-take it
             // so a late-settled acceptance is still counted against the cap
@@ -552,9 +551,8 @@ library ReservationProofs {
             // (deposit value) and the actual anchor value (miner fee).
             uint64 feeDelta = action.amount - anchorAmount;
             self.reservationTotalAmount -= feeDelta;
-            self
-                .walletReservationInfo[targetWalletPubKeyHash]
-                .amount -= feeDelta;
+            self.walletReservationInfo[targetWalletPubKeyHash].amount -=
+                feeDelta;
         }
 
         Reservation.ReservationRequest storage reservation = self.reservations[
@@ -672,8 +670,8 @@ library ReservationProofs {
         Reservation.ReservationRequest storage reservation = self.reservations[
             reservationKey
         ];
-        bool evidenceAlreadyEmitted = reservation.state ==
-            Reservation.ReservationState.Stranded;
+        bool evidenceAlreadyEmitted =
+            reservation.state == Reservation.ReservationState.Stranded;
         prepareReservationForSettlement(self, reservation, late);
         if (!late) {
             require(
@@ -804,9 +802,8 @@ library ReservationProofs {
         minerFee = oldAnchorAmount - newAnchorAmount;
 
         self.walletReservationInfo[oldWalletPubKeyHash].count -= 1;
-        self
-            .walletReservationInfo[oldWalletPubKeyHash]
-            .amount -= oldAnchorAmount;
+        self.walletReservationInfo[oldWalletPubKeyHash].amount -=
+            oldAnchorAmount;
         self.walletReservationInfo[newWalletPubKeyHash].amount -= minerFee;
         self.reservationTotalAmount -= minerFee;
         reservation.cumulativeReanchorFee += minerFee;
@@ -885,11 +882,9 @@ library ReservationProofs {
 
     /// @notice Parses the given output vector and returns its single output.
     ///         Reverts if the vector does not contain exactly one output.
-    function parseSingleOutput(bytes memory outputVector)
-        internal
-        pure
-        returns (bytes memory output)
-    {
+    function parseSingleOutput(
+        bytes memory outputVector
+    ) internal pure returns (bytes memory output) {
         (, uint256 outputsCount) = outputVector.parseVarInt();
         require(
             outputsCount == 1,

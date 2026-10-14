@@ -135,7 +135,6 @@ function updateReservationCaps(
   uint64 reservationMaxSingleAmount,
   uint32 maxActiveReservations
 ) external;
-
 ```
 
 `ReservationCapsUpdated` event signature change:
@@ -143,15 +142,15 @@ function updateReservationCaps(
 ```solidity
 // #1094
 event ReservationCapsUpdated(
-    uint64 maxReservationsAmountPerWallet,
-    uint64 reservationMaxSingleAmount
+  uint64 maxReservationsAmountPerWallet,
+  uint64 reservationMaxSingleAmount
 );
 
 // Milestone 1 (this PR)
 event ReservationCapsUpdated(
-    uint64 maxReservationsAmountPerWallet,
-    uint64 reservationMaxSingleAmount,
-    uint32 maxActiveReservations
+  uint64 maxReservationsAmountPerWallet,
+  uint64 reservationMaxSingleAmount,
+  uint32 maxActiveReservations
 );
 ```
 
@@ -160,23 +159,22 @@ event ReservationCapsUpdated(
 ```solidity
 // #1094
 event ReservationReanchored(
-    uint256 indexed reservationKey,
-    uint64 requestNonce,
-    bytes20 indexed newWalletPubKeyHash,
-    bytes32 newAnchorTxHash,
-    uint64 newAnchorAmount
+  uint256 indexed reservationKey,
+  uint64 requestNonce,
+  bytes20 indexed newWalletPubKeyHash,
+  bytes32 newAnchorTxHash,
+  uint64 newAnchorAmount
 );
 
 // Milestone 1 (this PR)
 event ReservationReanchored(
-    uint256 indexed reservationKey,
-    uint64 requestNonce,
-    bytes20 indexed newWalletPubKeyHash,
-    bytes32 newAnchorTxHash,
-    uint64 newAnchorAmount,
-    uint64 minerFee
+  uint256 indexed reservationKey,
+  uint64 requestNonce,
+  bytes20 indexed newWalletPubKeyHash,
+  bytes32 newAnchorTxHash,
+  uint64 newAnchorAmount,
+  uint64 minerFee
 );
-
 ```
 
 Off-chain tooling updates required:

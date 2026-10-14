@@ -217,8 +217,7 @@ contract ReservationStrandingExecutor is TestReservation {
         // `removeAnchoredCustody` release stays balanced.
         if (reservationStateVal == Reservation.ReservationState.Active) {
             state.walletAnchoredInfo[walletPubKeyHash].count += 1;
-            state.walletAnchoredInfo[walletPubKeyHash].amount +=
-                anchorAmount;
+            state.walletAnchoredInfo[walletPubKeyHash].amount += anchorAmount;
         }
 
         state.reservationsByAnchorUtxo[
@@ -275,9 +274,10 @@ contract ReservationStrandingExecutor is TestReservation {
     /// @notice Inserts an `ActionState.Pending` reservation action so the
     ///         "Acceptance authorization pending" rejection path of
     ///         `notifyStaleReservedDeposit` fires.
-    function seedPendingAction(uint256 reservationKey, uint64 requestNonce)
-        external
-    {
+    function seedPendingAction(
+        uint256 reservationKey,
+        uint64 requestNonce
+    ) external {
         Reservation.ReservationAction storage action = state.reservationActions[
             Reservation.actionKey(reservationKey, requestNonce)
         ];
@@ -380,9 +380,8 @@ contract ReservationStrandingExecutor is TestReservation {
         uint256 reservationKey,
         uint32 cooldownUntil
     ) external {
-        state
-            .reservations[reservationKey]
-            .reanchorCooldownUntil = cooldownUntil;
+        state.reservations[reservationKey].reanchorCooldownUntil =
+            cooldownUntil;
     }
 
     // --- read helpers used by tests ---------------------------------------
@@ -391,27 +390,21 @@ contract ReservationStrandingExecutor is TestReservation {
         return state.reservations[reservationKey].retryCredit;
     }
 
-    function pendingReservedDepositWallet(uint256 depositKey)
-        external
-        view
-        returns (bytes20)
-    {
+    function pendingReservedDepositWallet(
+        uint256 depositKey
+    ) external view returns (bytes20) {
         return state.pendingReservedDeposit[depositKey].walletPubKeyHash;
     }
 
-    function pendingReservedDepositDeadline(uint256 depositKey)
-        external
-        view
-        returns (uint32)
-    {
+    function pendingReservedDepositDeadline(
+        uint256 depositKey
+    ) external view returns (uint32) {
         return state.pendingReservedDeposit[depositKey].refundDeadline;
     }
 
-    function pendingReservedDepositValidated(uint256 depositKey)
-        external
-        view
-        returns (bool)
-    {
+    function pendingReservedDepositValidated(
+        uint256 depositKey
+    ) external view returns (bool) {
         return state.pendingReservedDeposit[depositKey].refundDeadlineValidated;
     }
 }
