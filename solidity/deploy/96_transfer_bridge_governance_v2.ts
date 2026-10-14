@@ -103,7 +103,8 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 export default func
 
 func.tags = ["TransferBridgeGovernanceV2"]
-func.dependencies = ["BridgeGovernance", "BridgeGovernanceV2"]
+// Read the old governance deployment without rerunning its deployment script.
+func.dependencies = ["BridgeGovernanceV2"]
 // Set DEPLOY_BRIDGE_GOVERNANCE_TRANSFER=true when running the deployment.
 // yarn deploy --tags TransferBridgeGovernanceV2 --network <NETWORK>
 func.skip = async () => process.env.DEPLOY_BRIDGE_GOVERNANCE_TRANSFER !== "true"

@@ -265,17 +265,9 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 export default func
 
 func.tags = ["UpgradeBridgeV6PegKeeper"]
-func.dependencies = [
-  "Bridge",
-  "RebateStaking",
-  "Deposit",
-  "DepositSweep",
-  "Redemption",
-  "Wallets",
-  "Fraud",
-  "MovingFunds",
-  "BridgeGovernanceV2",
-]
+// Existing proxies and unchanged libraries are loaded with get above; their
+// fresh-deployment scripts must not run as part of this migration.
+func.dependencies = ["BridgeGovernanceV2"]
 // Set DEPLOY_PROTOCOL_PEG_KEEPER_UPGRADE=true when running the deployment.
 // yarn deploy --tags UpgradeBridgeV6PegKeeper --network <NETWORK>
 func.skip = async () =>

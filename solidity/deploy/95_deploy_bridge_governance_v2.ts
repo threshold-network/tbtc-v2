@@ -68,7 +68,8 @@ const func: DeployFunction = async function runDeployment(
 export default func
 
 func.tags = ["BridgeGovernanceV2"]
-func.dependencies = ["Bridge"]
+// Migration prerequisites are loaded with deployments.get above. Depending on
+// "Bridge" would rerun its fresh-deployment script against the existing proxy.
 // Set DEPLOY_BRIDGE_GOVERNANCE_V2=true when running the deployment.
 // yarn deploy --tags BridgeGovernanceV2 --network <NETWORK>
 func.skip = async () => process.env.DEPLOY_BRIDGE_GOVERNANCE_V2 !== "true"

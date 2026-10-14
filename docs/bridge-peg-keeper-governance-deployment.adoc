@@ -76,6 +76,10 @@ cast call <REBATE_STAKING> "deprecated()(bool)"
 
 == Pre-checks (read-only)
 
+* The target network's hardhat-deploy records for `Bridge`, `BridgeGovernance`,
+  `RebateStaking`, `DepositSweep`, `Wallets`, `Fraud`, and `MovingFunds` are
+  available. Scripts 95–97 load these existing records; they do not run the
+  fresh-deployment scripts. Use the migration tags shown below.
 * Bridge proxy implementation is the pre-V6 version (no peg keeper support).
 * Bridge `governance()` points to OLD `BridgeGovernance`:
 ** `cast call <BRIDGE> "governance()(address)"` -> `<OLD_BRIDGE_GOVERNANCE>`
