@@ -42,6 +42,31 @@ contract ReservationLivenessHandler is ReservationHandler {
         return successes["tryHandOff"] == 0;
     }
 
+    /// @dev Successful `tryHandOff` calls so far, so a Medusa or forge
+    ///      run can report how far the campaign got.
+    function handOffsChecked() public view returns (uint256) {
+        return successes["tryHandOff"];
+    }
+
+    /// @dev Canary thresholds, expected to FAIL once the campaign reaches
+    ///      25 and 100 successful `tryHandOff` calls: which canary fails
+    ///      reports the lower bound on successes.
+    function property_canaryFewerThan25HandOffsChecked()
+        public
+        view
+        returns (bool)
+    {
+        return handOffsChecked() < 25;
+    }
+
+    function property_canaryFewerThan100HandOffsChecked()
+        public
+        view
+        returns (bool)
+    {
+        return handOffsChecked() < 100;
+    }
+
     /// @dev The two stuck reasons, reported separately so a campaign names
     ///      which known case a failing sequence reaches. Each property scans
     ///      every position, so a stuck position of one reason cannot hide
@@ -78,6 +103,11 @@ contract ReservationLivenessHandler is ReservationHandler {
     bool public handOffRefused;
     string public handOffRefusal;
 
+    /// @dev Harness attempts, counted where the call reaches the library:
+    ///      `handOffAttempts = successes["tryHandOff"] + refusals`. Early
+    ///      skips (no key, wrong states, cooldown, floor) do not count.
+    uint256 public handOffAttempts;
+
     function tryHandOff(uint256 keySeed, uint256 targetSeed) external {
         if (keys.length == 0) return;
         uint256 key = keys[keySeed % keys.length];
@@ -104,6 +134,7 @@ contract ReservationLivenessHandler is ReservationHandler {
         (uint64 minAmount, uint64 txMaxFee, ) = harness.parameters();
         if (r.anchorAmount <= minAmount + txMaxFee) return;
 
+        handOffAttempts += 1;
         try harness.requestReservationReanchor(key, target, false) {
             successes["tryHandOff"] += 1;
             checkCapsAfterReanchor(target, false, true);

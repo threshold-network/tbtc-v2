@@ -102,6 +102,84 @@ contract ReservationLivenessTest is Test {
         assertTrue(handler.property_aPossibleHandOffIsNeverRefused());
     }
 
+    /// @dev `handOffAttempts` counts every `tryHandOff` that reaches the
+    ///      library and `handOffsChecked()` mirrors the success count, so
+    ///      each successful hand-off bumps both by one. The two positions
+    ///      hand off to two distinct Live targets, so both succeed.
+    function test_handOffAttemptsAndCheckedIncreasePerSuccess() public {
+        acceptOn(0, 500_000, 0);
+        acceptOn(1, 500_000, 0);
+        handler.advanceWallet(0, false);
+        handler.advanceWallet(1, false);
+
+        assertEq(handler.handOffAttempts(), 0);
+        assertEq(handler.handOffsChecked(), 0);
+
+        handler.tryHandOff(0, 2);
+        assertEq(handler.successes("tryHandOff"), 1);
+        assertEq(handler.handOffAttempts(), 1, "success counts as one attempt");
+        assertEq(handler.handOffsChecked(), 1, "success checked");
+
+        handler.tryHandOff(1, 3);
+        assertEq(handler.successes("tryHandOff"), 2);
+        assertEq(handler.handOffAttempts(), 2, "second success");
+        assertEq(handler.handOffsChecked(), 2, "two successes checked");
+
+        assertFalse(handler.handOffRefused());
+        assertTrue(handler.property_aPossibleHandOffIsNeverRefused());
+        assertEq(
+            handler.handOffAttempts(),
+            handler.handOffsChecked(),
+            "no refusal, so attempts equal successes"
+        );
+    }
+
+    /// @dev A refusal that reaches the library is counted as an attempt:
+    ///      the success count is unchanged, `handOffAttempts` bumps,
+    ///      `handOffRefused` is set, and the liveness property fails. No
+    ///      natural refusal is reachable through the owner path - every
+    ///      rule the library enforces here is covered by the action's
+    ///      early returns - so the library call is mocked to refuse and
+    ///      the catch-path bookkeeping is pinned.
+    function test_handOffRefusalIsCountedAsAnAttempt() public {
+        acceptOn(0, 500_000, 0);
+        handler.advanceWallet(0, false);
+        uint256 key = handler.keyAt(0);
+        bytes20 target = handler.walletAt(1);
+        bytes memory call =
+            abi.encodeWithSelector(
+                ReservationInvariantHarness.requestReservationReanchor.selector,
+                key,
+                target,
+                false
+            );
+        vm.mockCallRevert(
+            address(harness),
+            0,
+            call,
+            abi.encodeWithSignature("Error(string)", "mocked library refusal")
+        );
+
+        assertEq(handler.handOffAttempts(), 0);
+        assertEq(handler.handOffsChecked(), 0);
+
+        handler.tryHandOff(0, 1);
+
+        assertEq(handler.successes("tryHandOff"), 0, "refusal adds no success");
+        assertEq(handler.handOffAttempts(), 1, "refusal counts as an attempt");
+        assertEq(handler.handOffsChecked(), 0, "checked tracks successes");
+        assertTrue(handler.handOffRefused());
+        assertEq(handler.handOffRefusal(), "mocked library refusal");
+        assertFalse(handler.property_aPossibleHandOffIsNeverRefused());
+        assertEq(
+            handler.handOffAttempts(),
+            handler.handOffsChecked() + 1,
+            "attempts = successes + refusals"
+        );
+
+        vm.clearMockedCalls();
+    }
+
     /// @dev After a timed-out re-anchor the library refuses the owner until
     ///      the cooldown ends. That is a delay, not a missing exit: the
     ///      action `tryHandOff` stays out of the cooldown and succeeds once
@@ -115,8 +193,12 @@ contract ReservationLivenessTest is Test {
         handler.notifyReanchorTimedOut(0);
         assertEq(handler.successes("reanchorTimedOut"), 1);
 
+        assertEq(handler.handOffAttempts(), 0);
+        assertEq(handler.handOffsChecked(), 0);
         handler.tryHandOff(0, 1);
         assertEq(handler.successes("tryHandOff"), 0, "inside the cooldown");
+        assertEq(handler.handOffAttempts(), 0, "cooldown skip is not an attempt");
+        assertEq(handler.handOffsChecked(), 0);
         assertFalse(handler.handOffRefused());
         assertTrue(handler.property_everyRetiringPositionHasAnExit());
 
@@ -128,6 +210,8 @@ contract ReservationLivenessTest is Test {
         vm.warp(harness.reservation(key).reanchorCooldownUntil);
         handler.tryHandOff(0, 1);
         assertEq(handler.successes("tryHandOff"), 1, "after the cooldown");
+        assertEq(handler.handOffAttempts(), 1);
+        assertEq(handler.handOffsChecked(), 1);
         assertFalse(handler.handOffRefused());
     }
 
