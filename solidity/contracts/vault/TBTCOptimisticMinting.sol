@@ -47,7 +47,7 @@ abstract contract TBTCOptimisticMinting is Ownable {
     uint256 public constant GOVERNANCE_DELAY = 24 hours;
 
     /// @notice Multiplier to convert satoshi to TBTC token units.
-    uint256 public constant SATOSHI_MULTIPLIER = 10**10;
+    uint256 public constant SATOSHI_MULTIPLIER = 10 ** 10;
 
     Bridge public immutable bridge;
 
@@ -326,8 +326,8 @@ abstract contract TBTCOptimisticMinting is Ownable {
         // deposit is swept.
         //
         // This imbalance is supposed to be solved by a donation to the Bridge.
-        uint256 amountToMint = (deposit.amount - deposit.treasuryFee) *
-            SATOSHI_MULTIPLIER;
+        uint256 amountToMint =
+            (deposit.amount - deposit.treasuryFee) * SATOSHI_MULTIPLIER;
 
         // The Optimistic Minting mechanism may additionally cut a fee from the
         // amount that is left after deducting the Bridge deposit treasury fee.
@@ -335,17 +335,18 @@ abstract contract TBTCOptimisticMinting is Ownable {
         // deposits. One does not need to use the Optimistic Minting mechanism
         // and they may wait for the Bridge to sweep their deposit if they do
         // not want to pay the Optimistic Minting fee.
-        uint256 optimisticMintFee = optimisticMintingFeeDivisor > 0
-            ? (amountToMint / optimisticMintingFeeDivisor)
-            : 0;
+        uint256 optimisticMintFee =
+            optimisticMintingFeeDivisor > 0
+                ? (amountToMint / optimisticMintingFeeDivisor)
+                : 0;
 
         // Both the optimistic minting fee and the share that goes to the
         // depositor are optimistically minted. All TBTC that is optimistically
         // minted should be added to the optimistic minting debt. When the
         // deposit is swept, it is paying off both the depositor's share and the
         // treasury's share (optimistic minting fee).
-        uint256 newDebt = optimisticMintingDebt[deposit.depositor] +
-            amountToMint;
+        uint256 newDebt =
+            optimisticMintingDebt[deposit.depositor] + amountToMint;
         optimisticMintingDebt[deposit.depositor] = newDebt;
 
         _mint(deposit.depositor, amountToMint - optimisticMintFee);
@@ -543,10 +544,10 @@ abstract contract TBTCOptimisticMinting is Ownable {
     /// @param amount The balance increase amount for the depositor received.
     /// @return The TBTC amount that should be minted after paying off the
     ///         optimistic minting debt.
-    function repayOptimisticMintingDebt(address depositor, uint256 amount)
-        internal
-        returns (uint256)
-    {
+    function repayOptimisticMintingDebt(
+        address depositor,
+        uint256 amount
+    ) internal returns (uint256) {
         uint256 debt = optimisticMintingDebt[depositor];
         if (debt == 0) {
             return amount;

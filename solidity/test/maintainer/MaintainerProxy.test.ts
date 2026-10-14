@@ -1,9 +1,13 @@
-/* eslint-disable no-underscore-dangle */
-import { ethers, helpers, waffle } from "hardhat"
-import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
-import { SigningKey } from "ethers/lib/utils"
+import {
+  toNumber,
+  SigningKey,
+  ContractTransactionResponse,
+  BigNumberish,
+} from "ethers"
+
+import { ethers, helpers } from "hardhat"
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import { assert, expect } from "chai"
-import { ContractTransaction, BigNumber, BigNumberish } from "ethers"
 import type { Mock } from "../helpers/mock"
 
 import { ecdsaWalletTestData } from "../data/ecdsa"
@@ -59,11 +63,11 @@ import { constants, walletState } from "../fixtures"
 import { createMock } from "../helpers/mock"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
-const { provider } = waffle
+const { provider } = ethers
 const { impersonateAccount } = helpers.account
 
 const { lastBlockTime, increaseTime } = helpers.time
-const { keccak256, sha256 } = ethers.utils
+const { keccak256, sha256 } = ethers
 
 const { publicKey: walletPublicKey, pubKeyHash160: walletPublicKeyHash } =
   fraudWallet
@@ -72,11 +76,11 @@ const { publicKey: walletPublicKey, pubKeyHash160: walletPublicKeyHash } =
 // other tbtc-v2 tests suites and adjusted to check the refund functionality of
 // the MaintainerProxy contract.
 describe("MaintainerProxy", () => {
-  let deployer: SignerWithAddress
-  let governance: SignerWithAddress
-  let walletMaintainer: SignerWithAddress
-  let spvMaintainer: SignerWithAddress
-  let thirdParty: SignerWithAddress
+  let deployer: HardhatEthersSigner
+  let governance: HardhatEthersSigner
+  let walletMaintainer: HardhatEthersSigner
+  let spvMaintainer: HardhatEthersSigner
+  let thirdParty: HardhatEthersSigner
 
   let bridge: Bridge & BridgeStub
   let bridgeGovernance: BridgeGovernance
@@ -86,14 +90,13 @@ describe("MaintainerProxy", () => {
   let walletRegistry: Mock<IWalletRegistry>
   let bank: Bank & BankStub
 
-  let fraudChallengeDepositAmount: BigNumber
-  let movingFundsTimeoutResetDelay: number
+  let fraudChallengeDepositAmount: bigint
+  let movingFundsTimeoutResetDelay: bigint
 
-  let initialWalletMaintainerBalance: BigNumber
-  let initialSpvMaintainerBalance: BigNumber
+  let initialWalletMaintainerBalance: bigint
+  let initialSpvMaintainerBalance: bigint
 
   before(async () => {
-    // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({
       governance,
       bridge,
@@ -122,12 +125,12 @@ describe("MaintainerProxy", () => {
 
     await deployer.sendTransaction({
       to: walletRegistry.address,
-      value: ethers.utils.parseEther("100"),
+      value: ethers.parseEther("100"),
     })
 
     await deployer.sendTransaction({
-      to: reimbursementPool.address,
-      value: ethers.utils.parseEther("100"),
+      to: reimbursementPool.target,
+      value: ethers.parseEther("100"),
     })
     ;({ fraudChallengeDepositAmount } = await bridge.fraudParameters())
     ;[thirdParty, walletMaintainer, spvMaintainer] =
@@ -188,7 +191,7 @@ describe("MaintainerProxy", () => {
         txOutputValue: constants.walletCreationMinBtcBalance,
       }
 
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -210,11 +213,11 @@ describe("MaintainerProxy", () => {
         const postMaintainerBalance = await provider.getBalance(
           walletMaintainer.address
         )
-        const diff = postMaintainerBalance.sub(initialWalletMaintainerBalance)
+        const diff = postMaintainerBalance - initialWalletMaintainerBalance
 
         expect(diff).to.be.gt(0)
         expect(diff).to.be.lt(
-          ethers.utils.parseUnits("2000000", "gwei") // 0,002 ETH
+          ethers.parseUnits("2000000", "gwei") // 0,002 ETH
         )
       })
     })
@@ -231,15 +234,15 @@ describe("MaintainerProxy", () => {
       const { walletPubKeyHash } = data.deposits[0].reveal
 
       await bridge.setWallet(walletPubKeyHash, {
-        ecdsaWalletID: ethers.constants.HashZero,
-        mainUtxoHash: ethers.constants.HashZero,
+        ecdsaWalletID: ethers.ZeroHash,
+        mainUtxoHash: ethers.ZeroHash,
         pendingRedemptionsValue: 0,
         createdAt: await lastBlockTime(),
         movingFundsRequestedAt: 0,
         closingStartedAt: 0,
         pendingMovedFundsSweepRequestsCount: 0,
         state: walletState.Live,
-        movingFundsTargetWalletsCommitmentHash: ethers.constants.HashZero,
+        movingFundsTargetWalletsCommitmentHash: ethers.ZeroHash,
       })
     })
 
@@ -300,7 +303,7 @@ describe("MaintainerProxy", () => {
           "when the single input is a revealed unswept P2SH deposit",
           () => {
             const data: DepositSweepTestData = SingleP2SHDeposit
-            let tx: ContractTransaction
+            let tx: ContractTransactionResponse
 
             before(async () => {
               await createSnapshot()
@@ -320,13 +323,11 @@ describe("MaintainerProxy", () => {
               const postMaintainerBalance = await provider.getBalance(
                 spvMaintainer.address
               )
-              const diff = postMaintainerBalance.sub(
-                initialSpvMaintainerBalance
-              )
+              const diff = postMaintainerBalance - initialSpvMaintainerBalance
 
               expect(diff).to.be.gt(0)
               expect(diff).to.be.lt(
-                ethers.utils.parseUnits("1500000", "gwei") // 0,0015 ETH
+                ethers.parseUnits("1500000", "gwei") // 0,0015 ETH
               )
             })
           }
@@ -336,7 +337,7 @@ describe("MaintainerProxy", () => {
           "when the single input is a revealed unswept P2WSH deposit",
           () => {
             const data: DepositSweepTestData = SingleP2WSHDeposit
-            let tx: ContractTransaction
+            let tx: ContractTransactionResponse
 
             before(async () => {
               await createSnapshot()
@@ -356,13 +357,11 @@ describe("MaintainerProxy", () => {
               const postMaintainerBalance = await provider.getBalance(
                 spvMaintainer.address
               )
-              const diff = postMaintainerBalance.sub(
-                initialSpvMaintainerBalance
-              )
+              const diff = postMaintainerBalance - initialSpvMaintainerBalance
 
               expect(diff).to.be.gt(0)
               expect(diff).to.be.lt(
-                ethers.utils.parseUnits("2100000", "gwei") // 0,002 ETH
+                ethers.parseUnits("2100000", "gwei") // 0,002 ETH
               )
             })
           }
@@ -373,7 +372,7 @@ describe("MaintainerProxy", () => {
           () => {
             const data: DepositSweepTestData = SingleP2WSHDeposit
             let vault: Mock<IVault>
-            let tx: ContractTransaction
+            let tx: ContractTransactionResponse
 
             before(async () => {
               await createSnapshot()
@@ -385,9 +384,7 @@ describe("MaintainerProxy", () => {
                 .setVaultStatus(vault.address, true)
 
               // Enrich the test data with the vault parameter.
-              const dataWithVault: DepositSweepTestData = JSON.parse(
-                JSON.stringify(data)
-              )
+              const dataWithVault: DepositSweepTestData = structuredClone(data)
               dataWithVault.vault = vault.address
               dataWithVault.deposits[0].reveal.vault = vault.address
 
@@ -406,13 +403,11 @@ describe("MaintainerProxy", () => {
               const postMaintainerBalance = await provider.getBalance(
                 spvMaintainer.address
               )
-              const diff = postMaintainerBalance.sub(
-                initialSpvMaintainerBalance
-              )
+              const diff = postMaintainerBalance - initialSpvMaintainerBalance
 
               expect(diff).to.be.gt(0)
               expect(diff).to.be.lt(
-                ethers.utils.parseUnits("2000000", "gwei") // 0,002 ETH
+                ethers.parseUnits("2000000", "gwei") // 0,002 ETH
               )
             })
           }
@@ -423,7 +418,7 @@ describe("MaintainerProxy", () => {
           () => {
             const data: DepositSweepTestData = SingleP2WSHDeposit
             let vault: Mock<IVault>
-            let tx: ContractTransaction
+            let tx: ContractTransactionResponse
 
             before(async () => {
               await createSnapshot()
@@ -435,9 +430,7 @@ describe("MaintainerProxy", () => {
                 .setVaultStatus(vault.address, true)
 
               // Enrich the test data with the vault parameter.
-              const dataWithVault: DepositSweepTestData = JSON.parse(
-                JSON.stringify(data)
-              )
+              const dataWithVault: DepositSweepTestData = structuredClone(data)
               dataWithVault.vault = vault.address
               dataWithVault.deposits[0].reveal.vault = vault.address
 
@@ -467,13 +460,11 @@ describe("MaintainerProxy", () => {
               const postMaintainerBalance = await provider.getBalance(
                 spvMaintainer.address
               )
-              const diff = postMaintainerBalance.sub(
-                initialSpvMaintainerBalance
-              )
+              const diff = postMaintainerBalance - initialSpvMaintainerBalance
 
               expect(diff).to.be.gt(0)
               expect(diff).to.be.lt(
-                ethers.utils.parseUnits("2000000", "gwei") // 0,002 ETH
+                ethers.parseUnits("2000000", "gwei") // 0,002 ETH
               )
             })
           }
@@ -488,7 +479,7 @@ describe("MaintainerProxy", () => {
             const previousData: DepositSweepTestData =
               MultipleDepositsNoMainUtxo
             const data: DepositSweepTestData = MultipleDepositsWithMainUtxo
-            let tx: ContractTransaction
+            let tx: ContractTransactionResponse
 
             before(async () => {
               await createSnapshot()
@@ -512,13 +503,11 @@ describe("MaintainerProxy", () => {
               const postMaintainerBalance = await provider.getBalance(
                 spvMaintainer.address
               )
-              const diff = postMaintainerBalance.sub(
-                initialSpvMaintainerBalance
-              )
+              const diff = postMaintainerBalance - initialSpvMaintainerBalance
 
               expect(diff).to.be.gt(0)
               expect(diff).to.be.lt(
-                ethers.utils.parseUnits("1000000", "gwei") // 0,001 ETH
+                ethers.parseUnits("1000000", "gwei") // 0,001 ETH
               )
             })
           }
@@ -532,7 +521,7 @@ describe("MaintainerProxy", () => {
               MultipleDepositsNoMainUtxo
             const data: DepositSweepTestData = MultipleDepositsWithMainUtxo
             let vault: Mock<IVault>
-            let tx: ContractTransaction
+            let tx: ContractTransactionResponse
 
             before(async () => {
               await createSnapshot()
@@ -548,9 +537,7 @@ describe("MaintainerProxy", () => {
                 .setVaultStatus(vault.address, true)
 
               // Enrich the test data with the vault parameter.
-              const dataWithVault: DepositSweepTestData = JSON.parse(
-                JSON.stringify(data)
-              )
+              const dataWithVault: DepositSweepTestData = structuredClone(data)
               dataWithVault.vault = vault.address
               dataWithVault.deposits[0].reveal.vault = vault.address
               dataWithVault.deposits[1].reveal.vault = vault.address
@@ -573,13 +560,11 @@ describe("MaintainerProxy", () => {
               const postMaintainerBalance = await provider.getBalance(
                 spvMaintainer.address
               )
-              const diff = postMaintainerBalance.sub(
-                initialSpvMaintainerBalance
-              )
+              const diff = postMaintainerBalance - initialSpvMaintainerBalance
 
               expect(diff).to.be.gt(0)
               expect(diff).to.be.lt(
-                ethers.utils.parseUnits("1000000", "gwei") // 0,001 ETH
+                ethers.parseUnits("1000000", "gwei") // 0,001 ETH
               )
             })
           }
@@ -592,7 +577,7 @@ describe("MaintainerProxy", () => {
               MultipleDepositsNoMainUtxo
             const data: DepositSweepTestData = MultipleDepositsWithMainUtxo
             let vault: Mock<IVault>
-            let tx: ContractTransaction
+            let tx: ContractTransactionResponse
 
             before(async () => {
               await createSnapshot()
@@ -608,9 +593,7 @@ describe("MaintainerProxy", () => {
                 .setVaultStatus(vault.address, true)
 
               // Enrich the test data with the vault parameter.
-              const dataWithVault: DepositSweepTestData = JSON.parse(
-                JSON.stringify(data)
-              )
+              const dataWithVault: DepositSweepTestData = structuredClone(data)
               dataWithVault.vault = vault.address
               dataWithVault.deposits[0].reveal.vault = vault.address
               dataWithVault.deposits[1].reveal.vault = vault.address
@@ -644,13 +627,11 @@ describe("MaintainerProxy", () => {
               const postMaintainerBalance = await provider.getBalance(
                 spvMaintainer.address
               )
-              const diff = postMaintainerBalance.sub(
-                initialSpvMaintainerBalance
-              )
+              const diff = postMaintainerBalance - initialSpvMaintainerBalance
 
               expect(diff).to.be.gt(0)
               expect(diff).to.be.lt(
-                ethers.utils.parseUnits("2100000", "gwei") // 0,0021 ETH
+                ethers.parseUnits("2100000", "gwei") // 0,0021 ETH
               )
             })
           }
@@ -664,7 +645,7 @@ describe("MaintainerProxy", () => {
             const data: DepositSweepTestData = MultipleDepositsWithMainUtxo
             let vaultA: Mock<IVault>
             let vaultB: Mock<IVault>
-            let tx: ContractTransaction
+            let tx: ContractTransactionResponse
 
             before(async () => {
               await createSnapshot()
@@ -684,9 +665,7 @@ describe("MaintainerProxy", () => {
                 .setVaultStatus(vaultB.address, true)
 
               // Enrich the test data with the vault parameter.
-              const dataWithVault: DepositSweepTestData = JSON.parse(
-                JSON.stringify(data)
-              )
+              const dataWithVault: DepositSweepTestData = structuredClone(data)
               dataWithVault.vault = vaultA.address
               dataWithVault.deposits[0].reveal.vault = vaultA.address
               dataWithVault.deposits[1].reveal.vault = vaultA.address
@@ -709,13 +688,11 @@ describe("MaintainerProxy", () => {
               const postMaintainerBalance = await provider.getBalance(
                 spvMaintainer.address
               )
-              const diff = postMaintainerBalance.sub(
-                initialSpvMaintainerBalance
-              )
+              const diff = postMaintainerBalance - initialSpvMaintainerBalance
 
               expect(diff).to.be.gt(0)
               expect(diff).to.be.lt(
-                ethers.utils.parseUnits("1000000", "gwei") // 0,001 ETH
+                ethers.parseUnits("1000000", "gwei") // 0,001 ETH
               )
             })
           }
@@ -726,7 +703,7 @@ describe("MaintainerProxy", () => {
             "deposits but there is no main UTXO since it is not expected",
           () => {
             const data: DepositSweepTestData = MultipleDepositsNoMainUtxo
-            let tx: ContractTransaction
+            let tx: ContractTransactionResponse
 
             before(async () => {
               await createSnapshot()
@@ -746,13 +723,11 @@ describe("MaintainerProxy", () => {
               const postMaintainerBalance = await provider.getBalance(
                 spvMaintainer.address
               )
-              const diff = postMaintainerBalance.sub(
-                initialSpvMaintainerBalance
-              )
+              const diff = postMaintainerBalance - initialSpvMaintainerBalance
 
               expect(diff).to.be.gt(0)
               expect(diff).to.be.lt(
-                ethers.utils.parseUnits("1000000", "gwei") // 0,001 ETH
+                ethers.parseUnits("1000000", "gwei") // 0,001 ETH
               )
             })
           }
@@ -762,10 +737,10 @@ describe("MaintainerProxy", () => {
   })
 
   describe("submitRedemptionProof", () => {
-    let redemptionTimeout: BigNumber
+    let redemptionTimeout: bigint
 
     before(async () => {
-      redemptionTimeout = BigNumber.from(
+      redemptionTimeout = BigInt(
         (await bridge.redemptionParameters()).redemptionTimeout
       )
     })
@@ -819,7 +794,7 @@ describe("MaintainerProxy", () => {
           "when the single output is a pending requested redemption",
           () => {
             const data: RedemptionTestData = SinglePendingRequestedRedemption
-            let tx: ContractTransaction
+            let tx: ContractTransactionResponse
 
             before(async () => {
               await createSnapshot()
@@ -831,7 +806,6 @@ describe("MaintainerProxy", () => {
                 await bridge.setRedemptionTreasuryFeeDivisor(0)
               }
 
-              // eslint-disable-next-line @typescript-eslint/no-extra-semi
               tx = await runRedemptionScenario(data, beforeRequestActions)
             })
 
@@ -847,13 +821,11 @@ describe("MaintainerProxy", () => {
               const postMaintainerBalance = await provider.getBalance(
                 spvMaintainer.address
               )
-              const diff = postMaintainerBalance.sub(
-                initialSpvMaintainerBalance
-              )
+              const diff = postMaintainerBalance - initialSpvMaintainerBalance
 
               expect(diff).to.be.gt(0)
               expect(diff).to.be.lt(
-                ethers.utils.parseUnits("3500000", "gwei") // 0,0035 ETH
+                ethers.parseUnits("3500000", "gwei") // 0,0035 ETH
               )
             })
           }
@@ -863,7 +835,7 @@ describe("MaintainerProxy", () => {
           "when the single output is a non-reported timed out requested redemption",
           () => {
             const data: RedemptionTestData = SinglePendingRequestedRedemption
-            let tx: ContractTransaction
+            let tx: ContractTransactionResponse
 
             before(async () => {
               await createSnapshot()
@@ -879,10 +851,9 @@ describe("MaintainerProxy", () => {
               // an amount of time that will make the request
               // timed out though don't report the timeout.
               const beforeProofActions = async () => {
-                await increaseTime(redemptionTimeout)
+                await increaseTime(toNumber(redemptionTimeout))
               }
 
-              // eslint-disable-next-line @typescript-eslint/no-extra-semi
               tx = await runRedemptionScenario(
                 data,
                 beforeRequestActions,
@@ -902,13 +873,11 @@ describe("MaintainerProxy", () => {
               const postMaintainerBalance = await provider.getBalance(
                 spvMaintainer.address
               )
-              const diff = postMaintainerBalance.sub(
-                initialSpvMaintainerBalance
-              )
+              const diff = postMaintainerBalance - initialSpvMaintainerBalance
 
               expect(diff).to.be.gt(0)
               expect(diff).to.be.lt(
-                ethers.utils.parseUnits("3500000", "gwei") // 0,0035 ETH
+                ethers.parseUnits("3500000", "gwei") // 0,0035 ETH
               )
             })
           }
@@ -918,7 +887,7 @@ describe("MaintainerProxy", () => {
           "when the single output is a reported timed out requested redemption",
           () => {
             const data: RedemptionTestData = SinglePendingRequestedRedemption
-            let tx: ContractTransaction
+            let tx: ContractTransactionResponse
 
             before(async () => {
               await createSnapshot()
@@ -934,7 +903,7 @@ describe("MaintainerProxy", () => {
               // an amount of time that will make the request
               // timed out and then report the timeout.
               const beforeProofActions = async () => {
-                await increaseTime(redemptionTimeout.add(1))
+                await increaseTime(toNumber(redemptionTimeout + 1n))
                 await bridge.notifyRedemptionTimeout(
                   data.wallet.pubKeyHash,
                   [],
@@ -942,7 +911,6 @@ describe("MaintainerProxy", () => {
                 )
               }
 
-              // eslint-disable-next-line @typescript-eslint/no-extra-semi
               tx = await runRedemptionScenario(
                 data,
                 beforeRequestActions,
@@ -962,13 +930,11 @@ describe("MaintainerProxy", () => {
               const postMaintainerBalance = await provider.getBalance(
                 spvMaintainer.address
               )
-              const diff = postMaintainerBalance.sub(
-                initialSpvMaintainerBalance
-              )
+              const diff = postMaintainerBalance - initialSpvMaintainerBalance
 
               expect(diff).to.be.gt(0)
               expect(diff).to.be.lt(
-                ethers.utils.parseUnits("2000000", "gwei") // 0,002 ETH
+                ethers.parseUnits("2000000", "gwei") // 0,002 ETH
               )
             })
           }
@@ -980,7 +946,7 @@ describe("MaintainerProxy", () => {
           "when output vector consists only of pending requested redemptions",
           () => {
             const data: RedemptionTestData = MultiplePendingRequestedRedemptions
-            let tx: ContractTransaction
+            let tx: ContractTransactionResponse
 
             before(async () => {
               await createSnapshot()
@@ -992,7 +958,6 @@ describe("MaintainerProxy", () => {
                 await bridge.setRedemptionTreasuryFeeDivisor(0)
               }
 
-              // eslint-disable-next-line @typescript-eslint/no-extra-semi
               tx = await runRedemptionScenario(data, beforeRequestActions)
             })
 
@@ -1008,13 +973,11 @@ describe("MaintainerProxy", () => {
               const postMaintainerBalance = await provider.getBalance(
                 spvMaintainer.address
               )
-              const diff = postMaintainerBalance.sub(
-                initialSpvMaintainerBalance
-              )
+              const diff = postMaintainerBalance - initialSpvMaintainerBalance
 
               expect(diff).to.be.gt(0)
               expect(diff).to.be.lt(
-                ethers.utils.parseUnits("8200000", "gwei") // 0,0082 ETH
+                ethers.parseUnits("8200000", "gwei") // 0,0082 ETH
               )
             })
           }
@@ -1025,12 +988,11 @@ describe("MaintainerProxy", () => {
           () => {
             const data: RedemptionTestData =
               MultiplePendingRequestedRedemptionsWithP2WPKHChange
-            let tx: ContractTransaction
+            let tx: ContractTransactionResponse
 
             before(async () => {
               await createSnapshot()
 
-              // eslint-disable-next-line @typescript-eslint/no-extra-semi
               tx = await runRedemptionScenario(data)
             })
 
@@ -1047,12 +1009,10 @@ describe("MaintainerProxy", () => {
                 spvMaintainer.address
               )
 
-              const diff = postMaintainerBalance.sub(
-                initialSpvMaintainerBalance
-              )
+              const diff = postMaintainerBalance - initialSpvMaintainerBalance
               expect(diff).to.be.gt(0)
               expect(diff).to.be.lt(
-                ethers.utils.parseUnits("9000000", "gwei") // 0,009 ETH
+                ethers.parseUnits("9000000", "gwei") // 0,009 ETH
               )
             })
           }
@@ -1062,7 +1022,7 @@ describe("MaintainerProxy", () => {
           "when output vector consists only of reported timed out requested redemptions",
           () => {
             const data: RedemptionTestData = MultiplePendingRequestedRedemptions
-            let tx: ContractTransaction
+            let tx: ContractTransactionResponse
 
             before(async () => {
               await createSnapshot()
@@ -1078,7 +1038,7 @@ describe("MaintainerProxy", () => {
               // an amount of time that will make the requests
               // timed out and then report the timeouts.
               const beforeProofActions = async () => {
-                await increaseTime(redemptionTimeout.add(1))
+                await increaseTime(toNumber(redemptionTimeout + 1n))
 
                 for (let i = 0; i < data.redemptionRequests.length; i++) {
                   // eslint-disable-next-line no-await-in-loop
@@ -1090,7 +1050,6 @@ describe("MaintainerProxy", () => {
                 }
               }
 
-              // eslint-disable-next-line @typescript-eslint/no-extra-semi
               tx = await runRedemptionScenario(
                 data,
                 beforeRequestActions,
@@ -1110,9 +1069,7 @@ describe("MaintainerProxy", () => {
               const postMaintainerBalance = await provider.getBalance(
                 spvMaintainer.address
               )
-              const diff = postMaintainerBalance.sub(
-                initialSpvMaintainerBalance
-              )
+              const diff = postMaintainerBalance - initialSpvMaintainerBalance
 
               expect(diff).to.be.gt(0)
               // The submitter deletes from `timedOutRedemptions` mapping
@@ -1120,7 +1077,7 @@ describe("MaintainerProxy", () => {
               // net-positive than in all other scenarios.
               // Such a situation is quite unlikely to happen in practice.
               expect(diff).to.be.lt(
-                ethers.utils.parseUnits("10000000", "gwei") // 0,01 ETH
+                ethers.parseUnits("10000000", "gwei") // 0,01 ETH
               )
             })
           }
@@ -1131,7 +1088,7 @@ describe("MaintainerProxy", () => {
           () => {
             const data: RedemptionTestData =
               MultiplePendingRequestedRedemptionsWithP2WPKHChange
-            let tx: ContractTransaction
+            let tx: ContractTransactionResponse
 
             before(async () => {
               await createSnapshot()
@@ -1140,7 +1097,7 @@ describe("MaintainerProxy", () => {
               // an amount of time that will make the requests
               // timed out and then report the timeouts.
               const beforeProofActions = async () => {
-                await increaseTime(redemptionTimeout.add(1))
+                await increaseTime(toNumber(redemptionTimeout + 1n))
 
                 for (let i = 0; i < data.redemptionRequests.length; i++) {
                   // eslint-disable-next-line no-await-in-loop
@@ -1152,7 +1109,6 @@ describe("MaintainerProxy", () => {
                 }
               }
 
-              // eslint-disable-next-line @typescript-eslint/no-extra-semi
               tx = await runRedemptionScenario(
                 data,
                 undefined,
@@ -1172,9 +1128,7 @@ describe("MaintainerProxy", () => {
               const postMaintainerBalance = await provider.getBalance(
                 spvMaintainer.address
               )
-              const diff = postMaintainerBalance.sub(
-                initialSpvMaintainerBalance
-              )
+              const diff = postMaintainerBalance - initialSpvMaintainerBalance
 
               expect(diff).to.be.gt(0)
               // The submitter deletes from `timedOutRedemptions` mapping
@@ -1182,7 +1136,7 @@ describe("MaintainerProxy", () => {
               // net-positive than in all other scenarios.
               // Such a situation is quite unlikely to happen in practice.
               expect(diff).to.be.lt(
-                ethers.utils.parseUnits("10000000", "gwei") // 0,01 ETH
+                ethers.parseUnits("10000000", "gwei") // 0,01 ETH
               )
             })
           }
@@ -1192,7 +1146,7 @@ describe("MaintainerProxy", () => {
           "when output vector consists of pending requested redemptions and reported timed out requested redemptions",
           () => {
             const data: RedemptionTestData = MultiplePendingRequestedRedemptions
-            let tx: ContractTransaction
+            let tx: ContractTransactionResponse
 
             before(async () => {
               await createSnapshot()
@@ -1209,7 +1163,7 @@ describe("MaintainerProxy", () => {
               // timed out but report timeout only the two first
               // requests.
               const beforeProofActions = async () => {
-                await increaseTime(redemptionTimeout.add(1))
+                await increaseTime(toNumber(redemptionTimeout + 1n))
 
                 await bridge.notifyRedemptionTimeout(
                   data.wallet.pubKeyHash,
@@ -1242,9 +1196,7 @@ describe("MaintainerProxy", () => {
               const postMaintainerBalance = await provider.getBalance(
                 spvMaintainer.address
               )
-              const diff = postMaintainerBalance.sub(
-                initialSpvMaintainerBalance
-              )
+              const diff = postMaintainerBalance - initialSpvMaintainerBalance
 
               expect(diff).to.be.gt(0)
               // Raised from 0,007 by the smock replacement, not by a change in
@@ -1256,7 +1208,7 @@ describe("MaintainerProxy", () => {
               // `before` hook was failing, so the assertion never ran.
               // Measured at 0,0073848 ETH, identical across runs.
               expect(diff).to.be.lt(
-                ethers.utils.parseUnits("7500000", "gwei") // 0,0075 ETH
+                ethers.parseUnits("7500000", "gwei") // 0,0075 ETH
               )
             })
           }
@@ -1267,7 +1219,7 @@ describe("MaintainerProxy", () => {
           () => {
             const data: RedemptionTestData =
               MultiplePendingRequestedRedemptionsWithP2WPKHChange
-            let tx: ContractTransaction
+            let tx: ContractTransactionResponse
 
             before(async () => {
               await createSnapshot()
@@ -1277,7 +1229,7 @@ describe("MaintainerProxy", () => {
               // timed out but report timeout only the two first
               // requests.
               const beforeProofActions = async () => {
-                await increaseTime(redemptionTimeout.add(1))
+                await increaseTime(toNumber(redemptionTimeout + 1n))
 
                 await bridge.notifyRedemptionTimeout(
                   data.wallet.pubKeyHash,
@@ -1310,14 +1262,12 @@ describe("MaintainerProxy", () => {
               const postMaintainerBalance = await provider.getBalance(
                 spvMaintainer.address
               )
-              const diff = postMaintainerBalance.sub(
-                initialSpvMaintainerBalance
-              )
+              const diff = postMaintainerBalance - initialSpvMaintainerBalance
 
               expect(diff).to.be.gt(0)
               expect(diff).to.be.lt(
                 // Keep a small headroom for minor gas/refund variance across environments.
-                ethers.utils.parseUnits("7200000", "gwei") // 0.0072 ETH
+                ethers.parseUnits("7200000", "gwei") // 0.0072 ETH
               )
             })
           }
@@ -1372,14 +1322,14 @@ describe("MaintainerProxy", () => {
 
         await bridge.setWallet(ecdsaWalletTestData.pubKeyHash160, {
           ecdsaWalletID: ecdsaWalletTestData.walletID,
-          mainUtxoHash: ethers.constants.HashZero,
+          mainUtxoHash: ethers.ZeroHash,
           pendingRedemptionsValue: 0,
           createdAt: await lastBlockTime(),
           movingFundsRequestedAt: 0,
           closingStartedAt: 0,
           pendingMovedFundsSweepRequestsCount: 0,
           state: walletState.Live,
-          movingFundsTargetWalletsCommitmentHash: ethers.constants.HashZero,
+          movingFundsTargetWalletsCommitmentHash: ethers.ZeroHash,
         })
       })
 
@@ -1391,7 +1341,9 @@ describe("MaintainerProxy", () => {
         before(async () => {
           await createSnapshot()
 
-          await increaseTime((await bridge.walletParameters()).walletMaxAge)
+          await increaseTime(
+            toNumber((await bridge.walletParameters()).walletMaxAge)
+          )
         })
 
         after(async () => {
@@ -1399,7 +1351,7 @@ describe("MaintainerProxy", () => {
         })
 
         context("when wallet balance is zero", () => {
-          let tx: ContractTransaction
+          let tx: ContractTransactionResponse
 
           before(async () => {
             await createSnapshot()
@@ -1424,13 +1376,11 @@ describe("MaintainerProxy", () => {
             const postMaintainerBalance = await provider.getBalance(
               walletMaintainer.address
             )
-            const diff = postMaintainerBalance.sub(
-              initialWalletMaintainerBalance
-            )
+            const diff = postMaintainerBalance - initialWalletMaintainerBalance
 
             expect(diff).to.be.gt(0)
             expect(diff).to.be.lt(
-              ethers.utils.parseUnits("2000000", "gwei") // 0,002 ETH
+              ethers.parseUnits("2000000", "gwei") // 0,002 ETH
             )
           })
         })
@@ -1443,7 +1393,7 @@ describe("MaintainerProxy", () => {
             txOutputValue: 1,
           }
 
-          let tx: ContractTransaction
+          let tx: ContractTransactionResponse
 
           before(async () => {
             await createSnapshot()
@@ -1473,13 +1423,11 @@ describe("MaintainerProxy", () => {
             const postMaintainerBalance = await provider.getBalance(
               walletMaintainer.address
             )
-            const diff = postMaintainerBalance.sub(
-              initialWalletMaintainerBalance
-            )
+            const diff = postMaintainerBalance - initialWalletMaintainerBalance
 
             expect(diff).to.be.gt(0)
             expect(diff).to.be.lt(
-              ethers.utils.parseUnits("2000000", "gwei") // 0,002 ETH
+              ethers.parseUnits("2000000", "gwei") // 0,002 ETH
             )
           })
         })
@@ -1489,7 +1437,7 @@ describe("MaintainerProxy", () => {
         "when wallet did not reach the maximum age but their balance is lesser than the minimum threshold",
         () => {
           context("when wallet balance is zero", () => {
-            let tx: ContractTransaction
+            let tx: ContractTransactionResponse
 
             before(async () => {
               await createSnapshot()
@@ -1514,13 +1462,12 @@ describe("MaintainerProxy", () => {
               const postMaintainerBalance = await provider.getBalance(
                 walletMaintainer.address
               )
-              const diff = postMaintainerBalance.sub(
-                initialWalletMaintainerBalance
-              )
+              const diff =
+                postMaintainerBalance - initialWalletMaintainerBalance
 
               expect(diff).to.be.gt(0)
               expect(diff).to.be.lt(
-                ethers.utils.parseUnits("2000000", "gwei") // 0,002 ETH
+                ethers.parseUnits("2000000", "gwei") // 0,002 ETH
               )
             })
           })
@@ -1530,10 +1477,10 @@ describe("MaintainerProxy", () => {
               txHash:
                 "0xc9e58780c6c289c25ae1fe293f85a4db4d0af4f305172f2a1868ddd917458bdf",
               txOutputIndex: 0,
-              txOutputValue: constants.walletClosureMinBtcBalance.sub(1),
+              txOutputValue: constants.walletClosureMinBtcBalance - 1n,
             }
 
-            let tx: ContractTransaction
+            let tx: ContractTransactionResponse
 
             before(async () => {
               await createSnapshot()
@@ -1563,13 +1510,12 @@ describe("MaintainerProxy", () => {
               const postMaintainerBalance = await provider.getBalance(
                 walletMaintainer.address
               )
-              const diff = postMaintainerBalance.sub(
-                initialWalletMaintainerBalance
-              )
+              const diff =
+                postMaintainerBalance - initialWalletMaintainerBalance
 
               expect(diff).to.be.gt(0)
               expect(diff).to.be.lt(
-                ethers.utils.parseUnits("2000000", "gwei") // 0,002 ETH
+                ethers.parseUnits("2000000", "gwei") // 0,002 ETH
               )
             })
           })
@@ -1585,23 +1531,22 @@ describe("MaintainerProxy", () => {
           "when the input is marked as correctly spent in the Bridge",
           () => {
             const data = nonWitnessSignSingleInputTx
-            let initialThirdPartyBalance: BigNumber
-            let tx: ContractTransaction
+            let initialThirdPartyBalance: bigint
+            let tx: ContractTransactionResponse
 
             before(async () => {
               await createSnapshot()
 
               await bridge.setWallet(walletPublicKeyHash, {
-                ecdsaWalletID: ethers.constants.HashZero,
-                mainUtxoHash: ethers.constants.HashZero,
+                ecdsaWalletID: ethers.ZeroHash,
+                mainUtxoHash: ethers.ZeroHash,
                 pendingRedemptionsValue: 0,
                 createdAt: await lastBlockTime(),
                 movingFundsRequestedAt: 0,
                 closingStartedAt: 0,
                 pendingMovedFundsSweepRequestsCount: 0,
                 state: walletState.Live,
-                movingFundsTargetWalletsCommitmentHash:
-                  ethers.constants.HashZero,
+                movingFundsTargetWalletsCommitmentHash: ethers.ZeroHash,
               })
               await bridge.setSweptDeposits(data.deposits)
               await bridge.setSpentMainUtxos(data.spentMainUtxos)
@@ -1644,11 +1589,11 @@ describe("MaintainerProxy", () => {
               const postThirdPartyBalance = await provider.getBalance(
                 thirdParty.address
               )
-              const diff = postThirdPartyBalance.sub(initialThirdPartyBalance)
+              const diff = postThirdPartyBalance - initialThirdPartyBalance
 
               expect(diff).to.be.gt(0)
               expect(diff).to.be.lt(
-                ethers.utils.parseUnits("2000000", "gwei") // 0,002 ETH
+                ethers.parseUnits("2000000", "gwei") // 0,002 ETH
               )
             })
           }
@@ -1660,23 +1605,22 @@ describe("MaintainerProxy", () => {
           "when the input is marked as correctly spent in the Bridge",
           () => {
             const data = nonWitnessSignMultipleInputsTx
-            let initialThirdPartyBalance: BigNumber
-            let tx: ContractTransaction
+            let initialThirdPartyBalance: bigint
+            let tx: ContractTransactionResponse
 
             before(async () => {
               await createSnapshot()
 
               await bridge.setWallet(walletPublicKeyHash, {
-                ecdsaWalletID: ethers.constants.HashZero,
-                mainUtxoHash: ethers.constants.HashZero,
+                ecdsaWalletID: ethers.ZeroHash,
+                mainUtxoHash: ethers.ZeroHash,
                 pendingRedemptionsValue: 0,
                 createdAt: await lastBlockTime(),
                 movingFundsRequestedAt: 0,
                 closingStartedAt: 0,
                 pendingMovedFundsSweepRequestsCount: 0,
                 state: walletState.Live,
-                movingFundsTargetWalletsCommitmentHash:
-                  ethers.constants.HashZero,
+                movingFundsTargetWalletsCommitmentHash: ethers.ZeroHash,
               })
               await bridge.setSweptDeposits(data.deposits)
               await bridge.setSpentMainUtxos(data.spentMainUtxos)
@@ -1719,11 +1663,11 @@ describe("MaintainerProxy", () => {
               const postThirdPartyBalance = await provider.getBalance(
                 thirdParty.address
               )
-              const diff = postThirdPartyBalance.sub(initialThirdPartyBalance)
+              const diff = postThirdPartyBalance - initialThirdPartyBalance
 
               expect(diff).to.be.gt(0)
               expect(diff).to.be.lt(
-                ethers.utils.parseUnits("2000000", "gwei") // 0,002 ETH
+                ethers.parseUnits("2000000", "gwei") // 0,002 ETH
               )
             })
           }
@@ -1737,23 +1681,22 @@ describe("MaintainerProxy", () => {
           "when the input is marked as correctly spent in the Bridge",
           () => {
             const data = witnessSignSingleInputTx
-            let initialThirdPartyBalance: BigNumber
-            let tx: ContractTransaction
+            let initialThirdPartyBalance: bigint
+            let tx: ContractTransactionResponse
 
             before(async () => {
               await createSnapshot()
 
               await bridge.setWallet(walletPublicKeyHash, {
-                ecdsaWalletID: ethers.constants.HashZero,
-                mainUtxoHash: ethers.constants.HashZero,
+                ecdsaWalletID: ethers.ZeroHash,
+                mainUtxoHash: ethers.ZeroHash,
                 pendingRedemptionsValue: 0,
                 createdAt: await lastBlockTime(),
                 movingFundsRequestedAt: 0,
                 closingStartedAt: 0,
                 pendingMovedFundsSweepRequestsCount: 0,
                 state: walletState.Live,
-                movingFundsTargetWalletsCommitmentHash:
-                  ethers.constants.HashZero,
+                movingFundsTargetWalletsCommitmentHash: ethers.ZeroHash,
               })
               await bridge.setSweptDeposits(data.deposits)
               await bridge.setSpentMainUtxos(data.spentMainUtxos)
@@ -1796,11 +1739,11 @@ describe("MaintainerProxy", () => {
               const postThirdPartyBalance = await provider.getBalance(
                 thirdParty.address
               )
-              const diff = postThirdPartyBalance.sub(initialThirdPartyBalance)
+              const diff = postThirdPartyBalance - initialThirdPartyBalance
 
               expect(diff).to.be.gt(0)
               expect(diff).to.be.lt(
-                ethers.utils.parseUnits("2000000", "gwei") // 0,002 ETH
+                ethers.parseUnits("2000000", "gwei") // 0,002 ETH
               )
             })
           }
@@ -1812,23 +1755,22 @@ describe("MaintainerProxy", () => {
           "when the input is marked as correctly spent in the Bridge",
           () => {
             const data = witnessSignMultipleInputTx
-            let initialThirdPartyBalance: BigNumber
-            let tx: ContractTransaction
+            let initialThirdPartyBalance: bigint
+            let tx: ContractTransactionResponse
 
             before(async () => {
               await createSnapshot()
 
               await bridge.setWallet(walletPublicKeyHash, {
-                ecdsaWalletID: ethers.constants.HashZero,
-                mainUtxoHash: ethers.constants.HashZero,
+                ecdsaWalletID: ethers.ZeroHash,
+                mainUtxoHash: ethers.ZeroHash,
                 pendingRedemptionsValue: 0,
                 createdAt: await lastBlockTime(),
                 movingFundsRequestedAt: 0,
                 closingStartedAt: 0,
                 pendingMovedFundsSweepRequestsCount: 0,
                 state: walletState.Live,
-                movingFundsTargetWalletsCommitmentHash:
-                  ethers.constants.HashZero,
+                movingFundsTargetWalletsCommitmentHash: ethers.ZeroHash,
               })
               await bridge.setSweptDeposits(data.deposits)
               await bridge.setSpentMainUtxos(data.spentMainUtxos)
@@ -1871,11 +1813,11 @@ describe("MaintainerProxy", () => {
               const postThirdPartyBalance = await provider.getBalance(
                 thirdParty.address
               )
-              const diff = postThirdPartyBalance.sub(initialThirdPartyBalance)
+              const diff = postThirdPartyBalance - initialThirdPartyBalance
 
               expect(diff).to.be.gt(0)
               expect(diff).to.be.lt(
-                ethers.utils.parseUnits("2000000", "gwei") // 0,002 ETH
+                ethers.parseUnits("2000000", "gwei") // 0,002 ETH
               )
             })
           }
@@ -1888,8 +1830,8 @@ describe("MaintainerProxy", () => {
     let heartbeatWalletPublicKey: string
     let heartbeatWalletSigningKey: SigningKey
 
-    let initialThirdPartyBalance: BigNumber
-    let tx: ContractTransaction
+    let initialThirdPartyBalance: bigint
+    let tx: ContractTransactionResponse
 
     before(async () => {
       await createSnapshot()
@@ -1903,14 +1845,14 @@ describe("MaintainerProxy", () => {
       // call appropriate function to compute another signature. Also, we do not
       // use any BTC-specific data for this set of unit tests.
       const wallet = ethers.Wallet.createRandom()
-      // We use `ethers.utils.SigningKey` for a `Wallet` instead of
+      // We use `ethers.SigningKey` for a `Wallet` instead of
       // `Signer.signMessage` to do not add '\x19Ethereum Signed Message:\n'
       // prefix to the signed message. The format of the heartbeat message is
       // the same no matter on which host chain TBTC is deployed.
-      heartbeatWalletSigningKey = new ethers.utils.SigningKey(wallet.privateKey)
-      // Public key obtained as `wallet.publicKey` is an uncompressed key,
+      heartbeatWalletSigningKey = new ethers.SigningKey(wallet.privateKey)
+      // Public key obtained as `wallet.signingKey.publicKey` is an uncompressed key,
       // prefixed with `0x04`. To compute raw ECDSA key, we need to drop `0x04`.
-      heartbeatWalletPublicKey = `0x${wallet.publicKey.substring(4)}`
+      heartbeatWalletPublicKey = `0x${wallet.signingKey.publicKey.substring(4)}`
 
       const walletID = keccak256(heartbeatWalletPublicKey)
       const walletPublicKeyX = `0x${heartbeatWalletPublicKey.substring(2, 66)}`
@@ -1927,8 +1869,8 @@ describe("MaintainerProxy", () => {
       const heartbeatMessageSha256 = sha256(heartbeatMessage)
       const sighash = sha256(sha256(heartbeatMessage))
 
-      const signature = ethers.utils.splitSignature(
-        heartbeatWalletSigningKey.signDigest(sighash)
+      const signature = ethers.Signature.from(
+        heartbeatWalletSigningKey.sign(sighash)
       )
 
       await bridge
@@ -1963,11 +1905,11 @@ describe("MaintainerProxy", () => {
       const postThirdPartyBalance = await provider.getBalance(
         thirdParty.address
       )
-      const diff = postThirdPartyBalance.sub(initialThirdPartyBalance)
+      const diff = postThirdPartyBalance - initialThirdPartyBalance
 
       expect(diff).to.be.gt(0)
       expect(diff).to.be.lt(
-        ethers.utils.parseUnits("1000000", "gwei") // 0,001 ETH
+        ethers.parseUnits("1000000", "gwei") // 0,001 ETH
       )
     })
   })
@@ -2041,7 +1983,7 @@ describe("MaintainerProxy", () => {
 
       testData.forEach((test) => {
         context(test.testName, () => {
-          let tx: ContractTransaction
+          let tx: ContractTransactionResponse
 
           before(async () => {
             await createSnapshot()
@@ -2061,11 +2003,11 @@ describe("MaintainerProxy", () => {
             const postMaintainerBalance = await provider.getBalance(
               spvMaintainer.address
             )
-            const diff = postMaintainerBalance.sub(initialSpvMaintainerBalance)
+            const diff = postMaintainerBalance - initialSpvMaintainerBalance
 
             expect(diff).to.be.gt(0)
             expect(diff).to.be.lt(
-              ethers.utils.parseUnits("2000000", "gwei") // 0,002 ETH
+              ethers.parseUnits("2000000", "gwei") // 0,002 ETH
             )
           })
         })
@@ -2074,25 +2016,25 @@ describe("MaintainerProxy", () => {
   })
 
   describe("resetMovingFundsTimeout", () => {
-    let initialThirdPartyBalance: BigNumber
-    let tx: ContractTransaction
+    let initialThirdPartyBalance: bigint
+    let tx: ContractTransactionResponse
 
     before(async () => {
       await createSnapshot()
 
       await bridge.setWallet(ecdsaWalletTestData.pubKeyHash160, {
         ecdsaWalletID: ecdsaWalletTestData.walletID,
-        mainUtxoHash: ethers.constants.HashZero,
+        mainUtxoHash: ethers.ZeroHash,
         pendingRedemptionsValue: 0,
         createdAt: 0,
         movingFundsRequestedAt: (await lastBlockTime()) + 1,
         closingStartedAt: 0,
         pendingMovedFundsSweepRequestsCount: 0,
         state: walletState.MovingFunds,
-        movingFundsTargetWalletsCommitmentHash: ethers.constants.HashZero,
+        movingFundsTargetWalletsCommitmentHash: ethers.ZeroHash,
       })
 
-      await increaseTime(movingFundsTimeoutResetDelay + 2)
+      await increaseTime(toNumber(movingFundsTimeoutResetDelay + 2n))
 
       initialThirdPartyBalance = await provider.getBalance(thirdParty.address)
       tx = await maintainerProxy
@@ -2112,23 +2054,23 @@ describe("MaintainerProxy", () => {
       const postThirdPartyBalance = await provider.getBalance(
         thirdParty.address
       )
-      const diff = postThirdPartyBalance.sub(initialThirdPartyBalance)
+      const diff = postThirdPartyBalance - initialThirdPartyBalance
 
       expect(diff).to.be.gt(0)
       expect(diff).to.be.lt(
-        ethers.utils.parseUnits("1000000", "gwei") // 0,001 ETH
+        ethers.parseUnits("1000000", "gwei") // 0,001 ETH
       )
     })
   })
 
   describe("notifyMovingFundsBelowDust", () => {
     const mainUtxo = {
-      txHash: ethers.constants.HashZero,
+      txHash: ethers.ZeroHash,
       txOutputIndex: 0,
       txOutputValue: constants.movingFundsDustThreshold - 1,
     }
 
-    let tx: ContractTransaction
+    let tx: ContractTransactionResponse
 
     context("when called by an unauthorized third party", () => {
       // Even though transaction reverts some funds were spent.
@@ -2175,14 +2117,14 @@ describe("MaintainerProxy", () => {
 
         await bridge.setWallet(ecdsaWalletTestData.pubKeyHash160, {
           ecdsaWalletID: ecdsaWalletTestData.walletID,
-          mainUtxoHash: ethers.constants.HashZero,
+          mainUtxoHash: ethers.ZeroHash,
           pendingRedemptionsValue: 0,
           createdAt: 0,
           movingFundsRequestedAt: 0,
           closingStartedAt: 0,
           pendingMovedFundsSweepRequestsCount: 0,
           state: walletState.MovingFunds,
-          movingFundsTargetWalletsCommitmentHash: ethers.constants.HashZero,
+          movingFundsTargetWalletsCommitmentHash: ethers.ZeroHash,
         })
 
         await bridge.setWalletMainUtxo(
@@ -2210,11 +2152,11 @@ describe("MaintainerProxy", () => {
         const postMaintainerBalance = await provider.getBalance(
           walletMaintainer.address
         )
-        const diff = postMaintainerBalance.sub(initialWalletMaintainerBalance)
+        const diff = postMaintainerBalance - initialWalletMaintainerBalance
 
         expect(diff).to.be.gt(0)
         expect(diff).to.be.lt(
-          ethers.utils.parseUnits("1000000", "gwei") // 0,001 ETH
+          ethers.parseUnits("1000000", "gwei") // 0,001 ETH
         )
       })
     })
@@ -2268,7 +2210,7 @@ describe("MaintainerProxy", () => {
           "when there is a single input referring to a Pending sweep request",
           () => {
             const data: MovedFundsSweepTestData = MovedFundsSweepWithoutMainUtxo
-            let tx: ContractTransaction
+            let tx: ContractTransactionResponse
 
             before(async () => {
               await createSnapshot()
@@ -2288,13 +2230,11 @@ describe("MaintainerProxy", () => {
               const postMaintainerBalance = await provider.getBalance(
                 spvMaintainer.address
               )
-              const diff = postMaintainerBalance.sub(
-                initialSpvMaintainerBalance
-              )
+              const diff = postMaintainerBalance - initialSpvMaintainerBalance
 
               expect(diff).to.be.gt(0)
               expect(diff).to.be.lt(
-                ethers.utils.parseUnits("1000000", "gwei") // 0,001 ETH
+                ethers.parseUnits("1000000", "gwei") // 0,001 ETH
               )
             })
           }
@@ -2307,7 +2247,7 @@ describe("MaintainerProxy", () => {
             "input refers to the sweeping wallet main UTXO",
           () => {
             const data: MovedFundsSweepTestData = MovedFundsSweepWithMainUtxo
-            let tx: ContractTransaction
+            let tx: ContractTransactionResponse
 
             before(async () => {
               await createSnapshot()
@@ -2327,13 +2267,11 @@ describe("MaintainerProxy", () => {
               const postMaintainerBalance = await provider.getBalance(
                 spvMaintainer.address
               )
-              const diff = postMaintainerBalance.sub(
-                initialSpvMaintainerBalance
-              )
+              const diff = postMaintainerBalance - initialSpvMaintainerBalance
 
               expect(diff).to.be.gt(0)
               expect(diff).to.be.lt(
-                ethers.utils.parseUnits("1000000", "gwei") // 0,001 ETH
+                ethers.parseUnits("1000000", "gwei") // 0,001 ETH
               )
             })
           }
@@ -2379,21 +2317,21 @@ describe("MaintainerProxy", () => {
     )
 
     context("when called by a wallet maintainer", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
 
         await bridge.setWallet(ecdsaWalletTestData.pubKeyHash160, {
           ecdsaWalletID: ecdsaWalletTestData.walletID,
-          mainUtxoHash: ethers.constants.HashZero,
+          mainUtxoHash: ethers.ZeroHash,
           pendingRedemptionsValue: 0,
           createdAt: 0,
           movingFundsRequestedAt: 0,
           closingStartedAt: 0,
           pendingMovedFundsSweepRequestsCount: 0,
           state: walletState.Live,
-          movingFundsTargetWalletsCommitmentHash: ethers.constants.HashZero,
+          movingFundsTargetWalletsCommitmentHash: ethers.ZeroHash,
         })
 
         // Switches the wallet to Closing state because the wallet has
@@ -2407,7 +2345,7 @@ describe("MaintainerProxy", () => {
           )
 
         await increaseTime(
-          (await bridge.walletParameters()).walletClosingPeriod + 1
+          toNumber((await bridge.walletParameters()).walletClosingPeriod + 1n)
         )
 
         tx = await maintainerProxy
@@ -2428,11 +2366,11 @@ describe("MaintainerProxy", () => {
         const postMaintainerBalance = await provider.getBalance(
           walletMaintainer.address
         )
-        const diff = postMaintainerBalance.sub(initialWalletMaintainerBalance)
+        const diff = postMaintainerBalance - initialWalletMaintainerBalance
 
         expect(diff).to.be.gt(0)
         expect(diff).to.be.lt(
-          ethers.utils.parseUnits("1000000", "gwei") // 0,001 ETH
+          ethers.parseUnits("1000000", "gwei") // 0,001 ETH
         )
       })
     })
@@ -2450,7 +2388,7 @@ describe("MaintainerProxy", () => {
     })
 
     context("when the caller is the owner", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -2506,7 +2444,7 @@ describe("MaintainerProxy", () => {
     })
 
     context("when the caller is the owner", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -2641,7 +2579,7 @@ describe("MaintainerProxy", () => {
 
       context("when there is one authorized maintainer", () => {
         context("when unauthorizing the one that is authorized", () => {
-          let tx: ContractTransaction
+          let tx: ContractTransactionResponse
 
           before(async () => {
             await createSnapshot()
@@ -2674,14 +2612,14 @@ describe("MaintainerProxy", () => {
       })
 
       context("when there are many authorized maintainers", () => {
-        let maintainer1: SignerWithAddress
-        let maintainer2: SignerWithAddress
-        let maintainer3: SignerWithAddress
-        let maintainer4: SignerWithAddress
-        let maintainer5: SignerWithAddress
-        let maintainer6: SignerWithAddress
-        let maintainer7: SignerWithAddress
-        let maintainer8: SignerWithAddress
+        let maintainer1: HardhatEthersSigner
+        let maintainer2: HardhatEthersSigner
+        let maintainer3: HardhatEthersSigner
+        let maintainer4: HardhatEthersSigner
+        let maintainer5: HardhatEthersSigner
+        let maintainer6: HardhatEthersSigner
+        let maintainer7: HardhatEthersSigner
+        let maintainer8: HardhatEthersSigner
 
         before(async () => {
           await createSnapshot()
@@ -2726,8 +2664,8 @@ describe("MaintainerProxy", () => {
         context(
           "when unauthorizing a couple of maintainers from the beginning",
           () => {
-            let tx1: ContractTransaction
-            let tx3: ContractTransaction
+            let tx1: ContractTransactionResponse
+            let tx3: ContractTransactionResponse
             before(async () => {
               await createSnapshot()
 
@@ -2808,8 +2746,8 @@ describe("MaintainerProxy", () => {
         context(
           "when unauthorizing a couple of maintainers from the middle",
           () => {
-            let tx3: ContractTransaction
-            let tx6: ContractTransaction
+            let tx3: ContractTransactionResponse
+            let tx6: ContractTransactionResponse
             before(async () => {
               await createSnapshot()
 
@@ -2890,8 +2828,8 @@ describe("MaintainerProxy", () => {
         context(
           "when unauthorizing a couple of maintainers from the end",
           () => {
-            let tx5: ContractTransaction
-            let tx8: ContractTransaction
+            let tx5: ContractTransactionResponse
+            let tx8: ContractTransactionResponse
             before(async () => {
               await createSnapshot()
 
@@ -3052,7 +2990,7 @@ describe("MaintainerProxy", () => {
 
       context("when there is one authorized maintainer", () => {
         context("when unauthorizing the one that is authorized", () => {
-          let tx: ContractTransaction
+          let tx: ContractTransactionResponse
 
           before(async () => {
             await createSnapshot()
@@ -3085,14 +3023,14 @@ describe("MaintainerProxy", () => {
       })
 
       context("when there are many authorized maintainers", () => {
-        let maintainer1: SignerWithAddress
-        let maintainer2: SignerWithAddress
-        let maintainer3: SignerWithAddress
-        let maintainer4: SignerWithAddress
-        let maintainer5: SignerWithAddress
-        let maintainer6: SignerWithAddress
-        let maintainer7: SignerWithAddress
-        let maintainer8: SignerWithAddress
+        let maintainer1: HardhatEthersSigner
+        let maintainer2: HardhatEthersSigner
+        let maintainer3: HardhatEthersSigner
+        let maintainer4: HardhatEthersSigner
+        let maintainer5: HardhatEthersSigner
+        let maintainer6: HardhatEthersSigner
+        let maintainer7: HardhatEthersSigner
+        let maintainer8: HardhatEthersSigner
 
         before(async () => {
           await createSnapshot()
@@ -3137,8 +3075,8 @@ describe("MaintainerProxy", () => {
         context(
           "when unauthorizing a couple of maintainers from the beginning",
           () => {
-            let tx1: ContractTransaction
-            let tx3: ContractTransaction
+            let tx1: ContractTransactionResponse
+            let tx3: ContractTransactionResponse
             before(async () => {
               await createSnapshot()
 
@@ -3219,8 +3157,8 @@ describe("MaintainerProxy", () => {
         context(
           "when unauthorizing a couple of maintainers from the middle",
           () => {
-            let tx3: ContractTransaction
-            let tx6: ContractTransaction
+            let tx3: ContractTransactionResponse
+            let tx6: ContractTransactionResponse
             before(async () => {
               await createSnapshot()
 
@@ -3301,8 +3239,8 @@ describe("MaintainerProxy", () => {
         context(
           "when unauthorizing a couple of maintainers from the end",
           () => {
-            let tx5: ContractTransaction
-            let tx8: ContractTransaction
+            let tx5: ContractTransactionResponse
+            let tx8: ContractTransactionResponse
             before(async () => {
               await createSnapshot()
 
@@ -3391,7 +3329,7 @@ describe("MaintainerProxy", () => {
     })
 
     context("when called by the owner", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -3448,7 +3386,7 @@ describe("MaintainerProxy", () => {
     })
 
     context("when called by the owner", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -3548,7 +3486,7 @@ describe("MaintainerProxy", () => {
     })
 
     context("when called by the owner", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -3570,32 +3508,32 @@ describe("MaintainerProxy", () => {
   })
 
   async function makeRedemptionAllowance(
-    redeemer: SignerWithAddress,
+    redeemer: HardhatEthersSigner,
     amount: BigNumberish
-  ): Promise<ContractTransaction> {
+  ): Promise<ContractTransactionResponse> {
     // Simulate the redeemer has a TBTC balance allowing to make the request.
     await bank.setBalance(redeemer.address, amount)
     // Redeemer must allow the Bridge to spent the requested amount.
     return bank
       .connect(redeemer)
-      .increaseBalanceAllowance(bridge.address, amount)
+      .increaseBalanceAllowance(bridge.target, amount)
   }
 
   async function runDepositSweepScenario(
     data: DepositSweepTestData,
     beforeProofActions?: () => Promise<void>
-  ): Promise<ContractTransaction> {
+  ): Promise<ContractTransactionResponse> {
     await relay.getCurrentEpochDifficulty.returns(data.chainDifficulty)
     await relay.getPrevEpochDifficulty.returns(data.chainDifficulty)
 
     for (let i = 0; i < data.deposits.length; i++) {
       const { fundingTx, depositor, reveal } = data.deposits[i]
-      // eslint-disable-next-line no-await-in-loop
+
       const depositorSigner = await impersonateAccount(depositor, {
         from: governance,
-        value: 10,
+        value: 10n,
       })
-      // eslint-disable-next-line no-await-in-loop
+
       await bridge.connect(depositorSigner).revealDeposit(fundingTx, reveal)
     }
 
@@ -3611,7 +3549,7 @@ describe("MaintainerProxy", () => {
         data.mainUtxo,
         data.vault
       )
-      .then(async (tx: ContractTransaction) => {
+      .then(async (tx: ContractTransactionResponse) => {
         await relay.getCurrentEpochDifficulty.reset()
         await relay.getPrevEpochDifficulty.reset()
 
@@ -3623,7 +3561,7 @@ describe("MaintainerProxy", () => {
     data: RedemptionTestData,
     beforeRequestActions?: () => Promise<void>,
     beforeProofActions?: () => Promise<void>
-  ): Promise<ContractTransaction> {
+  ): Promise<ContractTransactionResponse> {
     await relay.getPrevEpochDifficulty.returns(data.chainDifficulty)
     await relay.getCurrentEpochDifficulty.returns(data.chainDifficulty)
 
@@ -3637,7 +3575,7 @@ describe("MaintainerProxy", () => {
     await bridgeGovernance
       .connect(governance)
       .beginMovingFundsDustThresholdUpdate(2000)
-    await increaseTime(await bridgeGovernance.governanceDelays(0))
+    await increaseTime(toNumber(await bridgeGovernance.governanceDelays(0)))
     await bridgeGovernance
       .connect(governance)
       .finalizeMovingFundsDustThresholdUpdate()
@@ -3645,7 +3583,7 @@ describe("MaintainerProxy", () => {
     await bridgeGovernance
       .connect(governance)
       .beginRedemptionTxMaxFeeUpdate(1000)
-    await increaseTime(await bridgeGovernance.governanceDelays(0))
+    await increaseTime(toNumber(await bridgeGovernance.governanceDelays(0)))
     await bridgeGovernance
       .connect(governance)
       .finalizeRedemptionTxMaxFeeUpdate()
@@ -3653,14 +3591,14 @@ describe("MaintainerProxy", () => {
     // Simulate the wallet is a registered one.
     await bridge.setWallet(data.wallet.pubKeyHash, {
       ecdsaWalletID: data.wallet.ecdsaWalletID,
-      mainUtxoHash: ethers.constants.HashZero,
+      mainUtxoHash: ethers.ZeroHash,
       pendingRedemptionsValue: data.wallet.pendingRedemptionsValue,
       createdAt: await lastBlockTime(),
       movingFundsRequestedAt: 0,
       closingStartedAt: 0,
       pendingMovedFundsSweepRequestsCount: 0,
       state: data.wallet.state,
-      movingFundsTargetWalletsCommitmentHash: ethers.constants.HashZero,
+      movingFundsTargetWalletsCommitmentHash: ethers.ZeroHash,
     })
     // Simulate the prepared main UTXO belongs to the wallet.
     await bridge.setWalletMainUtxo(data.wallet.pubKeyHash, data.mainUtxo)
@@ -3676,7 +3614,7 @@ describe("MaintainerProxy", () => {
       /* eslint-disable no-await-in-loop */
       const redeemerSigner = await impersonateAccount(redeemer, {
         from: governance,
-        value: 100,
+        value: 100n,
       })
 
       await makeRedemptionAllowance(redeemerSigner, amount)
@@ -3704,7 +3642,7 @@ describe("MaintainerProxy", () => {
         data.mainUtxo,
         data.wallet.pubKeyHash
       )
-      .then(async (tx: ContractTransaction) => {
+      .then(async (tx: ContractTransactionResponse) => {
         await relay.getCurrentEpochDifficulty.reset()
         await relay.getPrevEpochDifficulty.reset()
 
@@ -3715,14 +3653,14 @@ describe("MaintainerProxy", () => {
   async function runMovingFundsScenario(
     data: MovingFundsTestData,
     beforeProofActions?: () => Promise<void>
-  ): Promise<ContractTransaction> {
+  ): Promise<ContractTransactionResponse> {
     await relay.getPrevEpochDifficulty.returns(data.chainDifficulty)
     await relay.getCurrentEpochDifficulty.returns(data.chainDifficulty)
 
     // Simulate the wallet is a registered one.
     await bridge.setWallet(data.wallet.pubKeyHash, {
       ecdsaWalletID: data.wallet.ecdsaWalletID,
-      mainUtxoHash: ethers.constants.HashZero,
+      mainUtxoHash: ethers.ZeroHash,
       pendingRedemptionsValue: 0,
       createdAt: await lastBlockTime(),
       movingFundsRequestedAt: await lastBlockTime(),
@@ -3731,11 +3669,11 @@ describe("MaintainerProxy", () => {
       state: data.wallet.state,
       movingFundsTargetWalletsCommitmentHash:
         data.targetWalletsCommitment.length > 0
-          ? ethers.utils.solidityKeccak256(
+          ? ethers.solidityPackedKeccak256(
               ["bytes20[]"],
               [data.targetWalletsCommitment]
             )
-          : ethers.constants.HashZero,
+          : ethers.ZeroHash,
     })
     // Simulate the prepared main UTXO belongs to the wallet.
     await bridge.setWalletMainUtxo(data.wallet.pubKeyHash, data.mainUtxo)
@@ -3752,7 +3690,7 @@ describe("MaintainerProxy", () => {
         data.mainUtxo,
         data.wallet.pubKeyHash
       )
-      .then(async (tx: ContractTransaction) => {
+      .then(async (tx: ContractTransactionResponse) => {
         await relay.getCurrentEpochDifficulty.reset()
         await relay.getPrevEpochDifficulty.reset()
 
@@ -3763,24 +3701,24 @@ describe("MaintainerProxy", () => {
   async function runMovedFundsSweepScenario(
     data: MovedFundsSweepTestData,
     beforeProofActions?: () => Promise<void>
-  ): Promise<ContractTransaction> {
+  ): Promise<ContractTransactionResponse> {
     await relay.getCurrentEpochDifficulty.returns(data.chainDifficulty)
     await relay.getPrevEpochDifficulty.returns(data.chainDifficulty)
 
     // Simulate the wallet is a registered one.
     await bridge.setWallet(data.wallet.pubKeyHash, {
       ecdsaWalletID: data.wallet.ecdsaWalletID,
-      mainUtxoHash: ethers.constants.HashZero,
+      mainUtxoHash: ethers.ZeroHash,
       pendingRedemptionsValue: 0,
       createdAt: await lastBlockTime(),
       movingFundsRequestedAt: 0,
       closingStartedAt: 0,
       pendingMovedFundsSweepRequestsCount: 0,
       state: data.wallet.state,
-      movingFundsTargetWalletsCommitmentHash: ethers.constants.HashZero,
+      movingFundsTargetWalletsCommitmentHash: ethers.ZeroHash,
     })
 
-    if (data.mainUtxo.txHash !== ethers.constants.HashZero) {
+    if (data.mainUtxo.txHash !== ethers.ZeroHash) {
       // Simulate the prepared main UTXO belongs to the wallet.
       await bridge.setWalletMainUtxo(data.wallet.pubKeyHash, data.mainUtxo)
     }
@@ -3794,7 +3732,7 @@ describe("MaintainerProxy", () => {
       // initialized the counter properly.
       assert(
         (await bridge.wallets(data.movedFundsSweepRequest.walletPubKeyHash))
-          .pendingMovedFundsSweepRequestsCount === 1,
+          .pendingMovedFundsSweepRequestsCount === 1n,
         "Pending moved funds request counter for the sweeping wallet should be set up to 1"
       )
     }
@@ -3806,7 +3744,7 @@ describe("MaintainerProxy", () => {
     return maintainerProxy
       .connect(spvMaintainer)
       .submitMovedFundsSweepProof(data.sweepTx, data.sweepProof, data.mainUtxo)
-      .then(async (tx: ContractTransaction) => {
+      .then(async (tx: ContractTransactionResponse) => {
         await relay.getCurrentEpochDifficulty.reset()
         await relay.getPrevEpochDifficulty.reset()
 

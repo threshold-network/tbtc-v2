@@ -152,10 +152,9 @@ contract L1BTCRedeemerWormhole is
     /// @dev Can be called only by the contract owner. The caller is responsible
     ///      for validating parameters.
     /// @param _requestRedemptionGasOffset New redemption gas offset.
-    function updateGasOffsetParameters(uint256 _requestRedemptionGasOffset)
-        external
-        onlyOwner
-    {
+    function updateGasOffsetParameters(
+        uint256 _requestRedemptionGasOffset
+    ) external onlyOwner {
         requestRedemptionGasOffset = _requestRedemptionGasOffset;
 
         emit GasOffsetParametersUpdated(_requestRedemptionGasOffset);
@@ -179,10 +178,10 @@ contract L1BTCRedeemerWormhole is
     /// @param _allowed New allowed status.
     /// @dev Requirements:
     ///      - Can be called only by the contract owner.
-    function updateAllowedSender(bytes32 _sender, bool _allowed)
-        external
-        onlyOwner
-    {
+    function updateAllowedSender(
+        bytes32 _sender,
+        bool _allowed
+    ) external onlyOwner {
         allowedSenders[_sender] = _allowed;
         emit AllowedSenderUpdated(_sender, _allowed);
     }
@@ -203,10 +202,10 @@ contract L1BTCRedeemerWormhole is
     ///      failed cross-chain redemption flows.
     /// @param recipient Must match the configured `recoveryAddress`.
     /// @param amount Amount of Bank balance to transfer.
-    function rescueBankBalance(address recipient, uint256 amount)
-        external
-        onlyOwner
-    {
+    function rescueBankBalance(
+        address recipient,
+        uint256 amount
+    ) external onlyOwner {
         if (recoveryAddress == address(0)) revert RecoveryAddressNotSet();
         if (recipient != recoveryAddress) revert RecipientNotRecoveryAddress();
 

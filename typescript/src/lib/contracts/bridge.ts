@@ -133,11 +133,13 @@ export interface Bridge {
    *        request is targeted to. Must be 20 bytes long.
    * @param redeemerOutputScript The redeemer output script the redeemed funds
    *        are supposed to be locked on. Must not be prepended with length.
+   * @param blockNumber Optional block at which to read the pending request.
    * @returns Promise with the pending redemption.
    */
   pendingRedemptionsByWalletPKH(
     walletPublicKeyHash: Hex,
-    redeemerOutputScript: Hex
+    redeemerOutputScript: Hex,
+    blockNumber?: number
   ): Promise<RedemptionRequest>
 
   /**
@@ -190,9 +192,46 @@ export interface Bridge {
 
   /**
    * Get emitted RedemptionRequested events.
-   * @see GetEventsFunction
+   * @param filterArgs Optional wallet public key hash filter. The first
+   *        argument may be a single 20-byte wallet public key hash (as a
+   *        string or `Hex`), an array of them to match any of the listed
+   *        wallets, or `null`/omitted to match events from any wallet. An
+   *        empty array matches no events. No additional filter arguments
+   *        are supported.
    */
   getRedemptionRequestedEvents: GetChainEvents.Function<RedemptionRequestedEvent>
+
+  /**
+   * Get emitted RedemptionsCompleted events (successful on-chain acceptance
+   * of a redemption transaction proof).
+   * @param filterArgs Optional wallet public key hash filter. The first
+   *        argument may be a single 20-byte wallet public key hash (as a
+   *        string or `Hex`), an array of them to match any of the listed
+   *        wallets, or `null`/omitted to match events from any wallet. An
+   *        empty array matches no events. No additional filter arguments
+   *        are supported.
+   */
+  getRedemptionsCompletedEvents: GetChainEvents.Function<RedemptionsCompletedEvent>
+
+  /**
+   * Get emitted RedemptionTimedOut events. These are recorded only when a
+   * timeout report is accepted on-chain; expiration of the redemption
+   * timeout alone does not emit an event.
+   * @param filterArgs Optional wallet public key hash filter. The first
+   *        argument may be a single 20-byte wallet public key hash (as a
+   *        string or `Hex`), an array of them to match any of the listed
+   *        wallets, or `null`/omitted to match events from any wallet. An
+   *        empty array matches no events. No additional filter arguments
+   *        are supported.
+   */
+  getRedemptionTimedOutEvents: GetChainEvents.Function<RedemptionTimedOutEvent>
+
+  /**
+   * Gets the configured redemption timeout in seconds.
+   * @param blockNumber Optional block at which to read the configuration.
+   * @returns The timeout in seconds.
+   */
+  getRedemptionTimeout(blockNumber?: number): Promise<number>
 }
 
 /**
@@ -364,6 +403,31 @@ export type RedemptionRequestedEvent = Omit<
    */
   walletPublicKeyHash: Hex
 } & ChainEvent
+
+/**
+ * Represents an event emitted when a redemption transaction's SPV proof is
+ * accepted on-chain. `redemptionTxHash` is reported in explorer/display byte
+ * order, i.e. reversed relative to the transaction's internal Bitcoin byte
+ * order.
+ */
+export type RedemptionsCompletedEvent = ChainEvent & {
+  walletPublicKeyHash: Hex
+  /** Bitcoin transaction hash in explorer/display byte order. */
+  redemptionTxHash: BitcoinTxHash
+}
+
+/**
+ * Represents an event emitted when a redemption request's timeout is
+ * reported and processed on-chain. Expiration of the redemption timeout
+ * alone does not emit this event; it fires only once the timeout report is
+ * accepted. `redeemerOutputScript` is reported without its CompactSize
+ * length prefix.
+ */
+export type RedemptionTimedOutEvent = ChainEvent & {
+  walletPublicKeyHash: Hex
+  /** Output script without its CompactSize length prefix. */
+  redeemerOutputScript: Hex
+}
 
 /* eslint-disable no-unused-vars */
 export enum WalletState {

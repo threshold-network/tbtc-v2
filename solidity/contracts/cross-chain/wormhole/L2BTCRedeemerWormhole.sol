@@ -134,11 +134,9 @@ contract L2BTCRedeemerWormhole is
     ///      where the chain slot reads 0. It must be called atomically with the
     ///      upgrade. Emits L1BtcRedeemerUpdated with the unchanged address and
     ///      the new chain.
-    function initializeV2(uint16 _l1BtcRedeemerWormholeChain)
-        external
-        onlyOwner
-        reinitializer(2)
-    {
+    function initializeV2(
+        uint16 _l1BtcRedeemerWormholeChain
+    ) external onlyOwner reinitializer(2) {
         if (_l1BtcRedeemerWormholeChain == 0) revert InvalidRecipientChain();
         l1BtcRedeemerWormholeChain = _l1BtcRedeemerWormholeChain;
         emit L1BtcRedeemerUpdated(
@@ -221,10 +219,9 @@ contract L2BTCRedeemerWormhole is
 
     /// @notice Lets the governance update the minimum redemption amount.
     /// @param _newMinimumRedemptionAmount The new minimum redemption amount.
-    function updateMinimumRedemptionAmount(uint256 _newMinimumRedemptionAmount)
-        external
-        onlyOwner
-    {
+    function updateMinimumRedemptionAmount(
+        uint256 _newMinimumRedemptionAmount
+    ) external onlyOwner {
         if (_newMinimumRedemptionAmount == 0) {
             revert MinimumRedemptionAmountZero();
         }

@@ -8,6 +8,7 @@ on:
       - main
     paths:
       - "solidity/**"
+      - "config/**"
       - ".github/workflows/contracts.yml"
   pull_request:
   # We intend to use `workflow dispatch` in two different situations/paths:
@@ -43,16 +44,17 @@ jobs:
     outputs:
       path-filter: ${{ steps.filter.outputs.path-filter }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         if: github.event_name == 'pull_request'
 
-      - uses: dorny/paths-filter@v2
+      - uses: dorny/paths-filter@v3
         if: github.event_name == 'pull_request'
         id: filter
         with:
           filters: |
             path-filter:
               - './solidity/**'
+              - './config/**'
               - './.github/workflows/contracts.yml'
 
   contracts-validate-inputs:
@@ -79,24 +81,25 @@ jobs:
       run:
         working-directory: ./solidity
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
           node-version: "24.11.1"
 
+      - name: Enable Corepack
+        run: corepack enable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.11.1"
+          cache: yarn
+          cache-dependency-path: solidity/yarn.lock
+
       - name: Enable Corepack (Yarn from lockfile)
         run: |
           corepack enable
           corepack prepare yarn@4.12.0 --activate
-
-      # We need this step because the `@keep-network/tbtc` which we update in
-      # next step has a dependency to `@summa-tx/relay-sol@2.0.2` package, which
-      # downloads one of its sub-dependencies via unathenticated `git://`
-      # protocol. That protocol is no longer supported. Thanks to this step
-      # `https://` is used instead of `git://`.
-      - name: Configure git to don't use unauthenticated protocol
-        run: git config --global url."https://".insteadOf git://
 
       - name: Install dependencies
         run: yarn install
@@ -111,11 +114,85 @@ jobs:
       # when deploying from `dapp-development` or during PR checks on that branch).
       - name: Run tests
         if: github.ref != 'refs/heads/dapp-development' && github.head_ref != 'dapp-development'
+        env:
+          # PRs run mocha in parallel for speed; push-to-main and the
+          # nightly/daily schedule keep the full serial suite as a guardrail.
+          # The integration suite below is always serial.
+          HARDHAT_MOCHA_PARALLEL: ${{ github.event_name == 'pull_request' && 'true' || 'false' }}
         run: yarn test
 
       - name: Run integration tests
         if: github.ref != 'refs/heads/dapp-development' && github.head_ref != 'dapp-development'
+        env:
+          HARDHAT_MOCHA_PARALLEL: "false"
         run: yarn test:integration
+
+  contracts-foundry:
+    needs: contracts-detect-changes
+    if: |
+      github.event_name != 'pull_request'
+        || needs.contracts-detect-changes.outputs.path-filter == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: ./solidity
+    env:
+      FOUNDRY_PROFILE: ci
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.11.1"
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.11.1"
+          cache: yarn
+          cache-dependency-path: solidity/yarn.lock
+
+      - name: Enable Corepack
+        run: |
+          corepack enable
+          corepack prepare yarn@4.12.0 --activate
+
+      - name: Configure HTTPS for legacy git dependencies
+        run: git config --global url."https://".insteadOf git://
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Verify Foundry/Hardhat compiler parity
+        run: yarn check:foundry-hardhat-parity
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1
+        with:
+          version: v1.5.1
+          cache: true
+
+      - name: Cache pinned forge-std
+        id: forge-std-cache
+        uses: actions/cache@v4
+        with:
+          path: solidity/lib/forge-std
+          # Fixed key per forge-std commit. A miss installs that exact revision;
+          # a hit reuses the populated directory.
+          key: forge-std-8e40513d678f392f398620b3ef2b418648b33e89
+
+      - name: Install pinned forge-std
+        if: steps.forge-std-cache.outputs.cache-hit != 'true'
+        run: yarn foundry:install
+
+      - name: Run Foundry fuzz tests
+        run: yarn test:foundry
 
   contracts-deployment-dry-run:
     needs: contracts-detect-changes
@@ -127,25 +204,25 @@ jobs:
       run:
         working-directory: ./solidity
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
           node-version: "24.11.1"
 
+      - name: Enable Corepack
+        run: corepack enable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.11.1"
+          cache: yarn
+          cache-dependency-path: solidity/yarn.lock
+
       - name: Enable Corepack (Yarn from lockfile)
         run: |
           corepack enable
           corepack prepare yarn@4.12.0 --activate
-
-      # This step forces Git to download dependencies using `https://` protocol,
-      # even if `yarn.json` refers to some package via `git://`. Using `git://`
-      # is no longer supported by GH. One of the `tbtc-v2` dependencies by
-      # default uses `git://` and we needed to manually remove it every time
-      # it re-appeared in the lock file. Now even if it does re-appear, the
-      # `yarn install --immutable` will not fail.
-      - name: Configure git to don't use unauthenticated protocol
-        run: git config --global url."https://".insteadOf git://
 
       - name: Install dependencies
         run: yarn install --immutable
@@ -163,50 +240,48 @@ jobs:
       run:
         working-directory: ./solidity
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
           node-version: "24.11.1"
           registry-url: "https://registry.npmjs.org"
 
+      - name: Enable Corepack
+        run: corepack enable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.11.1"
+          registry-url: "https://registry.npmjs.org"
+          cache: yarn
+          cache-dependency-path: solidity/yarn.lock
+
       - name: Enable Corepack (Yarn from lockfile)
         run: |
           corepack enable
           corepack prepare yarn@4.12.0 --activate
 
-      # We need this step because the `@keep-network/tbtc` which we update in
-      # next steps has a dependency to `@summa-tx/relay-sol@2.0.2` package, which
-      # downloads one of its sub-dependencies via unathenticated `git://`
-      # protocol. That protocol is no longer supported. Thanks to this step
-      # `https://` is used instead of `git://`. This step also prevents the
-      # error during `yarn install --immutable` step in case `git://` gets
-      # introduced to tbtc-v2's `yarn.lock`.
-      - name: Configure git to don't use unauthenticated protocol
-        run: git config --global url."https://".insteadOf git://
-
       - name: Install dependencies
         run: yarn install --immutable
 
       - name: Get upstream packages versions
-        uses: keep-network/ci/actions/upstream-builds-query@v2
+        uses: threshold-network/ci/actions/upstream-builds-query@20b35345d276a3c7365e3829b8078387a7c9dccb
         id: upstream-builds-query
         with:
           upstream-builds: ${{ github.event.inputs.upstream_builds }}
           query: |
-            random-beacon-contracts-version = github.com/keep-network/keep-core/random-beacon#version
-            ecdsa-contracts-version = github.com/keep-network/keep-core/ecdsa#version
+            random-beacon-contracts-version = github.com/threshold-network/keep-core/random-beacon#version
+            ecdsa-contracts-version = github.com/threshold-network/keep-core/ecdsa#version
 
       - name: Resolve latest contracts
         env:
           RANDOM_BEACON_CONTRACTS_VERSION: ${{ steps.upstream-builds-query.outputs.random-beacon-contracts-version }}
           ECDSA_CONTRACTS_VERSION: ${{ steps.upstream-builds-query.outputs.ecdsa-contracts-version }}
-          ENVIRONMENT: ${{ github.event.inputs.environment }}
         run: |
           yarn up \
             "@keep-network/random-beacon@${RANDOM_BEACON_CONTRACTS_VERSION}" \
-            "@keep-network/ecdsa@${ECDSA_CONTRACTS_VERSION}" \
-            "@keep-network/tbtc@${ENVIRONMENT}"
+            "@keep-network/ecdsa@${ECDSA_CONTRACTS_VERSION}"
 
       - name: Configure tenderly
         env:
@@ -222,7 +297,7 @@ jobs:
 
       - name: Bump up package version
         id: npm-version-bump
-        uses: keep-network/npm-version-bump@v2
+        uses: threshold-network/ci/actions/npm-version-bump@20b35345d276a3c7365e3829b8078387a7c9dccb
         with:
           work-dir: solidity
           environment: ${{ github.event.inputs.environment }}
@@ -236,11 +311,11 @@ jobs:
         run: npm publish --access=public --tag "$ENVIRONMENT" --network="$ENVIRONMENT"
 
       - name: Notify CI about completion of the workflow
-        uses: keep-network/ci/actions/notify-workflow-completed@v2
+        uses: threshold-network/ci/actions/notify-workflow-completed@20b35345d276a3c7365e3829b8078387a7c9dccb
         env:
           GITHUB_TOKEN: ${{ secrets.CI_GITHUB_TOKEN }}
         with:
-          module: "github.com/keep-network/tbtc-v2"
+          module: "github.com/threshold-network/tbtc-v2"
           url: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
           environment: ${{ github.event.inputs.environment }}
           upstream_builds: ${{ github.event.inputs.upstream_builds }}
@@ -250,6 +325,7 @@ jobs:
       - name: Upload files needed for etherscan verification
         uses: actions/upload-artifact@v4
         with:
+          include-hidden-files: true
           name: Artifacts for etherscan verification
           path: |
             ./solidity/deployments
@@ -263,7 +339,7 @@ jobs:
       run:
         working-directory: ./solidity
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Download files needed for etherscan verification
         uses: actions/download-artifact@v4
@@ -275,19 +351,19 @@ jobs:
         with:
           node-version: "24.11.1"
 
+      - name: Enable Corepack
+        run: corepack enable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.11.1"
+          cache: yarn
+          cache-dependency-path: solidity/yarn.lock
+
       - name: Enable Corepack (Yarn from lockfile)
         run: |
           corepack enable
           corepack prepare yarn@4.12.0 --activate
-
-      # This step forces Git to download dependencies using `https://` protocol,
-      # even if `yarn.json` refers to some package via `git://`. Using `git://`
-      # is no longer supported by GH. One of the `tbtc-v2` dependencies by
-      # default uses `git://` and we needed to manually remove it every time
-      # it re-appeared in the lock file. Now even if it does re-appear, the
-      # `yarn install --immutable` will not fail.
-      - name: Configure git to don't use unauthenticated protocol
-        run: git config --global url."https://".insteadOf git://
 
       - name: Install needed dependencies
         run: yarn install --immutable
@@ -298,7 +374,6 @@ jobs:
         run: |
           rm -rf ./node_modules/@keep-network/random-beacon/artifacts
           rm -rf ./node_modules/@keep-network/ecdsa/artifacts
-          rm -rf ./node_modules/@keep-network/tbtc/artifacts
 
       - name: Verify contracts on Etherscan
         env:
@@ -322,50 +397,48 @@ jobs:
       run:
         working-directory: ./solidity
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
           node-version: "24.11.1"
           registry-url: "https://registry.npmjs.org"
 
+      - name: Enable Corepack
+        run: corepack enable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.11.1"
+          registry-url: "https://registry.npmjs.org"
+          cache: yarn
+          cache-dependency-path: solidity/yarn.lock
+
       - name: Enable Corepack (Yarn from lockfile)
         run: |
           corepack enable
           corepack prepare yarn@4.12.0 --activate
 
-      # We need this step because the `@keep-network/tbtc` which we update in
-      # next steps has a dependency to `@summa-tx/relay-sol@2.0.2` package, which
-      # downloads one of its sub-dependencies via unathenticated `git://`
-      # protocol. That protocol is no longer supported. Thanks to this step
-      # `https://` is used instead of `git://`. This step also prevents the
-      # error during `yarn install --immutable` step in case `git://` gets
-      # introduced to tbtc-v2's `yarn.lock`.
-      - name: Configure git to don't use unauthenticated protocol
-        run: git config --global url."https://".insteadOf git://
-
       - name: Install dependencies
         run: yarn install --immutable
 
       - name: Get upstream packages versions
-        uses: keep-network/ci/actions/upstream-builds-query@v2
+        uses: threshold-network/ci/actions/upstream-builds-query@20b35345d276a3c7365e3829b8078387a7c9dccb
         id: upstream-builds-query
         with:
           upstream-builds: ${{ github.event.inputs.upstream_builds }}
           query: |
-            random-beacon-contracts-version = github.com/keep-network/keep-core/random-beacon#version
-            ecdsa-contracts-version = github.com/keep-network/keep-core/ecdsa#version
+            random-beacon-contracts-version = github.com/threshold-network/keep-core/random-beacon#version
+            ecdsa-contracts-version = github.com/threshold-network/keep-core/ecdsa#version
 
       - name: Resolve latest contracts
         env:
           RANDOM_BEACON_CONTRACTS_VERSION: ${{ steps.upstream-builds-query.outputs.random-beacon-contracts-version }}
           ECDSA_CONTRACTS_VERSION: ${{ steps.upstream-builds-query.outputs.ecdsa-contracts-version }}
-          ENVIRONMENT: ${{ github.event.inputs.environment }}
         run: |
           yarn up \
             "@keep-network/random-beacon@${RANDOM_BEACON_CONTRACTS_VERSION}" \
-            "@keep-network/ecdsa@${ECDSA_CONTRACTS_VERSION}" \
-            "@keep-network/tbtc@${ENVIRONMENT}"
+            "@keep-network/ecdsa@${ECDSA_CONTRACTS_VERSION}"
 
       - name: Deploy contracts
         env:
@@ -376,7 +449,7 @@ jobs:
 
       - name: Bump up package version
         id: npm-version-bump
-        uses: keep-network/npm-version-bump@v2
+        uses: threshold-network/ci/actions/npm-version-bump@20b35345d276a3c7365e3829b8078387a7c9dccb
         with:
           work-dir: solidity
           environment: dapp-dev-${{ github.event.inputs.environment }}
@@ -399,11 +472,22 @@ jobs:
       run:
         working-directory: ./solidity
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
           node-version: "24.11.1"
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.11.1"
+          cache: yarn
+          cache-dependency-path: |
+            yarn.lock
+            solidity/yarn.lock
 
       # IMPORTANT: Keep this root `yarn install` **before** `corepack prepare
       # yarn@4`. The repo root uses Yarn Classic (Frozen v1 lockfile); `solidity/`
@@ -411,9 +495,10 @@ jobs:
       # wrong here. Same ordering applies elsewhere: root Classic first, then
       # Berry for `solidity/`.
       #
-      # Workaround rationale: ESLint run from `solidity/` resolves `.prettierrc.js`
-      # from the repo root and fails unless `@keep-network/prettier-config-keep`
-      # is installed at the root.
+      # Workaround rationale: ESLint/Prettier runs from subdirectories resolve the
+      # root `.prettierrc.js`, whose `plugins: ["prettier-plugin-sh"]` must be
+      # resolvable from the root install (config/prettier-base.js is repo-local,
+      # no install needed).
       - name: Install dependencies in the root directory
         run: |
           cd ..
@@ -423,14 +508,6 @@ jobs:
         run: |
           corepack enable
           corepack prepare yarn@4.12.0 --activate
-
-      # We need this step because the `@keep-network/tbtc` which we update in
-      # next steps has a dependency to `@summa-tx/relay-sol@2.0.2` package, which
-      # downloads one of its sub-dependencies via unathenticated `git://`
-      # protocol. That protocol is no longer supported. Thanks to this step
-      # `https://` is used instead of `git://`.
-      - name: Configure git to don't use unauthenticated protocol
-        run: git config --global url."https://".insteadOf git://
 
       - name: Install dependencies
         run: yarn install
@@ -451,18 +528,27 @@ jobs:
       run:
         working-directory: ./solidity
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
           node-version: "24.11.1"
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.11.1"
+          cache: yarn
+          cache-dependency-path: solidity/yarn.lock
 
       - name: Enable Corepack (Yarn from lockfile)
         run: |
           corepack enable
           corepack prepare yarn@4.12.0 --activate
 
-      - uses: actions/setup-python@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: 3.10.8
 
@@ -479,16 +565,90 @@ jobs:
           SLITHER_VERSION: 0.9.0
         run: pip3 install slither-analyzer==$SLITHER_VERSION
 
-      # We need this step because the `@keep-network/tbtc` which we update in
-      # next steps has a dependency to `@summa-tx/relay-sol@2.0.2` package, which
-      # downloads one of its sub-dependencies via unathenticated `git://`
-      # protocol. That protocol is no longer supported. Thanks to this step
-      # `https://` is used instead of `git://`.
-      - name: Configure git to don't use unauthenticated protocol
-        run: git config --global url."https://".insteadOf git://
-
       - name: Install dependencies
         run: yarn install
 
+      # `crytic-compile` picks a framework by sniffing for config files and
+      # ranks Foundry above Hardhat, so the presence of `foundry.toml` alone
+      # makes it try to shell out to `forge`, which is not installed here.
+      # Hardhat is the build of record for this repo; say so explicitly.
       - name: Run Slither
-        run: slither --hardhat-artifacts-directory build .
+        run: |
+          slither --compile-force-framework hardhat \
+            --hardhat-artifacts-directory build .
+
+  # Closes the fail-open hole: if contracts-detect-changes itself fails
+  # (e.g. its paths-filter step dies on a permissions error), every gated
+  # sibling silently skips and the required check contexts all read
+  # "Success" - a contract-affecting PR could merge with the Solidity suite
+  # never compiled or executed. This job always reports and fails the run
+  # unless the gate actually evaluated and every gated job ended success or
+  # in a legitimate filter-skip.
+  contracts-gate-report:
+    needs:
+      [
+        contracts-detect-changes,
+        contracts-build-and-test,
+        contracts-format,
+        contracts-slither,
+        contracts-deployment-dry-run,
+      ]
+    if: always() && !cancelled()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report gate
+        env:
+          DETECT: ${{ needs.contracts-detect-changes.result }}
+          EVENT: ${{ github.event_name }}
+          FILTER: ${{ needs.contracts-detect-changes.outputs.path-filter }}
+          BUILD_TEST: ${{ needs.contracts-build-and-test.result }}
+          FORMAT: ${{ needs.contracts-format.result }}
+          SLITHER: ${{ needs.contracts-slither.result }}
+          DRY_RUN: ${{ needs.contracts-deployment-dry-run.result }}
+        run: |
+          # The gate itself must have evaluated successfully.
+          if [ "$DETECT" != "success" ]; then
+            echo "::error::contracts-detect-changes ended '$DETECT' - gate did not evaluate; refusing to report green"
+            exit 1
+          fi
+          # Each gated job's `if:` expression decides whether it should run
+          # for this event + path-filter. Compute "expected to run" from the
+          # same condition the job uses; expected jobs must be `success`,
+          # not-expected jobs must be `skipped` (the only legitimate skip).
+          # build-and-test / deployment-dry-run:
+          #   if: github.event_name != 'pull_request' || filter == 'true'
+          # format / slither:
+          #   if: github.event_name == 'push' || filter == 'true'
+          if [ "$EVENT" != "pull_request" ] || [ "$FILTER" = "true" ]; then
+            BT_EXPECTED=true; DR_EXPECTED=true
+          else
+            BT_EXPECTED=false; DR_EXPECTED=false
+          fi
+          if [ "$EVENT" = "push" ] || [ "$FILTER" = "true" ]; then
+            F_EXPECTED=true; S_EXPECTED=true
+          else
+            F_EXPECTED=false; S_EXPECTED=false
+          fi
+          fail=0
+          check() {
+            local actual="$1" expected="$2" name="$3"
+            if [ "$expected" = "true" ]; then
+              if [ "$actual" != "success" ]; then
+                echo "::error::$name was expected to run on $EVENT (filter=$FILTER) but ended '$actual'"
+                fail=1
+              fi
+            else
+              if [ "$actual" != "skipped" ]; then
+                echo "::error::$name was expected to skip on $EVENT (filter=$FILTER) but ended '$actual'"
+                fail=1
+              fi
+            fi
+          }
+          check "$BUILD_TEST" "$BT_EXPECTED" contracts-build-and-test
+          check "$FORMAT"    "$F_EXPECTED"  contracts-format
+          check "$SLITHER"   "$S_EXPECTED"  contracts-slither
+          check "$DRY_RUN"   "$DR_EXPECTED" contracts-deployment-dry-run
+          if [ "$fail" = "0" ]; then
+            echo "Solidity gate healthy: detect-changes succeeded; gated jobs match expected run/skip state for $EVENT (filter=$FILTER)."
+          fi
+          exit $fail

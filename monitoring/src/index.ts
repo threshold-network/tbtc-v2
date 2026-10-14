@@ -18,6 +18,8 @@ import { MintingMonitor } from "./minting-monitor"
 import { WalletMonitor } from "./wallet-monitor"
 import { SupplyMonitor } from "./supply-monitor"
 import { RedemptionMonitor } from "./redemption-monitor"
+import { RedemptionChain } from "./redemption-chain"
+import { RedemptionLifecycleMonitor } from "./redemption-lifecycle-monitor"
 
 import type {
   Monitor as SystemEventMonitor,
@@ -54,6 +56,13 @@ async function setupMonitoring(sdk: TBTC): Promise<SystemEventManager> {
     ),
     new WalletMonitor(tbtcContracts.bridge),
     new RedemptionMonitor(tbtcContracts.bridge),
+    new RedemptionLifecycleMonitor(
+      new RedemptionChain(
+        tbtcContracts.bridge,
+        new providers.JsonRpcProvider(context.ethereumUrl)
+      ),
+      context.redemptionTimeoutWarningSeconds
+    ),
   ]
 
   const receivers: SystemEventReceiver[] = ((): SystemEventReceiver[] => {

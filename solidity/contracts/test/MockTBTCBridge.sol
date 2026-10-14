@@ -13,7 +13,7 @@ contract MockTBTCBridge is IBridge {
     uint64 internal _redemptionTxMaxFee = 10000;
     uint64 internal _redemptionTxMaxTotalFee = 50000;
     uint32 internal _redemptionTimeout = 6 * 3600;
-    uint96 internal _redemptionTimeoutSlashingAmount = 10**18;
+    uint96 internal _redemptionTimeoutSlashingAmount = 10 ** 18;
     uint32 internal _redemptionTimeoutNotifierRewardMultiplier = 5;
 
     // Added for redemption-watchtower mocks
@@ -55,12 +55,9 @@ contract MockTBTCBridge is IBridge {
         emit DepositRevealed(depositKey);
     }
 
-    function deposits(uint256)
-        external
-        view
-        override
-        returns (IBridgeTypes.DepositRequest memory)
-    {
+    function deposits(
+        uint256
+    ) external view override returns (IBridgeTypes.DepositRequest memory) {
         return deposit;
     }
 
@@ -90,12 +87,7 @@ contract MockTBTCBridge is IBridge {
     function depositParameters()
         external
         pure
-        returns (
-            uint64,
-            uint64,
-            uint64 depositTxMaxFee,
-            uint32
-        )
+        returns (uint64, uint64, uint64 depositTxMaxFee, uint32)
     {
         return (0, 0, 1000000, 0);
     }
@@ -122,7 +114,7 @@ contract MockTBTCBridge is IBridge {
     // --- Redemption related mock functions ---
     function requestRedemption(
         bytes20 walletPubKeyHash,
-        BitcoinTx.UTXO calldata, /*mainUtxo*/ // Marked unused
+        BitcoinTx.UTXO calldata /*mainUtxo*/, // Marked unused
         bytes calldata redeemerOutputScript,
         uint64 amount
     ) external override {
@@ -186,6 +178,7 @@ contract MockTBTCBridge is IBridge {
         redemptionTxMaxTotalFee = _redemptionTxMaxTotalFee;
         redemptionTimeout = _redemptionTimeout;
         redemptionTimeoutSlashingAmount = _redemptionTimeoutSlashingAmount;
-        redemptionTimeoutNotifierRewardMultiplier = _redemptionTimeoutNotifierRewardMultiplier;
+        redemptionTimeoutNotifierRewardMultiplier =
+            _redemptionTimeoutNotifierRewardMultiplier;
     }
 }

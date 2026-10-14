@@ -90,10 +90,10 @@ contract L2TBTC is
     /// @param _name The name of the token.
     /// @param _symbol The symbol of the token, usually a shorter version of the
     ///        name.
-    function initialize(string memory _name, string memory _symbol)
-        external
-        initializer
-    {
+    function initialize(
+        string memory _name,
+        string memory _symbol
+    ) external initializer {
         // OpenZeppelin upgradeable contracts documentation says:
         //
         // "Use with multiple inheritance requires special care. Initializer
@@ -239,11 +239,10 @@ contract L2TBTC is
     ///      - `account` must not be the zero address.
     /// @param account The address to receive tokens.
     /// @param amount The amount of token to be minted.
-    function mint(address account, uint256 amount)
-        external
-        whenNotPaused
-        onlyMinter
-    {
+    function mint(
+        address account,
+        uint256 amount
+    ) external whenNotPaused onlyMinter {
         _mint(account, amount);
     }
 
@@ -266,11 +265,10 @@ contract L2TBTC is
     ///      - `account` must have at least `amount` tokens.
     /// @param account The address owning tokens to be burned.
     /// @param amount The amount of token to be burned.
-    function burnFrom(address account, uint256 amount)
-        public
-        override
-        whenNotPaused
-    {
+    function burnFrom(
+        address account,
+        uint256 amount
+    ) public override whenNotPaused {
         super.burnFrom(account, amount);
     }
 

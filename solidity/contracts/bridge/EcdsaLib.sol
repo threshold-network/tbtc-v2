@@ -28,11 +28,10 @@ library EcdsaLib {
     /// @param x Wallet's public key's X coordinate.
     /// @param y Wallet's public key's Y coordinate.
     /// @return Compressed public key (33-byte), prefixed with `02` or `03`.
-    function compressPublicKey(bytes32 x, bytes32 y)
-        internal
-        pure
-        returns (bytes memory)
-    {
+    function compressPublicKey(
+        bytes32 x,
+        bytes32 y
+    ) internal pure returns (bytes memory) {
         bytes1 prefix;
         if (uint256(y) % 2 == 0) {
             prefix = hex"02";
