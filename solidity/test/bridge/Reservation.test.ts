@@ -1,13 +1,15 @@
 import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
-import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import { TestReservation, IWalletRegistry } from "../../typechain"
 import { walletState } from "../fixtures"
 import { createMock } from "../helpers/mock"
+import { requireValue } from "../../helpers/require-value"
 import type { Mock } from "../helpers/mock"
 
 const { lastBlockTime, increaseTime } = helpers.time
-const { AddressZero, HashZero } = ethers.constants
+const AddressZero = ethers.ZeroAddress
+const HashZero = ethers.ZeroHash
 
 const reservationState = {
   Unknown: 0,
@@ -36,18 +38,18 @@ const actionState = {
 
 describe("Reservation", () => {
   let testReservation: TestReservation
-  let deployer: SignerWithAddress
-  let depositor: SignerWithAddress
-  let thirdParty: SignerWithAddress
-  let vault: SignerWithAddress
+  let deployer: HardhatEthersSigner
+  let depositor: HardhatEthersSigner
+  let thirdParty: HardhatEthersSigner
+  let vault: HardhatEthersSigner
 
   const walletPubKeyHash = "0x7ac2d9378a1c47e589dfb8095ca95ed2140d2726"
   const walletPubKeyHash2 = "0x1111111111111111111111111111111111111111"
 
-  const reservationKey1 = ethers.utils.hexZeroPad("0x1", 32)
-  const reservationKey2 = ethers.utils.hexZeroPad("0x2", 32)
-  const reservationKey3 = ethers.utils.hexZeroPad("0x3", 32)
-  const reservationKey4 = ethers.utils.hexZeroPad("0x4", 32)
+  const reservationKey1 = ethers.zeroPadValue("0x01", 32)
+  const reservationKey2 = ethers.zeroPadValue("0x02", 32)
+  const reservationKey3 = ethers.zeroPadValue("0x03", 32)
+  const reservationKey4 = ethers.zeroPadValue("0x04", 32)
 
   const defaultDepositAmount = 1000000 // 0.01 BTC
   const defaultMinAmount = 100000
@@ -60,19 +62,16 @@ describe("Reservation", () => {
     const signers = await ethers.getSigners()
     ;[deployer, depositor, thirdParty, vault] = signers
 
-    const ReservationProofsFactory = await ethers.getContractFactory(
-      "ReservationProofs"
-    )
-    const reservationProofsLibrary = await ReservationProofsFactory.connect(
-      deployer
-    ).deploy()
+    const ReservationProofsFactory =
+      await ethers.getContractFactory("ReservationProofs")
+    const reservationProofsLibrary =
+      await ReservationProofsFactory.connect(deployer).deploy()
     const ReservationFactory = await ethers.getContractFactory("Reservation")
-    const reservationLibrary = await ReservationFactory.connect(
-      deployer
-    ).deploy()
+    const reservationLibrary =
+      await ReservationFactory.connect(deployer).deploy()
     const TestReservationFactory = await ethers.getContractFactory(
       "TestReservation",
-      { libraries: { Reservation: reservationLibrary.address } }
+      { libraries: { Reservation: reservationLibrary.target } }
     )
     testReservation = (await TestReservationFactory.connect(
       deployer
@@ -894,7 +893,7 @@ describe("Reservation", () => {
         .requestReservationAcceptance(reservationKey1, walletPubKeyHash)
 
       const anchorAmount = defaultDepositAmount
-      const anchorTxHash = ethers.utils.hexZeroPad("0xa1b2c3", 32)
+      const anchorTxHash = ethers.zeroPadValue("0xa1b2c3", 32)
       const anchorTxOutputIndex = 0
 
       // Seed reservation anchor fields and wallet enumeration key
@@ -924,7 +923,7 @@ describe("Reservation", () => {
           anchorTxHash,
           anchorTxOutputIndex
         )
-      ).to.equal(ethers.BigNumber.from(reservationKey1))
+      ).to.equal(BigInt(reservationKey1))
 
       const tx = await testReservation.strandReservation(reservationKey1)
 
@@ -1006,7 +1005,7 @@ describe("Reservation", () => {
     it("should produce correct action keys", async () => {
       const reservationKey = 1
       const requestNonce = 2
-      const expectedKey = ethers.utils.solidityKeccak256(
+      const expectedKey = ethers.solidityPackedKeccak256(
         ["uint256", "uint64"],
         [reservationKey, requestNonce]
       )
@@ -1025,7 +1024,7 @@ describe("Reservation", () => {
   describe("anchorUtxoHash", () => {
     it("should produce correct hash and react to input changes", async () => {
       const reservationKey = 123
-      const anchorTxHash = ethers.utils.hexlify(ethers.utils.randomBytes(32))
+      const anchorTxHash = ethers.hexlify(ethers.randomBytes(32))
       const anchorTxOutputIndex = 0
       await testReservation.setReservationAnchor(
         reservationKey,
@@ -1033,7 +1032,7 @@ describe("Reservation", () => {
         anchorTxOutputIndex
       )
 
-      const expectedHash = ethers.utils.solidityKeccak256(
+      const expectedHash = ethers.solidityPackedKeccak256(
         ["bytes32", "uint32"],
         [anchorTxHash, anchorTxOutputIndex]
       )
@@ -1042,7 +1041,7 @@ describe("Reservation", () => {
       )
 
       // Changing the anchor tx hash must change the resulting hash.
-      const newAnchorTxHash = ethers.utils.hexlify(ethers.utils.randomBytes(32))
+      const newAnchorTxHash = ethers.hexlify(ethers.randomBytes(32))
       await testReservation.setReservationAnchor(
         reservationKey,
         newAnchorTxHash,
@@ -1059,7 +1058,7 @@ describe("Reservation", () => {
         newAnchorTxHash,
         newOutputIndex
       )
-      const expectedHashNewIndex = ethers.utils.solidityKeccak256(
+      const expectedHashNewIndex = ethers.solidityPackedKeccak256(
         ["bytes32", "uint32"],
         [newAnchorTxHash, newOutputIndex]
       )
@@ -1102,7 +1101,7 @@ describe("Reservation", () => {
 
     it("should validate a correct anchor output and return its amount", async () => {
       expect(
-        await testReservation.callStatic.validateAnchorOutput(
+        await testReservation.validateAnchorOutput.staticCall(
           singleOutput,
           anchorPubKeyHash,
           amount,
@@ -1140,7 +1139,7 @@ describe("Reservation", () => {
     it("should succeed at the fee-bound boundary (amount - anchorAmount == txMaxFee)", async () => {
       const boundaryAmount = anchorAmount + txMaxFee
       expect(
-        await testReservation.callStatic.validateAnchorOutput(
+        await testReservation.validateAnchorOutput.staticCall(
           singleOutput,
           anchorPubKeyHash,
           boundaryAmount,
@@ -1173,7 +1172,7 @@ describe("Reservation", () => {
         anchorTxHash,
         anchorTxOutputIndex
       )
-      const expectedHash = ethers.utils.solidityKeccak256(
+      const expectedHash = ethers.solidityPackedKeccak256(
         ["bytes32", "uint32"],
         [anchorTxHash, anchorTxOutputIndex]
       )
@@ -1194,7 +1193,7 @@ describe("Reservation", () => {
         anchorTxHash,
         anchorTxOutputIndex
       )
-      const wrongHash = ethers.utils.solidityKeccak256(
+      const wrongHash = ethers.solidityPackedKeccak256(
         ["bytes32", "uint32"],
         [anchorTxHash, 2] // Wrong index
       )
@@ -1523,7 +1522,7 @@ describe("Reservation", () => {
         1000
       )
       expect(
-        await testReservation.callStatic.loadSettleableAction(
+        await testReservation.loadSettleableAction.staticCall(
           reservationKey,
           requestNonce,
           3 // Reanchor
@@ -1542,7 +1541,7 @@ describe("Reservation", () => {
         1000
       )
       expect(
-        await testReservation.callStatic.loadSettleableAction(
+        await testReservation.loadSettleableAction.staticCall(
           reservationKey,
           requestNonce,
           3 // Reanchor
@@ -1561,7 +1560,7 @@ describe("Reservation", () => {
         1000
       )
       await expect(
-        testReservation.callStatic.loadSettleableAction(
+        testReservation.loadSettleableAction.staticCall(
           reservationKey,
           requestNonce,
           1 // Acceptance
@@ -1580,7 +1579,7 @@ describe("Reservation", () => {
         1000
       )
       await expect(
-        testReservation.callStatic.loadSettleableAction(
+        testReservation.loadSettleableAction.staticCall(
           reservationKey,
           requestNonce,
           3 // Reanchor
@@ -1674,11 +1673,13 @@ describe("Reservation", () => {
         amount
       )
 
-      const tx = await testReservation.notifyReservationActionTimeout(
-        reservationKey
+      const tx =
+        await testReservation.notifyReservationActionTimeout(reservationKey)
+      const receipt = requireValue(await tx.wait(), "Transaction receipt")
+      const block = requireValue(
+        await ethers.provider.getBlock(receipt.blockNumber),
+        "Block"
       )
-      const receipt = await tx.wait()
-      const block = await ethers.provider.getBlock(receipt.blockNumber)
 
       // 1. Action state transitions to TimedOut
       expect(
@@ -1709,7 +1710,7 @@ describe("Reservation", () => {
       // 5. Reanchor cooldown is set to block.timestamp + (action.timeoutAt - action.requestedAt)
       const res = await testReservation.getReservation(reservationKey)
       expect(res.reanchorCooldownUntil).to.equal(
-        block.timestamp + (timeoutAt - requestedAt)
+        BigInt(block.timestamp + (timeoutAt - requestedAt))
       )
     })
 
@@ -1868,7 +1869,10 @@ describe("Reservation", () => {
     const vault = `0x${"33".repeat(20)}`
 
     it("should request reservation acceptance successfully", async () => {
-      const now = (await ethers.provider.getBlock("latest")).timestamp
+      const now = requireValue(
+        await ethers.provider.getBlock("latest"),
+        "Block"
+      ).timestamp
 
       // Preconditions: governance params (maxReservationsPerWallet and
       // maxActiveReservations set to comfortably large values, matching
@@ -1913,7 +1917,7 @@ describe("Reservation", () => {
 
   describe("Wallets movingFunds and closing gates with reservations", () => {
     const testWalletPubKeyHash = `0x${"44".repeat(20)}`
-    const testEcdsaWalletId = ethers.utils.hexZeroPad("0x44", 32)
+    const testEcdsaWalletId = ethers.zeroPadValue("0x44", 32)
     let mockWalletRegistry: Mock<IWalletRegistry>
 
     beforeEach(async () => {
@@ -1936,7 +1940,7 @@ describe("Reservation", () => {
       // enters the moving-funds window to re-anchor it.
       await testReservation.setWalletMainUtxo(
         testWalletPubKeyHash,
-        ethers.constants.HashZero
+        ethers.ZeroHash
       )
       await testReservation.setWalletReservationsCount(testWalletPubKeyHash, 1)
       await testReservation.setWalletReservationsAmount(
@@ -1963,7 +1967,7 @@ describe("Reservation", () => {
     it("routes Live wallet with zero main UTXO and zero reservations directly to Closing", async () => {
       await testReservation.setWalletMainUtxo(
         testWalletPubKeyHash,
-        ethers.constants.HashZero
+        ethers.ZeroHash
       )
       await testReservation.setWalletReservationsCount(testWalletPubKeyHash, 0)
       await testReservation.setLiveWalletsCount(1)
@@ -1985,7 +1989,7 @@ describe("Reservation", () => {
       // wallet in a slash-prone moving-funds window; it closes immediately.
       await testReservation.setWalletMainUtxo(
         testWalletPubKeyHash,
-        ethers.constants.HashZero
+        ethers.ZeroHash
       )
       await testReservation.setWalletReservationsCount(testWalletPubKeyHash, 1)
       await testReservation.setWalletReservationsAmount(
@@ -2040,9 +2044,8 @@ describe("Reservation", () => {
       )
       await testReservation.setWalletReservationsCount(testWalletPubKeyHash, 1)
 
-      const tx = await testReservation.finalizeWalletClosing(
-        testWalletPubKeyHash
-      )
+      const tx =
+        await testReservation.finalizeWalletClosing(testWalletPubKeyHash)
 
       expect(await testReservation.walletState(testWalletPubKeyHash)).to.equal(
         walletState.Closed

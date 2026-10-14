@@ -1,12 +1,12 @@
 import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
 
-import type { Contract } from "ethers"
-import type { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
+import type { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import type {
   Bridge,
   BridgeGovernance,
   ReservationRouter,
+  TestReservation,
 } from "../../typechain"
 import { constants } from "../fixtures"
 import bridgeFixture from "../fixtures/bridge"
@@ -24,7 +24,7 @@ const CAPACITY_REVERT = "Amount cap exceeds slot capacity"
 // that keeps the vault-change branch, and its active-reservation guards, out
 // of the way.
 const baseParams = {
-  reservationVault: ethers.constants.AddressZero,
+  reservationVault: ethers.ZeroAddress,
   reservationMinAmount: 100_000,
   reservationTxMaxFee: 10_000,
   reservationTermSeconds: MIN_RESERVATION_TERM,
@@ -36,7 +36,7 @@ const baseParams = {
   reservationRenewalWindowSeconds: 14 * 24 * 60 * 60,
 }
 
-async function deployTestReservation(): Promise<Contract> {
+async function deployTestReservation(): Promise<TestReservation> {
   const ReservationProofs = await ethers.getContractFactory("ReservationProofs")
   const reservationProofs = await ReservationProofs.deploy()
 
@@ -45,14 +45,14 @@ async function deployTestReservation(): Promise<Contract> {
 
   const TestReservationFactory = await ethers.getContractFactory(
     "TestReservation",
-    { libraries: { Reservation: reservation.address } }
+    { libraries: { Reservation: await reservation.getAddress() } }
   )
 
   return TestReservationFactory.deploy()
 }
 
 function setTotalAmount(
-  testReservation: Contract,
+  testReservation: TestReservation,
   reservationMaxTotalAmount: number
 ) {
   return testReservation.updateReservationParameters(
@@ -77,7 +77,7 @@ describe("Reservation - amount cap versus slot capacity", () => {
   const slotCapacity = maxActiveReservations * reservationMaxSingleAmount
   const maxReservationsAmountPerWallet = 10_000_000
 
-  let testReservation: Contract
+  let testReservation: TestReservation
 
   beforeEach(async () => {
     testReservation = await deployTestReservation()
@@ -107,7 +107,8 @@ describe("Reservation - amount cap versus slot capacity", () => {
         )
       }
 
-      const NO_WINDOW_REVERT = "Reservation action timeout leaves no signing window"
+      const NO_WINDOW_REVERT =
+        "Reservation action timeout leaves no signing window"
 
       it("reverts at the old floor, safety margin + 1", async () => {
         await expect(
@@ -310,7 +311,7 @@ describe("Reservation - amount cap versus slot capacity", () => {
 // that forwarding (e.g. swapping two staged fields) would pass every test
 // above undetected, since none of them go through `BridgeGovernance`.
 describe("Reservation - governance ceremony argument forwarding", () => {
-  let governance: SignerWithAddress
+  let governance: HardhatEthersSigner
   let bridge: Bridge
   let bridgeGovernance: BridgeGovernance
   let reservationRouter: ReservationRouter
@@ -326,7 +327,7 @@ describe("Reservation - governance ceremony argument forwarding", () => {
     // Bridge storage, exactly like the production caller path.
     reservationRouter = await ethers.getContractAt(
       "ReservationRouter",
-      bridge.address
+      bridge.target
     )
   })
 

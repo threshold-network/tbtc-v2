@@ -83,7 +83,10 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
       "governanceDelays",
       0
     )
-    await helpers.time.increaseTime(governanceDelay.toNumber() + 1)
+    // Normalize the decoded value before converting to a timestamp offset.
+    await helpers.time.increaseTime(
+      Number(ethers.toBigInt(governanceDelay.toString())) + 1
+    )
   }
 
   // ----- Step 1: begin/finalize updateReservationCaps --------------------
@@ -104,9 +107,9 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
     // more throughput for exercising the reservation flow in tests and are
     // deliberately NOT meant to mirror the mainnet configuration.
     // values per agent-docs/inventory/reservation-parameters.md
-    ethers.BigNumber.from("1000000"), // maxReservationsAmountPerWallet
-    ethers.BigNumber.from("100000"), // reservationMaxSingleAmount
-    ethers.BigNumber.from("100") // maxActiveReservations
+    ethers.toBigInt("1000000"), // maxReservationsAmountPerWallet
+    ethers.toBigInt("100000"), // reservationMaxSingleAmount
+    ethers.toBigInt("100") // maxActiveReservations
   )
   if (isLocalNetwork) {
     await passGovernanceDelay()
@@ -135,16 +138,16 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
     { from: governance, log: true, waitConfirmations: 1 },
     "beginReservationParametersUpdate",
     ReservationVault.address, // reservationVault
-    ethers.BigNumber.from("10000"), // reservationMinAmount
-    ethers.BigNumber.from("1000"), // reservationTxMaxFee
-    ethers.BigNumber.from("7776000"), // reservationTermSeconds (90 days = MIN_RESERVATION_TERM)
-    ethers.BigNumber.from("86400"), // reservationDissolutionDelay (1 day)
-    ethers.BigNumber.from("10000000"), // reservationMaxTotalAmount
+    ethers.toBigInt("10000"), // reservationMinAmount
+    ethers.toBigInt("1000"), // reservationTxMaxFee
+    ethers.toBigInt("7776000"), // reservationTermSeconds (90 days = MIN_RESERVATION_TERM)
+    ethers.toBigInt("86400"), // reservationDissolutionDelay (1 day)
+    ethers.toBigInt("10000000"), // reservationMaxTotalAmount
     // NOTE: 5, not the mainnet-required 1 (see the divergence note above
     // Step 1) -- deliberately larger for local/test throughput.
-    ethers.BigNumber.from("5"), // maxReservationsPerWallet
-    ethers.BigNumber.from("86400"), // reservationActionTimeout
-    ethers.BigNumber.from("86400") // reservationRenewalWindowSeconds
+    ethers.toBigInt("5"), // maxReservationsPerWallet
+    ethers.toBigInt("86400"), // reservationActionTimeout
+    ethers.toBigInt("86400") // reservationRenewalWindowSeconds
   )
   if (isLocalNetwork) {
     await passGovernanceDelay()

@@ -1,9 +1,9 @@
 import { ethers } from "hardhat"
 import { expect } from "chai"
-import type { Contract } from "ethers"
+import type { TestReservation } from "../../typechain"
 import { walletState } from "../fixtures"
 
-async function deployTestReservation(): Promise<Contract> {
+async function deployTestReservation(): Promise<TestReservation> {
   const ReservationProofs = await ethers.getContractFactory("ReservationProofs")
   const reservationProofs = await ReservationProofs.deploy()
 
@@ -13,7 +13,7 @@ async function deployTestReservation(): Promise<Contract> {
   const TestReservationFactory = await ethers.getContractFactory(
     "TestReservation",
     {
-      libraries: { Reservation: reservation.address },
+      libraries: { Reservation: await reservation.getAddress() },
     }
   )
 
@@ -21,7 +21,7 @@ async function deployTestReservation(): Promise<Contract> {
 }
 
 describe("Reservation - occupancy tracking", () => {
-  let testReservation: Contract
+  let testReservation: TestReservation
 
   beforeEach(async () => {
     testReservation = await deployTestReservation()
@@ -32,7 +32,7 @@ describe("Reservation - occupancy tracking", () => {
     const reservationKey = 101
     const walletPubKeyHash = `0x${"2".repeat(40)}`
     const vault = `0x${"3".repeat(40)}`
-    const now = (await ethers.provider.getBlock("latest")).timestamp
+    const now = (await ethers.provider.getBlock("latest"))!.timestamp
 
     await testReservation.setGovernanceParameters(100, 100, 10000, 1)
     await testReservation.setMaxActiveReservations(1)
@@ -68,7 +68,7 @@ describe("Reservation - occupancy tracking", () => {
   it("notifyReservationAcceptanceTimedOut decrements activeReservationsCount and emits ReservationOccupancyChanged", async () => {
     const reservationKey = 102
     const walletPubKeyHash = `0x${"2".repeat(40)}`
-    const now = (await ethers.provider.getBlock("latest")).timestamp
+    const now = (await ethers.provider.getBlock("latest"))!.timestamp
 
     await testReservation.setActiveReservationsCount(1)
     await testReservation.setWalletReservationsCount(walletPubKeyHash, 1)
@@ -78,7 +78,7 @@ describe("Reservation - occupancy tracking", () => {
     // the action; seed the record so it resolves to the Acceptance action.
     await testReservation.setReservationFullState(
       reservationKey,
-      ethers.constants.AddressZero,
+      ethers.ZeroAddress,
       walletPubKeyHash,
       1000,
       1 /* Active */,
@@ -120,7 +120,7 @@ describe("Reservation - occupancy tracking", () => {
     const reservationKey = 1
     await testReservation.setReservationFullState(
       reservationKey,
-      ethers.constants.AddressZero,
+      ethers.ZeroAddress,
       walletPubKeyHash,
       100,
       1 /* Active */,
@@ -134,12 +134,7 @@ describe("Reservation - occupancy tracking", () => {
 
     await expect(testReservation.notifyReservationStranded(reservationKey))
       .to.emit(testReservation, "ReservationStranded")
-      .withArgs(
-        reservationKey,
-        walletPubKeyHash,
-        ethers.constants.AddressZero,
-        100
-      )
+      .withArgs(reservationKey, walletPubKeyHash, ethers.ZeroAddress, 100)
       .to.emit(testReservation, "ReservationOccupancyChanged")
       .withArgs(0)
     expect(await testReservation.activeReservationsCount()).to.equal(0)
@@ -161,7 +156,7 @@ describe("Reservation - occupancy tracking", () => {
     const reservationKey = 1
     await testReservation.setReservationFullState(
       reservationKey,
-      ethers.constants.AddressZero,
+      ethers.ZeroAddress,
       walletPubKeyHash,
       100,
       1 /* Active */,
@@ -175,12 +170,7 @@ describe("Reservation - occupancy tracking", () => {
 
     await expect(testReservation.notifyReservationStranded(reservationKey))
       .to.emit(testReservation, "ReservationStranded")
-      .withArgs(
-        reservationKey,
-        walletPubKeyHash,
-        ethers.constants.AddressZero,
-        100
-      )
+      .withArgs(reservationKey, walletPubKeyHash, ethers.ZeroAddress, 100)
       .to.emit(testReservation, "ReservationOccupancyChanged")
       .withArgs(0)
     expect(await testReservation.activeReservationsCount()).to.equal(0)
@@ -197,15 +187,15 @@ describe("Reservation - occupancy tracking", () => {
     await testReservation.setWalletState(walletPubKeyHash, walletState.Closing)
 
     const reservationKey = 1
-    const now = (await ethers.provider.getBlock("latest")).timestamp
+    const now = (await ethers.provider.getBlock("latest"))!.timestamp
     await testReservation.setReservation(reservationKey, {
-      owner: ethers.constants.AddressZero,
+      owner: ethers.ZeroAddress,
       mintedAmount: 100,
       acceptedAt: 0,
       walletPubKeyHash,
       anchorAmount: 100,
       expiresAt: 0,
-      anchorTxHash: ethers.constants.HashZero,
+      anchorTxHash: ethers.ZeroHash,
       anchorTxOutputIndex: 0,
       state: 1 /* Active */,
       requestNonce: 1,
@@ -217,7 +207,9 @@ describe("Reservation - occupancy tracking", () => {
 
     await expect(
       testReservation.notifyReservationStranded(reservationKey)
-    ).to.be.revertedWith("Wallet is not terminated")
+    ).to.be.revertedWith(
+      "Wallet is not terminated, closed, or a dissolution-eligible closing wallet"
+    )
   })
 
   it("notifyReservationStranded reverts on a Closing wallet whose closing period has not elapsed, even past dissolution eligibility", async () => {
@@ -231,20 +223,20 @@ describe("Reservation - occupancy tracking", () => {
     await testReservation.setWalletState(walletPubKeyHash, walletState.Closing)
 
     // Closing just started: the closing period runs far into the future.
-    const now = (await ethers.provider.getBlock("latest")).timestamp
+    const now = (await ethers.provider.getBlock("latest"))!.timestamp
     await testReservation.setWalletClosingStartedAt(walletPubKeyHash, now)
     await testReservation.setWalletClosingPeriod(1_000_000)
 
     const reservationKey = 1
     // Dissolution is already eligible, so only the closing period blocks.
     await testReservation.setReservation(reservationKey, {
-      owner: ethers.constants.AddressZero,
+      owner: ethers.ZeroAddress,
       mintedAmount: 100,
       acceptedAt: 0,
       walletPubKeyHash,
       anchorAmount: 100,
       expiresAt: 0,
-      anchorTxHash: ethers.constants.HashZero,
+      anchorTxHash: ethers.ZeroHash,
       anchorTxOutputIndex: 0,
       state: 1 /* Active */,
       requestNonce: 1,
@@ -272,19 +264,22 @@ describe("Reservation - occupancy tracking", () => {
     await testReservation.setWalletState(walletPubKeyHash, walletState.Closing)
 
     // The closing period ended long ago and dissolution is eligible.
-    const now = (await ethers.provider.getBlock("latest")).timestamp
-    await testReservation.setWalletClosingStartedAt(walletPubKeyHash, now - 5000)
+    const now = (await ethers.provider.getBlock("latest"))!.timestamp
+    await testReservation.setWalletClosingStartedAt(
+      walletPubKeyHash,
+      now - 5000
+    )
     await testReservation.setWalletClosingPeriod(1000)
 
     const reservationKey = 1
     await testReservation.setReservation(reservationKey, {
-      owner: ethers.constants.AddressZero,
+      owner: ethers.ZeroAddress,
       mintedAmount: 100,
       acceptedAt: 0,
       walletPubKeyHash,
       anchorAmount: 100,
       expiresAt: 0,
-      anchorTxHash: ethers.constants.HashZero,
+      anchorTxHash: ethers.ZeroHash,
       anchorTxOutputIndex: 0,
       state: 1 /* Active */,
       requestNonce: 1,
@@ -322,7 +317,7 @@ describe("Reservation - occupancy tracking", () => {
     const reservationKey = 1
     await testReservation.setReservationFullState(
       reservationKey,
-      ethers.constants.AddressZero,
+      ethers.ZeroAddress,
       walletPubKeyHash,
       100,
       1 /* Active */,
@@ -336,16 +331,18 @@ describe("Reservation - occupancy tracking", () => {
   }
 
   it("notifyReservationStranded reverts on a Live wallet before dissolution eligibility", async () => {
-    const now = (await ethers.provider.getBlock("latest")).timestamp
+    const now = (await ethers.provider.getBlock("latest"))!.timestamp
     const { reservationKey } = await activeOnLiveWallet(now + 86400)
 
     await expect(
       testReservation.notifyReservationStranded(reservationKey)
-    ).to.be.revertedWith("Wallet is not terminated")
+    ).to.be.revertedWith(
+      "Wallet is not terminated, closed, or a dissolution-eligible closing wallet"
+    )
   })
 
   it("notifyReservationStranded releases an expired position on a Live wallet", async () => {
-    const now = (await ethers.provider.getBlock("latest")).timestamp
+    const now = (await ethers.provider.getBlock("latest"))!.timestamp
     const { walletPubKeyHash, reservationKey } = await activeOnLiveWallet(now)
 
     await testReservation.notifyReservationStranded(reservationKey)
@@ -367,7 +364,7 @@ describe("Reservation - occupancy tracking", () => {
     await testReservation.setActiveReservationsCount(0)
     await testReservation.setReservationFullState(
       reservationKey,
-      ethers.constants.AddressZero,
+      ethers.ZeroAddress,
       walletPubKeyHash,
       1000,
       4 /* Stranded */,

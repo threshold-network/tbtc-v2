@@ -1137,7 +1137,7 @@ describe("Bridge - Deposit", () => {
 
   context("isReservedDeposit", () => {
     const { P2SHFundingTx, reveal } = revealDepositFixture
-    let depositor: SignerWithAddress
+    let depositor: HardhatEthersSigner
 
     before(async () => {
       await createSnapshot()
@@ -1146,7 +1146,7 @@ describe("Bridge - Deposit", () => {
         revealDepositFixture.depositorAddress,
         {
           from: governance,
-          value: 10,
+          value: 10n,
         }
       )
 
@@ -1159,15 +1159,15 @@ describe("Bridge - Deposit", () => {
 
       // Set up wallet as Live
       await bridge.setWallet(reveal.walletPubKeyHash, {
-        ecdsaWalletID: ethers.constants.HashZero,
-        mainUtxoHash: ethers.constants.HashZero,
+        ecdsaWalletID: ethers.ZeroHash,
+        mainUtxoHash: ethers.ZeroHash,
         pendingRedemptionsValue: 0,
         createdAt: await lastBlockTime(),
         movingFundsRequestedAt: 0,
         closingStartedAt: 0,
         pendingMovedFundsSweepRequestsCount: 0,
         state: walletState.Live,
-        movingFundsTargetWalletsCommitmentHash: ethers.constants.HashZero,
+        movingFundsTargetWalletsCommitmentHash: ethers.ZeroHash,
       })
     })
 
@@ -1177,20 +1177,20 @@ describe("Bridge - Deposit", () => {
 
     context("when deposit is revealed with reservation vault", () => {
       let depositKey: string
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
 
         // Reveal a deposit with the reservation vault
         const revealWithReservationVault = { ...reveal }
-        revealWithReservationVault.vault = reservationVault.address
+        revealWithReservationVault.vault = await reservationVault.getAddress()
 
         tx = await bridge
           .connect(depositor)
           .revealDeposit(P2SHFundingTx, revealWithReservationVault)
 
-        depositKey = ethers.utils.solidityKeccak256(
+        depositKey = ethers.solidityPackedKeccak256(
           ["bytes32", "uint32"],
           [
             "0x17350f81cdb61cd8d7014ad1507d4af8d032b75812cf88d2c636c1c022991af2",
@@ -1212,7 +1212,7 @@ describe("Bridge - Deposit", () => {
       "when deposit is revealed with a regular vault (not reservation vault)",
       () => {
         let depositKey: string
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -1222,7 +1222,7 @@ describe("Bridge - Deposit", () => {
             .connect(depositor)
             .revealDeposit(P2SHFundingTx, reveal)
 
-          depositKey = ethers.utils.solidityKeccak256(
+          depositKey = ethers.solidityPackedKeccak256(
             ["bytes32", "uint32"],
             [
               "0x17350f81cdb61cd8d7014ad1507d4af8d032b75812cf88d2c636c1c022991af2",
@@ -1243,7 +1243,7 @@ describe("Bridge - Deposit", () => {
 
     context("when deposit is revealed with no vault (ZERO_ADDRESS)", () => {
       let depositKey: string
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
       let nonRoutedReveal: DepositRevealInfoStruct
 
       before(async () => {
@@ -1255,7 +1255,7 @@ describe("Bridge - Deposit", () => {
           .connect(depositor)
           .revealDeposit(P2SHFundingTx, nonRoutedReveal)
 
-        depositKey = ethers.utils.solidityKeccak256(
+        depositKey = ethers.solidityPackedKeccak256(
           ["bytes32", "uint32"],
           [
             "0x17350f81cdb61cd8d7014ad1507d4af8d032b75812cf88d2c636c1c022991af2",

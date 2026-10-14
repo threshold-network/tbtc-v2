@@ -1,10 +1,9 @@
-/* eslint-disable @typescript-eslint/no-unused-expressions */
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { expect } from "chai"
 import hre, { ethers } from "hardhat"
-import { utils } from "ethers"
+import { Interface, ZeroAddress } from "ethers"
 import fs from "fs"
 import path from "path"
 import func, {
@@ -45,15 +44,12 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
   // source, mirroring what the deploy script itself loads via
   // `artifacts.readArtifact`.
   let bridgeGovernanceArtifact: any
-  let bridgeGovInterface: utils.Interface
+  let bridgeGovInterface: Interface
 
   before(async () => {
-    bridgeGovernanceArtifact = await hre.artifacts.readArtifact(
-      "BridgeGovernance"
-    )
-    bridgeGovInterface = new ethers.utils.Interface(
-      bridgeGovernanceArtifact.abi
-    )
+    bridgeGovernanceArtifact =
+      await hre.artifacts.readArtifact("BridgeGovernance")
+    bridgeGovInterface = new Interface(bridgeGovernanceArtifact.abi)
   })
 
   // A complete set of env vars that satisfies every validation the script
@@ -117,7 +113,7 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
     const liveWalletsCountAtFinalize =
       overrides?.liveWalletsCountAtFinalize ?? liveWalletsCount
     const reservationRouterOnChain =
-      overrides?.reservationRouterOnChain ?? ethers.constants.AddressZero
+      overrides?.reservationRouterOnChain ?? ZeroAddress
     const routerOnChainCode =
       overrides?.routerOnChainCode ?? ROUTER_DEPLOYED_BYTECODE
     const proxyAdminOwner = overrides?.proxyAdminOwner ?? KNOWN_TIMELOCK
@@ -151,7 +147,7 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
       },
       ethers: {
         provider: {
-          getStorageAt: async () =>
+          getStorage: async () =>
             `0x${"0".repeat(24)}${PROXY_ADMIN_ADDRESS.slice(2).toLowerCase()}`,
           getCode: async () => routerOnChainCode,
         },
@@ -359,7 +355,7 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
         "finalizeReservationCapsUpdate",
         "finalizeReservationParametersUpdate",
         "setVaultStatus",
-      ].map((method) => bridgeGovInterface.getSighash(method))
+      ].map((method) => bridgeGovInterface.getFunction(method)!.selector)
 
       const indices = selectors.map((sel) => output.indexOf(sel))
       indices.forEach((index, i) => {
@@ -604,7 +600,7 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
         "finalizeReservationCapsUpdate",
         "finalizeReservationParametersUpdate",
         "setVaultStatus",
-      ].map((method) => bridgeGovInterface.getSighash(method))
+      ].map((method) => bridgeGovInterface.getFunction(method)!.selector)
 
       summary.governanceActions.forEach((action: any, index: number) => {
         expect(action.to).to.equal(BRIDGE_GOVERNANCE_ADDRESS)

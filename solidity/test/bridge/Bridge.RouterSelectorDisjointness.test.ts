@@ -11,11 +11,15 @@ async function selectorsByContract(
   contractName: string
 ): Promise<Map<string, string>> {
   const artifact = await artifacts.readArtifact(contractName)
-  const iface = new ethers.utils.Interface(artifact.abi)
+  const iface = new ethers.Interface(artifact.abi)
 
   const bySelector = new Map<string, string>()
-  Object.keys(iface.functions).forEach((signature) => {
-    bySelector.set(iface.getSighash(signature), signature)
+  iface.fragments.forEach((fragment) => {
+    if (fragment.type !== "function") {
+      return
+    }
+    const signature = fragment.format("sighash")
+    bySelector.set(iface.getFunction(signature)?.selector ?? "0x", signature)
   })
   return bySelector
 }

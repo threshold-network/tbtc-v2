@@ -1,7 +1,7 @@
 import { ethers, helpers } from "hardhat"
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import { expect } from "chai"
-import { ContractTransactionResponse } from "ethers"
+import { BaseContract, ContractTransactionResponse } from "ethers"
 import type {
   BridgeGovernance,
   Bridge,
@@ -19,20 +19,20 @@ const { createSnapshot, restoreSnapshot } = helpers.snapshot
 // below have a concrete, named type instead of an inferred tuple type.
 interface ReservationParametersSnapshot {
   reservationVault: string
-  reservationMinAmount: BigNumber
-  reservationTxMaxFee: BigNumber
-  reservationTermSeconds: number
-  reservationDissolutionDelay: number
-  reservationMaxTotalAmount: BigNumber
-  reservationTotalAmount: BigNumber
-  maxReservationsPerWallet: number
-  reservationActionTimeout: number
-  reservationRenewalWindowSeconds: number
+  reservationMinAmount: bigint
+  reservationTxMaxFee: bigint
+  reservationTermSeconds: bigint
+  reservationDissolutionDelay: bigint
+  reservationMaxTotalAmount: bigint
+  reservationTotalAmount: bigint
+  maxReservationsPerWallet: bigint
+  reservationActionTimeout: bigint
+  reservationRenewalWindowSeconds: bigint
 }
 
 interface ReservationCapsSnapshot {
-  maxReservationsAmountPerWallet: BigNumber
-  reservationMaxSingleAmount: BigNumber
+  maxReservationsAmountPerWallet: bigint
+  reservationMaxSingleAmount: bigint
 }
 
 describe("Bridge - Governance", () => {
@@ -53,7 +53,7 @@ describe("Bridge - Governance", () => {
     // router ABI to the Bridge's own address to read that surface.
     reservationRouter = await ethers.getContractAt(
       "ReservationRouter",
-      bridge.address
+      await bridge.getAddress()
     )
   })
 
@@ -4428,14 +4428,14 @@ describe("Bridge - Governance", () => {
   describe("beginReservationParametersUpdate", () => {
     let currentReservationVault: string
 
-    const newReservationMinAmount = 20000
-    const newReservationTxMaxFee = 2000
-    const newReservationTermSeconds = 8640000 // 100 days
-    const newReservationDissolutionDelay = 172800 // 2 days
-    const newReservationMaxTotalAmount = 400000 // must fit under the deploy-fixture slot capacity: maxActiveReservations(5) * reservationMaxSingleAmount(100,000) = 500,000 (deploy/97_set_reservation_parameters.ts)
-    const newMaxReservationsPerWallet = 10
-    const newReservationActionTimeout = 172800 // 2 days
-    const newReservationRenewalWindowSeconds = 172800 // 2 days
+    const newReservationMinAmount = 20000n
+    const newReservationTxMaxFee = 2000n
+    const newReservationTermSeconds = 8640000n // 100 days
+    const newReservationDissolutionDelay = 172800n // 2 days
+    const newReservationMaxTotalAmount = 400000n // must fit under the deploy-fixture slot capacity: maxActiveReservations(5) * reservationMaxSingleAmount(100,000) = 500,000 (deploy/97_set_reservation_parameters.ts)
+    const newMaxReservationsPerWallet = 10n
+    const newReservationActionTimeout = 172800n // 2 days
+    const newReservationRenewalWindowSeconds = 172800n // 2 days
 
     before(async () => {
       const parameters = await reservationRouter.reservationParameters()
@@ -4463,14 +4463,27 @@ describe("Bridge - Governance", () => {
     })
 
     context("when the caller is the owner", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
       let paramsBefore: ReservationParametersSnapshot
-      let bridgeGovernanceEvents: Contract
+      let bridgeGovernanceEvents: BaseContract
 
       before(async () => {
         await createSnapshot()
 
-        paramsBefore = await reservationRouter.reservationParameters()
+        const paramsBeforeTuple =
+          await reservationRouter.reservationParameters()
+        paramsBefore = {
+          reservationVault: paramsBeforeTuple[0],
+          reservationMinAmount: paramsBeforeTuple[1],
+          reservationTxMaxFee: paramsBeforeTuple[2],
+          reservationTermSeconds: paramsBeforeTuple[3],
+          reservationDissolutionDelay: paramsBeforeTuple[4],
+          reservationMaxTotalAmount: paramsBeforeTuple[5],
+          reservationTotalAmount: paramsBeforeTuple[6],
+          maxReservationsPerWallet: paramsBeforeTuple[7],
+          reservationActionTimeout: paramsBeforeTuple[8],
+          reservationRenewalWindowSeconds: paramsBeforeTuple[9],
+        }
 
         // `ReservationParametersUpdateStarted` is declared on the linked
         // `BridgeGovernanceParameters` library, not re-declared on
@@ -4481,7 +4494,9 @@ describe("Bridge - Governance", () => {
         const paramsLib = await helpers.contracts.getContract(
           "BridgeGovernanceParameters"
         )
-        bridgeGovernanceEvents = paramsLib.attach(bridgeGovernance.address)
+        bridgeGovernanceEvents = paramsLib.attach(
+          await bridgeGovernance.getAddress()
+        )
 
         tx = await bridgeGovernance
           .connect(governance)
@@ -4556,14 +4571,14 @@ describe("Bridge - Governance", () => {
   describe("finalizeReservationParametersUpdate", () => {
     let currentReservationVault: string
 
-    const newReservationMinAmount = 20000
-    const newReservationTxMaxFee = 2000
-    const newReservationTermSeconds = 8640000 // 100 days
-    const newReservationDissolutionDelay = 172800 // 2 days
-    const newReservationMaxTotalAmount = 400000 // must fit under the deploy-fixture slot capacity: maxActiveReservations(5) * reservationMaxSingleAmount(100,000) = 500,000 (deploy/97_set_reservation_parameters.ts)
-    const newMaxReservationsPerWallet = 10
-    const newReservationActionTimeout = 172800 // 2 days
-    const newReservationRenewalWindowSeconds = 172800 // 2 days
+    const newReservationMinAmount = 20000n
+    const newReservationTxMaxFee = 2000n
+    const newReservationTermSeconds = 8640000n // 100 days
+    const newReservationDissolutionDelay = 172800n // 2 days
+    const newReservationMaxTotalAmount = 400000n // must fit under the deploy-fixture slot capacity: maxActiveReservations(5) * reservationMaxSingleAmount(100,000) = 500,000 (deploy/97_set_reservation_parameters.ts)
+    const newMaxReservationsPerWallet = 10n
+    const newReservationActionTimeout = 172800n // 2 days
+    const newReservationRenewalWindowSeconds = 172800n // 2 days
 
     before(async () => {
       const parameters = await reservationRouter.reservationParameters()
@@ -4627,7 +4642,7 @@ describe("Bridge - Governance", () => {
     context(
       "when the update process is initialized and governance delay passed",
       () => {
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -4703,9 +4718,9 @@ describe("Bridge - Governance", () => {
   })
 
   describe("beginReservationCapsUpdate", () => {
-    const newMaxReservationsAmountPerWallet = 2000000
-    const newReservationMaxSingleAmount = 200000
-    const newMaxActiveReservations = 150
+    const newMaxReservationsAmountPerWallet = 2000000n
+    const newReservationMaxSingleAmount = 200000n
+    const newMaxActiveReservations = 150n
 
     context("when the caller is not the owner", () => {
       it("should revert", async () => {
@@ -4722,22 +4737,28 @@ describe("Bridge - Governance", () => {
     })
 
     context("when the caller is the owner", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
       let capsBefore: ReservationCapsSnapshot
-      let maxActiveReservationsBefore: number
-      let bridgeGovernanceEvents: Contract
+      let maxActiveReservationsBefore: bigint
+      let bridgeGovernanceEvents: BaseContract
 
       before(async () => {
         await createSnapshot()
 
-        capsBefore = await reservationRouter.reservationCaps()
+        const capsBeforeTuple = await reservationRouter.reservationCaps()
+        capsBefore = {
+          maxReservationsAmountPerWallet: capsBeforeTuple[0],
+          reservationMaxSingleAmount: capsBeforeTuple[1],
+        }
         ;({ maxActive: maxActiveReservationsBefore } =
           await reservationRouter.activeReservationsCount())
 
         const paramsLib = await helpers.contracts.getContract(
           "BridgeGovernanceParameters"
         )
-        bridgeGovernanceEvents = paramsLib.attach(bridgeGovernance.address)
+        bridgeGovernanceEvents = paramsLib.attach(
+          await bridgeGovernance.getAddress()
+        )
 
         tx = await bridgeGovernance
           .connect(governance)
@@ -4779,9 +4800,9 @@ describe("Bridge - Governance", () => {
   })
 
   describe("finalizeReservationCapsUpdate", () => {
-    const newMaxReservationsAmountPerWallet = 2000000
-    const newReservationMaxSingleAmount = 200000
-    const newMaxActiveReservations = 150
+    const newMaxReservationsAmountPerWallet = 2000000n
+    const newReservationMaxSingleAmount = 200000n
+    const newMaxActiveReservations = 150n
 
     context("when the caller is not the owner", () => {
       it("should revert", async () => {
@@ -4828,7 +4849,7 @@ describe("Bridge - Governance", () => {
     context(
       "when the update process is initialized and governance delay passed",
       () => {
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()

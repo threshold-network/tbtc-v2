@@ -8,22 +8,27 @@ import type {
   IRedemptionWatchtower,
   WalletProposalValidator,
 } from "../../typechain"
-import type {
-  ReservationActionStruct,
-  ReservationRequestStruct,
-} from "../../typechain/IReservationBridge"
-import type {
-  ReservationReanchorProposalStruct,
-  ReservationAnchorProposalStruct,
-} from "../../typechain/WalletProposalValidator"
 import { walletState, movedFundsSweepRequestState } from "../fixtures"
 import { NO_MAIN_UTXO } from "../data/deposit-sweep"
 import { createMock } from "../helpers/mock"
 import type { Mock } from "../helpers/mock"
+import * as ReservationTypes from "../../typechain/contracts/bridge/IReservationBridge"
+import * as WalletProposalValidatorTypes from "../../typechain/contracts/bridge/WalletProposalValidator"
 
 const { lastBlockTime, increaseTime } = helpers.time
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 const { ZeroAddress: AddressZero, ZeroHash: HashZero } = ethers
+
+// typechain v6 nests the struct types inside a per-contract namespace, which
+// the `typechain` barrel re-exports only as a bare type.
+type ReservationActionStruct =
+  ReservationTypes.Reservation.ReservationActionStruct
+type ReservationRequestStruct =
+  ReservationTypes.Reservation.ReservationRequestStruct
+type ReservationReanchorProposalStruct =
+  WalletProposalValidatorTypes.WalletProposalValidator.ReservationReanchorProposalStruct
+type ReservationAnchorProposalStruct =
+  WalletProposalValidatorTypes.WalletProposalValidator.ReservationAnchorProposalStruct
 
 const day = 86400
 const depositLocktime = 30 * day
@@ -3008,7 +3013,7 @@ describe("WalletProposalValidator", () => {
       movingFundsTargetWalletsCommitmentHash: HashZero,
     })
 
-    let deposit
+    let deposit: ReturnType<typeof createTestDeposit>
 
     const buildProposal = (
       overrides: Partial<ReservationAnchorProposalStruct> = {}
@@ -3583,11 +3588,11 @@ describe("WalletProposalValidator", () => {
       before(async () => {
         await createSnapshot()
 
-        const safetyMarginViolatedAt = await lastBlockTime()
+        const safetyMarginViolatedAt = BigInt(await lastBlockTime())
         const depositRefundableAt =
           safetyMarginViolatedAt +
-          (await walletProposalValidator.DEPOSIT_REFUND_SAFETY_MARGIN())
-        const depositRevealedAt = depositRefundableAt - depositLocktime
+          BigInt(await walletProposalValidator.DEPOSIT_REFUND_SAFETY_MARGIN())
+        const depositRevealedAt = depositRefundableAt - BigInt(depositLocktime)
 
         deposit = createTestDeposit(
           walletPubKeyHash,
@@ -3758,7 +3763,6 @@ describe("WalletProposalValidator", () => {
             deposit.extraInfo
           )
 
-        // eslint-disable-next-line @typescript-eslint/no-unused-expressions
         expect(result).to.be.true
       })
     })
@@ -3824,7 +3828,6 @@ describe("WalletProposalValidator", () => {
               deposit.extraInfo
             )
 
-          // eslint-disable-next-line @typescript-eslint/no-unused-expressions
           expect(result).to.be.true
         })
       }
@@ -3959,7 +3962,6 @@ describe("WalletProposalValidator", () => {
               deposit.extraInfo
             )
 
-          // eslint-disable-next-line @typescript-eslint/no-unused-expressions
           expect(result).to.be.true
         })
       }
@@ -4314,7 +4316,6 @@ describe("WalletProposalValidator", () => {
             buildProposal()
           )
 
-        // eslint-disable-next-line @typescript-eslint/no-unused-expressions
         expect(result).to.be.true
       })
     })
@@ -4334,7 +4335,7 @@ const createTestDeposit = (
   walletPubKeyHash: string,
   vault: string,
   witness = true,
-  revealedAt?: number,
+  revealedAt?: number | bigint,
   extraData?: string
 ) => {
   let resolvedRevealedAt = revealedAt
@@ -4349,10 +4350,10 @@ const createTestDeposit = (
     resolvedRevealedAt = depositRevealDefaultAnchorTime - day
   }
 
-  const refundableAt = resolvedRevealedAt + depositLocktime
+  const refundableAt = BigInt(resolvedRevealedAt) + BigInt(depositLocktime)
 
   const refundLocktime = `0x${Buffer.from(
-    ethers.toBeHex(BigInt(refundableAt)).substring(2),
+    ethers.toBeHex(refundableAt).substring(2),
     "hex"
   )
     .reverse()
