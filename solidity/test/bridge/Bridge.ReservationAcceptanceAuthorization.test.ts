@@ -823,4 +823,123 @@ describe("acceptance request needs the funding transaction's proof", () => {
 
     expect(await reservedTotal()).to.equal(totalBefore + depositAmount)
   })
+  it("keys the request on the exact funding output index, not on output 0", async () => {
+    // A funding transaction with two outputs: an unrelated change output at
+    // index 0 and the reserved deposit at index 1. The router derives the
+    // reservation key from `keccak256(fundingTxHash, fundingOutputIndex)`, so
+    // only the index the deposit was revealed under can find it.
+    const fundingTx = buildTx(
+      [
+        {
+          txHash: ethers.hexlify(ethers.randomBytes(32)),
+          index: 0,
+        },
+      ],
+      [
+        {
+          valueSat: 50_000,
+          script: p2wpkhScript(ethers.hexlify(ethers.randomBytes(20))),
+        },
+        {
+          valueSat: depositAmount,
+          script: p2wshScript(
+            buildDepositScript(
+              thirdParty.address,
+              blindingFactor,
+              walletPubKeyHash,
+              refundPubKeyHash,
+              refundLocktime
+            )
+          ),
+        },
+      ]
+    )
+
+    await bridge.connect(thirdParty).revealDeposit(fundingTx.info, {
+      fundingOutputIndex: 1,
+      blindingFactor,
+      walletPubKeyHash,
+      refundPubKeyHash,
+      refundLocktime,
+      vault: reservationVault.target,
+    })
+
+    const totalBefore = await reservedTotal()
+    const countBefore =
+      await reservationRouter.walletReservationsCount(walletPubKeyHash)
+
+    await reservationRouter
+      .connect(thirdParty)
+      .requestReservationAcceptance(
+        fundingTx.info,
+        proofFor(fundingTx.txHash),
+        1,
+        walletPubKeyHash
+      )
+
+    expect(await reservedTotal()).to.equal(totalBefore + depositAmount)
+    expect(
+      await reservationRouter.walletReservationsCount(walletPubKeyHash)
+    ).to.equal(countBefore + 1n)
+
+    // The co-output index carries no revealed deposit, so a request under it
+    // must be refused instead of silently resolving to the same position.
+    const siblingFundingTx = buildTx(
+      [
+        {
+          txHash: ethers.hexlify(ethers.randomBytes(32)),
+          index: 0,
+        },
+      ],
+      [
+        {
+          valueSat: depositAmount,
+          script: p2wshScript(
+            buildDepositScript(
+              thirdParty.address,
+              blindingFactor,
+              walletPubKeyHash,
+              refundPubKeyHash,
+              refundLocktime
+            )
+          ),
+        },
+        {
+          valueSat: depositAmount,
+          script: p2wshScript(
+            buildDepositScript(
+              thirdParty.address,
+              blindingFactor,
+              walletPubKeyHash,
+              refundPubKeyHash,
+              refundLocktime
+            )
+          ),
+        },
+      ]
+    )
+    await bridge.connect(thirdParty).revealDeposit(siblingFundingTx.info, {
+      fundingOutputIndex: 1,
+      blindingFactor,
+      walletPubKeyHash,
+      refundPubKeyHash,
+      refundLocktime,
+      vault: reservationVault.target,
+    })
+
+    await expect(
+      reservationRouter
+        .connect(thirdParty)
+        .requestReservationAcceptance(
+          siblingFundingTx.info,
+          proofFor(siblingFundingTx.txHash),
+          0,
+          walletPubKeyHash
+        )
+    ).to.be.revertedWith("Deposit not revealed")
+
+    expect(
+      await reservationRouter.walletReservationsCount(walletPubKeyHash)
+    ).to.equal(countBefore + 1n)
+  })
 })
