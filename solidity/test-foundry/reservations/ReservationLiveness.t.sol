@@ -102,6 +102,35 @@ contract ReservationLivenessTest is Test {
         assertTrue(handler.property_aPossibleHandOffIsNeverRefused());
     }
 
+    /// @dev After a timed-out re-anchor the library refuses the owner until
+    ///      the cooldown ends. That is a delay, not a missing exit: the
+    ///      action `tryHandOff` stays out of the cooldown and succeeds once
+    ///      it ends.
+    function test_tryHandOffWaitsOutTheCooldownAfterATimeout() public {
+        acceptOn(0, 500_000, 0);
+        handler.advanceWallet(0, false);
+        handler.requestReanchor(0, 1, 0);
+        uint256 key = handler.keyAt(0);
+        vm.warp(harness.action(key, 1).timeoutAt);
+        handler.notifyReanchorTimedOut(0);
+        assertEq(handler.successes("reanchorTimedOut"), 1);
+
+        handler.tryHandOff(0, 1);
+        assertEq(handler.successes("tryHandOff"), 0, "inside the cooldown");
+        assertFalse(handler.handOffRefused());
+        assertTrue(handler.property_everyRetiringPositionHasAnExit());
+
+        // The library does refuse the owner inside the cooldown.
+        bytes20 target = handler.walletAt(1);
+        vm.expectRevert("Reanchor cooldown in effect");
+        harness.requestReservationReanchor(key, target, false);
+
+        vm.warp(harness.reservation(key).reanchorCooldownUntil);
+        handler.tryHandOff(0, 1);
+        assertEq(handler.successes("tryHandOff"), 1, "after the cooldown");
+        assertFalse(handler.handOffRefused());
+    }
+
     /// @dev A retiring position has an exit even when every other Live
     ///      wallet is full: a privileged request skips the target's
     ///      per-wallet caps. A third party does not, and a privileged
@@ -177,6 +206,27 @@ contract ReservationLivenessTest is Test {
         assertEq(reason, handler.NO_LIVE_TARGET());
         handler.requestReanchor(0, 1, 0);
         assertEq(handler.successes("requestReanchor"), 0, "library agrees");
+    }
+
+    /// @dev A stuck position of one reason does not hide a stuck position of
+    ///      the other reason: key 0 sits at the re-anchor floor, key 1 has
+    ///      no Live target, and both split properties fail.
+    function test_oneStuckReasonDoesNotHideTheOther() public {
+        acceptOn(0, 10_001, 10_000);
+        handler.advanceWallet(0, false);
+        handler.requestReanchor(0, 1, 0);
+        handler.proveReanchor(0, 1, 10_000);
+        assertEq(handler.successes("proveReanchor"), 1);
+        acceptOn(3, 500_000, 0);
+        for (uint256 i = 1; i < 4; i++) {
+            handler.advanceWallet(i, false);
+        }
+
+        (uint256 firstKey, uint8 firstReason) = handler.firstStuckPosition();
+        assertEq(firstKey, handler.keyAt(0));
+        assertEq(firstReason, handler.ANCHOR_AT_REANCHOR_FLOOR());
+        assertFalse(handler.property_noPositionIsStuckAtTheReanchorFloor());
+        assertFalse(handler.property_noPositionIsStuckWithoutALiveTarget());
     }
 
     function acceptOn(

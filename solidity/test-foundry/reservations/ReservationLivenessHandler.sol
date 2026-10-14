@@ -43,15 +43,15 @@ contract ReservationLivenessHandler is ReservationHandler {
     }
 
     /// @dev The two stuck reasons, reported separately so a campaign names
-    ///      which known case a failing sequence reaches. Both are expected
-    ///      to fail.
+    ///      which known case a failing sequence reaches. Each property scans
+    ///      every position, so a stuck position of one reason cannot hide
+    ///      one of the other reason. Both are expected to fail.
     function property_noPositionIsStuckWithoutALiveTarget()
         public
         view
         returns (bool)
     {
-        (, uint8 reason) = firstStuckPosition();
-        return reason != NO_LIVE_TARGET;
+        return !anyPositionStuckFor(NO_LIVE_TARGET);
     }
 
     function property_noPositionIsStuckAtTheReanchorFloor()
@@ -59,14 +59,22 @@ contract ReservationLivenessHandler is ReservationHandler {
         view
         returns (bool)
     {
-        (, uint8 reason) = firstStuckPosition();
-        return reason != ANCHOR_AT_REANCHOR_FLOOR;
+        return !anyPositionStuckFor(ANCHOR_AT_REANCHOR_FLOOR);
+    }
+
+    function anyPositionStuckFor(uint8 reason) internal view returns (bool) {
+        for (uint256 i = 0; i < keys.length; i++) {
+            if (stuckReason(keys[i]) == reason) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /// @dev Set when the library refuses an owner hand-off that the rules
     ///      say it must accept: an Active position on a MovingFunds or
-    ///      Closing wallet, a Live target other than the source, and an
-    ///      anchor above the re-anchor floor.
+    ///      Closing wallet, a Live target other than the source, an
+    ///      anchor above the re-anchor floor, and no re-anchor cooldown.
     bool public handOffRefused;
     string public handOffRefusal;
 
@@ -89,6 +97,10 @@ contract ReservationLivenessHandler is ReservationHandler {
         ) {
             return;
         }
+        // The cooldown after a timed-out re-anchor binds every caller except
+        // the governance-discriminated call, and it always ends, so a
+        // refusal inside it is not a missing exit.
+        if (block.timestamp < r.reanchorCooldownUntil) return;
         (uint64 minAmount, uint64 txMaxFee, ) = harness.parameters();
         if (r.anchorAmount <= minAmount + txMaxFee) return;
 
