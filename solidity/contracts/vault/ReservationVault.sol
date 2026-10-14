@@ -47,7 +47,7 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
     using SafeERC20 for IERC20;
 
     /// @notice Multiplier to convert satoshi to TBTC token units.
-    uint256 public constant SATOSHI_MULTIPLIER = 10**10;
+    uint256 public constant SATOSHI_MULTIPLIER = 10 ** 10;
 
     /// @notice Basis points divisor for fee computations.
     uint256 public constant BASIS_POINTS = 10000;
@@ -104,11 +104,7 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
         _;
     }
 
-    constructor(
-        Bank _bank,
-        TBTCVault _tbtcVault,
-        IReservationBridge _bridge
-    ) {
+    constructor(Bank _bank, TBTCVault _tbtcVault, IReservationBridge _bridge) {
         require(
             address(_bank) != address(0),
             "Bank can not be the zero address"
@@ -275,10 +271,9 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
     ///      Note: Updates apply instantly for milestone 1, matching the
     ///      ReservationRouter parameter-update precedent, pending a possible
     ///      future governance delay extension.
-    function updateFeeReserveTarget(uint256 _feeReserveTarget)
-        external
-        onlyOwner
-    {
+    function updateFeeReserveTarget(
+        uint256 _feeReserveTarget
+    ) external onlyOwner {
         feeReserveTarget = _feeReserveTarget;
         emit FeeReserveTargetUpdated(_feeReserveTarget);
     }
@@ -356,10 +351,9 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
     /// @dev Burns up to `amountSat` of TBTC from the vault's current balance
     ///      and decreases the corresponding Bank balance. Returns the amount
     ///      of satoshi actually burned.
-    function _burnFromReserve(uint64 amountSat)
-        internal
-        returns (uint64 burnedSat)
-    {
+    function _burnFromReserve(
+        uint64 amountSat
+    ) internal returns (uint64 burnedSat) {
         uint256 reserveTbtc = tbtcToken.balanceOf(address(this));
         burnedSat = uint64(
             Math.min(uint256(amountSat), reserveTbtc / SATOSHI_MULTIPLIER)

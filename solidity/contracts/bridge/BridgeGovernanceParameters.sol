@@ -1660,8 +1660,8 @@ library BridgeGovernanceParameters {
         self.newReservationMaxTotalAmount = _newReservationMaxTotalAmount;
         self.newMaxReservationsPerWallet = _newMaxReservationsPerWallet;
         self.newReservationActionTimeout = _newReservationActionTimeout;
-        self
-            .newReservationRenewalWindowSeconds = _newReservationRenewalWindowSeconds;
+        self.newReservationRenewalWindowSeconds =
+            _newReservationRenewalWindowSeconds;
         self.reservationParametersChangeInitiated = block.timestamp;
         emit ReservationParametersUpdateStarted(
             _newReservationVault,
@@ -1732,8 +1732,8 @@ library BridgeGovernanceParameters {
         uint32 _newHandoffReserveWallets
     ) external {
         /* solhint-disable not-rely-on-time */
-        self
-            .newMaxReservationsAmountPerWallet = _newMaxReservationsAmountPerWallet;
+        self.newMaxReservationsAmountPerWallet =
+            _newMaxReservationsAmountPerWallet;
         self.newReservationMaxSingleAmount = _newReservationMaxSingleAmount;
         self.newMaxActiveReservations = _newMaxActiveReservations;
         self.newMaxThirdPartyReanchorHoldsPerWallet =
@@ -1764,7 +1764,7 @@ library BridgeGovernanceParameters {
             self.reservationCapsChangeInitiated,
             governanceDelay
         )
-     {
+    {
         self.newMaxReservationsAmountPerWallet = 0;
         self.newReservationMaxSingleAmount = 0;
         self.newMaxActiveReservations = 0;

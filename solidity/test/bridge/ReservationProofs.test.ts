@@ -1385,9 +1385,8 @@ describe("ReservationProofs", () => {
       // still has the re-anchor right; no capacity is released and no strand
       // evidence is emitted. (Closed and Terminated still strand: see the
       // sibling tests in this file.)
-      const reservation = await testReservationProofs.getReservation(
-        sampleReservationKey
-      )
+      const reservation =
+        await testReservationProofs.getReservation(sampleReservationKey)
       expect(reservation.state).to.equal(1) // still Active
 
       // Counts untouched.
@@ -1406,10 +1405,7 @@ describe("ReservationProofs", () => {
         1
       )
 
-      await expect(tx).to.not.emit(
-        testReservationProofs,
-        "ReservationStranded"
-      )
+      await expect(tx).to.not.emit(testReservationProofs, "ReservationStranded")
     })
 
     it("should strand on late settlement if wallet is Closed (4)", async () => {

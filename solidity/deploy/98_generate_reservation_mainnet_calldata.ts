@@ -576,7 +576,10 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
         "than the term' require)"
     )
   }
-  if (RES_ACTION_TIMEOUT <= REQUEST_TIMEOUT_SAFETY_MARGIN + DEPOSIT_MIN_AGE + 1) {
+  if (
+    RES_ACTION_TIMEOUT <=
+    REQUEST_TIMEOUT_SAFETY_MARGIN + DEPOSIT_MIN_AGE + 1
+  ) {
     throw new Error(
       `RESERVATION_ACTION_TIMEOUT_SECONDS (${RES_ACTION_TIMEOUT}) must ` +
         "exceed REQUEST_TIMEOUT_SAFETY_MARGIN + DEPOSIT_MIN_AGE + 1 " +

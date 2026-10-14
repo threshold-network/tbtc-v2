@@ -155,8 +155,8 @@ describe("Bridge - Reservation settlement", () => {
 
   const depositAmount = BigInt(3000000)
   const anchorFee = 1500n
-  const anchorAmount = depositAmount- anchorFee
-  const grossTbtc = anchorAmount* SATOSHI_MULTIPLIER
+  const anchorAmount = depositAmount - anchorFee
+  const grossTbtc = anchorAmount * SATOSHI_MULTIPLIER
 
   before(async () => {
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
@@ -205,7 +205,13 @@ describe("Bridge - Reservation settlement", () => {
     // reservation - found 2026-08-26.
     await reservationRouter
       .connect(bridgeGovernanceSigner)
-      .updateReservationCaps(RESERVATION_MAX_TOTAL, RESERVATION_MAX_TOTAL, 10, 1, 1) // 10 = 2 wallets * MAX_RESERVATIONS_PER_WALLET, satisfying the Item-3 sizing relation with this fixture's two Live wallets; 1 = hand-off reserve, leaving one remaining Live wallet with 10 positions
+      .updateReservationCaps(
+        RESERVATION_MAX_TOTAL,
+        RESERVATION_MAX_TOTAL,
+        10,
+        1,
+        1
+      ) // 10 = 2 wallets * MAX_RESERVATIONS_PER_WALLET, satisfying the Item-3 sizing relation with this fixture's two Live wallets; 1 = hand-off reserve, leaving one remaining Live wallet with 10 positions
     await reservationRouter
       .connect(bridgeGovernanceSigner)
       .updateReservationParameters(
@@ -319,9 +325,7 @@ describe("Bridge - Reservation settlement", () => {
     )}662a2c68${REGTEST_BITS_LE}`
     for (let nonce = 0; ; nonce++) {
       const header = `0x${base}${toLE(nonce, 4)}`
-      if (
-        BigInt(`0x${reverseHex(hash256(header))}`) <= REGTEST_TARGET
-      ) {
+      if (BigInt(`0x${reverseHex(hash256(header))}`) <= REGTEST_TARGET) {
         return header
       }
     }
@@ -574,7 +578,7 @@ describe("Bridge - Reservation settlement", () => {
       // function of `reservationMinAmount` relative to the claim in this
       // regime, not a protocol constant.
       expect(cumulativeFee).to.be.gt(PR1102_CAP)
-      expect(cumulativeFee * 100n / anchorAmount).to.be.gte(80)
+      expect((cumulativeFee * 100n) / anchorAmount).to.be.gte(80)
 
       // And the grind is genuinely terminal: the next hop cannot even be
       // requested, because the request-time floor is the first thing that
@@ -610,7 +614,12 @@ describe("Bridge - Reservation settlement", () => {
       await expect(
         reservationRouter
           .connect(thirdParty)
-          .requestReservationReanchor(reservationKey, secondWalletPubKeyHash, [], 0)
+          .requestReservationReanchor(
+            reservationKey,
+            secondWalletPubKeyHash,
+            [],
+            0
+          )
       ).to.be.revertedWith("Only governance can rotate a Live wallet's anchor")
     })
   })

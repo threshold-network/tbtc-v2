@@ -354,7 +354,7 @@ library Wallets {
                     getWalletBtcBalance(self, walletPubKeyHash, walletMainUtxo)
                 ) +
                     self.walletAnchoredInfo[walletPubKeyHash].amount <
-                self.walletClosureMinBtcBalance,
+                    self.walletClosureMinBtcBalance,
             "Wallet needs to be old enough or have too few satoshis"
         );
 

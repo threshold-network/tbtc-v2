@@ -34,7 +34,7 @@ const padWordHex = (word: bigint): string =>
 // storage field before writing a new value into it.
 const clearField = (word: bigint, shift: number, bits: number): bigint => {
   const field = (1n << BigInt(bits)) - 1n
-  return (word & (MAX_UINT256 ^ (field << BigInt(shift)))) & MAX_UINT256
+  return word & (MAX_UINT256 ^ (field << BigInt(shift))) & MAX_UINT256
 }
 // Collects the `name`-matched LogDescriptions emitted by a receipt,
 // decoded through the given ABI (v6 replacement for the v5
@@ -55,7 +55,6 @@ function receiptEvents(
     })
     .filter((e): e is LogDescription => e !== null)
 }
-
 
 // Reservation.ReservationState enum values (matches `Reservation.sol`).
 const reservationStateEnum = {
@@ -181,8 +180,7 @@ async function setReservationConfig(
     )
     let word30 = BigInt(raw)
     if (params.reservationVault !== undefined) {
-      word30 =
-        clearField(word30, 0, 160) | BigInt(params.reservationVault)
+      word30 = clearField(word30, 0, 160) | BigInt(params.reservationVault)
     }
     if (params.reservationTxMaxFee !== undefined) {
       word30 =
@@ -243,8 +241,7 @@ async function setReservationConfig(
     )
     let word32 = BigInt(raw)
     if (params.reservationRouter !== undefined) {
-      word32 =
-        clearField(word32, 0, 160) | BigInt(params.reservationRouter)
+      word32 = clearField(word32, 0, 160) | BigInt(params.reservationRouter)
     }
     if (params.reservationActionTimeout !== undefined) {
       word32 =
@@ -274,7 +271,8 @@ async function setReservationConfig(
     let word33 = BigInt(raw)
     if (params.maxReservationsAmountPerWallet !== undefined) {
       word33 =
-        clearField(word33, 0, 64) | BigInt(params.maxReservationsAmountPerWallet)
+        clearField(word33, 0, 64) |
+        BigInt(params.maxReservationsAmountPerWallet)
     }
     if (params.reservationMaxSingleAmount !== undefined) {
       word33 =
@@ -392,9 +390,8 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       ).to.equal(anchorAmount)
       expect(await executor.reservationTotalAmount()).to.equal(anchorAmount)
 
-      const tx: ContractTransactionResponse = await executor.notifyReservationStranded(
-        reservationKey
-      )
+      const tx: ContractTransactionResponse =
+        await executor.notifyReservationStranded(reservationKey)
 
       // The position is now Stranded.
       expect(await executor.reservationState(reservationKey)).to.equal(
@@ -502,9 +499,8 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       ).to.equal(anchorAmount)
       expect(await executor.reservationTotalAmount()).to.equal(anchorAmount)
 
-      const tx: ContractTransactionResponse = await executor.notifyReservationStranded(
-        reservationKey
-      )
+      const tx: ContractTransactionResponse =
+        await executor.notifyReservationStranded(reservationKey)
 
       expect(await executor.reservationState(reservationKey)).to.equal(
         reservationStateEnum.Stranded
@@ -685,9 +681,8 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
         reservationStateEnum.Active
       )
 
-      const tx: ContractTransactionResponse = await executor.notifyReservationStranded(
-        reservationKey
-      )
+      const tx: ContractTransactionResponse =
+        await executor.notifyReservationStranded(reservationKey)
       const receipt = (await tx.wait())!
       const events = receiptEvents(
         receipt,
@@ -746,9 +741,8 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       expect(await executor.reservationTotalAmount()).to.equal(anchorAmount * 2)
 
       // Strand the first reservation.
-      const tx: ContractTransactionResponse = await executor.notifyReservationStranded(
-        reservationA
-      )
+      const tx: ContractTransactionResponse =
+        await executor.notifyReservationStranded(reservationA)
       expect(await executor.walletReservationsCount(walletPubKeyHash)).to.equal(
         1
       )
@@ -1354,11 +1348,11 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
 
       await expect(
         executor.requestReservationReanchor(
-        closedReservationKey,
-        targetWallet,
-        false,
-        [],
-        0
+          closedReservationKey,
+          targetWallet,
+          false,
+          [],
+          0
         )
       ).to.be.revertedWith("Reservation is not active")
     })
@@ -1633,7 +1627,13 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       await executor.seedReservationCooldown(cooldownKey, futureTimestamp)
 
       await expect(
-        executor.requestReservationReanchor(cooldownKey, targetWallet, false, [], 0)
+        executor.requestReservationReanchor(
+          cooldownKey,
+          targetWallet,
+          false,
+          [],
+          0
+        )
       ).to.be.revertedWith("Reanchor cooldown in effect")
     })
 
@@ -1645,7 +1645,13 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       )
 
       await expect(
-        executor.requestReservationReanchor(reservationKey, targetWallet, false, [], 0)
+        executor.requestReservationReanchor(
+          reservationKey,
+          targetWallet,
+          false,
+          [],
+          0
+        )
       ).to.be.revertedWith("Only governance can rotate a Live wallet's anchor")
     })
 
@@ -1657,7 +1663,13 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       )
 
       await expect(
-        executor.requestReservationReanchor(reservationKey, targetWallet, false, [], 0)
+        executor.requestReservationReanchor(
+          reservationKey,
+          targetWallet,
+          false,
+          [],
+          0
+        )
       ).to.be.revertedWith(
         "Source wallet must be in MovingFunds or Closing state"
       )
@@ -1665,7 +1677,13 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
 
     it("rejects when target wallet is the same as source wallet", async () => {
       await expect(
-        executor.requestReservationReanchor(reservationKey, sourceWallet, false, [], 0)
+        executor.requestReservationReanchor(
+          reservationKey,
+          sourceWallet,
+          false,
+          [],
+          0
+        )
       ).to.be.revertedWith("Target wallet must differ from the source wallet")
     })
 
@@ -1677,7 +1695,13 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       )
 
       await expect(
-        executor.requestReservationReanchor(reservationKey, targetWallet, false, [], 0)
+        executor.requestReservationReanchor(
+          reservationKey,
+          targetWallet,
+          false,
+          [],
+          0
+        )
       ).to.be.revertedWith("Target wallet must be in Live state")
     })
 
@@ -1696,7 +1720,13 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       )
 
       await expect(
-        executor.requestReservationReanchor(reservationKey, targetWallet, false, [], 0)
+        executor.requestReservationReanchor(
+          reservationKey,
+          targetWallet,
+          false,
+          [],
+          0
+        )
       ).to.be.revertedWith("Wallet reservations cap exceeded")
     })
 
@@ -1715,7 +1745,13 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       )
 
       await expect(
-        executor.requestReservationReanchor(reservationKey, targetWallet, false, [], 0)
+        executor.requestReservationReanchor(
+          reservationKey,
+          targetWallet,
+          false,
+          [],
+          0
+        )
       ).to.be.revertedWith("Wallet reserved amount cap exceeded")
     })
   })

@@ -40,21 +40,21 @@ DEPLOY_RESERVATION_BOOTSTRAP_CALDATA=true yarn deploy --tags GenerateReservation
 
 `DEPLOY_RESERVATION_BOOTSTRAP_CALDATA=true` is needed on any network other than `mainnet`; on `hardhat`, `localhost`, `development` and `system_tests` the script skips itself (use script 97 there).
 
-| Env var | `BridgeGovernance` argument | Script check |
-|---|---|---|
-| `RESERVATION_PER_WALLET_CAP_SATS` | `beginReservationCapsUpdate._newMaxReservationsAmountPerWallet` | |
-| `RESERVATION_SINGLE_AMOUNT_CAP_SATS` | `beginReservationCapsUpdate._newReservationMaxSingleAmount` | |
-| `RESERVATION_MAX_ACTIVE` | `beginReservationCapsUpdate._newMaxActiveReservations` | |
-| `RESERVATION_MAX_THIRD_PARTY_REANCHOR_HOLDS` | `beginReservationCapsUpdate._newMaxThirdPartyReanchorHoldsPerWallet` | 0 blocks third-party holds |
-| `RESERVATION_HANDOFF_RESERVE_WALLETS` | `beginReservationCapsUpdate._newHandoffReserveWallets` | must be > 0 (mirrors `updateReservationCaps`'s "Hand-off reserve must be greater than zero" require) |
-| `RESERVATION_MIN_AMOUNT_SATS` | `beginReservationParametersUpdate._newReservationMinAmount` | must exceed the tx max fee |
-| `RESERVATION_TX_MAX_FEE_SATS` | `beginReservationParametersUpdate._newReservationTxMaxFee` | must be > 0 |
-| `RESERVATION_TERM_SECONDS` | `beginReservationParametersUpdate._newReservationTermSeconds` | 90 to 730 days |
-| `RESERVATION_DISSOLUTION_DELAY_SECONDS` | `beginReservationParametersUpdate._newReservationDissolutionDelay` | |
-| `RESERVATION_MAX_TOTAL_AMOUNT_SATS` | `beginReservationParametersUpdate._newReservationMaxTotalAmount` | Decision 1 invariant |
-| `RESERVATION_MAX_PER_WALLET` | `beginReservationParametersUpdate._newMaxReservationsPerWallet` | must be 1 (M1 launch value) |
-| `RESERVATION_ACTION_TIMEOUT_SECONDS` | `beginReservationParametersUpdate._newReservationActionTimeout` | |
-| `RESERVATION_RENEWAL_WINDOW_SECONDS` | `beginReservationParametersUpdate._newReservationRenewalWindowSeconds` | |
+| Env var                                      | `BridgeGovernance` argument                                            | Script check                                                                                         |
+| -------------------------------------------- | ---------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `RESERVATION_PER_WALLET_CAP_SATS`            | `beginReservationCapsUpdate._newMaxReservationsAmountPerWallet`        |                                                                                                      |
+| `RESERVATION_SINGLE_AMOUNT_CAP_SATS`         | `beginReservationCapsUpdate._newReservationMaxSingleAmount`            |                                                                                                      |
+| `RESERVATION_MAX_ACTIVE`                     | `beginReservationCapsUpdate._newMaxActiveReservations`                 |                                                                                                      |
+| `RESERVATION_MAX_THIRD_PARTY_REANCHOR_HOLDS` | `beginReservationCapsUpdate._newMaxThirdPartyReanchorHoldsPerWallet`   | 0 blocks third-party holds                                                                           |
+| `RESERVATION_HANDOFF_RESERVE_WALLETS`        | `beginReservationCapsUpdate._newHandoffReserveWallets`                 | must be > 0 (mirrors `updateReservationCaps`'s "Hand-off reserve must be greater than zero" require) |
+| `RESERVATION_MIN_AMOUNT_SATS`                | `beginReservationParametersUpdate._newReservationMinAmount`            | must exceed the tx max fee                                                                           |
+| `RESERVATION_TX_MAX_FEE_SATS`                | `beginReservationParametersUpdate._newReservationTxMaxFee`             | must be > 0                                                                                          |
+| `RESERVATION_TERM_SECONDS`                   | `beginReservationParametersUpdate._newReservationTermSeconds`          | 90 to 730 days                                                                                       |
+| `RESERVATION_DISSOLUTION_DELAY_SECONDS`      | `beginReservationParametersUpdate._newReservationDissolutionDelay`     |                                                                                                      |
+| `RESERVATION_MAX_TOTAL_AMOUNT_SATS`          | `beginReservationParametersUpdate._newReservationMaxTotalAmount`       | Decision 1 invariant                                                                                 |
+| `RESERVATION_MAX_PER_WALLET`                 | `beginReservationParametersUpdate._newMaxReservationsPerWallet`        | must be 1 (M1 launch value)                                                                          |
+| `RESERVATION_ACTION_TIMEOUT_SECONDS`         | `beginReservationParametersUpdate._newReservationActionTimeout`        |                                                                                                      |
+| `RESERVATION_RENEWAL_WINDOW_SECONDS`         | `beginReservationParametersUpdate._newReservationRenewalWindowSeconds` |                                                                                                      |
 
 The vault address is not an env var: the script reads the deployed `ReservationVault` and passes it as `_newReservationVault`.
 
@@ -191,7 +191,6 @@ function updateReservationCaps(
   uint32 maxThirdPartyReanchorHoldsPerWallet,
   uint32 handoffReserveWallets
 ) external;
-
 ```
 
 `ReservationCapsUpdated` event signature change:
@@ -199,32 +198,32 @@ function updateReservationCaps(
 ```solidity
 // #1094
 event ReservationCapsUpdated(
-    uint64 maxReservationsAmountPerWallet,
-    uint64 reservationMaxSingleAmount
+  uint64 maxReservationsAmountPerWallet,
+  uint64 reservationMaxSingleAmount
 );
 
 // Milestone 1 (this PR)
 event ReservationCapsUpdated(
-    uint64 maxReservationsAmountPerWallet,
-    uint64 reservationMaxSingleAmount,
-    uint32 maxActiveReservations
+  uint64 maxReservationsAmountPerWallet,
+  uint64 reservationMaxSingleAmount,
+  uint32 maxActiveReservations
 );
 
 // Milestone 1, third-party re-anchor hold cap
 event ReservationCapsUpdated(
-    uint64 maxReservationsAmountPerWallet,
-    uint64 reservationMaxSingleAmount,
-    uint32 maxActiveReservations,
-    uint32 maxThirdPartyReanchorHoldsPerWallet
+  uint64 maxReservationsAmountPerWallet,
+  uint64 reservationMaxSingleAmount,
+  uint32 maxActiveReservations,
+  uint32 maxThirdPartyReanchorHoldsPerWallet
 );
 
 // Milestone 1, hand-off reserve
 event ReservationCapsUpdated(
-    uint64 maxReservationsAmountPerWallet,
-    uint64 reservationMaxSingleAmount,
-    uint32 maxActiveReservations,
-    uint32 maxThirdPartyReanchorHoldsPerWallet,
-    uint32 handoffReserveWallets
+  uint64 maxReservationsAmountPerWallet,
+  uint64 reservationMaxSingleAmount,
+  uint32 maxActiveReservations,
+  uint32 maxThirdPartyReanchorHoldsPerWallet,
+  uint32 handoffReserveWallets
 );
 ```
 
@@ -233,23 +232,22 @@ event ReservationCapsUpdated(
 ```solidity
 // #1094
 event ReservationReanchored(
-    uint256 indexed reservationKey,
-    uint64 requestNonce,
-    bytes20 indexed newWalletPubKeyHash,
-    bytes32 newAnchorTxHash,
-    uint64 newAnchorAmount
+  uint256 indexed reservationKey,
+  uint64 requestNonce,
+  bytes20 indexed newWalletPubKeyHash,
+  bytes32 newAnchorTxHash,
+  uint64 newAnchorAmount
 );
 
 // Milestone 1 (this PR)
 event ReservationReanchored(
-    uint256 indexed reservationKey,
-    uint64 requestNonce,
-    bytes20 indexed newWalletPubKeyHash,
-    bytes32 newAnchorTxHash,
-    uint64 newAnchorAmount,
-    uint64 minerFee
+  uint256 indexed reservationKey,
+  uint64 requestNonce,
+  bytes20 indexed newWalletPubKeyHash,
+  bytes32 newAnchorTxHash,
+  uint64 newAnchorAmount,
+  uint64 minerFee
 );
-
 ```
 
 Off-chain tooling updates required:

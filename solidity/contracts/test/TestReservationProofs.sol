@@ -155,11 +155,9 @@ contract TestReservationProofs {
         );
     }
 
-    function parseSingleOutput(bytes memory outputVector)
-        external
-        pure
-        returns (bytes memory output)
-    {
+    function parseSingleOutput(
+        bytes memory outputVector
+    ) external pure returns (bytes memory output) {
         return ReservationProofs.parseSingleOutput(outputVector);
     }
 
@@ -353,9 +351,10 @@ contract TestReservationProofs {
         state.reservationTotalAmount = amount;
     }
 
-    function setWalletReservationsCount(bytes20 walletPubKeyHash, uint32 count)
-        external
-    {
+    function setWalletReservationsCount(
+        bytes20 walletPubKeyHash,
+        uint32 count
+    ) external {
         state.walletReservationInfo[walletPubKeyHash].count = count;
     }
 
@@ -385,9 +384,10 @@ contract TestReservationProofs {
         state.pendingReservedDeposits = count;
     }
 
-    function setReservationByAnchorUtxo(uint256 utxoKey, uint256 reservationKey)
-        external
-    {
+    function setReservationByAnchorUtxo(
+        uint256 utxoKey,
+        uint256 reservationKey
+    ) external {
         state.reservationsByAnchorUtxo[utxoKey] = reservationKey;
     }
 
@@ -421,46 +421,37 @@ contract TestReservationProofs {
     }
 
     // Storage Getters
-    function getReservation(uint256 reservationKey)
-        external
-        view
-        returns (Reservation.ReservationRequest memory)
-    {
+    function getReservation(
+        uint256 reservationKey
+    ) external view returns (Reservation.ReservationRequest memory) {
         return state.reservations[reservationKey];
     }
 
-    function getReservationAction(uint256 reservationKey, uint64 requestNonce)
-        external
-        view
-        returns (Reservation.ReservationAction memory)
-    {
+    function getReservationAction(
+        uint256 reservationKey,
+        uint64 requestNonce
+    ) external view returns (Reservation.ReservationAction memory) {
         return
             state.reservationActions[
                 Reservation.actionKey(reservationKey, requestNonce)
             ];
     }
 
-    function getPendingReservedDeposit(uint256 reservationKey)
-        external
-        view
-        returns (BridgeState.PendingReservedDeposit memory)
-    {
+    function getPendingReservedDeposit(
+        uint256 reservationKey
+    ) external view returns (BridgeState.PendingReservedDeposit memory) {
         return state.pendingReservedDeposit[reservationKey];
     }
 
-    function getDeposit(uint256 reservationKey)
-        external
-        view
-        returns (Deposit.DepositRequest memory)
-    {
+    function getDeposit(
+        uint256 reservationKey
+    ) external view returns (Deposit.DepositRequest memory) {
         return state.deposits[reservationKey];
     }
 
-    function getReservationByAnchorUtxo(uint256 utxoKey)
-        external
-        view
-        returns (uint256)
-    {
+    function getReservationByAnchorUtxo(
+        uint256 utxoKey
+    ) external view returns (uint256) {
         return state.reservationsByAnchorUtxo[utxoKey];
     }
 
@@ -472,19 +463,15 @@ contract TestReservationProofs {
         return state.reservationTotalAmount;
     }
 
-    function getWalletReservationsCount(bytes20 walletPubKeyHash)
-        external
-        view
-        returns (uint32)
-    {
+    function getWalletReservationsCount(
+        bytes20 walletPubKeyHash
+    ) external view returns (uint32) {
         return state.walletReservationInfo[walletPubKeyHash].count;
     }
 
-    function getWalletReservationsAmount(bytes20 walletPubKeyHash)
-        external
-        view
-        returns (uint64)
-    {
+    function getWalletReservationsAmount(
+        bytes20 walletPubKeyHash
+    ) external view returns (uint64) {
         return state.walletReservationInfo[walletPubKeyHash].amount;
     }
 
@@ -492,11 +479,9 @@ contract TestReservationProofs {
         return state.pendingReservedDeposits;
     }
 
-    function getWalletState(bytes20 walletPubKeyHash)
-        external
-        view
-        returns (Wallets.WalletState)
-    {
+    function getWalletState(
+        bytes20 walletPubKeyHash
+    ) external view returns (Wallets.WalletState) {
         return state.registeredWallets[walletPubKeyHash].state;
     }
 }

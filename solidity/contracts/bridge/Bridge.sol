@@ -1626,11 +1626,9 @@ contract Bridge is
 
     /// @notice Returns whether the deposit was routed to the reservation
     ///         vault that was configured at reveal time.
-    function isReservedDeposit(uint256 depositKey)
-        external
-        view
-        returns (bool)
-    {
+    function isReservedDeposit(
+        uint256 depositKey
+    ) external view returns (bool) {
         return self.pendingReservedDeposit[depositKey].isReserved;
     }
 
@@ -2085,10 +2083,9 @@ contract Bridge is
     ///      - The caller must be the governance,
     ///      - Reservation router address must not be already set,
     ///      - Reservation router address must not be 0x0.
-    function setReservationRouter(address _reservationRouter)
-        external
-        onlyGovernance
-    {
+    function setReservationRouter(
+        address _reservationRouter
+    ) external onlyGovernance {
         // The internal function is defined in the `BridgeState` library.
         self.setReservationRouter(_reservationRouter);
     }

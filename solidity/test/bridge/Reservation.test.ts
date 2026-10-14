@@ -60,16 +60,13 @@ describe("Reservation", () => {
     const signers = await ethers.getSigners()
     ;[deployer, depositor, thirdParty, vault] = signers
 
-    const ReservationProofsFactory = await ethers.getContractFactory(
-      "ReservationProofs"
-    )
-    const reservationProofsLibrary = await ReservationProofsFactory.connect(
-      deployer
-    ).deploy()
+    const ReservationProofsFactory =
+      await ethers.getContractFactory("ReservationProofs")
+    const reservationProofsLibrary =
+      await ReservationProofsFactory.connect(deployer).deploy()
     const ReservationFactory = await ethers.getContractFactory("Reservation")
-    const reservationLibrary = await ReservationFactory.connect(
-      deployer
-    ).deploy()
+    const reservationLibrary =
+      await ReservationFactory.connect(deployer).deploy()
     const TestReservationFactory = await ethers.getContractFactory(
       "TestReservation",
       { libraries: { Reservation: reservationLibrary.target } }
@@ -1686,9 +1683,8 @@ describe("Reservation", () => {
         amount
       )
 
-      const tx = await testReservation.notifyReservationActionTimeout(
-        reservationKey
-      )
+      const tx =
+        await testReservation.notifyReservationActionTimeout(reservationKey)
       const receipt = (await tx.wait())!
       const block = (await ethers.provider.getBlock(receipt.blockNumber))!
 
@@ -2056,9 +2052,8 @@ describe("Reservation", () => {
       )
       await testReservation.setWalletReservationsCount(testWalletPubKeyHash, 1)
 
-      const tx = await testReservation.finalizeWalletClosing(
-        testWalletPubKeyHash
-      )
+      const tx =
+        await testReservation.finalizeWalletClosing(testWalletPubKeyHash)
 
       expect(await testReservation.walletState(testWalletPubKeyHash)).to.equal(
         walletState.Closed

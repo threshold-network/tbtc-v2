@@ -81,15 +81,8 @@ describe("Bridge - Reservation release to pool", () => {
 
   before(async () => {
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
-    ;({
-      deployer,
-      governance,
-      spvMaintainer,
-      thirdParty,
-      bank,
-      relay,
-      bridge,
-    } = await bridgeFixture())
+    ;({ deployer, governance, spvMaintainer, thirdParty, bank, relay, bridge } =
+      await bridgeFixture())
 
     // Router functions are only reachable through the `Bridge.fallback()`
     // delegatecall; binding the release ABI fragment to the Bridge address
@@ -337,7 +330,9 @@ describe("Bridge - Reservation release to pool", () => {
     sweepFee: number = SWEEP_FEE
   ): Promise<bigint> {
     const deposit = await bridge.deposits(depositKey)
-    return BigInt(deposit.amount) - BigInt(deposit.treasuryFee) - BigInt(sweepFee)
+    return (
+      BigInt(deposit.amount) - BigInt(deposit.treasuryFee) - BigInt(sweepFee)
+    )
   }
 
   beforeEach(async () => {
@@ -370,12 +365,10 @@ describe("Bridge - Reservation release to pool", () => {
       // The release clears the reserved mark and re-routes the deposit.
       expect(await bridge.isReservedDeposit(depositKey)).to.be.false
       expect(await reservationRouter.pendingReservedDeposits()).to.equal(0n)
-      expect(await reservationRouter.reservedDepositWallet(depositKey)).to.equal(
-        "0x0000000000000000000000000000000000000000"
-      )
-      expect((await bridge.deposits(depositKey)).vault).to.equal(
-        vault.address
-      )
+      expect(
+        await reservationRouter.reservedDepositWallet(depositKey)
+      ).to.equal("0x0000000000000000000000000000000000000000")
+      expect((await bridge.deposits(depositKey)).vault).to.equal(vault.address)
 
       // An ordinary sweep of the released deposit succeeds and routes the
       // net amount to the chosen vault through the Bank.
@@ -393,10 +386,10 @@ describe("Bridge - Reservation release to pool", () => {
         .to.emit(bridge, "DepositsSwept")
         .withArgs(walletPubKeyHash, sweepTx.txHash)
 
-      await expectCalledOnceWith(
-        vault.receiveBalanceIncrease,
-        [[thirdParty.address], [await expectedDepositNet(depositKey)]]
-      )
+      await expectCalledOnceWith(vault.receiveBalanceIncrease, [
+        [thirdParty.address],
+        [await expectedDepositNet(depositKey)],
+      ])
 
       // The swept deposit can no longer be released.
       await expect(

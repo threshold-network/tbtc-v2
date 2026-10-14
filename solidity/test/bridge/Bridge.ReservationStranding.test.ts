@@ -164,8 +164,8 @@ describe("Bridge - Reservation stranding", () => {
 
   const depositAmount = BigInt(3000000)
   const anchorFee = 1500n
-  const anchorAmount = depositAmount- anchorFee
-  const grossTbtc = anchorAmount* SATOSHI_MULTIPLIER
+  const anchorAmount = depositAmount - anchorFee
+  const grossTbtc = anchorAmount * SATOSHI_MULTIPLIER
 
   before(async () => {
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
@@ -214,7 +214,13 @@ describe("Bridge - Reservation stranding", () => {
     // reservation.
     await reservationRouter
       .connect(bridgeGovernanceSigner)
-      .updateReservationCaps(RESERVATION_MAX_TOTAL, RESERVATION_MAX_TOTAL, 10, 1, 1) // 10 = 2 wallets * MAX_RESERVATIONS_PER_WALLET, satisfying the Item-3 sizing relation with this fixture's two Live wallets; 1 = hand-off reserve, leaving one remaining Live wallet with 10 positions
+      .updateReservationCaps(
+        RESERVATION_MAX_TOTAL,
+        RESERVATION_MAX_TOTAL,
+        10,
+        1,
+        1
+      ) // 10 = 2 wallets * MAX_RESERVATIONS_PER_WALLET, satisfying the Item-3 sizing relation with this fixture's two Live wallets; 1 = hand-off reserve, leaving one remaining Live wallet with 10 positions
     await reservationRouter
       .connect(bridgeGovernanceSigner)
       .updateReservationParameters(
@@ -364,9 +370,7 @@ describe("Bridge - Reservation stranding", () => {
     )}662a2c68${REGTEST_BITS_LE}`
     for (let nonce = 0; ; nonce++) {
       const header = `0x${base}${toLE(nonce, 4)}`
-      if (
-        BigInt(`0x${reverseHex(hash256(header))}`)<= REGTEST_TARGET
-      ) {
+      if (BigInt(`0x${reverseHex(hash256(header))}`) <= REGTEST_TARGET) {
         return header
       }
     }
@@ -512,12 +516,10 @@ describe("Bridge - Reservation stranding", () => {
     const active = await reservationRouter.activeReservationsCount()
     return {
       activeCount: active.count,
-      walletCount: await reservationRouter.walletReservationsCount(
-        walletPubKeyHash
-      ),
-      walletAmount: await reservationRouter.walletReservationsAmount(
-        walletPubKeyHash
-      ),
+      walletCount:
+        await reservationRouter.walletReservationsCount(walletPubKeyHash),
+      walletAmount:
+        await reservationRouter.walletReservationsAmount(walletPubKeyHash),
     }
   }
 
@@ -587,12 +589,10 @@ describe("Bridge - Reservation stranding", () => {
 
       const { reservationKey } = await makeAcceptedReservation(custodian)
 
-      const beforeCount = await reservationRouter.walletReservationsCount(
-        custodian
-      )
-      const beforeAmount = await reservationRouter.walletReservationsAmount(
-        custodian
-      )
+      const beforeCount =
+        await reservationRouter.walletReservationsCount(custodian)
+      const beforeAmount =
+        await reservationRouter.walletReservationsAmount(custodian)
       const beforeActive = await reservationRouter.activeReservationsCount()
       expect(beforeCount).to.equal(1)
       expect(beforeAmount).to.equal(anchorAmount)
@@ -675,7 +675,9 @@ describe("Bridge - Reservation stranding", () => {
 
       await expect(
         reservationRouter.notifyReservationStranded(reservationKey)
-      ).to.be.revertedWith("Wallet is not terminated, closed, or a dissolution-eligible closing wallet")
+      ).to.be.revertedWith(
+        "Wallet is not terminated, closed, or a dissolution-eligible closing wallet"
+      )
     })
 
     it("rejects when the wallet is in MovingFunds", async () => {
@@ -687,7 +689,9 @@ describe("Bridge - Reservation stranding", () => {
 
       await expect(
         reservationRouter.notifyReservationStranded(reservationKey)
-      ).to.be.revertedWith("Wallet is not terminated, closed, or a dissolution-eligible closing wallet")
+      ).to.be.revertedWith(
+        "Wallet is not terminated, closed, or a dissolution-eligible closing wallet"
+      )
     })
   })
 
@@ -741,10 +745,7 @@ describe("Bridge - Reservation stranding", () => {
       // fixture setup. Going forward by (refundLocktime - now + 1)
       // lands us past the deposit's refund deadline.
       const targetTime = (await lastBlockTime()) + 89 * 24 * 60 * 60 + 2
-      await increaseTime(
-        Number(targetTime) - (await lastBlockTime())
-          
-      )
+      await increaseTime(Number(targetTime) - (await lastBlockTime()))
 
       await expect(reservationRouter.notifyStaleReservedDeposit(depositKey))
         .to.emit(reservationRouter, "ReservedDepositMarkedStale")
@@ -796,10 +797,7 @@ describe("Bridge - Reservation stranding", () => {
       // is the simplest deterministic time travel that lands us past
       // both the reveal-ahead period AND the deposit's refund deadline.
       const targetTime = (await lastBlockTime()) + 89 * 24 * 60 * 60 + 2
-      await increaseTime(
-        Number(targetTime) - (await lastBlockTime())
-          
-      )
+      await increaseTime(Number(targetTime) - (await lastBlockTime()))
 
       await expect(reservationRouter.notifyStaleReservedDeposit(depositKey))
         .to.emit(reservationRouter, "ReservedDepositMarkedStale")
@@ -828,10 +826,7 @@ describe("Bridge - Reservation stranding", () => {
       // `refundDeadlineValidated` tests above) so this test isolates the
       // acceptance-authorization-pending rejection specifically.
       const targetTime = (await lastBlockTime()) + 89 * 24 * 60 * 60 + 2
-      await increaseTime(
-        Number(targetTime) - (await lastBlockTime())
-          
-      )
+      await increaseTime(Number(targetTime) - (await lastBlockTime()))
 
       await expect(
         reservationRouter.notifyStaleReservedDeposit(depositKey)

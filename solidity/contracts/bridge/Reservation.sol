@@ -434,11 +434,10 @@ library Reservation {
 
     /// @notice Computes the storage key of the action record of the given
     ///         reservation generation.
-    function actionKey(uint256 reservationKey, uint64 requestNonce)
-        internal
-        pure
-        returns (uint256)
-    {
+    function actionKey(
+        uint256 reservationKey,
+        uint64 requestNonce
+    ) internal pure returns (uint256) {
         return
             uint256(keccak256(abi.encodePacked(reservationKey, requestNonce)));
     }
@@ -456,11 +455,9 @@ library Reservation {
     /// @notice Returns the canonical hash of a reservation anchor outpoint.
     ///         Action generations snapshot this value so a late proof can
     ///         only consume the exact anchor that generation authorized.
-    function anchorUtxoHash(ReservationRequest storage reservation)
-        internal
-        view
-        returns (bytes32)
-    {
+    function anchorUtxoHash(
+        ReservationRequest storage reservation
+    ) internal view returns (bytes32) {
         return
             keccak256(
                 abi.encodePacked(
@@ -589,15 +586,16 @@ library Reservation {
         );
 
         /* solhint-disable-next-line not-rely-on-time */
-        uint32 timeoutAt = uint32(block.timestamp) +
-            self.reservationActionTimeout;
+        uint32 timeoutAt =
+            uint32(block.timestamp) + self.reservationActionTimeout;
 
         // Proposal timestamps are integer seconds and must be later than both
         // the strict deposit-age boundary and the block creating the action.
         // The first admissible timestamp is therefore one second after the
         // greater of those two lower bounds.
-        uint256 signingLowerBound = uint256(deposit.revealedAt) +
-            WalletProposalValidatorConstants.DEPOSIT_MIN_AGE;
+        uint256 signingLowerBound =
+            uint256(deposit.revealedAt) +
+                WalletProposalValidatorConstants.DEPOSIT_MIN_AGE;
         /* solhint-disable-next-line not-rely-on-time */
         if (signingLowerBound < block.timestamp) {
             /* solhint-disable-next-line not-rely-on-time */
@@ -605,8 +603,9 @@ library Reservation {
         }
         uint256 earliestSigningAt = signingLowerBound + 1;
 
-        uint256 actionSigningDeadline = uint256(timeoutAt) -
-            WalletProposalValidatorConstants.REQUEST_TIMEOUT_SAFETY_MARGIN;
+        uint256 actionSigningDeadline =
+            uint256(timeoutAt) -
+                WalletProposalValidatorConstants.REQUEST_TIMEOUT_SAFETY_MARGIN;
         require(
             earliestSigningAt < actionSigningDeadline,
             "Acceptance authorization has no signing window"
@@ -627,9 +626,9 @@ library Reservation {
             uint256(reservedDeposit.refundDeadline) >
                 WalletProposalValidatorConstants.DEPOSIT_REFUND_SAFETY_MARGIN &&
                 earliestSigningAt <
-                uint256(reservedDeposit.refundDeadline) -
-                    WalletProposalValidatorConstants
-                        .DEPOSIT_REFUND_SAFETY_MARGIN,
+                    uint256(reservedDeposit.refundDeadline) -
+                        WalletProposalValidatorConstants
+                            .DEPOSIT_REFUND_SAFETY_MARGIN,
             "Deposit refund deadline allows no signing window"
         );
 
@@ -805,7 +804,8 @@ library Reservation {
         // computation below stays under the stack depth limit.
         if (walletMembersIDs.length > 0) {
             bool isSourceMember = self.ecdsaWalletRegistry.isWalletMember(
-                self.registeredWallets[reservation.walletPubKeyHash]
+                self
+                    .registeredWallets[reservation.walletPubKeyHash]
                     .ecdsaWalletID,
                 walletMembersIDs,
                 msg.sender,
@@ -817,9 +817,9 @@ library Reservation {
         }
         bool isPrivileged =
             privileged ||
-            reservation.owner == msg.sender ||
-            self.isSpvMaintainer[msg.sender] ||
-            walletMembersIDs.length > 0;
+                reservation.owner == msg.sender ||
+                self.isSpvMaintainer[msg.sender] ||
+                walletMembersIDs.length > 0;
 
         {
             Wallets.WalletState sourceState = self
@@ -853,8 +853,8 @@ library Reservation {
         uint64 txMaxFee = self.reservationTxMaxFee;
 
         /* solhint-disable-next-line not-rely-on-time */
-        uint32 timeoutAt = uint32(block.timestamp) +
-            self.reservationActionTimeout;
+        uint32 timeoutAt =
+            uint32(block.timestamp) + self.reservationActionTimeout;
 
         // A re-anchor authorization carries no deposit-reveal age floor
         // (unlike acceptance): the earliest admissible signing timestamp is
@@ -868,9 +868,9 @@ library Reservation {
                     .REQUEST_TIMEOUT_SAFETY_MARGIN &&
                 /* solhint-disable-next-line not-rely-on-time */
                 uint256(block.timestamp) + 1 <
-                uint256(timeoutAt) -
-                WalletProposalValidatorConstants
-                    .REQUEST_TIMEOUT_SAFETY_MARGIN,
+                    uint256(timeoutAt) -
+                        WalletProposalValidatorConstants
+                            .REQUEST_TIMEOUT_SAFETY_MARGIN,
             "Reanchor authorization has no signing window"
         );
         // Request-time amount floor: this is the only on-chain bound on
@@ -898,15 +898,15 @@ library Reservation {
         // governance-discriminated) are exempt and never count. `0` means
         // third parties may not hold re-anchor capacity at all.
         if (!isPrivileged) {
-            uint32 targetHolds = self
-                .pendingThirdPartyReanchorHolds[targetWalletPubKeyHash];
+            uint32 targetHolds = self.pendingThirdPartyReanchorHolds[
+                targetWalletPubKeyHash
+            ];
             require(
                 targetHolds < self.maxThirdPartyReanchorHoldsPerWallet,
                 "Target third-party re-anchor holds exceeded"
             );
-            self.pendingThirdPartyReanchorHolds[
-                targetWalletPubKeyHash
-            ] = targetHolds + 1;
+            self.pendingThirdPartyReanchorHolds[targetWalletPubKeyHash] =
+                targetHolds + 1;
         }
 
         // Reserve the target wallet's count and amount capacity; the
@@ -925,10 +925,9 @@ library Reservation {
             bool skipTargetCaps =
                 isPrivileged && sourceState != Wallets.WalletState.Live;
             {
-                uint32 targetCount = self
-                    .walletReservationInfo[targetWalletPubKeyHash]
-                    .count +
-                    1;
+                uint32 targetCount =
+                    self.walletReservationInfo[targetWalletPubKeyHash].count +
+                        1;
                 if (!skipTargetCaps) {
                     require(
                         targetCount <= self.maxReservationsPerWallet,
@@ -939,10 +938,9 @@ library Reservation {
                     targetCount;
             }
             {
-                uint64 targetAmount = self
-                    .walletReservationInfo[targetWalletPubKeyHash]
-                    .amount +
-                    anchorAmount;
+                uint64 targetAmount =
+                    self.walletReservationInfo[targetWalletPubKeyHash].amount +
+                        anchorAmount;
                 if (!skipTargetCaps) {
                     require(
                         self.maxReservationsAmountPerWallet == 0 ||
@@ -1034,8 +1032,7 @@ library Reservation {
 
         /* solhint-disable not-rely-on-time */
         reservation.reanchorCooldownUntil =
-            uint32(block.timestamp) +
-            (action.timeoutAt - action.requestedAt);
+            uint32(block.timestamp) + (action.timeoutAt - action.requestedAt);
         /* solhint-enable not-rely-on-time */
 
         emit ReservationReanchorTimedOut(
@@ -1072,9 +1069,10 @@ library Reservation {
         uint32 liveWalletsCount = self.liveWalletsCount;
         uint32 handoffReserveWallets = self.handoffReserveWallets;
         uint256 activeAfterThis = self.activeReservationsCount;
-        uint256 remaining = liveWalletsCount > handoffReserveWallets
-            ? liveWalletsCount - handoffReserveWallets
-            : 0;
+        uint256 remaining =
+            liveWalletsCount > handoffReserveWallets
+                ? liveWalletsCount - handoffReserveWallets
+                : 0;
         require(
             activeAfterThis <= remaining * self.maxReservationsPerWallet,
             "Hand-off reserve exceeded"
@@ -1090,18 +1088,16 @@ library Reservation {
         );
         self.reservationTotalAmount = newTotal;
 
-        uint32 walletCount = self
-            .walletReservationInfo[walletPubKeyHash]
-            .count + 1;
+        uint32 walletCount =
+            self.walletReservationInfo[walletPubKeyHash].count + 1;
         require(
             walletCount <= self.maxReservationsPerWallet,
             "Wallet reservations cap exceeded"
         );
         self.walletReservationInfo[walletPubKeyHash].count = walletCount;
 
-        uint64 walletAmount = self
-            .walletReservationInfo[walletPubKeyHash]
-            .amount + amount;
+        uint64 walletAmount =
+            self.walletReservationInfo[walletPubKeyHash].amount + amount;
         require(
             self.maxReservationsAmountPerWallet == 0 ||
                 walletAmount <= self.maxReservationsAmountPerWallet,
@@ -1321,8 +1317,8 @@ library Reservation {
                     eligible &&
                     /* solhint-disable-next-line not-rely-on-time */
                     block.timestamp >=
-                    uint256(wallet.closingStartedAt) +
-                        self.walletClosingPeriod),
+                        uint256(wallet.closingStartedAt) +
+                            self.walletClosingPeriod),
             "Wallet is not terminated, closed, or a dissolution-eligible closing wallet"
         );
 
@@ -1511,8 +1507,7 @@ library Reservation {
         // (24 hours), the same value the validator uses.
         require(
             pendingDeposit.refundDeadline >
-                WalletProposalValidatorConstants
-                    .DEPOSIT_REFUND_SAFETY_MARGIN &&
+                WalletProposalValidatorConstants.DEPOSIT_REFUND_SAFETY_MARGIN &&
                 /* solhint-disable-next-line not-rely-on-time */
                 block.timestamp <
                     uint256(pendingDeposit.refundDeadline) -
@@ -1523,8 +1518,7 @@ library Reservation {
 
         require(
             vault == address(0) ||
-                (self.isVaultTrusted[vault] &&
-                    vault != self.reservationVault),
+                (self.isVaultTrusted[vault] && vault != self.reservationVault),
             "Vault must be the zero address or a trusted vault other than the reservation vault"
         );
 
@@ -1560,7 +1554,7 @@ library Reservation {
             reservationMaxSingleAmount == 0 ||
                 maxActiveReservations == 0 ||
                 reservationMaxTotalAmount <=
-                uint256(maxActiveReservations) * reservationMaxSingleAmount,
+                    uint256(maxActiveReservations) * reservationMaxSingleAmount,
             "Amount cap exceeds slot capacity"
         );
     }

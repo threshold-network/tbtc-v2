@@ -4329,7 +4329,9 @@ describe("WalletProposalValidator", () => {
               txMaxFee: reservationTxMaxFee,
             })
           )
-          await reservationBridge.reservations.returns(buildReservationRequest())
+          await reservationBridge.reservations.returns(
+            buildReservationRequest()
+          )
           // The target's reserved position is one past its per-wallet count
           // cap and over its reserved-amount cap; the on-chain request has
           // already reserved that capacity, so the proposal must still

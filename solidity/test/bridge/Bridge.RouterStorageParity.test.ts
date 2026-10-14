@@ -81,8 +81,7 @@ function getStorageLayout(
   contractName: string
 ): StorageLayout {
   const contract = buildInfo.output.contracts[sourceName]?.[contractName] as
-    | { storageLayout?: StorageLayout }
-    | undefined
+    { storageLayout?: StorageLayout } | undefined
   if (!contract) {
     throw new Error(`${sourceName}:${contractName} not in its own build info`)
   }

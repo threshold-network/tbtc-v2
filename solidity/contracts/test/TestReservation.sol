@@ -126,9 +126,10 @@ contract TestReservation {
         state.reservationTotalAmount = amount;
     }
 
-    function setWalletReservationsCount(bytes20 walletPubKeyHash, uint32 count)
-        external
-    {
+    function setWalletReservationsCount(
+        bytes20 walletPubKeyHash,
+        uint32 count
+    ) external {
         state.walletReservationInfo[walletPubKeyHash].count = count;
     }
 
@@ -246,9 +247,8 @@ contract TestReservation {
         uint32 anchorTxOutputIndex
     ) external {
         state.reservations[reservationKey].anchorTxHash = anchorTxHash;
-        state
-            .reservations[reservationKey]
-            .anchorTxOutputIndex = anchorTxOutputIndex;
+        state.reservations[reservationKey].anchorTxOutputIndex =
+            anchorTxOutputIndex;
         uint256 utxoKey = uint256(
             keccak256(abi.encodePacked(anchorTxHash, anchorTxOutputIndex))
         );
@@ -315,62 +315,49 @@ contract TestReservation {
         Reservation.notifyReservationStranded(state, reservationKey);
     }
 
-    function getReservation(uint256 reservationKey)
-        external
-        view
-        returns (Reservation.ReservationRequest memory)
-    {
+    function getReservation(
+        uint256 reservationKey
+    ) external view returns (Reservation.ReservationRequest memory) {
         return state.reservations[reservationKey];
     }
 
-    function getAction(uint256 reservationKey, uint64 requestNonce)
-        external
-        view
-        returns (Reservation.ReservationAction memory)
-    {
+    function getAction(
+        uint256 reservationKey,
+        uint64 requestNonce
+    ) external view returns (Reservation.ReservationAction memory) {
         return
             state.reservationActions[
                 Reservation.actionKey(reservationKey, requestNonce)
             ];
     }
 
-    function getPendingReservedDeposit(uint256 reservationKey)
-        external
-        view
-        returns (BridgeState.PendingReservedDeposit memory)
-    {
+    function getPendingReservedDeposit(
+        uint256 reservationKey
+    ) external view returns (BridgeState.PendingReservedDeposit memory) {
         return state.pendingReservedDeposit[reservationKey];
     }
 
-    function getDeposit(uint256 reservationKey)
-        external
-        view
-        returns (Deposit.DepositRequest memory)
-    {
+    function getDeposit(
+        uint256 reservationKey
+    ) external view returns (Deposit.DepositRequest memory) {
         return state.deposits[reservationKey];
     }
 
-    function walletReservationsCount(bytes20 walletPubKeyHash)
-        external
-        view
-        returns (uint32)
-    {
+    function walletReservationsCount(
+        bytes20 walletPubKeyHash
+    ) external view returns (uint32) {
         return state.walletReservationInfo[walletPubKeyHash].count;
     }
 
-    function walletReservationsAmount(bytes20 walletPubKeyHash)
-        external
-        view
-        returns (uint64)
-    {
+    function walletReservationsAmount(
+        bytes20 walletPubKeyHash
+    ) external view returns (uint64) {
         return state.walletReservationInfo[walletPubKeyHash].amount;
     }
 
-    function walletAnchoredInfo(bytes20 walletPubKeyHash)
-        external
-        view
-        returns (uint32 count, uint64 amount)
-    {
+    function walletAnchoredInfo(
+        bytes20 walletPubKeyHash
+    ) external view returns (uint32 count, uint64 amount) {
         count = state.walletAnchoredInfo[walletPubKeyHash].count;
         amount = state.walletAnchoredInfo[walletPubKeyHash].amount;
     }
@@ -402,8 +389,8 @@ contract TestReservation {
         reservationMaxTotalAmount = state.reservationMaxTotalAmount;
         reservationMaxSingleAmount = state.reservationMaxSingleAmount;
         maxActiveReservations = state.maxActiveReservations;
-        maxThirdPartyReanchorHoldsPerWallet =
-            state.maxThirdPartyReanchorHoldsPerWallet;
+        maxThirdPartyReanchorHoldsPerWallet = state
+            .maxThirdPartyReanchorHoldsPerWallet;
     }
 
     function getReservationByAnchorUtxo(
@@ -416,35 +403,28 @@ contract TestReservation {
         return state.reservationsByAnchorUtxo[utxoKey];
     }
 
-    function registeredWallets(bytes20 walletPubKeyHash)
-        external
-        view
-        returns (Wallets.Wallet memory)
-    {
+    function registeredWallets(
+        bytes20 walletPubKeyHash
+    ) external view returns (Wallets.Wallet memory) {
         return state.registeredWallets[walletPubKeyHash];
     }
 
-    function actionKey(uint256 reservationKey, uint64 requestNonce)
-        external
-        pure
-        returns (uint256)
-    {
+    function actionKey(
+        uint256 reservationKey,
+        uint64 requestNonce
+    ) external pure returns (uint256) {
         return Reservation.actionKey(reservationKey, requestNonce);
     }
 
-    function anchorUtxoHash(uint256 reservationKey)
-        external
-        view
-        returns (bytes32)
-    {
+    function anchorUtxoHash(
+        uint256 reservationKey
+    ) external view returns (bytes32) {
         return Reservation.anchorUtxoHash(state.reservations[reservationKey]);
     }
 
-    function parseSingleOutput(bytes memory outputVector)
-        external
-        pure
-        returns (bytes memory)
-    {
+    function parseSingleOutput(
+        bytes memory outputVector
+    ) external pure returns (bytes memory) {
         return ReservationProofs.parseSingleOutput(outputVector);
     }
 
@@ -513,9 +493,8 @@ contract TestReservation {
         uint256 reservationKey,
         uint32 dissolutionEligibleAt
     ) external {
-        state
-            .reservations[reservationKey]
-            .dissolutionEligibleAt = dissolutionEligibleAt;
+        state.reservations[reservationKey].dissolutionEligibleAt =
+            dissolutionEligibleAt;
     }
 
     function setWalletState(
@@ -529,14 +508,13 @@ contract TestReservation {
         bytes20 walletPubKeyHash,
         uint32 closingStartedAt
     ) external {
-        state
-            .registeredWallets[walletPubKeyHash]
-            .closingStartedAt = closingStartedAt;
+        state.registeredWallets[walletPubKeyHash].closingStartedAt =
+            closingStartedAt;
     }
 
-    function setWalletClosingPeriod(uint32 walletClosingPeriodSeconds)
-        external
-    {
+    function setWalletClosingPeriod(
+        uint32 walletClosingPeriodSeconds
+    ) external {
         state.walletClosingPeriod = walletClosingPeriodSeconds;
     }
 
@@ -559,9 +537,10 @@ contract TestReservation {
         );
     }
 
-    function prepareReservationForSettlement(uint256 reservationKey, bool late)
-        external
-    {
+    function prepareReservationForSettlement(
+        uint256 reservationKey,
+        bool late
+    ) external {
         Reservation.ReservationRequest storage reservation = state.reservations[
             reservationKey
         ];
@@ -670,10 +649,7 @@ contract TestReservation {
     function depositParameters()
         external
         view
-        returns (
-            uint64 depositDustThreshold,
-            uint32 depositRevealAheadPeriod
-        )
+        returns (uint64 depositDustThreshold, uint32 depositRevealAheadPeriod)
     {
         depositDustThreshold = state.depositDustThreshold;
         depositRevealAheadPeriod = state.depositRevealAheadPeriod;
@@ -716,11 +692,9 @@ contract TestReservation {
         state.deposits[depositKey].vault = vault;
     }
 
-    function reservationState(uint256 reservationKey)
-        external
-        view
-        returns (Reservation.ReservationState)
-    {
+    function reservationState(
+        uint256 reservationKey
+    ) external view returns (Reservation.ReservationState) {
         return state.reservations[reservationKey].state;
     }
 
@@ -743,11 +717,10 @@ contract TestReservation {
         action.amount = amount;
     }
 
-    function actionState(uint256 reservationKey, uint64 requestNonce)
-        external
-        view
-        returns (Reservation.ActionState)
-    {
+    function actionState(
+        uint256 reservationKey,
+        uint64 requestNonce
+    ) external view returns (Reservation.ActionState) {
         return
             state
                 .reservationActions[
@@ -773,9 +746,9 @@ contract TestReservation {
         Reservation.notifyReservationActionTimeout(state, reservationKey);
     }
 
-    function notifyReservationAcceptanceTimedOut(uint256 reservationKey)
-        external
-    {
+    function notifyReservationAcceptanceTimedOut(
+        uint256 reservationKey
+    ) external {
         Reservation.notifyReservationAcceptanceTimedOut(state, reservationKey);
     }
 
@@ -814,9 +787,10 @@ contract TestReservation {
         Wallets.finalizeWalletClosing(state, walletPubKeyHash);
     }
 
-    function setWalletMainUtxo(bytes20 walletPubKeyHash, bytes32 mainUtxoHash)
-        external
-    {
+    function setWalletMainUtxo(
+        bytes20 walletPubKeyHash,
+        bytes32 mainUtxoHash
+    ) external {
         state.registeredWallets[walletPubKeyHash].mainUtxoHash = mainUtxoHash;
     }
 
@@ -827,19 +801,15 @@ contract TestReservation {
         state.registeredWallets[walletPubKeyHash].ecdsaWalletID = ecdsaWalletID;
     }
 
-    function walletState(bytes20 walletPubKeyHash)
-        external
-        view
-        returns (Wallets.WalletState)
-    {
+    function walletState(
+        bytes20 walletPubKeyHash
+    ) external view returns (Wallets.WalletState) {
         return state.registeredWallets[walletPubKeyHash].state;
     }
 
-    function walletReservationInfo(bytes20 walletPubKeyHash)
-        external
-        view
-        returns (uint32 count, uint64 amount)
-    {
+    function walletReservationInfo(
+        bytes20 walletPubKeyHash
+    ) external view returns (uint32 count, uint64 amount) {
         return (
             state.walletReservationInfo[walletPubKeyHash].count,
             state.walletReservationInfo[walletPubKeyHash].amount
@@ -859,15 +829,13 @@ contract TestReservation {
         maxReservationsAmountPerWallet = state.maxReservationsAmountPerWallet;
         reservationMaxSingleAmount = state.reservationMaxSingleAmount;
         maxActiveReservations = state.maxActiveReservations;
-        maxThirdPartyReanchorHoldsPerWallet =
-            state.maxThirdPartyReanchorHoldsPerWallet;
+        maxThirdPartyReanchorHoldsPerWallet = state
+            .maxThirdPartyReanchorHoldsPerWallet;
     }
 
-    function reservationsByAnchorUtxo(bytes32 anchorUtxoHash)
-        external
-        view
-        returns (uint256)
-    {
+    function reservationsByAnchorUtxo(
+        bytes32 anchorUtxoHash
+    ) external view returns (uint256) {
         return state.reservationsByAnchorUtxo[uint256(anchorUtxoHash)];
     }
 }

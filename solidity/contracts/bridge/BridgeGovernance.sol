@@ -1808,10 +1808,9 @@ contract BridgeGovernance is Ownable {
     ///      - The caller must be the owner,
     ///      - The Bridge implementation is expected to enforce that the
     ///        reservation router address is set exactly once and is not 0x0.
-    function setReservationRouter(address _reservationRouter)
-        external
-        onlyOwner
-    {
+    function setReservationRouter(
+        address _reservationRouter
+    ) external onlyOwner {
         bridge.setReservationRouter(_reservationRouter);
     }
 
@@ -1861,8 +1860,8 @@ contract BridgeGovernance is Ownable {
     ///      change, then forwards the values to the Bridge's
     ///      `updateReservationParameters`.
     function finalizeReservationParametersUpdate() external onlyOwner {
-        BridgeGovernanceParameters.ReservationData
-            memory staged = reservationData;
+        BridgeGovernanceParameters.ReservationData memory staged =
+            reservationData;
         reservationData.finalizeReservationParametersUpdate(governanceDelay());
         IReservationBridge(address(bridge)).updateReservationParameters(
             staged.newReservationVault,
@@ -1915,8 +1914,8 @@ contract BridgeGovernance is Ownable {
     ///      change, then forwards the values to the Bridge's
     ///      `updateReservationCaps`.
     function finalizeReservationCapsUpdate() external onlyOwner {
-        BridgeGovernanceParameters.ReservationCapsData
-            memory staged = reservationCapsData;
+        BridgeGovernanceParameters.ReservationCapsData memory staged =
+            reservationCapsData;
         reservationCapsData.finalizeReservationCapsUpdate(governanceDelay());
         IReservationBridge(address(bridge)).updateReservationCaps(
             staged.newMaxReservationsAmountPerWallet,

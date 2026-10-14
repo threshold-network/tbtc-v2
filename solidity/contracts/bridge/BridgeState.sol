@@ -673,7 +673,6 @@ library BridgeState {
             );
         }
 
-
         self.depositDustThreshold = _depositDustThreshold;
         self.depositTreasuryFeeDivisor = _depositTreasuryFeeDivisor;
         self.depositTxMaxFee = _depositTxMaxFee;
@@ -712,9 +711,9 @@ library BridgeState {
         require(
             depositRevealAheadPeriod == 0 ||
                 depositRevealAheadPeriod <=
-                reservationTermSeconds +
-                WalletProposalValidatorConstants
-                    .DEPOSIT_REFUND_SAFETY_MARGIN,
+                    reservationTermSeconds +
+                        WalletProposalValidatorConstants
+                            .DEPOSIT_REFUND_SAFETY_MARGIN,
             "Reveal ahead period leaves no reserved deposit possible"
         );
         require(

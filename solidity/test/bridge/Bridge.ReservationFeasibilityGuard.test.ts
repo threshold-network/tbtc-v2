@@ -40,8 +40,7 @@ const params = {
   // = 4 * 1_000_000, exactly the slot capacity of the caps below.
   reservationMaxTotalAmount: 4_000_000,
   maxReservationsPerWallet: 10,
-  reservationActionTimeout:
-    REQUEST_TIMEOUT_SAFETY_MARGIN + DEPOSIT_MIN_AGE + 2,
+  reservationActionTimeout: REQUEST_TIMEOUT_SAFETY_MARGIN + DEPOSIT_MIN_AGE + 2,
   reservationRenewalWindowSeconds: 14 * 24 * 60 * 60,
 }
 

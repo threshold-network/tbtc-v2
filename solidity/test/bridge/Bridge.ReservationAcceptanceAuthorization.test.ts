@@ -125,8 +125,8 @@ let refundLocktime: string
 
 const depositAmount = BigInt(3000000)
 const anchorFee = 1500n
-const anchorAmount = depositAmount- anchorFee
-const grossTbtc = anchorAmount* SATOSHI_MULTIPLIER
+const anchorAmount = depositAmount - anchorFee
+const grossTbtc = anchorAmount * SATOSHI_MULTIPLIER
 
 before(async () => {
   // eslint-disable-next-line @typescript-eslint/no-extra-semi
@@ -173,7 +173,13 @@ before(async () => {
   // reservation - found 2026-08-26.
   await reservationRouter
     .connect(bridgeGovernanceSigner)
-    .updateReservationCaps(RESERVATION_MAX_TOTAL, RESERVATION_MAX_TOTAL, 10, 1, 1) // 10 = 2 wallets * MAX_RESERVATIONS_PER_WALLET, satisfying the Item-3 sizing relation with this fixture's two Live wallets; 1 = hand-off reserve, leaving one remaining Live wallet with 10 positions
+    .updateReservationCaps(
+      RESERVATION_MAX_TOTAL,
+      RESERVATION_MAX_TOTAL,
+      10,
+      1,
+      1
+    ) // 10 = 2 wallets * MAX_RESERVATIONS_PER_WALLET, satisfying the Item-3 sizing relation with this fixture's two Live wallets; 1 = hand-off reserve, leaving one remaining Live wallet with 10 positions
   await reservationRouter
     .connect(bridgeGovernanceSigner)
     .updateReservationParameters(
@@ -259,7 +265,13 @@ async function establishReservationPreconditions() {
     .setVaultStatus(reservationVault.target, true)
   await reservationRouter
     .connect(bridgeGovernanceSigner)
-    .updateReservationCaps(RESERVATION_MAX_TOTAL, RESERVATION_MAX_TOTAL, 10, 1, 1) // 10 = 2 wallets * MAX_RESERVATIONS_PER_WALLET; 1 = hand-off reserve, leaving one remaining Live wallet with 10 positions
+    .updateReservationCaps(
+      RESERVATION_MAX_TOTAL,
+      RESERVATION_MAX_TOTAL,
+      10,
+      1,
+      1
+    ) // 10 = 2 wallets * MAX_RESERVATIONS_PER_WALLET; 1 = hand-off reserve, leaving one remaining Live wallet with 10 positions
   const currentTotal = (await reservationRouter.reservationParameters())
     .reservationTotalAmount
   await reservationRouter
@@ -270,7 +282,7 @@ async function establishReservationPreconditions() {
       RESERVATION_TX_MAX_FEE,
       RESERVATION_TERM,
       RESERVATION_GRACE,
-      currentTotal+ RESERVATION_MAX_TOTAL,
+      currentTotal + RESERVATION_MAX_TOTAL,
       MAX_RESERVATIONS_PER_WALLET,
       RESERVATION_ACTION_TIMEOUT,
       RESERVATION_RENEWAL_WINDOW
@@ -356,9 +368,7 @@ function mineHeader(merkleRoot: string): string {
   )}662a2c68${REGTEST_BITS_LE}`
   for (let nonce = 0; ; nonce++) {
     const header = `0x${base}${toLE(nonce, 4)}`
-    if (
-      BigInt(`0x${reverseHex(hash256(header))}`)<= REGTEST_TARGET
-    ) {
+    if (BigInt(`0x${reverseHex(hash256(header))}`) <= REGTEST_TARGET) {
       return header
     }
   }
@@ -675,7 +685,7 @@ describe("acceptance authorization timeout", () => {
     // The reserved capacity was released.
     expect(
       (await reservationRouter.reservationParameters()).reservationTotalAmount
-    ).to.equal(totalBefore- depositAmount)
+    ).to.equal(totalBefore - depositAmount)
 
     // The anchor -- signed while generation 1 was pending -- confirmed
     // on Bitcoin anyway. Its late proof still settles and re-takes the
@@ -767,9 +777,9 @@ describe("acceptance request needs the funding transaction's proof", () => {
     )
 
     expect(await reservedTotal()).to.equal(totalBefore)
-    expect(await reservationRouter.walletReservationsCount(walletPubKeyHash)).to.equal(
-      0
-    )
+    expect(
+      await reservationRouter.walletReservationsCount(walletPubKeyHash)
+    ).to.equal(0)
   })
 
   it("reverts for a funding transaction that was never revealed, even with a valid proof", async () => {

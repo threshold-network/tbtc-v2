@@ -19,7 +19,7 @@ const { createSnapshot, restoreSnapshot } = helpers.snapshot
 const SATOSHI_MULTIPLIER = 10n ** 10n
 
 function satsToTbtc(sats: number | bigint): bigint {
-  return BigInt(sats)* SATOSHI_MULTIPLIER
+  return BigInt(sats) * SATOSHI_MULTIPLIER
 }
 
 const fixture = async () => {
@@ -95,9 +95,8 @@ describe("ReservationVault", () => {
 
   describe("constructor", () => {
     it("should revert when bank is the zero address", async () => {
-      const ReservationVault = await ethers.getContractFactory(
-        "ReservationVault"
-      )
+      const ReservationVault =
+        await ethers.getContractFactory("ReservationVault")
       await expect(
         ReservationVault.deploy(
           ethers.ZeroAddress,
@@ -108,22 +107,16 @@ describe("ReservationVault", () => {
     })
 
     it("should revert when tbtcVault is the zero address", async () => {
-      const ReservationVault = await ethers.getContractFactory(
-        "ReservationVault"
-      )
+      const ReservationVault =
+        await ethers.getContractFactory("ReservationVault")
       await expect(
-        ReservationVault.deploy(
-          bank.target,
-          ethers.ZeroAddress,
-          bridge.address
-        )
+        ReservationVault.deploy(bank.target, ethers.ZeroAddress, bridge.address)
       ).to.be.revertedWith("TBTCVault can not be the zero address")
     })
 
     it("should revert when bridge is the zero address", async () => {
-      const ReservationVault = await ethers.getContractFactory(
-        "ReservationVault"
-      )
+      const ReservationVault =
+        await ethers.getContractFactory("ReservationVault")
       await expect(
         ReservationVault.deploy(
           bank.target,
@@ -182,8 +175,8 @@ describe("ReservationVault", () => {
 
         const initiationFeeBps = await vault.initiationFeeBps()
         const gross = satsToTbtc(depositedAmountSat)
-        fee = gross* initiationFeeBps / 10000n
-        net = gross- fee
+        fee = (gross * initiationFeeBps) / 10000n
+        net = gross - fee
 
         tx = await bank
           .connect(bridge.wallet)
@@ -228,12 +221,10 @@ describe("ReservationVault", () => {
         await createSnapshot()
 
         const initiationFeeBps = await vault.initiationFeeBps()
-        fees = depositedAmounts.map((amount) =>
-          satsToTbtc(amount)* initiationFeeBps / 10000n
+        fees = depositedAmounts.map(
+          (amount) => (satsToTbtc(amount) * initiationFeeBps) / 10000n
         )
-        nets = depositedAmounts.map((amount, i) =>
-          satsToTbtc(amount) - fees[i]
-        )
+        nets = depositedAmounts.map((amount, i) => satsToTbtc(amount) - fees[i])
 
         tx = await bank
           .connect(bridge.wallet)
@@ -254,9 +245,7 @@ describe("ReservationVault", () => {
       })
 
       it("should retain the sum of fees in the vault", async () => {
-        expect(await tbtc.balanceOf(vault.target)).to.equal(
-          fees[0] + fees[1]
-        )
+        expect(await tbtc.balanceOf(vault.target)).to.equal(fees[0] + fees[1])
       })
 
       it("should emit ReservationCreditProcessed for each depositor", async () => {
@@ -336,7 +325,7 @@ describe("ReservationVault", () => {
         const balanceBefore = await tbtc.balanceOf(vault.target)
         await vault.connect(bridge.wallet).financeInKindFee(feeSat)
         const balanceAfter = await tbtc.balanceOf(vault.target)
-        expect(balanceBefore- balanceAfter).to.equal(satsToTbtc(feeSat))
+        expect(balanceBefore - balanceAfter).to.equal(satsToTbtc(feeSat))
       })
 
       it("should not increase inKindFeeDebtSat", async () => {
@@ -401,7 +390,7 @@ describe("ReservationVault", () => {
         const reserveTbtc =
           (satsToTbtc(reserveDepositSat) * initiationFeeBps) / 10000n
         coverableSat = reserveTbtc / SATOSHI_MULTIPLIER
-        shortfallSat = BigInt(feeSat)- coverableSat
+        shortfallSat = BigInt(feeSat) - coverableSat
 
         await bank
           .connect(bridge.wallet)
@@ -428,9 +417,7 @@ describe("ReservationVault", () => {
         const balanceBefore = await tbtc.balanceOf(vault.target)
         await vault.connect(bridge.wallet).financeInKindFee(feeSat)
         const balanceAfter = await tbtc.balanceOf(vault.target)
-        expect(balanceBefore- balanceAfter).to.equal(
-          satsToTbtc(coverableSat)
-        )
+        expect(balanceBefore - balanceAfter).to.equal(satsToTbtc(coverableSat))
       })
 
       it("should record the shortfall as debt", async () => {
@@ -474,9 +461,7 @@ describe("ReservationVault", () => {
             [fundDepositSat]
           )
 
-        await tbtc
-          .connect(account1)
-          .approve(vault.target, ethers.MaxUint256)
+        await tbtc.connect(account1).approve(vault.target, ethers.MaxUint256)
       })
 
       after(async () => {
@@ -592,9 +577,9 @@ describe("ReservationVault", () => {
     })
 
     it("should revert when the recipient is the zero address", async () => {
-      await expect(
-        vault.sweepFees(ethers.ZeroAddress)
-      ).to.be.revertedWith("Recipient must not be zero")
+      await expect(vault.sweepFees(ethers.ZeroAddress)).to.be.revertedWith(
+        "Recipient must not be zero"
+      )
     })
 
     it("should be a no-op when balance is not above the reserve target", async () => {
@@ -615,7 +600,9 @@ describe("ReservationVault", () => {
 
         const initiationFeeBps = await vault.initiationFeeBps()
         const totalFeeSat = reserveTargetSat + extraSat
-        const depositSat = Math.ceil((totalFeeSat * 10000) / Number(initiationFeeBps))
+        const depositSat = Math.ceil(
+          (totalFeeSat * 10000) / Number(initiationFeeBps)
+        )
 
         await bank
           .connect(bridge.wallet)
@@ -675,7 +662,9 @@ describe("ReservationVault", () => {
         // Fund the vault so the retained fee covers debt + target + extra.
         const initiationFeeBps = await vault.initiationFeeBps()
         const totalFeeSat = debtSat + reserveTargetSat + extraSat
-        const depositSat = Math.ceil((totalFeeSat * 10000) / Number(initiationFeeBps))
+        const depositSat = Math.ceil(
+          (totalFeeSat * 10000) / Number(initiationFeeBps)
+        )
 
         await bank
           .connect(bridge.wallet)
@@ -741,7 +730,11 @@ describe("ReservationVault", () => {
         )
         await bank
           .connect(bridge.wallet)
-          .increaseBalanceAndCall(vault.target, [account2.address], [depositSat])
+          .increaseBalanceAndCall(
+            vault.target,
+            [account2.address],
+            [depositSat]
+          )
       })
 
       after(async () => {
@@ -749,8 +742,7 @@ describe("ReservationVault", () => {
       })
 
       it("should reduce the debt by exactly the repaid amount", async () => {
-        const repaidSat =
-          (await tbtc.balanceOf(vault.target)) / satsToTbtc(1)
+        const repaidSat = (await tbtc.balanceOf(vault.target)) / satsToTbtc(1)
         expect(repaidSat).to.be.greaterThan(0n)
         expect(repaidSat).to.be.lessThan(BigInt(debtSat))
 
@@ -779,7 +771,9 @@ describe("ReservationVault", () => {
         // leaving nothing above the reserve target after debt repayment.
         const initiationFeeBps = await vault.initiationFeeBps()
         const totalFeeSat = debtSat + reserveTargetSat
-        const depositSat = Math.ceil((totalFeeSat * 10000) / Number(initiationFeeBps))
+        const depositSat = Math.ceil(
+          (totalFeeSat * 10000) / Number(initiationFeeBps)
+        )
 
         await bank
           .connect(bridge.wallet)

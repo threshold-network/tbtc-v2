@@ -126,8 +126,8 @@ describe("Bridge - Reservation source-anchor binding", () => {
 
   const depositAmount = BigInt(3000000)
   const anchorFee = 1500n
-  const anchorAmount = depositAmount- anchorFee
-  const grossTbtc = anchorAmount* SATOSHI_MULTIPLIER
+  const anchorAmount = depositAmount - anchorFee
+  const grossTbtc = anchorAmount * SATOSHI_MULTIPLIER
 
   before(async () => {
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
@@ -176,7 +176,13 @@ describe("Bridge - Reservation source-anchor binding", () => {
     // reservation - found 2026-08-26.
     await reservationRouter
       .connect(bridgeGovernanceSigner)
-      .updateReservationCaps(RESERVATION_MAX_TOTAL, RESERVATION_MAX_TOTAL, 10, 1, 1) // 10 = 2 wallets * MAX_RESERVATIONS_PER_WALLET, satisfying the Item-3 sizing relation with this fixture's two Live wallets; 1 = hand-off reserve, leaving one remaining Live wallet with 10 positions
+      .updateReservationCaps(
+        RESERVATION_MAX_TOTAL,
+        RESERVATION_MAX_TOTAL,
+        10,
+        1,
+        1
+      ) // 10 = 2 wallets * MAX_RESERVATIONS_PER_WALLET, satisfying the Item-3 sizing relation with this fixture's two Live wallets; 1 = hand-off reserve, leaving one remaining Live wallet with 10 positions
     await reservationRouter
       .connect(bridgeGovernanceSigner)
       .updateReservationParameters(
@@ -290,9 +296,7 @@ describe("Bridge - Reservation source-anchor binding", () => {
     )}662a2c68${REGTEST_BITS_LE}`
     for (let nonce = 0; ; nonce++) {
       const header = `0x${base}${toLE(nonce, 4)}`
-      if (
-        BigInt(`0x${reverseHex(hash256(header))}`)<= REGTEST_TARGET
-      ) {
+      if (BigInt(`0x${reverseHex(hash256(header))}`) <= REGTEST_TARGET) {
         return header
       }
     }
@@ -419,9 +423,7 @@ describe("Bridge - Reservation source-anchor binding", () => {
 
     it("rejects a timed-out re-anchor replay against a later anchor", async () => {
       const { anchorTx, reservationKey } = await makeAcceptedReservation()
-      const thirdWalletPubKeyHash = ethers.hexlify(
-        ethers.randomBytes(20)
-      )
+      const thirdWalletPubKeyHash = ethers.hexlify(ethers.randomBytes(20))
       await liveWallet(secondWalletPubKeyHash)
       await liveWallet(thirdWalletPubKeyHash)
       const custodianWallet = await bridge.wallets(walletPubKeyHash)
@@ -443,7 +445,12 @@ describe("Bridge - Reservation source-anchor binding", () => {
       // confirmed transaction awaits an SPV proof.
       await reservationRouter
         .connect(thirdParty)
-        .requestReservationReanchor(reservationKey, secondWalletPubKeyHash, [], 0)
+        .requestReservationReanchor(
+          reservationKey,
+          secondWalletPubKeyHash,
+          [],
+          0
+        )
       const firstReanchorTx = buildTx(
         [{ txHash: anchorTx.txHash, index: 0 }],
         [
@@ -468,7 +475,12 @@ describe("Bridge - Reservation source-anchor binding", () => {
       // Generation 3 authorizes the same source A -> C and also times out.
       await reservationRouter
         .connect(thirdParty)
-        .requestReservationReanchor(reservationKey, thirdWalletPubKeyHash, [], 0)
+        .requestReservationReanchor(
+          reservationKey,
+          thirdWalletPubKeyHash,
+          [],
+          0
+        )
       await increaseTime(RESERVATION_ACTION_TIMEOUT + 1)
       await reservationRouter
         .connect(thirdParty)

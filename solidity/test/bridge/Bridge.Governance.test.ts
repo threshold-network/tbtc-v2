@@ -4746,12 +4746,12 @@ describe("Bridge - Governance", () => {
         tx = await bridgeGovernance
           .connect(governance)
           .beginReservationCapsUpdate(
-              newMaxReservationsAmountPerWallet,
-              newReservationMaxSingleAmount,
-              newMaxActiveReservations,
-              newMaxThirdPartyReanchorHoldsPerWallet,
-              newHandoffReserveWallets
-            )
+            newMaxReservationsAmountPerWallet,
+            newReservationMaxSingleAmount,
+            newMaxActiveReservations,
+            newMaxThirdPartyReanchorHoldsPerWallet,
+            newHandoffReserveWallets
+          )
       })
 
       after(async () => {

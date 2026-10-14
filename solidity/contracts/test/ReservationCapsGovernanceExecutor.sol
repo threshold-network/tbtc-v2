@@ -13,9 +13,7 @@ import "../bridge/BridgeGovernanceParameters.sol";
 ///         against the compiled library and owns the staged
 ///         `ReservationCapsData` storage slot.
 contract ReservationCapsGovernanceExecutor {
-    using
-        BridgeGovernanceParameters
-        for BridgeGovernanceParameters.ReservationCapsData;
+    using BridgeGovernanceParameters for BridgeGovernanceParameters.ReservationCapsData;
     BridgeGovernanceParameters.ReservationCapsData internal reservationCapsData;
 
     event ReservationCapsUpdateStarted(
@@ -49,8 +47,8 @@ contract ReservationCapsGovernanceExecutor {
     }
 
     function finalizeReservationCapsUpdate(uint256 governanceDelay) external {
-        BridgeGovernanceParameters.ReservationCapsData
-            memory staged = reservationCapsData;
+        BridgeGovernanceParameters.ReservationCapsData memory staged =
+            reservationCapsData;
         reservationCapsData.finalizeReservationCapsUpdate(governanceDelay);
         // Surface the just-cleared staged values for assertion (production
         // forwards them to the Bridge via IReservationBridge).
@@ -76,14 +74,13 @@ contract ReservationCapsGovernanceExecutor {
             uint256 changeInitiated
         )
     {
-        newMaxReservationsAmountPerWallet =
-            reservationCapsData.newMaxReservationsAmountPerWallet;
-        newReservationMaxSingleAmount =
-            reservationCapsData.newReservationMaxSingleAmount;
-        newMaxActiveReservations =
-            reservationCapsData.newMaxActiveReservations;
-        newMaxThirdPartyReanchorHoldsPerWallet =
-            reservationCapsData.newMaxThirdPartyReanchorHoldsPerWallet;
+        newMaxReservationsAmountPerWallet = reservationCapsData
+            .newMaxReservationsAmountPerWallet;
+        newReservationMaxSingleAmount = reservationCapsData
+            .newReservationMaxSingleAmount;
+        newMaxActiveReservations = reservationCapsData.newMaxActiveReservations;
+        newMaxThirdPartyReanchorHoldsPerWallet = reservationCapsData
+            .newMaxThirdPartyReanchorHoldsPerWallet;
         newHandoffReserveWallets = reservationCapsData.newHandoffReserveWallets;
         changeInitiated = reservationCapsData.reservationCapsChangeInitiated;
     }

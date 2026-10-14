@@ -110,7 +110,8 @@ describe("Reservation - amount cap versus slot capacity", () => {
         )
       }
 
-      const NO_WINDOW_REVERT = "Reservation action timeout leaves no signing window"
+      const NO_WINDOW_REVERT =
+        "Reservation action timeout leaves no signing window"
 
       it("reverts at the old floor, safety margin + 1", async () => {
         await expect(

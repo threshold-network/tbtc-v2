@@ -140,12 +140,7 @@ describe("Reservation - occupancy tracking", () => {
 
     await expect(testReservation.notifyReservationStranded(reservationKey))
       .to.emit(testReservation, "ReservationStranded")
-      .withArgs(
-        reservationKey,
-        walletPubKeyHash,
-        ethers.ZeroAddress,
-        100
-      )
+      .withArgs(reservationKey, walletPubKeyHash, ethers.ZeroAddress, 100)
       .to.emit(testReservation, "ReservationOccupancyChanged")
       .withArgs(0)
     expect(await testReservation.activeReservationsCount()).to.equal(0)
@@ -181,12 +176,7 @@ describe("Reservation - occupancy tracking", () => {
 
     await expect(testReservation.notifyReservationStranded(reservationKey))
       .to.emit(testReservation, "ReservationStranded")
-      .withArgs(
-        reservationKey,
-        walletPubKeyHash,
-        ethers.ZeroAddress,
-        100
-      )
+      .withArgs(reservationKey, walletPubKeyHash, ethers.ZeroAddress, 100)
       .to.emit(testReservation, "ReservationOccupancyChanged")
       .withArgs(0)
     expect(await testReservation.activeReservationsCount()).to.equal(0)
@@ -223,7 +213,9 @@ describe("Reservation - occupancy tracking", () => {
 
     await expect(
       testReservation.notifyReservationStranded(reservationKey)
-    ).to.be.revertedWith("Wallet is not terminated, closed, or a dissolution-eligible closing wallet")
+    ).to.be.revertedWith(
+      "Wallet is not terminated, closed, or a dissolution-eligible closing wallet"
+    )
   })
 
   it("notifyReservationStranded reverts on a Closing wallet whose closing period has not elapsed, even past dissolution eligibility", async () => {
@@ -279,7 +271,10 @@ describe("Reservation - occupancy tracking", () => {
 
     // The closing period ended long ago and dissolution is eligible.
     const now = (await ethers.provider.getBlock("latest"))!.timestamp
-    await testReservation.setWalletClosingStartedAt(walletPubKeyHash, now - 5000)
+    await testReservation.setWalletClosingStartedAt(
+      walletPubKeyHash,
+      now - 5000
+    )
     await testReservation.setWalletClosingPeriod(1000)
 
     const reservationKey = 1
@@ -347,7 +342,9 @@ describe("Reservation - occupancy tracking", () => {
 
     await expect(
       testReservation.notifyReservationStranded(reservationKey)
-    ).to.be.revertedWith("Wallet is not terminated, closed, or a dissolution-eligible closing wallet")
+    ).to.be.revertedWith(
+      "Wallet is not terminated, closed, or a dissolution-eligible closing wallet"
+    )
   })
 
   it("notifyReservationStranded releases an expired position on a Live wallet", async () => {
@@ -414,9 +411,14 @@ describe("Reservation - hand-off reserve gate at acceptance", () => {
   async function enableGate(
     maxReservationsPerWallet: number,
     liveWalletsCount: number,
-    handoffReserveWallets: number,
+    handoffReserveWallets: number
   ) {
-    await testReservation.setGovernanceParameters(100, 100, 10000, maxReservationsPerWallet)
+    await testReservation.setGovernanceParameters(
+      100,
+      100,
+      10000,
+      maxReservationsPerWallet
+    )
     await testReservation.setMaxActiveReservations(1000)
     await testReservation.setReservationVault(vault)
     await testReservation.setLiveWalletsCount(liveWalletsCount)
