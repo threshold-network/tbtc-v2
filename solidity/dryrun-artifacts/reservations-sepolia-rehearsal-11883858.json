@@ -6,7 +6,7 @@
   "startBlock": 11883858,
   "forkBlock": 11883858,
   "activationBlock": 11884578,
-  "runAt": "2026-10-14T08:24:25.879Z",
+  "runAt": "2026-10-14T20:40:49.723Z",
   "binding": {
     "chainId": null,
     "bridge": null,
@@ -92,7 +92,7 @@
     {
       "name": "02b-deploy-bridge-implementation",
       "status": "PASS",
-      "txHash": "0x84969e192e3f7fc2604986e3e3cc14651ffd8f00edfafa29271fd16306a708e4",
+      "txHash": "0xd38dd35119950292527c9f4cc760f00244207a70cb5f6c0b1aae6034ae278164",
       "gasUsed": 5170655,
       "values": {
         "address": "0x2DB8355295C5f09da68Cf35A318F7209d90c0640"
@@ -101,7 +101,7 @@
     {
       "name": "02c-deploy-reservation-router",
       "status": "PASS",
-      "txHash": "0x90f8545e56cc2ec1cd8213ac601063fc81292046e56e240f7e2ed3f3c8c5857a",
+      "txHash": "0x75b6b87445c7fcab3d782721f8e0b6132ac571af01b7dcd1836fcf83c4470119",
       "gasUsed": 2914167,
       "values": {
         "address": "0xd8F192488c6B2AF29c6E0a02040E68F87B9d5EAA"
@@ -110,7 +110,7 @@
     {
       "name": "02d-deploy-reservation-vault",
       "status": "PASS",
-      "txHash": "0xdd54df5e8c654af9504a45ad64fb2621703bc687fda617bfe4126a4093f16bbc",
+      "txHash": "0x317cca80a80458cef2f7479ec664299637a33bb0a9f8bb6dcfbac6b59d52fa89",
       "gasUsed": 1598272,
       "values": {
         "address": "0x222C73bc1440b97876B64C3F34077904deF93714"
@@ -128,7 +128,7 @@
     {
       "name": "02f-deploy-new-bridge-governance",
       "status": "PASS",
-      "txHash": "0x3f082290bd6d499dfaedd0f1c8813356fa121ad5627d26a31ea64d25781d103c",
+      "txHash": "0x43ad92ba5b0772696ece77964e2a4ecdf069cd7c3628150f7b247ce4a718e6dd",
       "gasUsed": 4785596,
       "values": {
         "address": "0xfb5C050a969921b882b9EB151a8862Bf56D5cBE0"
