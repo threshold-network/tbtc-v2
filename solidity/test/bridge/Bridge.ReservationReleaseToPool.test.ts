@@ -501,11 +501,16 @@ describe("Bridge - Reservation release to pool", () => {
     })
 
     it("reverts after a pending acceptance request", async () => {
-      const { depositKey } = await revealReservedDeposit()
+      const { depositKey, fundingTx } = await revealReservedDeposit()
 
       await reservationRouter
         .connect(thirdParty)
-        .requestReservationAcceptance(depositKey, walletPubKeyHash)
+        .requestReservationAcceptance(
+          fundingTx.info,
+          proofFor(fundingTx.txHash),
+          0,
+          walletPubKeyHash
+        )
 
       await expect(
         releaseAbiBridge
@@ -515,11 +520,16 @@ describe("Bridge - Reservation release to pool", () => {
     })
 
     it("reverts after a timed-out acceptance request", async () => {
-      const { depositKey } = await revealReservedDeposit()
+      const { depositKey, fundingTx } = await revealReservedDeposit()
 
       await reservationRouter
         .connect(thirdParty)
-        .requestReservationAcceptance(depositKey, walletPubKeyHash)
+        .requestReservationAcceptance(
+          fundingTx.info,
+          proofFor(fundingTx.txHash),
+          0,
+          walletPubKeyHash
+        )
 
       await increaseTime(RESERVATION_ACTION_TIMEOUT + 1)
       await reservationRouter.notifyReservationAcceptanceTimedOut(depositKey)
@@ -609,7 +619,7 @@ describe("Bridge - Reservation release to pool", () => {
     })
 
     it("leaves no acceptance request or stale notification possible after a release", async () => {
-      const { depositKey } = await revealReservedDeposit()
+      const { depositKey, fundingTx } = await revealReservedDeposit()
       await releaseAbiBridge
         .connect(thirdParty)
         .releaseReservedDepositToPool(depositKey, ethers.ZeroAddress)
@@ -617,7 +627,12 @@ describe("Bridge - Reservation release to pool", () => {
       await expect(
         reservationRouter
           .connect(thirdParty)
-          .requestReservationAcceptance(depositKey, walletPubKeyHash)
+          .requestReservationAcceptance(
+            fundingTx.info,
+            proofFor(fundingTx.txHash),
+            0,
+            walletPubKeyHash
+          )
       ).to.be.revertedWith("Deposit was not revealed as reserved")
 
       await expect(
