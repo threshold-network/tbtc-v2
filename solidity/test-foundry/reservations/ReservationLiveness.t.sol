@@ -87,6 +87,98 @@ contract ReservationLivenessTest is Test {
         assertEq(handler.successes("requestReanchor"), 1, "library agrees");
     }
 
+    /// @dev The campaign action `tryHandOff` finds no refusal when the
+    ///      target is full: the owner's hand-off is accepted anyway.
+    function test_tryHandOffIsAcceptedOntoAFullTarget() public {
+        handler.updateLimits(0, 6_000_000); // max 1 reservation per wallet
+        acceptOn(0, 500_000, 0);
+        acceptOn(1, 500_000, 0);
+        handler.advanceWallet(0, false);
+
+        handler.tryHandOff(0, 1);
+
+        assertEq(handler.successes("tryHandOff"), 1);
+        assertFalse(handler.handOffRefused());
+        assertTrue(handler.property_aPossibleHandOffIsNeverRefused());
+    }
+
+    /// @dev A retiring position has an exit even when every other Live
+    ///      wallet is full: a privileged request skips the target's
+    ///      per-wallet caps. A third party does not, and a privileged
+    ///      request off a Live source keeps them.
+    function test_privilegedHandOffSkipsAFullTargetOthersDoNot() public {
+        handler.updateLimits(0, 6_000_000); // max 1 reservation per wallet
+        harness.updateReservationCaps(6_000_000, 4_000_000, 8, 1, 1);
+        acceptOn(0, 500_000, 0);
+        acceptOn(1, 500_000, 0);
+        uint256 key = handler.keyAt(0);
+        bytes20 fullTarget = handler.walletAt(1);
+
+        // Source still Live: even governance is held to the target's caps.
+        vm.expectRevert("Wallet reservations cap exceeded");
+        harness.requestReservationReanchor(key, fullTarget, true);
+
+        handler.advanceWallet(0, false);
+        assertTrue(handler.property_everyRetiringPositionHasAnExit());
+
+        // A third party is still held to the caps off a retiring source.
+        vm.expectRevert("Wallet reservations cap exceeded");
+        harness.requestReservationReanchor(key, fullTarget, false);
+
+        // The owner is privileged and lands on the full wallet.
+        handler.requestReanchor(0, 1, 0);
+        assertEq(handler.successes("requestReanchor"), 1);
+        handler.proveReanchor(0, 1, 0);
+        assertEq(handler.successes("proveReanchor"), 1);
+        (uint32 count, ) = harness.walletReservationInfo(fullTarget);
+        assertEq(count, 2, "hand-off passes the per-wallet cap of 1");
+        assertTrue(handler.property_capsHoldAfterEveryRequest());
+        assertTrue(handler.property_activeCountMatchesOpenPositions());
+        assertTrue(handler.property_walletCountersMatchOpenPositions());
+    }
+
+    /// @dev Hand-offs can pile onto one wallet beyond its per-wallet cap,
+    ///      but only by moving existing positions: the global active count
+    ///      and the accounting properties do not change.
+    function test_handOffsPileOnOneWalletWithoutBreakingGlobalAccounting()
+        public
+    {
+        handler.updateLimits(0, 6_000_000); // max 1 reservation per wallet
+        acceptOn(0, 500_000, 0);
+        acceptOn(1, 500_000, 0);
+        acceptOn(2, 500_000, 0);
+        handler.advanceWallet(0, false);
+        handler.advanceWallet(1, false);
+
+        handler.requestReanchor(0, 2, 0);
+        handler.proveReanchor(0, 1, 0);
+        handler.requestReanchor(1, 2, 0);
+        handler.proveReanchor(1, 1, 0);
+        assertEq(handler.successes("proveReanchor"), 2);
+
+        (uint32 count, ) = harness.walletReservationInfo(handler.walletAt(2));
+        assertEq(count, 3, "all three positions sit on one wallet");
+        assertTrue(handler.property_capsHoldAfterEveryRequest());
+        assertTrue(handler.property_activeCountMatchesOpenPositions());
+        assertTrue(handler.property_walletCountersMatchOpenPositions());
+        assertTrue(handler.property_everyRetiringPositionHasAnExit());
+    }
+
+    /// @dev The property fires when no other wallet is Live, and the
+    ///      library rejects every hand-off for the same reason.
+    function test_firesWhenNoOtherWalletIsLive() public {
+        acceptOn(0, 500_000, 0);
+        for (uint256 i = 0; i < 4; i++) {
+            handler.advanceWallet(i, false);
+        }
+
+        assertFalse(handler.property_everyRetiringPositionHasAnExit());
+        (, uint8 reason) = handler.firstStuckPosition();
+        assertEq(reason, handler.NO_LIVE_TARGET());
+        handler.requestReanchor(0, 1, 0);
+        assertEq(handler.successes("requestReanchor"), 0, "library agrees");
+    }
+
     function acceptOn(
         uint256 walletIndex,
         uint64 amountSeed,
