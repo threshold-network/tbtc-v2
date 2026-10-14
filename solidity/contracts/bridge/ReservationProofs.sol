@@ -214,12 +214,18 @@ library ReservationProofs {
     /// @notice Converts a settlement into the existing stranded-position
     ///         accounting when its target wallet can no longer manage the
     ///         newly settled anchor.
-    /// @dev Live and MovingFunds wallets can still manage the anchor.
-    ///      Closing, Closed, and Terminated wallets are stranded immediately
-    ///      here rather than left to the permissionless cleanup path
-    ///      (`notifyReservationStranded`, which exists and is router-exposed
-    ///      in this branch), so a newly settled anchor never sits unstranded
-    ///      even briefly. `evidenceAlreadyEmitted` supports the
+    /// @dev Live, MovingFunds and Closing wallets can still manage the
+    ///      anchor: a Closing wallet still has its signers, and an Active
+    ///      position on it keeps its re-anchor right
+    ///      (`requestReservationReanchor` accepts a Closing source) until
+    ///      `notifyReservationStranded` allows stranding. Stranding at once
+    ///      on Closing took that right away from a position whose anchor
+    ///      had just settled, leaving it stranded about a full reservation
+    ///      term before the permissionless cleanup path would have allowed
+    ///      it. Closed and Terminated wallets are stranded immediately here
+    ///      rather than left to that path, so a newly settled anchor on a
+    ///      terminal wallet never sits unstranded even briefly.
+    ///      `evidenceAlreadyEmitted` supports the
     ///      `notifyReservationStranded` call site, which can strand before any
     ///      settlement proof exists: when a lineage was already stranded by
     ///      that path before this proof arrives, restore the Stranded state
@@ -235,7 +241,6 @@ library ReservationProofs {
             .registeredWallets[reservation.walletPubKeyHash]
             .state;
         if (
-            walletState == Wallets.WalletState.Closing ||
             walletState == Wallets.WalletState.Closed ||
             walletState == Wallets.WalletState.Terminated
         ) {
@@ -300,6 +305,11 @@ library ReservationProofs {
             .walletReservationInfo[reservation.walletPubKeyHash]
             .amount += reservation.anchorAmount;
         self.activeReservationsCount += 1;
+        Reservation.addAnchoredCustody(
+            self,
+            reservation.walletPubKeyHash,
+            reservation.anchorAmount
+        );
         emit ReservationOccupancyChanged(self.activeReservationsCount);
     }
 
@@ -566,6 +576,11 @@ library ReservationProofs {
         reservation.anchorTxHash = anchorTxHash;
         reservation.anchorTxOutputIndex = 0;
         reservation.state = Reservation.ReservationState.Active;
+        Reservation.addAnchoredCustody(
+            self,
+            targetWalletPubKeyHash,
+            anchorAmount
+        );
         // activeReservationsCount is incremented at reservation request time.
         reservation.dissolutionEligibleAt = expiresAt + action.dissolutionDelay;
 
@@ -585,13 +600,13 @@ library ReservationProofs {
 
         // A timed-out authorization released the target wallet's reservation
         // count, so the wallet may have retired before this already-confirmed
-        // anchor is proven. Closing, Closed, and Terminated wallets are
-        // stranded immediately here rather than left to the permissionless
-        // `notifyReservationStranded` cleanup path (which exists and is
-        // router-exposed in this branch), so the newly registered position
-        // never sits unstranded even briefly. This check runs
-        // unconditionally (not just for late settlements): an on-time proof
-        // can equally race a wallet leaving Live mid-flight.
+        // anchor is proven. Closed and Terminated wallets are stranded
+        // immediately here rather than left to the permissionless
+        // `notifyReservationStranded` cleanup path, so the newly registered
+        // position never sits unstranded even briefly. A Closing wallet keeps
+        // the position Active with its re-anchor right. This check
+        // runs unconditionally (not just for late settlements): an on-time
+        // proof can equally race a wallet leaving Live mid-flight.
         strandLateSettlementIfTargetWalletClosed(
             self,
             reservation,
@@ -808,6 +823,16 @@ library ReservationProofs {
         self.walletReservationInfo[newWalletPubKeyHash].amount -= minerFee;
         self.reservationTotalAmount -= minerFee;
         reservation.cumulativeReanchorFee += minerFee;
+        Reservation.removeAnchoredCustody(
+            self,
+            oldWalletPubKeyHash,
+            oldAnchorAmount
+        );
+        Reservation.addAnchoredCustody(
+            self,
+            newWalletPubKeyHash,
+            newAnchorAmount
+        );
 
         self.reservationsByAnchorUtxo[
             uint256(keccak256(abi.encodePacked(reanchorTxHash, uint32(0))))

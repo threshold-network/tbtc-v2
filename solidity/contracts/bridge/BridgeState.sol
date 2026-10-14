@@ -515,28 +515,36 @@ library BridgeState {
         // the pending generation, or `notifyReservationActionTimeout`).
         // Privileged generations never touch it.
         mapping(bytes20 => uint32) pendingThirdPartyReanchorHolds;
+        // Count and amount of the reservations whose proven anchor UTXO
+        // currently sits at the wallet (Active or ActionPending positions
+        // custodied there). Unlike `walletReservationInfo`, it excludes the
+        // capacity reserved for pending acceptance and re-anchor targets,
+        // which no Bitcoin proof backs yet. Used by the wallet lifecycle
+        // checks that must tell real custody from reserved capacity.
+        mapping(bytes20 => WalletReservationInfo) walletAnchoredInfo;
         // Reserved storage space in case we need to add more variables.
         // The convention from OpenZeppelin suggests the storage space should
         // add up to 50 slots. Here we want to have more slots as there are
         // planned upgrades of the Bridge contract. If more entires are added to
         // the struct in the upcoming versions we need to reduce the array size.
         // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
-        // This milestone consumed 9 of the original 48 slots for the
+        // This milestone consumed 10 of the original 48 slots for the
         // reservation feature (down from an initial 15 after this PR
         // dropped `maxCumulativeReanchorFee`, `reservationDissolutionTxMaxFee`,
         // `walletPendingDissolution`, `reservationRetryCreditActionNonce`,
         // `reservationMaxBackingFractionBps`, `walletReservationKeys`, and
         // `walletReservationKeyIndex`
         // as unused/dead, freeing 6 slots via re-packing). This PR appended
-        // `maxThirdPartyReanchorHoldsPerWallet` and
-        // `pendingThirdPartyReanchorHolds` into the gap (two slots), leaving
-        // 37 slots as the shared budget for all future Bridge upgrades, not
+        // `maxThirdPartyReanchorHoldsPerWallet`,
+        // `pendingThirdPartyReanchorHolds` and `walletAnchoredInfo` into the
+        // gap (three slots), leaving 36 slots as the shared budget for all
+        // future Bridge upgrades, not
         // reserved for reservations specifically - a later unrelated PR
         // should not assume it can spend the rest. `handoffReserveWallets`
         // is packed into the free bytes of `maxThirdPartyReanchorHoldsPerWallet`'s
         // slot and spends none of that budget.
         // slither-disable-next-line unused-state
-        uint256[37] __gap;
+        uint256[36] __gap;
     }
 
     event DepositParametersUpdated(

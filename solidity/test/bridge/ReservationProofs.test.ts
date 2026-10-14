@@ -1248,6 +1248,14 @@ describe("ReservationProofs", () => {
       )
       await testReservationProofs.setReservationTotalAmount(anchorAmount)
       await testReservationProofs.setActiveReservationsCount(1)
+      // Seed the proven-anchor custody ledger: this position was settled
+      // into a Closed wallet, and the strand release below must balance the
+      // anchored entry a settled acceptance would have created.
+      await testReservationProofs.setWalletAnchoredCounters(
+        walletPubKeyHash,
+        1,
+        anchorAmount
+      )
 
       // Call strand hook with late = false: an honest on-time proof must
       // still strand against a wallet that left Live while the proof was
@@ -1332,7 +1340,7 @@ describe("ReservationProofs", () => {
       expect(reservation.state).to.equal(1) // Active
     })
 
-    it("should strand on late settlement if wallet is Closing (3)", async () => {
+    it("should not strand on late settlement if wallet is Closing (3)", async () => {
       // WalletState.Closing = 3
       await testReservationProofs.setWalletState(walletPubKeyHash, 3)
 
@@ -1370,39 +1378,38 @@ describe("ReservationProofs", () => {
       const tx =
         await testReservationProofs.strandLateSettlementIfTargetWalletClosed(
           sampleReservationKey,
-          false // evidenceAlreadyEmitted = false
+          false // evidenceAlreadyEmitted
         )
 
-      // State becomes Stranded (4)
-      const reservation =
-        await testReservationProofs.getReservation(sampleReservationKey)
-      expect(reservation.state).to.equal(4) // Stranded
+      // A Closing target wallet keeps the position Active so the owner
+      // still has the re-anchor right; no capacity is released and no strand
+      // evidence is emitted. (Closed and Terminated still strand: see the
+      // sibling tests in this file.)
+      const reservation = await testReservationProofs.getReservation(
+        sampleReservationKey
+      )
+      expect(reservation.state).to.equal(1) // still Active
 
-      // Counts decremented
+      // Counts untouched.
       expect(
         await testReservationProofs.getWalletReservationsCount(walletPubKeyHash)
-      ).to.equal(0)
+      ).to.equal(1)
       expect(
         await testReservationProofs.getWalletReservationsAmount(
           walletPubKeyHash
         )
-      ).to.equal(0)
+      ).to.equal(anchorAmount)
       expect(await testReservationProofs.getReservationTotalAmount()).to.equal(
-        0
+        anchorAmount
       )
       expect(await testReservationProofs.getActiveReservationsCount()).to.equal(
-        0
+        1
       )
 
-      // ReservationStranded event emitted
-      await expect(tx)
-        .to.emit(testReservationProofs, "ReservationStranded")
-        .withArgs(
-          sampleReservationKey,
-          walletPubKeyHash,
-          depositor.address,
-          anchorAmount
-        )
+      await expect(tx).to.not.emit(
+        testReservationProofs,
+        "ReservationStranded"
+      )
     })
 
     it("should strand on late settlement if wallet is Closed (4)", async () => {
@@ -1438,6 +1445,13 @@ describe("ReservationProofs", () => {
       )
       await testReservationProofs.setReservationTotalAmount(anchorAmount)
       await testReservationProofs.setActiveReservationsCount(1)
+      // Seed the proven-anchor custody ledger so the strand release on the
+      // Closed wallet balances.
+      await testReservationProofs.setWalletAnchoredCounters(
+        walletPubKeyHash,
+        1,
+        anchorAmount
+      )
 
       const tx =
         await testReservationProofs.strandLateSettlementIfTargetWalletClosed(
@@ -1518,6 +1532,13 @@ describe("ReservationProofs", () => {
       )
       await testReservationProofs.setReservationTotalAmount(anchorAmount)
       await testReservationProofs.setActiveReservationsCount(1)
+      // Seed the proven-anchor custody ledger so the strand release on the
+      // Terminated wallet balances.
+      await testReservationProofs.setWalletAnchoredCounters(
+        walletPubKeyHash,
+        1,
+        anchorAmount
+      )
 
       // When evidenceAlreadyEmitted is true, strandLateSettlementIfTargetWalletClosed strands but does not emit duplicate event
       const tx =
@@ -1670,6 +1691,14 @@ describe("ReservationProofs", () => {
       await testReservationProofs.setReservationByAnchorUtxo(
         oldAnchorUtxoKey,
         anchorReservationKey
+      )
+      // The source wallet already custodies the proven acceptance anchor;
+      // seed its anchored custody ledger so the re-anchor settlement's
+      // `removeAnchoredCustody` at the source balances.
+      await testReservationProofs.setWalletAnchoredCounters(
+        oldWalletPubKeyHash,
+        1,
+        reanchorAmount
       )
 
       // Pre-reanchor assertions

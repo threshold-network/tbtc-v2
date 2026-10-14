@@ -369,18 +369,16 @@ describe("Reservation", () => {
       })
     })
 
-    // The anchor may pay up to txMaxFee at acceptance and must still clear
-    // the re-anchor floor `anchor > min + txMaxFee`, so a hand-off away
-    // from a retiring wallet stays possible.
     describe("guard 11: deposit.amount > reservationMinAmount + 2 * reservationTxMaxFee", () => {
-      const minAmount = 100000
-      const txMaxFee = 10000
+      it("should revert if deposit amount equals min amount + 2 * tx max fee (the anchor could not be re-anchored)", async () => {
+        const minAmount = 100000
+        const txMaxFee = 10000
+        const boundaryAmount = minAmount + 2 * txMaxFee // 120000
 
-      it("should revert if deposit amount equals min amount + 2 * tx max fee", async () => {
         await setupValidDeposit(reservationKey1, walletPubKeyHash, {
           minAmount,
           txMaxFee,
-          depositAmount: minAmount + 2 * txMaxFee, // 120000
+          depositAmount: boundaryAmount,
         })
 
         await expect(
@@ -390,11 +388,14 @@ describe("Reservation", () => {
         ).to.be.revertedWith("Deposit amount too small for a reservation")
       })
 
-      it("should revert if deposit amount equals the old floor min amount + tx max fee", async () => {
+      it("should revert at the old floor min amount + tx max fee", async () => {
+        const minAmount = 100000
+        const txMaxFee = 10000
+
         await setupValidDeposit(reservationKey1, walletPubKeyHash, {
           minAmount,
           txMaxFee,
-          depositAmount: minAmount + txMaxFee, // 110000
+          depositAmount: minAmount + txMaxFee,
         })
 
         await expect(
@@ -405,10 +406,14 @@ describe("Reservation", () => {
       })
 
       it("should succeed if deposit amount is min amount + 2 * tx max fee + 1", async () => {
+        const minAmount = 100000
+        const txMaxFee = 10000
+        const smallestAmount = minAmount + 2 * txMaxFee + 1 // 120001
+
         await setupValidDeposit(reservationKey1, walletPubKeyHash, {
           minAmount,
           txMaxFee,
-          depositAmount: minAmount + 2 * txMaxFee + 1, // 120001
+          depositAmount: smallestAmount,
         })
 
         await expect(
@@ -795,6 +800,14 @@ describe("Reservation", () => {
           walletPubKeyHash
         )
 
+        // The stranded position's anchor is proven custody; seed the anchored
+        // ledger the way a settled acceptance would have, so the strand's
+        // `removeAnchoredCustody` release stays balanced.
+        await testReservation.setWalletAnchoredCounters(
+          walletPubKeyHash,
+          1,
+          defaultDepositAmount
+        )
         // Strand the first reservation
         await testReservation.strandReservation(reservationKey1)
 
@@ -910,6 +923,14 @@ describe("Reservation", () => {
         anchorTxHash,
         anchorTxOutputIndex
       )
+
+      // The stranded position's anchor is proven custody; seed the anchored
+      // ledger the way a settled acceptance would have.
+      await testReservation.setWalletAnchoredCounters(
+        walletPubKeyHash,
+        1,
+        anchorAmount
+      )
       expect(
         await testReservation.getReservationByAnchorUtxo(
           anchorTxHash,
@@ -967,6 +988,13 @@ describe("Reservation", () => {
       await testReservation.setReservationWalletPubKeyHash(
         reservationKey1,
         walletPubKeyHash
+      )
+      // Seed the anchored ledger for the first strand's
+      // `removeAnchoredCustody` release.
+      await testReservation.setWalletAnchoredCounters(
+        walletPubKeyHash,
+        1,
+        anchorAmount
       )
       // First strand
       const tx1 = await testReservation.strandReservation(reservationKey1)
@@ -1215,6 +1243,13 @@ describe("Reservation", () => {
       )
       await testReservation.setGlobalReservationCounters(anchorAmount, 1)
 
+      // The Active position's anchor is proven custody (settled acceptance);
+      // seed the anchored ledger so the strand release stays balanced.
+      await testReservation.setWalletAnchoredCounters(
+        walletPubKeyHash,
+        1,
+        anchorAmount
+      )
       await testReservation.strandReservation(strandKey)
 
       expect(await testReservation.reservationState(strandKey)).to.equal(4) // Stranded
@@ -1247,7 +1282,11 @@ describe("Reservation", () => {
       expect(await testReservation.reservationState(key)).to.equal(1) // still Active
     })
 
-    it("should strand a settlement whose target wallet is Closing", async () => {
+    it("should not strand a settlement whose target wallet is Closing", async () => {
+      // A settlement against a Closing target wallet no longer strands
+      // the position — Closing is also an acceptable re-anchor source, so
+      // the owner keeps the re-anchor right through the wallet's closing
+      // period. Only terminal states strand here.
       const key = 104
       await testReservation.setWalletState(walletPubKeyHash, 3) // 3 = Closing
       await testReservation.setReservationFullState(
@@ -1264,6 +1303,44 @@ describe("Reservation", () => {
         anchorAmount
       )
       await testReservation.setGlobalReservationCounters(anchorAmount, 1)
+      const tx = await testReservation.strandLateSettlementIfTargetWalletClosed(
+        key,
+        false // evidenceAlreadyEmitted
+      )
+      // The position stays Active and nothing is released.
+      expect(await testReservation.reservationState(key)).to.equal(1) // Active
+      expect(
+        await testReservation.walletReservationsCount(walletPubKeyHash)
+      ).to.equal(1)
+      expect(await testReservation.activeReservationsCount()).to.equal(1)
+      await expect(tx).to.not.emit(testReservation, "ReservationStranded")
+    })
+
+    it("should strand a settlement whose target wallet is Closed", async () => {
+      // The Closed terminal-state counterpart: the settlement strand hook
+      // still releases the position.
+      const key = 108
+      await testReservation.setWalletState(walletPubKeyHash, 4) // 4 = Closed
+      await testReservation.setReservationFullState(
+        key,
+        owner,
+        walletPubKeyHash,
+        anchorAmount,
+        1, // Active
+        requestNonce
+      )
+      await testReservation.setWalletReservationsCounters(
+        walletPubKeyHash,
+        1,
+        anchorAmount
+      )
+      await testReservation.setGlobalReservationCounters(anchorAmount, 1)
+      // The settled anchor is proven custody on the Closed wallet.
+      await testReservation.setWalletAnchoredCounters(
+        walletPubKeyHash,
+        1,
+        anchorAmount
+      )
       await testReservation.strandLateSettlementIfTargetWalletClosed(
         key,
         false // evidenceAlreadyEmitted
@@ -1291,6 +1368,12 @@ describe("Reservation", () => {
         anchorAmount
       )
       await testReservation.setGlobalReservationCounters(anchorAmount, 1)
+      // The settled anchor is proven custody on the Terminated wallet.
+      await testReservation.setWalletAnchoredCounters(
+        walletPubKeyHash,
+        1,
+        anchorAmount
+      )
       await testReservation.strandLateSettlementIfTargetWalletClosed(
         key,
         false // evidenceAlreadyEmitted
@@ -1346,6 +1429,12 @@ describe("Reservation", () => {
         anchorAmount
       )
       await testReservation.setGlobalReservationCounters(anchorAmount, 1)
+      // The settled anchor is proven custody on the Terminated wallet.
+      await testReservation.setWalletAnchoredCounters(
+        walletPubKeyHash,
+        1,
+        anchorAmount
+      )
       const tx = await testReservation.strandLateSettlementIfTargetWalletClosed(
         key,
         true // evidenceAlreadyEmitted
@@ -1856,7 +1945,11 @@ describe("Reservation", () => {
       )
     })
 
-    it("routes Live wallet with zero main UTXO and active reservations to MovingFunds", async () => {
+    it("routes Live wallet with zero main UTXO and a proven reservation anchor to MovingFunds", async () => {
+      // `moveFunds` routes on the proven-anchor ledger
+      // (`walletAnchoredInfo`), not on pending acceptance capacity. A
+      // settled anchor custodies BTC outside the main UTXO, so the wallet
+      // enters the moving-funds window to re-anchor it.
       await testReservation.setWalletMainUtxo(
         testWalletPubKeyHash,
         ethers.ZeroHash
@@ -1864,6 +1957,11 @@ describe("Reservation", () => {
       await testReservation.setWalletReservationsCount(testWalletPubKeyHash, 1)
       await testReservation.setWalletReservationsAmount(
         testWalletPubKeyHash,
+        100000
+      )
+      await testReservation.setWalletAnchoredCounters(
+        testWalletPubKeyHash,
+        1,
         100000
       )
       await testReservation.setLiveWalletsCount(1)
@@ -1884,6 +1982,32 @@ describe("Reservation", () => {
         ethers.ZeroHash
       )
       await testReservation.setWalletReservationsCount(testWalletPubKeyHash, 0)
+      await testReservation.setLiveWalletsCount(1)
+
+      const tx = await testReservation.moveFunds(testWalletPubKeyHash)
+
+      expect(await testReservation.walletState(testWalletPubKeyHash)).to.equal(
+        walletState.Closing
+      )
+      await expect(tx).to.not.emit(testReservation, "WalletMovingFunds")
+      await expect(tx)
+        .to.emit(testReservation, "WalletClosing")
+        .withArgs(testEcdsaWalletId, testWalletPubKeyHash)
+    })
+
+    it("routes Live wallet with zero main UTXO and pending-only reservations to Closing", async () => {
+      // Counterpart: pending acceptance capacity without a
+      // proven anchor (`walletAnchoredInfo.count == 0`) no longer keeps the
+      // wallet in a slash-prone moving-funds window; it closes immediately.
+      await testReservation.setWalletMainUtxo(
+        testWalletPubKeyHash,
+        ethers.ZeroHash
+      )
+      await testReservation.setWalletReservationsCount(testWalletPubKeyHash, 1)
+      await testReservation.setWalletReservationsAmount(
+        testWalletPubKeyHash,
+        100000
+      )
       await testReservation.setLiveWalletsCount(1)
 
       const tx = await testReservation.moveFunds(testWalletPubKeyHash)

@@ -470,7 +470,12 @@ describe("Bridge - Reservation stranding", () => {
 
     await reservationRouter
       .connect(thirdParty)
-      .requestReservationAcceptance(depositKey, custodian)
+      .requestReservationAcceptance(
+        fundingTx.info,
+        proofFor(fundingTx.txHash),
+        0,
+        custodian
+      )
 
     const anchorTx = buildTx(
       [{ txHash: fundingTx.txHash, index: 0 }],

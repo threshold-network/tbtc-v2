@@ -343,10 +343,18 @@ library Wallets {
             block.timestamp >= wallet.createdAt + self.walletMaxAge;
         /* solhint-enable not-rely-on-time */
 
+        // Proven reservation anchors are BTC the wallet custodies outside its
+        // main UTXO. Without them a young wallet holding large anchors read
+        // as nearly empty and anyone could push it out of Live.
+        // Pending acceptance and re-anchor capacity is not counted: no
+        // Bitcoin proof backs it.
         require(
             walletOldEnough ||
-                getWalletBtcBalance(self, walletPubKeyHash, walletMainUtxo) <
-                    self.walletClosureMinBtcBalance,
+                uint256(
+                    getWalletBtcBalance(self, walletPubKeyHash, walletMainUtxo)
+                ) +
+                    self.walletAnchoredInfo[walletPubKeyHash].amount <
+                self.walletClosureMinBtcBalance,
             "Wallet needs to be old enough or have too few satoshis"
         );
 
@@ -592,19 +600,24 @@ library Wallets {
     /// @dev Requirements:
     ///      - The caller must make sure that the wallet is in the Live state.
     ///
-    ///      A wallet cannot begin closing while it still custodies UTXO
-    ///      reservations (active or acceptance-pending, tracked via
-    ///      `walletReservationInfo[wallet].count`). The permissionless release
-    ///      path for a stranded active reservation (`notifyReservationStranded`)
-    ///      exists and is router-reachable as of this PR. The zero-reservation
-    ///      count check gating immediate closing is enforced here, at the
-    ///      routing decision, and in `notifyWalletClosingPeriodElapsed`; it is
-    ///      intentionally not re-checked inside `beginWalletClosing` or
+    ///      A wallet whose main UTXO is zero and that custodies no proven
+    ///      reservation anchor (`walletAnchoredInfo[wallet].count == 0`)
+    ///      begins closing immediately. Capacity reserved for pending
+    ///      acceptance or re-anchor targets does not count here: no Bitcoin
+    ///      proof backs it, and counting it let anyone send an empty wallet
+    ///      into MovingFunds, where it risks the moving-funds timeout slash
+    ///      Such a pending action still blocks the final
+    ///      Closing -> Closed step in `notifyWalletClosingPeriodElapsed`
+    ///      (`walletReservationInfo[wallet].count == 0`) until it settles or
+    ///      times out. The permissionless release path for a stranded active
+    ///      reservation (`notifyReservationStranded`) exists and is
+    ///      router-reachable. The routing check is intentionally not
+    ///      re-checked inside `beginWalletClosing` or
     ///      `finalizeWalletClosing` themselves, since those are also invoked
     ///      after a moving funds Bitcoin transaction has already been proven
     ///      on-chain, where blocking on a still-active reservation would strand
     ///      the wallet's `movingFundsTimeout` clock. A wallet whose main UTXO
-    ///      is zero but still custodies reservations enters MovingFunds so
+    ///      is zero but still custodies proven anchors enters MovingFunds so
     ///      that `WalletMovingFunds` is emitted to trigger re-anchoring of any
     ///      remaining reservations.
     function moveFunds(
@@ -615,11 +628,11 @@ library Wallets {
 
         if (
             wallet.mainUtxoHash == bytes32(0) &&
-            self.walletReservationInfo[walletPubKeyHash].count == 0
+            self.walletAnchoredInfo[walletPubKeyHash].count == 0
         ) {
-            // If the wallet has no main UTXO and no active reservations,
-            // that means its BTC balance is zero and the wallet closing
-            // should begin immediately.
+            // If the wallet has no main UTXO and no proven reservation
+            // anchors, its BTC balance is zero and the wallet closing should
+            // begin immediately.
             beginWalletClosing(self, walletPubKeyHash);
         } else {
             // Otherwise, initialize the moving funds process.

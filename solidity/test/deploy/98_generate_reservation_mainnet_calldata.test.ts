@@ -112,12 +112,12 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
     networkName?: string
     liveWalletsCount?: number
     liveWalletsCountAtFinalize?: number
+    depositRevealAheadPeriod?: number
     reservationRouterOnChain?: string
     routerOnChainCode?: string
     proxyAdminOwner?: string
     bridgeGovernanceOwner?: string
     depositDustThreshold?: bigint
-    depositRevealAheadPeriod?: number
   }): { mockHre: any } {
     const liveWalletsCount = overrides?.liveWalletsCount ?? 10
     const liveWalletsCountAtFinalize =
@@ -189,16 +189,26 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
               ? liveWalletsCount
               : liveWalletsCountAtFinalize
           }
+          if (name === "Bridge" && method === "depositParameters") {
+            // Index access (array form) and named access are both read by
+            // the deploy script's feasibility guards.
+            return Object.assign(
+              [
+                depositDustThreshold,
+                BigInt(500),
+                BigInt(100000),
+                depositRevealAheadPeriod,
+              ],
+              {
+                depositDustThreshold,
+                depositTreasuryFeeDivisor: BigInt(500),
+                depositTxMaxFee: BigInt(100000),
+                depositRevealAheadPeriod,
+              }
+            )
+          }
           if (name === "Bridge" && method === "getReservationRouter") {
             return reservationRouterOnChain
-          }
-          if (name === "Bridge" && method === "depositParameters") {
-            return [
-              depositDustThreshold,
-              BigInt(500),
-              BigInt(100000),
-              depositRevealAheadPeriod,
-            ]
           }
           throw new Error(`Unexpected read: ${name}.${method}`)
         },
@@ -477,8 +487,8 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
       await expectRejection(func(mockHre), /RENEWAL_WINDOW_SECONDS/)
     })
 
-    it("should throw when the action timeout does not exceed the safety margin", async () => {
-      process.env.RESERVATION_ACTION_TIMEOUT_SECONDS = "7200" // exactly the margin
+    it("should throw when the action timeout leaves a fresh deposit no signing window", async () => {
+      process.env.RESERVATION_ACTION_TIMEOUT_SECONDS = "14401" // 2h margin + 2h min age + 1
       const { mockHre } = createMockHre()
       await expectRejection(func(mockHre), /ACTION_TIMEOUT_SECONDS/)
     })
@@ -501,9 +511,11 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
       await expectRejection(func(mockHre), /depositRevealAheadPeriod/)
     })
 
-    it("should accept a reveal-ahead period exactly at the term plus the refund safety margin", async () => {
+    it("should accept the longest reveal-ahead period whose reveal window is still positive", async () => {
+      // term 7,776,000s; reveal-ahead + 2h drift - 24h margin + 1h feasibility
+      // margin == term gives 7,776,000 + 75,600.
       const { mockHre } = createMockHre({
-        depositRevealAheadPeriod: 7776000 + 86400,
+        depositRevealAheadPeriod: 7776000 + 75600,
       })
       await func(mockHre)
     })
@@ -550,6 +562,51 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
         "Occupancy cap exceeds live wallet slot capacity"
       )
       expect(message).to.include("Wallet reservations cap exceeded")
+    })
+  })
+
+  describe("reserved-reveal feasibility guard", () => {
+    it("should reject a 90-day term when the live reveal-ahead period is 150 days", async () => {
+      // term 7,776,000s < min feasible term 12,884,400s
+      // (= 12,960,000 + 7,200 - 86,400 + 3,600)
+      const { mockHre } = createMockHre({
+        depositRevealAheadPeriod: 12_960_000,
+      })
+      await expectRejection(
+        func(mockHre),
+        /minimum feasible term \(12884400s\)/
+      )
+    })
+
+    it("should accept a 152-day term when the live reveal-ahead period is 150 days", async () => {
+      // term 13,132,800s >= min feasible term 12,884,400s
+      process.env.RESERVATION_TERM_SECONDS = "13132800"
+      const { mockHre } = createMockHre({
+        depositRevealAheadPeriod: 12_960_000,
+      })
+      const capture = captureConsoleLog()
+      let output: string
+      try {
+        await func(mockHre)
+      } finally {
+        output = capture.restore()
+      }
+      expect(output).to.include("Reserved-reveal window OK")
+    })
+
+    it("should pass with no lower bound when the reveal-ahead period is zero", async () => {
+      // depositRevealAheadPeriod 0 disables the ahead-period check in
+      // Deposit.sol, so the guard has nothing to enforce on top of the
+      // existing term bounds.
+      const { mockHre } = createMockHre({ depositRevealAheadPeriod: 0 })
+      const capture = captureConsoleLog()
+      let output: string
+      try {
+        await func(mockHre)
+      } finally {
+        output = capture.restore()
+      }
+      expect(output).to.include("Reserved-reveal window OK")
     })
   })
 

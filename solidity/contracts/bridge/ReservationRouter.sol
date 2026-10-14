@@ -212,15 +212,38 @@ contract ReservationRouter is Governable, Initializable {
     ///         anchor spend. Checks and reserves reservation capacity so
     ///         the anchor, once signed, can always be proven. See
     ///         `Reservation.requestReservationAcceptance`.
-    /// @param reservationKey The deposit key of the revealed reserved
-    ///        deposit (doubles as the reservation key).
+    /// @dev The caller proves that the deposit's funding transaction is
+    ///      confirmed on Bitcoin with the same SPV rules as every other
+    ///      Bridge proof. `revealDeposit` checks no proof, so without this
+    ///      anyone could reveal fabricated reserved deposits and reserve
+    ///      wallet and global capacity at zero cost. The reservation
+    ///      key is derived from the proven transaction hash, so the proof
+    ///      cannot be reused for another deposit, and the reveal already
+    ///      bound the output's script and value to that transaction hash.
+    /// @param fundingTx Bitcoin funding transaction of the deposit, the
+    ///        same data `revealDeposit` received.
+    /// @param fundingProof SPV proof of `fundingTx`.
+    /// @param fundingOutputIndex Index of the deposit output in
+    ///        `fundingTx`.
     /// @param walletPubKeyHash 20-byte public key hash of the wallet that
     ///        will anchor the deposit.
     function requestReservationAcceptance(
-        uint256 reservationKey,
+        BitcoinTx.Info calldata fundingTx,
+        BitcoinTx.Proof calldata fundingProof,
+        uint32 fundingOutputIndex,
         bytes20 walletPubKeyHash
     ) external {
-        self.requestReservationAcceptance(reservationKey, walletPubKeyHash);
+        bytes32 fundingTxHash = BitcoinTx.validateProof(
+            self,
+            fundingTx,
+            fundingProof
+        );
+        self.requestReservationAcceptance(
+            uint256(
+                keccak256(abi.encodePacked(fundingTxHash, fundingOutputIndex))
+            ),
+            walletPubKeyHash
+        );
     }
 
     /// @notice Requests the re-anchoring of a reservation to another
