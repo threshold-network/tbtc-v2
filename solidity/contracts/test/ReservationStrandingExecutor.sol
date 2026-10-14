@@ -278,6 +278,15 @@ contract ReservationStrandingExecutor is TestReservation {
             state.activeReservationsCount += 1;
         }
 
+        // Active seeds the proven-anchor custody ledger alongside the
+        // capacity counters, so `strandReservation`'s
+        // `removeAnchoredCustody` release stays balanced.
+        if (reservationStateVal == Reservation.ReservationState.Active) {
+            state.walletAnchoredInfo[walletPubKeyHash].count += 1;
+            state.walletAnchoredInfo[walletPubKeyHash].amount +=
+                anchorAmount;
+        }
+
         state.reservationsByAnchorUtxo[
             uint256(
                 keccak256(abi.encodePacked(anchorTxHash, anchorTxOutputIndex))

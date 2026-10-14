@@ -366,6 +366,15 @@ contract TestReservation {
         return state.walletReservationInfo[walletPubKeyHash].amount;
     }
 
+    function walletAnchoredInfo(bytes20 walletPubKeyHash)
+        external
+        view
+        returns (uint32 count, uint64 amount)
+    {
+        count = state.walletAnchoredInfo[walletPubKeyHash].count;
+        amount = state.walletAnchoredInfo[walletPubKeyHash].amount;
+    }
+
     function reservationTotalAmount() external view returns (uint64) {
         return state.reservationTotalAmount;
     }
@@ -500,11 +509,35 @@ contract TestReservation {
         reservation.requestNonce = requestNonce;
     }
 
+    function setReservationDissolutionEligibleAt(
+        uint256 reservationKey,
+        uint32 dissolutionEligibleAt
+    ) external {
+        state
+            .reservations[reservationKey]
+            .dissolutionEligibleAt = dissolutionEligibleAt;
+    }
+
     function setWalletState(
         bytes20 walletPubKeyHash,
         Wallets.WalletState newState
     ) external {
         state.registeredWallets[walletPubKeyHash].state = newState;
+    }
+
+    function setWalletClosingStartedAt(
+        bytes20 walletPubKeyHash,
+        uint32 closingStartedAt
+    ) external {
+        state
+            .registeredWallets[walletPubKeyHash]
+            .closingStartedAt = closingStartedAt;
+    }
+
+    function setWalletClosingPeriod(uint32 walletClosingPeriodSeconds)
+        external
+    {
+        state.walletClosingPeriod = walletClosingPeriodSeconds;
     }
 
     function setLiveWalletsCount(uint32 count) external {
@@ -546,6 +579,15 @@ contract TestReservation {
     ) external {
         state.walletReservationInfo[walletPubKeyHash].count = count;
         state.walletReservationInfo[walletPubKeyHash].amount = amount;
+    }
+
+    function setWalletAnchoredCounters(
+        bytes20 walletPubKeyHash,
+        uint32 count,
+        uint64 amount
+    ) external {
+        state.walletAnchoredInfo[walletPubKeyHash].count = count;
+        state.walletAnchoredInfo[walletPubKeyHash].amount = amount;
     }
 
     function setGlobalReservationCounters(

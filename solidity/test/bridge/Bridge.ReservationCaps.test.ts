@@ -30,7 +30,9 @@ const baseParams = {
   reservationTermSeconds: MIN_RESERVATION_TERM,
   reservationDissolutionDelay: 7 * 24 * 60 * 60,
   maxReservationsPerWallet: 10,
-  reservationActionTimeout: REQUEST_TIMEOUT_SAFETY_MARGIN + 1,
+  // Smallest value the action-timeout floor admits
+  // (REQUEST_TIMEOUT_SAFETY_MARGIN + DEPOSIT_MIN_AGE + 2).
+  reservationActionTimeout: 2 * REQUEST_TIMEOUT_SAFETY_MARGIN + 2,
   reservationRenewalWindowSeconds: 14 * 24 * 60 * 60,
 }
 
@@ -91,6 +93,40 @@ describe("Reservation - amount cap versus slot capacity", () => {
         maxThirdPartyReanchorHoldsPerWallet,
         1
       )
+    })
+
+    describe("action timeout floor", () => {
+      async function setActionTimeout(timeout: number) {
+        return testReservation.updateReservationParameters(
+          baseParams.reservationVault,
+          baseParams.reservationMinAmount,
+          baseParams.reservationTxMaxFee,
+          baseParams.reservationTermSeconds,
+          baseParams.reservationDissolutionDelay,
+          slotCapacity,
+          baseParams.maxReservationsPerWallet,
+          timeout,
+          baseParams.reservationRenewalWindowSeconds
+        )
+      }
+
+      const NO_WINDOW_REVERT = "Reservation action timeout leaves no signing window"
+
+      it("reverts at the old floor, safety margin + 1", async () => {
+        await expect(
+          setActionTimeout(REQUEST_TIMEOUT_SAFETY_MARGIN + 1)
+        ).to.be.revertedWith(NO_WINDOW_REVERT)
+      })
+
+      it("reverts at safety margin + deposit min age + 1", async () => {
+        await expect(
+          setActionTimeout(REQUEST_TIMEOUT_SAFETY_MARGIN + 2 * 60 * 60 + 1)
+        ).to.be.revertedWith(NO_WINDOW_REVERT)
+      })
+
+      it("accepts safety margin + deposit min age + 2, leaving one signing second for a same-block reveal", async () => {
+        await setActionTimeout(REQUEST_TIMEOUT_SAFETY_MARGIN + 2 * 60 * 60 + 2)
+      })
     })
 
     it("reverts when the total amount cap exceeds slot capacity", async () => {

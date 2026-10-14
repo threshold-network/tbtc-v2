@@ -31,10 +31,20 @@ const EIP_1967_ADMIN_SLOT =
 // submitted and staged.
 const MIN_RESERVATION_TERM = 7_776_000 // 90 days
 const MAX_RESERVATION_TERM = 63_072_000 // 730 days
-// Mirrored from WalletProposalValidatorConstants.REQUEST_TIMEOUT_SAFETY_MARGIN.
+// Mirrored from WalletProposalValidatorConstants.REQUEST_TIMEOUT_SAFETY_MARGIN
+// and DEPOSIT_MIN_AGE.
 const REQUEST_TIMEOUT_SAFETY_MARGIN = 7_200 // 2 hours
-// Mirrored from WalletProposalValidatorConstants.DEPOSIT_REFUND_SAFETY_MARGIN.
+const DEPOSIT_MIN_AGE = 7_200 // 2 hours
+// Mirrored from WalletProposalValidatorConstants.DEPOSIT_REFUND_SAFETY_MARGIN;
+// Deposit.sol caps a reserved deposit's refund locktime at the reveal time
+// plus the reservation term plus this margin.
 const DEPOSIT_REFUND_SAFETY_MARGIN = 86_400 // 24 hours
+// Clock drift between the mined head and the reveal block in Deposit.sol's
+// refund-deadline checks.
+const REVEAL_DRIFT_SECONDS = 7_200 // 2 hours
+// Margin subtracted from the reveal window so the guard only passes terms
+// with a strictly positive window.
+const REVEAL_FEASIBILITY_MARGIN_SECONDS = 3_600 // 1 hour
 
 /**
  * Throws when the reservation parameters, combined with the Bridge's live
@@ -566,13 +576,13 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
         "than the term' require)"
     )
   }
-  if (RES_ACTION_TIMEOUT <= REQUEST_TIMEOUT_SAFETY_MARGIN) {
+  if (RES_ACTION_TIMEOUT <= REQUEST_TIMEOUT_SAFETY_MARGIN + DEPOSIT_MIN_AGE + 1) {
     throw new Error(
       `RESERVATION_ACTION_TIMEOUT_SECONDS (${RES_ACTION_TIMEOUT}) must ` +
-        "exceed the wallet validator's REQUEST_TIMEOUT_SAFETY_MARGIN " +
-        `(${REQUEST_TIMEOUT_SAFETY_MARGIN}s / 2h) (mirrors ` +
-        "updateReservationParameters's 'Reservation action timeout must " +
-        "exceed the safety margin' require)"
+        "exceed REQUEST_TIMEOUT_SAFETY_MARGIN + DEPOSIT_MIN_AGE + 1 " +
+        `(${REQUEST_TIMEOUT_SAFETY_MARGIN + DEPOSIT_MIN_AGE + 1}s) (mirrors ` +
+        "updateReservationParameters's 'Reservation action timeout leaves " +
+        "no signing window' require)"
     )
   }
 
@@ -627,10 +637,56 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
       `liveWalletsCount * maxReservationsPerWallet (${slotCapacityByWallets})`
   )
 
-  const depositParameters = await read("Bridge", "depositParameters")
+  // --- Verify a reserved deposit can actually be revealed under the chosen
+  // term. Deposit._revealDeposit bounds the refund locktime two ways when
+  // depositRevealAheadPeriod is set: it must be at least the reveal time plus
+  // depositRevealAheadPeriod, and for a reserved deposit also at most the
+  // reveal time plus the term plus the 24h deposit refund safety margin
+  // (otherwise it reverts with "Refund locktime too far in the future for a
+  // reservation"). requestReservationAcceptance additionally needs the
+  // refund deadline at least the reveal time plus actionTimeout plus that
+  // same 24h margin. The feasibility rule takes the lower bound as
+  // max(reveal-ahead + 2h drift, actionTimeout + 24h + 2h drift) and
+  // requires it to fit inside term + 24h - 1h, so we mirror the same
+  // numbers here and fail fast instead of reverting on every reveal.
+  const depositParams = await read("Bridge", "depositParameters")
+  const revealAheadPeriod = Number(depositParams.depositRevealAheadPeriod)
+  let minFeasibleTerm = 0
+  if (revealAheadPeriod > 0) {
+    const lowest = Math.max(
+      revealAheadPeriod + REVEAL_DRIFT_SECONDS,
+      RES_ACTION_TIMEOUT + DEPOSIT_REFUND_SAFETY_MARGIN + REVEAL_DRIFT_SECONDS
+    )
+    minFeasibleTerm =
+      lowest - DEPOSIT_REFUND_SAFETY_MARGIN + REVEAL_FEASIBILITY_MARGIN_SECONDS
+    if (RES_TERM_SECONDS < minFeasibleTerm) {
+      throw new Error(
+        `RESERVATION_TERM_SECONDS (${RES_TERM_SECONDS}) is below the ` +
+          `minimum feasible term (${minFeasibleTerm}s) for the on-chain ` +
+          `depositRevealAheadPeriod (${revealAheadPeriod}s): Deposit.sol ` +
+          "needs a reserved deposit's refund locktime in " +
+          `[reveal + ${lowest}s, reveal + term + ${DEPOSIT_REFUND_SAFETY_MARGIN}s]` +
+          ". With the term bound and the 1h feasibility margin the window " +
+          "is empty or too thin for this term. Raise " +
+          `RESERVATION_TERM_SECONDS to at least ${minFeasibleTerm}s, or ` +
+          "lower depositRevealAheadPeriod via 14_set_deposit_parameters.ts " +
+          "governance."
+      )
+    }
+  }
+  console.log(
+    `${
+      `\nReserved-reveal window OK: term (${RES_TERM_SECONDS}s) vs ` +
+      `depositRevealAheadPeriod (${revealAheadPeriod}s)`
+    }${revealAheadPeriod > 0 ? `, min feasible term ${minFeasibleTerm}s` : ""}`
+  )
+
+  // The reveal-window guard above is stricter than the term check inside
+  // `assertReservedDepositsFeasible`, so it runs first and names the minimum
+  // term; this call then covers the amount caps against the dust threshold.
   assertReservedDepositsFeasible({
-    depositDustThreshold: BigInt(depositParameters[0]),
-    depositRevealAheadPeriod: Number(depositParameters[3]),
+    depositDustThreshold: BigInt(depositParams[0]),
+    depositRevealAheadPeriod: Number(depositParams[3]),
     termSeconds: RES_TERM_SECONDS,
     singleAmountCap: SINGLE_AMOUNT_CAP,
     perWalletCap: PER_WALLET_CAP,

@@ -10,6 +10,8 @@ const MIN_RESERVATION_TERM = 90 * 24 * 60 * 60 // `Reservation.MIN_RESERVATION_T
 const DEPOSIT_REFUND_SAFETY_MARGIN = 24 * 60 * 60
 // `WalletProposalValidatorConstants.REQUEST_TIMEOUT_SAFETY_MARGIN`.
 const REQUEST_TIMEOUT_SAFETY_MARGIN = 2 * 60 * 60
+// `WalletProposalValidatorConstants.DEPOSIT_MIN_AGE`.
+const DEPOSIT_MIN_AGE = 2 * 60 * 60
 // Last reveal-ahead period that still leaves a signing window under the
 // minimum term: `MIN_RESERVATION_TERM + DEPOSIT_REFUND_SAFETY_MARGIN`.
 const MAX_FEASIBLE_REVEAL_AHEAD =
@@ -38,7 +40,8 @@ const params = {
   // = 4 * 1_000_000, exactly the slot capacity of the caps below.
   reservationMaxTotalAmount: 4_000_000,
   maxReservationsPerWallet: 10,
-  reservationActionTimeout: REQUEST_TIMEOUT_SAFETY_MARGIN + 1,
+  reservationActionTimeout:
+    REQUEST_TIMEOUT_SAFETY_MARGIN + DEPOSIT_MIN_AGE + 2,
   reservationRenewalWindowSeconds: 14 * 24 * 60 * 60,
 }
 

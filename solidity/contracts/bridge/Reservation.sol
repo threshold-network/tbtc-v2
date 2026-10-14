@@ -575,9 +575,13 @@ library Reservation {
         uint64 txMaxFee = self.reservationTxMaxFee;
         uint64 minAmount = self.reservationMinAmount;
 
-        // The anchor may pay up to `txMaxFee` and must then stay strictly
-        // above the re-anchor floor `minAmount + txMaxFee`, or the position
-        // could never be handed off when its wallet retires.
+        // The acceptance anchor pays up to `txMaxFee`, so it is at least
+        // `deposit.amount - txMaxFee`. A re-anchor needs an anchor strictly
+        // above `minAmount + txMaxFee` (requestReservationReanchor). Requiring
+        // `deposit.amount > minAmount + 2 * txMaxFee` makes every accepted
+        // anchor re-anchorable under the same parameters; with the old
+        // `>= minAmount + txMaxFee` anchors in [minAmount, minAmount +
+        // txMaxFee] could never move.
         require(
             uint256(deposit.amount) >
                 uint256(minAmount) + 2 * uint256(txMaxFee),
@@ -1154,6 +1158,29 @@ library Reservation {
         }
     }
 
+    /// @notice Records a proven anchor arriving at a wallet (acceptance or
+    ///         re-anchor settlement, or the reconstruction of a stranded
+    ///         lineage for a late proof).
+    function addAnchoredCustody(
+        BridgeState.Storage storage self,
+        bytes20 walletPubKeyHash,
+        uint64 anchorAmount
+    ) internal {
+        self.walletAnchoredInfo[walletPubKeyHash].count += 1;
+        self.walletAnchoredInfo[walletPubKeyHash].amount += anchorAmount;
+    }
+
+    /// @notice Records a proven anchor leaving a wallet's tracked custody
+    ///         (re-anchor settlement at the source, strand or close).
+    function removeAnchoredCustody(
+        BridgeState.Storage storage self,
+        bytes20 walletPubKeyHash,
+        uint64 anchorAmount
+    ) internal {
+        self.walletAnchoredInfo[walletPubKeyHash].count -= 1;
+        self.walletAnchoredInfo[walletPubKeyHash].amount -= anchorAmount;
+    }
+
     /// @notice Strands a reservation: releases its tracked capacity and
     ///         emits the canonical recovery evidence. The caller decides
     ///         whether the anchor was honestly spent before invoking this
@@ -1170,6 +1197,7 @@ library Reservation {
 
         if (!alreadyStranded) {
             releaseAcceptanceCapacity(self, walletPubKeyHash, anchorAmount);
+            removeAnchoredCustody(self, walletPubKeyHash, anchorAmount);
             delete self.reservationsByAnchorUtxo[
                 uint256(
                     keccak256(
@@ -1222,6 +1250,11 @@ library Reservation {
             reservation.walletPubKeyHash,
             reservation.anchorAmount
         );
+        removeAnchoredCustody(
+            self,
+            reservation.walletPubKeyHash,
+            reservation.anchorAmount
+        );
         delete self.reservationsByAnchorUtxo[
             uint256(
                 keccak256(
@@ -1236,29 +1269,32 @@ library Reservation {
     }
 
     /// @notice Marks a reservation custodied by a terminated or closed
-    ///         wallet as stranded: an idle position closes, capacity
-    ///         is released and the owner's minted balance remains an ordinary
-    ///         pooled claim. Pending actions remain proof-eligible and
-    ///         cannot be stranded.
+    ///         wallet, or past its dissolution eligibility, as stranded: an
+    ///         idle position closes, capacity is released and the owner's
+    ///         minted balance remains an ordinary pooled claim. Pending
+    ///         actions remain proof-eligible and cannot be stranded.
     /// @param reservationKey The key of the stranded reservation.
     /// @dev Requirements:
     ///      - The custodying wallet must be in the Terminated or Closed state,
-    ///        or in the Closing state once the reservation's
-    ///        `dissolutionEligibleAt` has passed (i.e., `block.timestamp >=
-    ///        reservation.dissolutionEligibleAt`). Closing is excluded before
-    ///        that point: `requestReservationReanchor` accepts a Closing source
-    ///        wallet, so allowing a Closing wallet to also be stranded here
-    ///        would race a legitimate reanchor with a permissionless strand.
-    ///        `requestReservationReanchor` no longer gates on
-    ///        `dissolutionEligibleAt` (that on-chain check was deliberately
-    ///        removed; see the field's own doc comment on
-    ///        `dissolutionEligibleAt`), so after the deadline passes both a
-    ///        reanchor and a strand become independently callable. They
-    ///        still cannot race unsafely: both require
-    ///        `reservation.state == Active` as a precondition, so whichever
-    ///        transaction lands first flips the state and the other
-    ///        reverts, making Closing eligible for stranding a safe
-    ///        milestone-1 release path.
+    ///        or in the Live state once the reservation's
+    ///        `dissolutionEligibleAt` has passed, or in the Closing state once
+    ///        both `dissolutionEligibleAt` and the wallet's closing period
+    ///        (`closingStartedAt + walletClosingPeriod`) have passed.
+    ///      - Live: an expired position otherwise pinned its wallet's and the
+    ///        global capacity forever, because milestone 1 has no other
+    ///        release path (`closeReservation` has no caller). Only
+    ///        governance can re-anchor from a Live wallet, so an extra
+    ///        exclusive window would protect no owner action.
+    ///      - Closing: `requestReservationReanchor` accepts a Closing source
+    ///        wallet, so the closing period is an exclusive re-anchor window:
+    ///        every position on a Closing wallet gets at least one full
+    ///        closing period to move before anyone may strand it. Without it
+    ///        a wallet pushed Live -> MovingFunds -> Closing by permissionless
+    ///        calls could be stranded in the same transaction, before the
+    ///        owner could request a re-anchor.
+    ///      After the deadlines a re-anchor and a strand are both callable;
+    ///      both require `reservation.state == Active`, so whichever lands
+    ///      first flips the state and the other reverts.
     function notifyReservationStranded(
         BridgeState.Storage storage self,
         uint256 reservationKey
@@ -1271,15 +1307,22 @@ library Reservation {
             "Reservation is not active"
         );
 
-        Wallets.WalletState walletState = self
-            .registeredWallets[reservation.walletPubKeyHash]
-            .state;
+        Wallets.Wallet storage wallet = self.registeredWallets[
+            reservation.walletPubKeyHash
+        ];
+        Wallets.WalletState walletState = wallet.state;
+        /* solhint-disable-next-line not-rely-on-time */
+        bool eligible = block.timestamp >= reservation.dissolutionEligibleAt;
         require(
             walletState == Wallets.WalletState.Terminated ||
                 walletState == Wallets.WalletState.Closed ||
+                (walletState == Wallets.WalletState.Live && eligible) ||
                 (walletState == Wallets.WalletState.Closing &&
+                    eligible &&
                     /* solhint-disable-next-line not-rely-on-time */
-                    block.timestamp >= reservation.dissolutionEligibleAt),
+                    block.timestamp >=
+                    uint256(wallet.closingStartedAt) +
+                        self.walletClosingPeriod),
             "Wallet is not terminated, closed, or a dissolution-eligible closing wallet"
         );
 
@@ -1578,10 +1621,18 @@ library Reservation {
                 reservationRenewalWindowSeconds < reservationTermSeconds,
             "Renewal window must be shorter than the term"
         );
+        // A request on a deposit revealed in the same block can sign no
+        // earlier than `now + DEPOSIT_MIN_AGE + 1` and no later than
+        // `now + reservationActionTimeout - REQUEST_TIMEOUT_SAFETY_MARGIN`.
+        // Any smaller timeout leaves that request without a signing window,
+        // and at `REQUEST_TIMEOUT_SAFETY_MARGIN + 1` every acceptance and
+        // re-anchor request reverts.
         require(
             reservationActionTimeout >
-                WalletProposalValidatorConstants.REQUEST_TIMEOUT_SAFETY_MARGIN,
-            "Reservation action timeout must exceed the safety margin"
+                WalletProposalValidatorConstants.REQUEST_TIMEOUT_SAFETY_MARGIN +
+                    WalletProposalValidatorConstants.DEPOSIT_MIN_AGE +
+                    1,
+            "Reservation action timeout leaves no signing window"
         );
         require(
             maxReservationsPerWallet > 0,

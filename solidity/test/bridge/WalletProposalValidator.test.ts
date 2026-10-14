@@ -2941,17 +2941,17 @@ describe("WalletProposalValidator", () => {
     // Lifecycle regression fixtures here are reachable on-chain:
     // governance requires `reservationMinAmount > reservationTxMaxFee > 0`
     // (Reservation.updateReservationParameters) and authorization requires
-    // `deposit.amount >= minAmount + txMaxFee` (reservation acceptance).
+    // `deposit.amount > minAmount + 2 * txMaxFee` (reservation acceptance).
     // The below-snapshot-floor case is an explicit mock-only test of the
     // validator's defensive invariant.
     const reservationMinAmount = 15000
     const reservationTxMaxFee = 10000
     const anchorTxFee = 6000
     // Meets the authorization floor (`reservationMinAmount +
-    // reservationTxMaxFee`) so the anchor-amount minimum check (out of
+    // 2 * reservationTxMaxFee`) so the anchor-amount minimum check (out of
     // this describe block's scope) never fires incidentally in the
     // cases below.
-    const depositAmount = reservationMinAmount + reservationTxMaxFee + 1000
+    const depositAmount = reservationMinAmount + 2 * reservationTxMaxFee + 1000
 
     const reservationActionType = {
       None: 0,

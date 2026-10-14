@@ -366,6 +366,21 @@ contract TestReservationProofs {
         state.walletReservationInfo[walletPubKeyHash].amount = amount;
     }
 
+    /// @notice Sets the proven-anchor custody ledger entry
+    ///         (`walletAnchoredInfo`) for a wallet, alongside the pending
+    ///         capacity counters that
+    ///         `setWalletReservationsCount`/`setWalletReservationsAmount`
+    ///         seed (the two ledgers track different things: capacity vs
+    ///         proven anchors).
+    function setWalletAnchoredCounters(
+        bytes20 walletPubKeyHash,
+        uint32 count,
+        uint64 amount
+    ) external {
+        state.walletAnchoredInfo[walletPubKeyHash].count = count;
+        state.walletAnchoredInfo[walletPubKeyHash].amount = amount;
+    }
+
     function setPendingReservedDeposits(uint64 count) external {
         state.pendingReservedDeposits = count;
     }
