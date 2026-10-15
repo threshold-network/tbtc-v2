@@ -556,8 +556,8 @@ library Reservation {
             "Deposit amount too small for a reservation"
         );
 
-        /* solhint-disable-next-line not-rely-on-time */
         uint32 timeoutAt =
+            /* solhint-disable-next-line not-rely-on-time */
             uint32(block.timestamp) + self.reservationActionTimeout;
 
         // Proposal timestamps are integer seconds and must be later than both
@@ -781,8 +781,8 @@ library Reservation {
         uint64 txMaxFee = self.reservationTxMaxFee;
         uint64 minAmount = self.reservationMinAmount;
 
-        /* solhint-disable-next-line not-rely-on-time */
         uint32 timeoutAt =
+            /* solhint-disable-next-line not-rely-on-time */
             uint32(block.timestamp) + self.reservationActionTimeout;
 
         // A re-anchor authorization carries no deposit-reveal age floor
