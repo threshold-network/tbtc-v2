@@ -2,11 +2,15 @@
 # Targeted re-verification of the reservation contracts and SDK on one tbtc-v2 head.
 #
 # usage: run.sh --tbtc <tbtc-v2 worktree> [--keepcore <keep-core worktree>]
-#               [--fork-ref <git ref holding the fork scripts>] [--steps a,b,c]
+#               [--fork-ref <git ref holding the fork scripts>]
+#               [--old-pr <ref> --new-pr <ref> [--audited <ref>]] [--steps a,b,c]
 #
 # steps (default: all that the given arguments allow):
+#   reconcile  after the public PR head moved: check that its contract and deploy
+#              changes are present in the head under test (see reconcile.sh;
+#              needs --old-pr and --new-pr; --audited adds a contract comparison)
 #   killset    compile and run the reservation kill set
-#   full       run the full Hardhat suite (one flaky cross-chain test is known)
+#   full       run the full Hardhat suite
 #   survivors  re-apply the mutants listed in survivors.txt against the kill set
 #   sdk        generate typechain bindings and run the SDK suite
 #   fork       run the mainnet-fork lifecycle, SDK and hand-off scripts
@@ -19,12 +23,15 @@
 # the environment is printed; URLs are stripped from every log excerpt.
 set -u
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-tbtc=""; kc=""; fork_ref=""; steps=""
+tbtc=""; kc=""; fork_ref=""; steps=""; old_pr=""; new_pr=""; audited=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --tbtc) tbtc="$2"; shift 2 ;;
     --keepcore) kc="$2"; shift 2 ;;
     --fork-ref) fork_ref="$2"; shift 2 ;;
+    --old-pr) old_pr="$2"; shift 2 ;;
+    --new-pr) new_pr="$2"; shift 2 ;;
+    --audited) audited="$2"; shift 2 ;;
     --steps) steps="$2"; shift 2 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
@@ -32,6 +39,7 @@ done
 [ -d "$tbtc/solidity" ] || { echo "--tbtc must point at a tbtc-v2 worktree" >&2; exit 2; }
 if [ -z "$steps" ]; then
   steps="killset,full,survivors,sdk"
+  [ -n "$old_pr" ] && [ -n "$new_pr" ] && steps="reconcile,$steps"
   [ -n "$fork_ref" ] && [ -n "${FORKING_URL:-}" ] && steps="$steps,fork"
   [ -n "$kc" ] && steps="$steps,drift"
 fi
@@ -44,26 +52,38 @@ declare -a rows
 record() { rows+=("| $1 | $2 | $3 |"); }
 has() { case ",$steps," in *",$1,"*) return 0 ;; *) return 1 ;; esac; }
 
-mocha_summary() { # log -> "N passing, M failing, K pending"
-  local p f k
-  p=$(grep -aoE '^\s+[0-9]+ passing' "$1" | grep -oE '[0-9]+' | tail -1)
-  f=$(grep -aoE '^\s+[0-9]+ failing' "$1" | grep -oE '[0-9]+' | tail -1)
-  k=$(grep -aoE '^\s+[0-9]+ pending' "$1" | grep -oE '[0-9]+' | tail -1)
-  echo "${p:-0} passing, ${f:-0} failing, ${k:-0} pending"
+mocha_count() { # log word -> the number before "passing"/"failing"/"pending", 0 when absent
+  local n
+  n=$(grep -aoE "^\s+[0-9]+ $2" "$1" | grep -oE '[0-9]+' | tail -1)
+  echo "${n:-0}"
 }
+mocha_summary() { # log -> "N passing, M failing, K pending"
+  echo "$(mocha_count "$1" passing) passing, $(mocha_count "$1" failing) failing, $(mocha_count "$1" pending) pending"
+}
+mocha_verdict() { # log min -> PASS only with no failures and at least <min> passing tests
+  # "0 passing, 0 failing" (the suite never ran, or a filter matched no file) is not a pass.
+  if [ "$(mocha_count "$1" failing)" = 0 ] && [ "$(mocha_count "$1" passing)" -ge "$2" ]; then echo PASS; else echo FAIL; fi
+}
+# Floors for the number of passing tests; a smaller count means part of the suite did not run.
+min_killset="${MIN_KILLSET:-200}"; min_full="${MIN_FULL:-3000}"; min_sdk="${MIN_SDK:-500}"
+
+if has reconcile; then
+  [ -n "$old_pr" ] && [ -n "$new_pr" ] || { echo "reconcile step needs --old-pr and --new-pr" >&2; exit 2; }
+  bash "$here/reconcile.sh" "$tbtc" "$old_pr" "$new_pr" "$audited" "$OUT/reconcile" >"$OUT/reconcile.log" 2>&1
+  rrc=$?
+  record "reconcile" "$([ "$rrc" = 0 ] && echo PASS || echo FAIL)" "$(grep -E '^  (formatting|real change|not clean)|^contracts at' "$OUT/reconcile.log" | tr -s ' ' | tr '\n' ';') exit $rrc"
+fi
 
 if has killset; then
   ( cd "$sol" && "${hh_env[@]}" npx hardhat test $(cat "$here/killset.txt") ) >"$OUT/killset.log" 2>&1
   s=$(mocha_summary "$OUT/killset.log")
-  case "$s" in *" 0 failing"*) v=PASS ;; *) v=FAIL ;; esac
-  record "kill set" "$v" "$s"
+  record "kill set" "$(mocha_verdict "$OUT/killset.log" "$min_killset")" "$s (needs at least $min_killset passing)"
 fi
 
 if has full; then
   ( cd "$sol" && "${hh_env[@]}" npx hardhat test ) >"$OUT/full.log" 2>&1
   s=$(mocha_summary "$OUT/full.log")
-  case "$s" in *" 0 failing"*) v=PASS ;; *) v=FAIL ;; esac
-  record "full Hardhat suite" "$v" "$s (failures: $(grep -aE '^  [0-9]+\) ' "$OUT/full.log" | head -3 | tr '\n' ';'))"
+  record "full Hardhat suite" "$(mocha_verdict "$OUT/full.log" "$min_full")" "$s (needs at least $min_full passing; failures: $(grep -aE '^  [0-9]+\) ' "$OUT/full.log" | head -3 | tr '\n' ';'))"
 fi
 
 if has survivors; then
@@ -74,11 +94,17 @@ if has survivors; then
   ONLY="$ids" RES_INDENT="${RES_INDENT:-16}" \
     KILLSET="$T/Bridge.ReservationStrandingLibrary.test.ts $T/Bridge.ReservationThirdPartyReanchorHolds.test.ts $T/Bridge.ReservationAcceptanceAuthorization.test.ts" \
     node "$here/mutate.cjs" "$tbtc" 0 1 "$res" >"$OUT/survivors.out" 2>&1
-  if [ -f "$res" ]; then
-    killed=$(node -e 'const r=require(process.argv[1]);console.log(Object.values(r).filter(x=>x.verdict==="KILLED").length+"/"+Object.keys(r).length)' "$res")
+  mrc=$?
+  want=$(grep -c . "$here/survivors.txt")
+  if [ "$mrc" = 3 ]; then
+    record "survivor mutants killed" FAIL "unmutated baseline is not green; no mutant ran ($(tail -1 "$OUT/survivors.out"))"
+  elif [ -f "$res" ]; then
+    killed=$(node -e 'const r=require(process.argv[1]);console.log(Object.values(r).filter(x=>x.verdict==="KILLED").length)' "$res")
+    total=$(node -e 'console.log(Object.keys(require(process.argv[1])).length)' "$res")
     bad=$(node -e 'const r=require(process.argv[1]);console.log(Object.entries(r).filter(([,x])=>x.verdict!=="KILLED").map(([k,x])=>k+":"+x.verdict).join(" "))' "$res")
-    [ -z "$bad" ] && v=PASS || v=FAIL
-    record "survivor mutants killed" "$v" "$killed ${bad}"
+    # Every listed mutant has to be present, and each has to be KILLED with a named failing test.
+    if [ -z "$bad" ] && [ "$total" = "$want" ] && [ "$killed" -gt 0 ]; then v=PASS; else v=FAIL; fi
+    record "survivor mutants killed" "$v" "$killed/$want killed ($total ran) ${bad}"
   else
     record "survivor mutants killed" FAIL "no result file"
   fi
@@ -99,8 +125,7 @@ if has sdk; then
     NODE_OPTIONS=--max-old-space-size=4096 npx mocha --exit --recursive 'test/**/*.test.ts'
   ) >"$OUT/sdk.log" 2>&1
   s=$(mocha_summary "$OUT/sdk.log")
-  case "$s" in *" 0 failing"*) v=PASS ;; *) v=FAIL ;; esac
-  record "SDK suite" "$v" "$s"
+  record "SDK suite" "$(mocha_verdict "$OUT/sdk.log" "$min_sdk")" "$s (needs at least $min_sdk passing)"
 fi
 
 if has fork; then
@@ -125,8 +150,10 @@ if has fork; then
   rm -f "$sol"/dryrun-artifacts/reservations-fork-*-"${FORKING_BLOCK:-26154824}".json
   rmdir "$sol/dryrun-artifacts" 2>/dev/null
   s=$(grep -aoE 'Summary: [0-9]+ pass / [0-9]+ fail / [0-9]+ skip' "$OUT/fork.log" | tail -1)
-  case "$s" in *" 0 fail"*) v=PASS ;; *) v=FAIL ;; esac
-  record "fork run" "$v" "${s:-no summary}"
+  fp=$(echo "$s" | sed -nE 's/^Summary: ([0-9]+) pass.*/\1/p'); ff=$(echo "$s" | sed -nE 's/.* \/ ([0-9]+) fail.*/\1/p')
+  min_fork="${MIN_FORK:-20}"
+  if [ -n "$fp" ] && [ "$fp" -ge "$min_fork" ] && [ "${ff:-1}" = 0 ]; then v=PASS; else v=FAIL; fi
+  record "fork run" "$v" "${s:-no summary} (needs at least $min_fork pass)"
 fi
 
 if has drift; then

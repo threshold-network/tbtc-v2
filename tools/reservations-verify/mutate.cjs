@@ -34,8 +34,8 @@ const mutants = [
   ["R11 amount cap: <= -> <", RES, "targetAmount <= self.maxReservationsAmountPerWallet", "targetAmount < self.maxReservationsAmountPerWallet"],
   // privilege computation
   ["R12 privilege: governance not privileged", RES, `privileged ||\n${ind(RES_INDENT)}reservation.owner == msg.sender ||`, `false ||\n${ind(RES_INDENT)}reservation.owner == msg.sender ||`],
-  ["R13 privilege: owner not privileged", RES, `reservation.owner == msg.sender ||\n${ind(12)}self.isSpvMaintainer[msg.sender] ||`, `false ||\n${ind(12)}self.isSpvMaintainer[msg.sender] ||`],
-  ["R14 privilege: maintainer not privileged", RES, `self.isSpvMaintainer[msg.sender] ||\n${ind(12)}walletMembersIDs.length > 0;`, `false ||\n${ind(12)}walletMembersIDs.length > 0;`],
+  ["R13 privilege: owner not privileged", RES, `reservation.owner == msg.sender ||\n${ind(RES_INDENT)}self.isSpvMaintainer[msg.sender] ||`, `false ||\n${ind(RES_INDENT)}self.isSpvMaintainer[msg.sender] ||`],
+  ["R14 privilege: maintainer not privileged", RES, `self.isSpvMaintainer[msg.sender] ||\n${ind(RES_INDENT)}walletMembersIDs.length > 0;`, `false ||\n${ind(RES_INDENT)}walletMembersIDs.length > 0;`],
   ["R15 privilege: member not privileged", RES, "walletMembersIDs.length > 0;", "false;"],
   ["R16 member proof failure does not revert", RES, `if (!isSourceMember) {\n${ind(16)}revert(`, `if (false) {\n${ind(16)}revert(`],
   ["R17 Live source: any caller may rotate", RES, `require(\n${ind(20)}privileged,\n${ind(20)}"Only governance can rotate a Live wallet's anchor"`, `require(\n${ind(20)}true,\n${ind(20)}"Only governance can rotate a Live wallet's anchor"`],
@@ -71,6 +71,37 @@ const sha = (p) => crypto.createHash("sha256").update(fs.readFileSync(p)).digest
 const results = fs.existsSync(outPath) ? JSON.parse(fs.readFileSync(outPath, "utf8")) : {}
 const mine = mutants.filter((m, i) => i % shardCount === shardIndex && (!only || only.has(m[0].split(" ")[0])))
 
+const runKillset = () => {
+  const r = cp.spawnSync(
+    "bash",
+    ["-c", `cd ${sol} && env -u FORKING_URL -u FORKING_BLOCK TEST_USE_STUBS_TBTC=true USE_EXTERNAL_DEPLOY=true NODE_OPTIONS=--max-old-space-size=4096 npx hardhat test ${killset}`],
+    { encoding: "utf8", maxBuffer: 1 << 28, timeout: 40 * 60 * 1000 }
+  )
+  return { r, out: (r.stdout || "") + (r.stderr || "") }
+}
+const count = (out, word) => {
+  const m = new RegExp(`^\\s+(\\d+) ${word}`, "m").exec(out)
+  return m ? Number(m[1]) : 0
+}
+// The first failing test's name; a KILLED verdict has to cite one.
+const firstFailingTest = (out) => {
+  const m = /^\s+\d+ failing[\s\S]*?^\s+1\) ([^\n]+)\n\s*([^\n]*)/m.exec(out)
+  return m ? `${m[1].trim()} ${m[2].trim()}`.trim().slice(0, 200) : ""
+}
+
+// An unmutated run first. If it is not green with at least one passing test, every mutant
+// would score KILLED for the wrong reason, so stop here.
+if (mine.length > 0) {
+  const base = runKillset()
+  fs.writeFileSync(`${outPath}.baseline.log`, base.out.slice(-6000))
+  const p = count(base.out, "passing")
+  const f = count(base.out, "failing")
+  if (p === 0 || f !== 0 || base.r.status !== 0) {
+    console.error(`baseline kill set is not green (${p} passing, ${f} failing, status ${base.r.status}); no mutant was run`)
+    process.exit(3)
+  }
+  console.log(`baseline green: ${p} passing`)
+}
 for (const [name, file, find, replace] of mine) {
   const id = name.split(" ")[0]
   if (results[id]) continue
@@ -88,23 +119,22 @@ for (const [name, file, find, replace] of mine) {
   let note = ""
   try {
     fs.writeFileSync(path, original.slice(0, first) + replace + original.slice(first + find.length))
-    const r = cp.spawnSync(
-      "bash",
-      ["-c", `cd ${sol} && env -u FORKING_URL -u FORKING_BLOCK TEST_USE_STUBS_TBTC=true USE_EXTERNAL_DEPLOY=true NODE_OPTIONS=--max-old-space-size=4096 npx hardhat test ${killset}`],
-      { encoding: "utf8", maxBuffer: 1 << 28, timeout: 40 * 60 * 1000 }
-    )
-    const out = (r.stdout || "") + (r.stderr || "")
-    const failing = /(\d+) failing/.exec(out)
-    const passing = /(\d+) passing/.exec(out)
+    const { r, out } = runKillset()
+    const failing = count(out, "failing")
+    const passing = count(out, "passing")
+    const failedTest = firstFailingTest(out)
     if (/HH600|Compilation failed|CompilerError|TypeError:|DeclarationError|ParserError/.test(out) && !passing) {
       verdict = "NOT_VIABLE"
       note = (out.match(/(Error|TypeError|DeclarationError)[^\n]{0,120}/) || [""])[0]
-    } else if (failing) {
+    } else if (failing > 0 && failedTest) {
       verdict = "KILLED"
-      note = `${failing[1]} failing`
-    } else if (passing && r.status === 0) {
+      note = `${failing} failing; first: ${failedTest}`
+    } else if (failing > 0) {
+      verdict = "UNCONFIRMED"
+      note = `${failing} failing but no failing test name found in the output`
+    } else if (passing > 0 && r.status === 0) {
       verdict = "SURVIVED"
-      note = `${passing[1]} passing`
+      note = `${passing} passing`
     } else {
       verdict = r.error ? "TIMEOUT" : "ERROR"
       note = `status ${r.status}`
