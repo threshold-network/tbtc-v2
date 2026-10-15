@@ -86,6 +86,10 @@ contract ReservationInvariantsTest is Test {
             "final actions"
         );
         assertTrue(handler.property_capsHoldAfterEveryRequest(), "caps");
+        assertTrue(
+            handler.property_reserveGateHoldsAfterEveryAcceptance(),
+            "reserve gate"
+        );
         assertTrue(handler.property_creditsMatchSettlements(), "credits");
     }
 
@@ -218,6 +222,42 @@ contract ReservationInvariantsTest is Test {
         handler.revealReservedDeposit(0, 500_000, 0);
         handler.requestAcceptance(0);
         assertFalse(handler.property_capsHoldAfterEveryRequest());
+    }
+
+    function test_reserveGatePropertyFires() public {
+        // Report a reserve equal to the Live wallet count after the request
+        // succeeds; the post-request check must flag the open position as
+        // over the gate.
+        vm.mockCall(
+            address(harness),
+            abi.encodeWithSelector(harness.reserveGate.selector),
+            abi.encode(uint32(4), uint32(4), uint32(2))
+        );
+        handler.revealReservedDeposit(0, 500_000, 0);
+        handler.requestAcceptance(0);
+        assertFalse(handler.property_reserveGateHoldsAfterEveryAcceptance());
+    }
+
+    function test_reserveGateStopsAcceptanceAtTheBudgetAndHolds() public {
+        // 4 Live wallets, reserve 1, one position per wallet: the budget is
+        // (4 - 1) * 1 = 3, so the fourth acceptance request reverts.
+        handler.updateLimits(0, 6_000_000);
+        for (uint256 i = 0; i < 4; i++) {
+            handler.revealReservedDeposit(i, 500_000, 0);
+        }
+        for (uint256 i = 0; i < 3; i++) {
+            handler.requestAcceptance(i);
+        }
+        assertEq(handler.successes("requestAcceptance"), 3, "budget");
+        assertTrue(handler.property_reserveGateHoldsAfterEveryAcceptance());
+
+        uint256 key = handler.keyAt(3);
+        bytes20 wallet = harness.pendingReservedDepositWallet(key);
+        // The harness accepts only the deposit's depositor, which is the
+        // handler.
+        vm.prank(address(handler));
+        vm.expectRevert("Hand-off reserve exceeded");
+        harness.requestReservationAcceptance(key, wallet);
     }
 
     function test_creditsPropertyFires() public {

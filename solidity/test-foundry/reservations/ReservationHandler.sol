@@ -106,6 +106,7 @@ contract ReservationHandler is ReservationProperties {
         try harness.requestReservationAcceptance(key, wallet) {
             successes["requestAcceptance"] += 1;
             checkCapsAfterAcceptance(key, wallet);
+            checkReserveGateAfterAcceptance();
         } catch {}
     }
 
@@ -317,6 +318,16 @@ contract ReservationHandler is ReservationProperties {
             !globalCapsHold() || !walletCapsHold(wallet) || !singleCapHolds(key)
         ) {
             capViolation = true;
+        }
+    }
+
+    function checkReserveGateAfterAcceptance() internal {
+        (uint32 live, uint32 reserve, uint32 perWallet) = harness
+            .reserveGate();
+        (uint32 active, , ) = harness.totals();
+        uint256 remaining = live > reserve ? live - reserve : 0;
+        if (uint256(active) > remaining * perWallet) {
+            reserveGateViolation = true;
         }
     }
 

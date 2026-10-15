@@ -28,6 +28,11 @@ abstract contract ReservationProperties {
     // Set when a successful request leaves a counter above its cap.
     bool public capViolation;
 
+    // Set when a successful acceptance request leaves more open positions
+    // than the hand-off reserve gate allows:
+    // active <= (Live wallets - reserve) * per-wallet count cap.
+    bool public reserveGateViolation;
+
     uint256 public ghostCreditedSat;
     uint256 public ghostMinerFeeSat;
 
@@ -203,6 +208,18 @@ abstract contract ReservationProperties {
 
     function property_capsHoldAfterEveryRequest() public view returns (bool) {
         return !capViolation;
+    }
+
+    /// @dev Checked right after each successful acceptance request, the
+    ///      only step the gate guards. Governance may raise the reserve or
+    ///      retire a wallet later, which legitimately leaves the count
+    ///      above the bound until positions close.
+    function property_reserveGateHoldsAfterEveryAcceptance()
+        public
+        view
+        returns (bool)
+    {
+        return !reserveGateViolation;
     }
 
     /// @dev Each settled acceptance credits its anchor value once; each

@@ -108,6 +108,22 @@ abstract contract ReservationHarnessState {
         );
     }
 
+    function reserveGate()
+        external
+        view
+        returns (
+            uint32 liveWalletsCount,
+            uint32 handoffReserveWallets,
+            uint32 maxReservationsPerWallet
+        )
+    {
+        return (
+            state.liveWalletsCount,
+            state.handoffReserveWallets,
+            state.maxReservationsPerWallet
+        );
+    }
+
     function parameters()
         external
         view

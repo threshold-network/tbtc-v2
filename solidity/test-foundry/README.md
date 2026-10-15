@@ -71,6 +71,7 @@ After every call, the suite checks these properties:
 | Anchor index      | Every open position is found from its current anchor outpoint.                               |
 | Final actions     | A Settled or Superseded generation never changes again.                                      |
 | Caps              | A successful request never leaves a counter above its cap.                                   |
+| Reserve gate      | A successful acceptance request leaves at most `(Live wallets - reserve) * per-wallet count cap` open positions. |
 | Credits           | Bank credits equal settled anchor values, and financed fees equal re-anchor miner fees.      |
 
 The handler drives the real `Reservation` and `ReservationProofs` code
