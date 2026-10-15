@@ -21,7 +21,7 @@ async function deployTestReservation(): Promise<TestReservation> {
   const testReservation = await TestReservationFactory.deploy()
 
   // The harness storage is never reached by the Bridge fixture's seeding,
-  // so the ruled term entries are added here through the harness wrapper
+  // so the initial term entries are added here through the harness wrapper
   // of the production setter.
   // eslint-disable-next-line no-restricted-syntax
   for (const entry of RESERVATION_TERM_ENTRIES) {

@@ -16,7 +16,7 @@ export interface ReservationTermEntry {
 }
 
 /**
- * The ruled reservation term entries, in the order they are added. The
+ * The initial reservation term entries, in the order they are added. The
  * 365-day entry goes first: the Bridge's setter requires, on every addition,
  * the largest entry plus `DEPOSIT_REFUND_SAFETY_MARGIN` (24 h) to cover
  * `depositRevealAheadPeriod`, which a 30- or 91-day entry added alone does

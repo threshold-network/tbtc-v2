@@ -22,7 +22,7 @@ const MAINNET_REVEAL_AHEAD_PERIOD = 150 * DAY
 const DEPOSIT_REFUND_SAFETY_MARGIN = DAY
 
 // The router and the caps and parameters updates, then one begin/finalize
-// pair per ruled term entry, then the vault activation.
+// pair per initial term entry, then the vault activation.
 const PRE_TERM_METHODS = [
   "setReservationRouter",
   "beginReservationCapsUpdate",
@@ -563,7 +563,7 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
       })
     })
 
-    it("should accept the ruled entries at the live reveal-ahead period and a 7-day window", () => {
+    it("should accept the initial entries at the live reveal-ahead period and a 7-day window", () => {
       checkReservationTermTable(
         RESERVATION_TERM_ENTRIES,
         MAINNET_REVEAL_AHEAD_PERIOD,
@@ -596,7 +596,7 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
       ).to.throw(/depositRevealAheadPeriod/)
     })
 
-    it("should refuse the ruled entries with the 30-day entry added first", () => {
+    it("should refuse the initial entries with the 30-day entry added first", () => {
       const [longest, month, quarter] = RESERVATION_TERM_ENTRIES
       expect(() =>
         checkReservationTermTable(
@@ -845,7 +845,7 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
       })
     })
 
-    it("should stage the ruled term entries, 365 days first", () => {
+    it("should stage the initial term entries, 365 days first", () => {
       const staged = summary.governanceActions
         .slice(
           PRE_TERM_METHODS.length,

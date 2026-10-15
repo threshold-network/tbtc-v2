@@ -577,7 +577,7 @@ describe("Bridge fixture - seeded reservation term table", () => {
     await restoreSnapshot()
   })
 
-  it("should hold exactly the three ruled entries", async () => {
+  it("should hold exactly the three initial entries", async () => {
     expect(RESERVATION_TERM_ENTRIES).to.deep.equal([
       { termId: 1, termSeconds: 365 * DAY, custodyBps: 20, enabled: true },
       { termId: 2, termSeconds: 30 * DAY, custodyBps: 2, enabled: true },

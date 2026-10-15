@@ -249,7 +249,7 @@ async function clearReservationTerms(bridge: Bridge): Promise<void> {
 
 /**
  * Common fixture for tests suites targeting the Bridge contract. Seeds the
- * Bridge's reservation term table with the ruled entries
+ * Bridge's reservation term table with the initial entries
  * (`RESERVATION_TERM_ENTRIES`) through the governance-only setter; ids that a
  * deploy script already seeded with the same values are skipped.
  */

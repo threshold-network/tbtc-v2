@@ -15,7 +15,7 @@ export interface ReservationTermEntry {
 }
 
 /**
- * The ruled reservation term entries, in the order they are added. The
+ * The initial reservation term entries, in the order they are added. The
  * 365-day entry goes first: with a non-zero `depositRevealAheadPeriod`, the
  * setter requires the largest entry plus one day to cover that period on
  * every addition, which a short entry added alone may not.
@@ -38,7 +38,7 @@ export const RESERVATION_TERM_ENTRIES: readonly ReservationTermEntry[] = [
  *
  * @param bridge The Bridge; router functions are reached through its
  *        fallback, so the router ABI is bound to the Bridge address.
- * @param entries Entries to add, in order. Defaults to the ruled entries.
+ * @param entries Entries to add, in order. Defaults to the initial entries.
  * @returns The ids written, in order; skipped ids are left out.
  */
 export async function seedReservationTerms(
