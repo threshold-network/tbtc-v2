@@ -1,4 +1,5 @@
 /* eslint-disable no-bitwise -- the storage helpers below set and clear bit ranges of a 256-bit word */
+/* eslint-disable @typescript-eslint/no-non-null-assertion -- ethers v6 returns nullable blocks, receipts and parsed logs that these tests have just produced */
 import { artifacts, ethers } from "hardhat"
 import { loadFixture } from "@nomicfoundation/hardhat-network-helpers"
 import { expect } from "chai"

@@ -1,3 +1,4 @@
+/* eslint-disable no-console -- this script's output is the calldata and the review report for the Safe transactions */
 import fs from "fs"
 import path from "path"
 import { HardhatRuntimeEnvironment } from "hardhat/types"
