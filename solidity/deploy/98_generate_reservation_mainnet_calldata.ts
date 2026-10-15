@@ -42,7 +42,7 @@ const REQUEST_TIMEOUT_SAFETY_MARGIN = 7_200 // 2 hours
 const DEPOSIT_MIN_AGE = 7_200 // 2 hours
 // Mirrored from WalletProposalValidatorConstants.DEPOSIT_REFUND_SAFETY_MARGIN;
 // Deposit.sol caps a reserved deposit's refund locktime at the reveal time
-// plus the reservation term plus this margin.
+// plus the largest reservation term entry ever added plus this margin.
 const DEPOSIT_REFUND_SAFETY_MARGIN = 86_400 // 24 hours
 // Clock drift between the mined head and the reveal block in Deposit.sol's
 // refund-deadline checks.

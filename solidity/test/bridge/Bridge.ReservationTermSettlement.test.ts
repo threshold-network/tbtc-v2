@@ -630,6 +630,22 @@ describe("Bridge - Reservation term carried to the position at proof", () => {
       )
     })
 
+    it("charges the full term fee to a position whose wallet is Closing at the proof", async () => {
+      await expectAcceptanceCharge(
+        TERM_365.termId,
+        MINT_FEE_BPS + TERM_365.custodyBps,
+        ReservationState.Active,
+        async () => {
+          // Closing is not terminal: the settlement leaves the position
+          // Active, so the credit charges the mint fee and the custody fee.
+          await bridge.setWallet(
+            walletPubKeyHash,
+            await walletWithState(walletState.Closing)
+          )
+        }
+      )
+    })
+
     context("on the late and fallback paths", () => {
       it("charges 22 bps on a late 30-day acceptance", async () => {
         const { reservationKey, anchorTx } = await revealReservedDeposit()

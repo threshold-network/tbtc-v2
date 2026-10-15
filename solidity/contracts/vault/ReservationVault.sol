@@ -157,9 +157,11 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
     ///      enabled: entries are never rewritten, so a position requested
     ///      on an entry that was disabled before its proof still pays that
     ///      entry's custody fee. A position the Bridge stranded in the same
-    ///      settlement (its wallet left Live before the proof) pays the mint
-    ///      fee only: it will never serve a custody term, and a stranded
-    ///      claim is an ordinary pooled claim.
+    ///      settlement (its wallet was Closed or Terminated at the proof)
+    ///      pays the mint fee only: it will never serve a custody term, and
+    ///      a stranded claim is an ordinary pooled claim. A position on a
+    ///      Closing wallet stays Active, keeps its re-anchor right and pays
+    ///      its term's custody fee.
     ///
     ///      The fee rounds down, so any remainder goes to the owner; the
     ///      owner's amount plus the fee always equals the gross amount
