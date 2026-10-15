@@ -44,8 +44,8 @@
     },
     {
       "name": "requestReservationAcceptance",
-      "selector": "0x2ec42e62",
-      "inputs": ["uint256", "bytes20", "uint8"],
+      "selector": "0xe17bd025",
+      "inputs": ["tuple", "tuple", "uint32", "bytes20", "uint8"],
       "outputs": []
     },
     {

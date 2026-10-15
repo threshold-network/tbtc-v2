@@ -1,6 +1,6 @@
 import { deployments, ethers, helpers } from "hardhat"
 import { randomBytes } from "crypto"
-import type { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
+import type { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import type {
   Bank,
   BankStub,
@@ -17,6 +17,7 @@ import type {
   RedemptionWatchtower,
   RebateStaking,
   IERC20,
+  TestERC20,
 } from "../../typechain"
 import { createMock } from "../helpers/mock"
 import { seedReservationTerms } from "../helpers/reservation-terms"
@@ -28,13 +29,13 @@ import {
 import type { Mock } from "../helpers/mock"
 
 type BridgeFixture = {
-  deployer: SignerWithAddress
-  governance: SignerWithAddress
-  spvMaintainer: SignerWithAddress
-  thirdParty: SignerWithAddress
-  treasury: SignerWithAddress
-  redemptionWatchtowerManager: SignerWithAddress
-  guardians: SignerWithAddress[]
+  deployer: HardhatEthersSigner
+  governance: HardhatEthersSigner
+  spvMaintainer: HardhatEthersSigner
+  thirdParty: HardhatEthersSigner
+  treasury: HardhatEthersSigner
+  redemptionWatchtowerManager: HardhatEthersSigner
+  guardians: HardhatEthersSigner[]
   tbtc: TBTC
   vendingMachine: VendingMachine
   tbtcVault: TBTCVault
@@ -46,7 +47,7 @@ type BridgeFixture = {
   maintainerProxy: MaintainerProxy
   bridgeGovernance: BridgeGovernance
   redemptionWatchtower: RedemptionWatchtower
-  t: IERC20
+  t: TestERC20
   rebateStaking: RebateStaking
   deployBridge: (txProofDifficultyFactor: number) => Promise<any>
 }
@@ -76,23 +77,20 @@ async function deployedBridgeFixture(): Promise<BridgeFixture> {
 
   const tbtc: TBTC = await helpers.contracts.getContract("TBTC")
 
-  const vendingMachine: VendingMachine = await helpers.contracts.getContract(
-    "VendingMachine"
-  )
+  const vendingMachine: VendingMachine =
+    await helpers.contracts.getContract("VendingMachine")
 
   const tbtcVault: TBTCVault = await helpers.contracts.getContract("TBTCVault")
 
   const bank: Bank & BankStub = await helpers.contracts.getContract("Bank")
 
-  const t: IERC20 = await helpers.contracts.getContract("T")
+  const t: TestERC20 = await helpers.contracts.getContract<TestERC20>("T")
 
-  const rebateStaking: RebateStaking = await helpers.contracts.getContract(
-    "RebateStaking"
-  )
+  const rebateStaking: RebateStaking =
+    await helpers.contracts.getContract("RebateStaking")
 
-  const bridge: Bridge & BridgeStub = await helpers.contracts.getContract(
-    "Bridge"
-  )
+  const bridge: Bridge & BridgeStub =
+    await helpers.contracts.getContract("Bridge")
 
   const bridgeGovernance: BridgeGovernance =
     await helpers.contracts.getContract("BridgeGovernance")
@@ -104,21 +102,20 @@ async function deployedBridgeFixture(): Promise<BridgeFixture> {
   // from it.
   await deployer.sendTransaction({
     to: walletRegistry.address,
-    value: ethers.utils.parseEther("100"),
+    value: ethers.parseEther("100"),
   })
 
   const reimbursementPool: ReimbursementPool =
     await helpers.contracts.getContract("ReimbursementPool")
 
-  const maintainerProxy: MaintainerProxy = await helpers.contracts.getContract(
-    "MaintainerProxy"
-  )
+  const maintainerProxy: MaintainerProxy =
+    await helpers.contracts.getContract("MaintainerProxy")
 
   const relay = await createMock<IRelay>("IRelay", {
     address: await (await bridge.contractReferences()).relay,
   })
 
-  await bank.connect(governance).updateBridge(bridge.address)
+  await bank.connect(governance).updateBridge(bridge.target)
 
   const redemptionWatchtower: RedemptionWatchtower =
     await helpers.contracts.getContract("RedemptionWatchtower")
@@ -131,25 +128,34 @@ async function deployedBridgeFixture(): Promise<BridgeFixture> {
     helpers.upgrades.deployProxy(`Bridge_${randomBytes(8).toString("hex")}`, {
       contractName: "BridgeStub",
       initializerArgs: [
-        bank.address,
+        bank.target,
         relay.address,
         treasury.address,
         walletRegistry.address,
-        reimbursementPool.address,
+        reimbursementPool.target,
         txProofDifficultyFactor,
       ],
       factoryOpts: {
         signer: deployer,
         libraries: {
-          Deposit: (await helpers.contracts.getContract("Deposit")).address,
-          DepositSweep: (await helpers.contracts.getContract("DepositSweep"))
-            .address,
-          Redemption: (await helpers.contracts.getContract("Redemption"))
-            .address,
-          Wallets: (await helpers.contracts.getContract("Wallets")).address,
-          Fraud: (await helpers.contracts.getContract("Fraud")).address,
-          MovingFunds: (await helpers.contracts.getContract("MovingFunds"))
-            .address,
+          Deposit: await (
+            await helpers.contracts.getContract("Deposit")
+          ).getAddress(),
+          DepositSweep: await (
+            await helpers.contracts.getContract("DepositSweep")
+          ).getAddress(),
+          Redemption: await (
+            await helpers.contracts.getContract("Redemption")
+          ).getAddress(),
+          Wallets: await (
+            await helpers.contracts.getContract("Wallets")
+          ).getAddress(),
+          Fraud: await (
+            await helpers.contracts.getContract("Fraud")
+          ).getAddress(),
+          MovingFunds: await (
+            await helpers.contracts.getContract("MovingFunds")
+          ).getAddress(),
         },
       },
       proxyOpts: {
@@ -208,20 +214,21 @@ async function clearReservationTerms(bridge: Bridge): Promise<void> {
   if (!member || !valueType || layout.types[valueType].numberOfBytes !== "32") {
     throw new Error("reservationTerms is not a mapping to one-slot entries")
   }
-  const mappingSlot = ethers.BigNumber.from(bridgeState.slot).add(member.slot)
+  const mappingSlot = BigInt(bridgeState.slot) + BigInt(member.slot)
+  const bridgeAddress = await bridge.getAddress()
 
   for (let termId = 1; termId <= MAX_RESERVATION_TERM_ID; termId++) {
-    const entrySlot = ethers.utils.keccak256(
-      ethers.utils.defaultAbiCoder.encode(
+    const entrySlot = ethers.keccak256(
+      ethers.AbiCoder.defaultAbiCoder().encode(
         ["uint256", "uint256"],
         [termId, mappingSlot]
       )
     )
     // eslint-disable-next-line no-await-in-loop
     await ethers.provider.send("hardhat_setStorageAt", [
-      bridge.address,
+      bridgeAddress,
       entrySlot,
-      ethers.constants.HashZero,
+      ethers.ZeroHash,
     ])
   }
 
@@ -234,12 +241,9 @@ async function clearReservationTerms(bridge: Bridge): Promise<void> {
     )
   }
   await ethers.provider.send("hardhat_setStorageAt", [
-    bridge.address,
-    ethers.utils.hexZeroPad(
-      ethers.BigNumber.from(bridgeState.slot).add(largest.slot).toHexString(),
-      32
-    ),
-    ethers.constants.HashZero,
+    bridgeAddress,
+    ethers.toBeHex(BigInt(bridgeState.slot) + BigInt(largest.slot), 32),
+    ethers.ZeroHash,
   ])
 }
 

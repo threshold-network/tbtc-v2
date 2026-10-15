@@ -1,9 +1,8 @@
 import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
-import { BigNumber } from "ethers"
 
-import type { ContractTransaction } from "ethers"
-import type { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
+import type { ContractTransactionResponse } from "ethers"
+import type { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import type {
   Bridge,
   BridgeGovernance,
@@ -37,21 +36,20 @@ const TOO_CLOSE_REVERT = "Deposit refund locktime is too close"
 const REVEAL_AHEAD_REVERT =
   "Deposit reveal ahead period must not exceed largest term"
 
-const ZERO_BYTES32 = ethers.constants.HashZero
+const ZERO_BYTES32 = ethers.ZeroHash
 
 const walletPubKeyHash = "0x8db50eb52063ea9d98b3eac91489a90f738986f6"
 const blindingFactor = "0xf9f0c90d00039523"
 const refundPubKeyHash = "0x28e081f285138ccbe389c1eb8985716230129f89"
-const depositAmount = BigNumber.from(3000000)
+const depositAmount = BigInt(3000000)
 
 const reverseHex = (hex: string): string =>
   (hex.replace(/^0x/, "").match(/../g) ?? []).reverse().join("")
 
-const toLE = (value: number | BigNumber, byteLength: number): string =>
+const toLE = (value: number | bigint, byteLength: number): string =>
   reverseHex(
-    BigNumber.from(value)
-      .toHexString()
-      .slice(2)
+    BigInt(value)
+      .toString(16)
       .padStart(byteLength * 2, "0")
   )
 
@@ -65,7 +63,7 @@ const buildDepositScript = (depositor: string, locktime: string): string =>
   )}8804${locktime.slice(2)}b175ac68`
 
 const p2wshScript = (script: string): string =>
-  `0020${ethers.utils.sha256(`0x${script}`).slice(2)}`
+  `0020${ethers.sha256(`0x${script}`).slice(2)}`
 
 // A one-input, one-output funding transaction paying `depositAmount` to the
 // P2WSH deposit script. The input is random, so every call yields a fresh
@@ -74,8 +72,8 @@ function buildFundingTx(depositor: string, locktime: string) {
   const outputScript = p2wshScript(buildDepositScript(depositor, locktime))
   return {
     version: "0x01000000",
-    inputVector: `0x01${ethers.utils
-      .hexlify(ethers.utils.randomBytes(32))
+    inputVector: `0x01${ethers
+      .hexlify(ethers.randomBytes(32))
       .slice(2)}0000000000ffffffff`,
     outputVector: `0x01${toLE(depositAmount, 8)}${(outputScript.length / 2)
       .toString(16)
@@ -85,15 +83,15 @@ function buildFundingTx(depositor: string, locktime: string) {
 }
 
 describe("Bridge - reserved refund-locktime cap", () => {
-  let governance: SignerWithAddress
-  let thirdParty: SignerWithAddress
+  let governance: HardhatEthersSigner
+  let thirdParty: HardhatEthersSigner
   let bridge: Bridge & BridgeStub
   let bridgeGovernance: BridgeGovernance
   let reservationRouter: ReservationRouter
   let reservationVault: string
   let tbtcVault: TBTCVault
 
-  async function impersonate(address: string): Promise<SignerWithAddress> {
+  async function impersonate(address: string): Promise<HardhatEthersSigner> {
     await ethers.provider.send("hardhat_impersonateAccount", [address])
     await ethers.provider.send("hardhat_setBalance", [
       address,
@@ -108,19 +106,21 @@ describe("Bridge - reserved refund-locktime cap", () => {
   async function setUp() {
     reservationRouter = await ethers.getContractAt(
       "ReservationRouter",
-      bridge.address
+      bridge.target
     )
     reservationVault = (await reservationRouter.reservationParameters())
       .reservationVault
     expect(reservationVault).to.equal(
-      (await helpers.contracts.getContract("ReservationVault")).address
+      await (
+        await helpers.contracts.getContract("ReservationVault")
+      ).getAddress()
     )
     expect(await bridge.isVaultTrusted(reservationVault)).to.be.true
 
     await bridge.setDepositDustThreshold(10000)
     await bridge.setDepositTxMaxFee(2000)
     await bridge.setWallet(walletPubKeyHash, {
-      ecdsaWalletID: ethers.utils.randomBytes(32),
+      ecdsaWalletID: ethers.randomBytes(32),
       mainUtxoHash: ZERO_BYTES32,
       pendingRedemptionsValue: 0,
       createdAt: await lastBlockTime(),
@@ -138,7 +138,7 @@ describe("Bridge - reserved refund-locktime cap", () => {
   // would bypass it. Resolves to the finalizing transaction.
   async function setRevealAheadPeriodThroughGovernance(
     period: number
-  ): Promise<ContractTransaction> {
+  ): Promise<ContractTransactionResponse> {
     await bridgeGovernance
       .connect(governance)
       .beginDepositRevealAheadPeriodUpdate(period)
@@ -156,7 +156,7 @@ describe("Bridge - reserved refund-locktime cap", () => {
     vault: string,
     revealAt: number,
     deadlineOffset: number
-  ): Promise<ContractTransaction> {
+  ): Promise<ContractTransactionResponse> {
     const refundLocktime = `0x${toLE(revealAt + deadlineOffset, 4)}`
     const fundingTx = buildFundingTx(thirdParty.address, refundLocktime)
     await ethers.provider.send("evm_setNextBlockTimestamp", [revealAt])
@@ -177,7 +177,7 @@ describe("Bridge - reserved refund-locktime cap", () => {
   async function revealReservedAt(
     revealAt: number,
     deadlineOffset: number
-  ): Promise<ContractTransaction> {
+  ): Promise<ContractTransactionResponse> {
     return revealToVaultAt(reservationVault, revealAt, deadlineOffset)
   }
 
@@ -187,7 +187,6 @@ describe("Bridge - reserved refund-locktime cap", () => {
 
   describe("with the seeded term table", () => {
     before(async () => {
-      // eslint-disable-next-line @typescript-eslint/no-extra-semi
       ;({ governance, thirdParty, bridge, bridgeGovernance, tbtcVault } =
         await bridgeFixture())
       // Restored in `after`, so nothing set here outlives this suite.
@@ -261,17 +260,17 @@ describe("Bridge - reserved refund-locktime cap", () => {
 
         it("should accept a deadline past the cap with no vault", async () => {
           const revealAt = await nextRevealTime()
-          await expect(
-            revealToVaultAt(ethers.constants.AddressZero, revealAt, pastCap)
-          ).to.not.be.reverted
+          await expect(revealToVaultAt(ethers.ZeroAddress, revealAt, pastCap))
+            .to.not.be.reverted
           expect(await reservationRouter.pendingReservedDeposits()).to.equal(0)
         })
 
         it("should accept a deadline past the cap with a trusted non-reservation vault", async () => {
-          expect(tbtcVault.address).to.not.equal(reservationVault)
-          expect(await bridge.isVaultTrusted(tbtcVault.address)).to.be.true
+          expect(tbtcVault.target).to.not.equal(reservationVault)
+          const tbtcVaultAddress = await tbtcVault.getAddress()
+          expect(await bridge.isVaultTrusted(tbtcVaultAddress)).to.be.true
           const revealAt = await nextRevealTime()
-          await expect(revealToVaultAt(tbtcVault.address, revealAt, pastCap)).to
+          await expect(revealToVaultAt(tbtcVaultAddress, revealAt, pastCap)).to
             .not.be.reverted
           expect(await reservationRouter.pendingReservedDeposits()).to.equal(0)
         })
@@ -367,7 +366,6 @@ describe("Bridge - reserved refund-locktime cap", () => {
 
   describe("with an empty term table", () => {
     before(async () => {
-      // eslint-disable-next-line @typescript-eslint/no-extra-semi
       ;({ governance, thirdParty, bridge, bridgeGovernance } =
         await bridgeFixtureWithoutReservationTerms())
       await createSnapshot()

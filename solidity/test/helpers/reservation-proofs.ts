@@ -1,6 +1,5 @@
 import { ethers } from "hardhat"
-import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
-import { BigNumber } from "ethers"
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import type { Bridge, BridgeStub, ReservationRouter } from "../../typechain"
 
 // Builders for reserved deposits and their acceptance proofs: Bitcoin
@@ -15,7 +14,7 @@ import type { Bridge, BridgeStub, ReservationRouter } from "../../typechain"
  */
 export async function impersonateContract(
   address: string
-): Promise<SignerWithAddress> {
+): Promise<HardhatEthersSigner> {
   await ethers.provider.send("hardhat_impersonateAccount", [address])
   await ethers.provider.send("hardhat_setBalance", [
     address,
@@ -27,24 +26,21 @@ export async function impersonateContract(
 // ---- Bitcoin fixture crafting (regtest-style difficulty) ----
 
 const REGTEST_BITS_LE = "ffff7f20"
-const REGTEST_TARGET = BigNumber.from("0x7fffff").mul(
-  BigNumber.from(2).pow(8 * (0x20 - 3))
-)
+const REGTEST_TARGET = 0x7fffffn * 2n ** BigInt(8 * (0x20 - 3))
 
 const reverseHex = (hex: string): string =>
   hex.replace(/^0x/, "").match(/../g)!.reverse().join("")
 
 const hash256 = (hexData: string): string =>
-  ethers.utils.sha256(ethers.utils.sha256(hexData))
+  ethers.sha256(ethers.sha256(hexData))
 
 /**
  * Little-endian hex of `value` over `byteLength` bytes, without a 0x prefix.
  */
-export const toLE = (value: number | BigNumber, byteLength: number): string =>
+export const toLE = (value: number | bigint, byteLength: number): string =>
   reverseHex(
-    BigNumber.from(value)
-      .toHexString()
-      .slice(2)
+    BigInt(value)
+      .toString(16)
       .padStart(byteLength * 2, "0")
   )
 
@@ -88,7 +84,7 @@ export interface SpvProof {
 
 export function buildTx(
   inputs: { txHash: string; index: number }[],
-  outputs: { valueSat: BigNumber | number; script: string }[]
+  outputs: { valueSat: bigint | number; script: string }[]
 ): BuiltTx {
   const inputVector = `0x${compactSize(inputs.length)}${inputs
     .map((i) => `${i.txHash.slice(2)}${toLE(i.index, 4)}00ffffffff`)
@@ -96,7 +92,7 @@ export function buildTx(
   const outputVector = `0x${compactSize(outputs.length)}${outputs
     .map(
       (o) =>
-        `${toLE(BigNumber.from(o.valueSat), 8)}${compactSize(
+        `${toLE(BigInt(o.valueSat), 8)}${compactSize(
           o.script.length / 2
         )}${o.script}`
     )
@@ -114,23 +110,21 @@ export function buildTx(
 }
 
 export function mineHeader(merkleRoot: string): string {
-  const prevBlock = ethers.utils.hexlify(ethers.utils.randomBytes(32)).slice(2)
+  const prevBlock = ethers.hexlify(ethers.randomBytes(32)).slice(2)
   const base = `20000000${prevBlock}${merkleRoot.slice(
     2
   )}662a2c68${REGTEST_BITS_LE}`
   for (let nonce = 0; ; nonce++) {
     const header = `0x${base}${toLE(nonce, 4)}`
-    if (
-      BigNumber.from(`0x${reverseHex(hash256(header))}`).lte(REGTEST_TARGET)
-    ) {
+    if (BigInt(`0x${reverseHex(hash256(header))}`) <= REGTEST_TARGET) {
       return header
     }
   }
 }
 
 export function proofFor(txHash: string): SpvProof {
-  const coinbasePreimage = ethers.utils.sha256(ethers.utils.randomBytes(32))
-  const coinbaseTxId = ethers.utils.sha256(coinbasePreimage)
+  const coinbasePreimage = ethers.sha256(ethers.randomBytes(32))
+  const coinbaseTxId = ethers.sha256(coinbasePreimage)
   const merkleRoot = hash256(`0x${coinbaseTxId.slice(2)}${txHash.slice(2)}`)
   return {
     merkleProof: coinbaseTxId,
@@ -155,7 +149,7 @@ export const buildDepositScript = (
   )}b175ac68`
 
 export const p2wshScript = (script: string): string =>
-  `0020${ethers.utils.sha256(`0x${script}`).slice(2)}`
+  `0020${ethers.sha256(`0x${script}`).slice(2)}`
 
 export const p2wpkhScript = (pkh: string): string => `0014${pkh.slice(2)}`
 
@@ -171,16 +165,16 @@ export interface ReservationProofContext {
   reservationRouter: ReservationRouter
   // The reservation vault the deposit is revealed to.
   reservationVault: string
-  depositor: SignerWithAddress
-  spvMaintainer: SignerWithAddress
+  depositor: HardhatEthersSigner
+  spvMaintainer: HardhatEthersSigner
   walletPubKeyHash: string
   blindingFactor: string
   refundPubKeyHash: string
   // 4-byte little-endian refund locktime (see `refundLocktimeAt`).
   refundLocktime: string
-  depositAmount: BigNumber
+  depositAmount: bigint
   // Value of the anchor output; the rest of the deposit is the miner fee.
-  anchorAmount: BigNumber
+  anchorAmount: bigint
   // Term id passed on the acceptance request.
   termId: number
 }
@@ -192,7 +186,7 @@ export interface ReservationProofContext {
 export interface RevealedReservation {
   fundingTx: BuiltTx
   anchorTx: BuiltTx
-  reservationKey: BigNumber
+  reservationKey: bigint
 }
 
 /**
@@ -206,7 +200,7 @@ export async function revealReservedDeposit(
   const fundingTx = buildTx(
     [
       {
-        txHash: ethers.utils.hexlify(ethers.utils.randomBytes(32)),
+        txHash: ethers.hexlify(ethers.randomBytes(32)),
         index: 0,
       },
     ],
@@ -235,8 +229,8 @@ export async function revealReservedDeposit(
     vault: ctx.reservationVault,
   })
 
-  const reservationKey = BigNumber.from(
-    ethers.utils.solidityKeccak256(["bytes32", "uint32"], [fundingTx.txHash, 0])
+  const reservationKey = BigInt(
+    ethers.solidityPackedKeccak256(["bytes32", "uint32"], [fundingTx.txHash, 0])
   )
 
   const anchorTx = buildTx(
@@ -249,19 +243,21 @@ export async function revealReservedDeposit(
 
 /**
  * Reveals a fresh reserved deposit and requests acceptance (generation 1)
- * on the context's term id, as the depositor.
+ * on the context's term id, as the depositor, proving the funding
+ * transaction with the request.
  */
 export async function makeRequestedReservation(
   ctx: ReservationProofContext
 ): Promise<RevealedReservation> {
-  const { fundingTx, anchorTx, reservationKey } = await revealReservedDeposit(
-    ctx
-  )
+  const { fundingTx, anchorTx, reservationKey } =
+    await revealReservedDeposit(ctx)
 
   await ctx.reservationRouter
     .connect(ctx.depositor)
     .requestReservationAcceptance(
-      reservationKey,
+      fundingTx.info,
+      proofFor(fundingTx.txHash),
+      0,
       ctx.walletPubKeyHash,
       ctx.termId
     )

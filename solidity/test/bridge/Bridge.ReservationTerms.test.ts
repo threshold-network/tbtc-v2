@@ -2,7 +2,7 @@ import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
 
 import type { Contract } from "ethers"
-import type { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
+import type { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import type {
   Bridge,
   BridgeStub,
@@ -31,8 +31,11 @@ const MAX_RESERVATION_TERM_ID = 8
 const MAX_CUSTODY_BPS = 500
 // `WalletProposalValidatorConstants.DEPOSIT_REFUND_SAFETY_MARGIN`.
 const DEPOSIT_REFUND_SAFETY_MARGIN = DAY
-// `WalletProposalValidatorConstants.REQUEST_TIMEOUT_SAFETY_MARGIN`.
+// `WalletProposalValidatorConstants.REQUEST_TIMEOUT_SAFETY_MARGIN` and
+// `DEPOSIT_MIN_AGE`: the action timeout must exceed their sum plus one
+// second to leave a signing window.
 const REQUEST_TIMEOUT_SAFETY_MARGIN = 2 * 60 * 60
+const DEPOSIT_MIN_AGE = 2 * 60 * 60
 
 // Global parameters each test starts from, unless it sets its own. The
 // renewal window is the 7-day default proposal; the global term is the
@@ -52,12 +55,12 @@ const REVEAL_AHEAD_REVERT =
 describe("Bridge - reservation term table", () => {
   let bridge: Bridge & BridgeStub
   let reservationRouter: ReservationRouter
-  let governanceSigner: SignerWithAddress
-  let thirdParty: SignerWithAddress
+  let governanceSigner: HardhatEthersSigner
+  let thirdParty: HardhatEthersSigner
   let reservationVault: string
   let reservationMaxTotalAmount: string
 
-  async function impersonate(address: string): Promise<SignerWithAddress> {
+  async function impersonate(address: string): Promise<HardhatEthersSigner> {
     await ethers.provider.send("hardhat_impersonateAccount", [address])
     await ethers.provider.send("hardhat_setBalance", [
       address,
@@ -91,7 +94,7 @@ describe("Bridge - reservation term table", () => {
         7 * DAY,
         reservationMaxTotalAmount,
         10,
-        REQUEST_TIMEOUT_SAFETY_MARGIN + 1,
+        REQUEST_TIMEOUT_SAFETY_MARGIN + DEPOSIT_MIN_AGE + 2,
         window
       )
   }
@@ -111,7 +114,6 @@ describe("Bridge - reservation term table", () => {
   before(async () => {
     // The unseeded fixture: these tests add entries to ids 1 to 8 and rely
     // on the table starting empty.
-    // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({ bridge, thirdParty } = await bridgeFixtureWithoutReservationTerms())
     // Restored in `after`, so no table entry or parameter set here outlives
     // this suite on the shared Bridge.
@@ -121,7 +123,7 @@ describe("Bridge - reservation term table", () => {
     // router ABI is bound to the Bridge address.
     reservationRouter = await ethers.getContractAt(
       "ReservationRouter",
-      bridge.address
+      bridge.target
     )
     // The deploy scripts seed the table; the fixture clears it. Checked here
     // so that no test below runs against a table it did not build.
@@ -551,8 +553,8 @@ describe("Bridge fixture - seeded reservation term table", () => {
       const term = await reservationRouter.reservationTerm(termId)
       table.push({
         termId,
-        termSeconds: term.termSeconds,
-        custodyBps: term.custodyBps,
+        termSeconds: Number(term.termSeconds),
+        custodyBps: Number(term.custodyBps),
         enabled: term.enabled,
       })
     }
@@ -560,11 +562,10 @@ describe("Bridge fixture - seeded reservation term table", () => {
   }
 
   before(async () => {
-    // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({ bridge } = await bridgeFixture())
     reservationRouter = await ethers.getContractAt(
       "ReservationRouter",
-      bridge.address
+      bridge.target
     )
   })
 
@@ -674,7 +675,7 @@ describe("Bridge fixture - seeded reservation term table", () => {
         return ethers.provider.send("eth_sendTransaction", [
           {
             from: governanceAddress,
-            to: ethers.constants.AddressZero,
+            to: ethers.ZeroAddress,
             value: "0x0",
           },
         ])

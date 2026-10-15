@@ -17,7 +17,9 @@ import { DeployFunction } from "hardhat-deploy/types"
 import fs from "fs"
 import path from "path"
 
-const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
+const func: DeployFunction = async function upgradeBridgeV2Deprecated(
+  hre: HardhatRuntimeEnvironment
+) {
   const { ethers, deployments, getNamedAccounts } = hre
   const { get } = deployments
   const { deployer, treasury } = await getNamedAccounts()
@@ -98,11 +100,8 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 
   const adminSlot =
     "0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103"
-  const adminData = await ethers.provider.getStorageAt(
-    Bridge.address,
-    adminSlot
-  )
-  const proxyAdminAddress = ethers.utils.getAddress(`0x${adminData.slice(26)}`)
+  const adminData = await ethers.provider.getStorage(Bridge.address, adminSlot)
+  const proxyAdminAddress = ethers.getAddress(`0x${adminData.slice(26)}`)
   const proxyAdmin = await ethers.getContractAt(
     ["function owner() view returns (address)"],
     proxyAdminAddress
@@ -112,7 +111,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const deployerAddress = await deployerSigner.getAddress()
 
   const implementationAddress = await deployBridgeImplementation()
-  const proxyAdminInterface = new ethers.utils.Interface([
+  const proxyAdminInterface = new ethers.Interface([
     "function upgrade(address proxy, address implementation)",
   ])
   const upgradeCalldata = proxyAdminInterface.encodeFunctionData("upgrade", [

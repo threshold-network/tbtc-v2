@@ -1,10 +1,9 @@
-/* eslint-disable @typescript-eslint/no-unused-expressions */
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { expect } from "chai"
 import hre, { ethers } from "hardhat"
-import { utils } from "ethers"
+import { Interface, ZeroAddress } from "ethers"
 import fs from "fs"
 import path from "path"
 import func, {
@@ -76,15 +75,12 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
   // source, mirroring what the deploy script itself loads via
   // `artifacts.readArtifact`.
   let bridgeGovernanceArtifact: any
-  let bridgeGovInterface: utils.Interface
+  let bridgeGovInterface: Interface
 
   before(async () => {
-    bridgeGovernanceArtifact = await hre.artifacts.readArtifact(
-      "BridgeGovernance"
-    )
-    bridgeGovInterface = new ethers.utils.Interface(
-      bridgeGovernanceArtifact.abi
-    )
+    bridgeGovernanceArtifact =
+      await hre.artifacts.readArtifact("BridgeGovernance")
+    bridgeGovInterface = new Interface(bridgeGovernanceArtifact.abi)
   })
 
   // A complete set of env vars that satisfies every validation the script
@@ -137,17 +133,17 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
     networkName?: string
     liveWalletsCount?: number
     liveWalletsCountAtFinalize?: number
+    depositRevealAheadPeriod?: number
     reservationRouterOnChain?: string
     routerOnChainCode?: string
     proxyAdminOwner?: string
     bridgeGovernanceOwner?: string
-    depositRevealAheadPeriod?: number
   }): { mockHre: any } {
     const liveWalletsCount = overrides?.liveWalletsCount ?? 10
     const liveWalletsCountAtFinalize =
       overrides?.liveWalletsCountAtFinalize ?? liveWalletsCount
     const reservationRouterOnChain =
-      overrides?.reservationRouterOnChain ?? ethers.constants.AddressZero
+      overrides?.reservationRouterOnChain ?? ZeroAddress
     const routerOnChainCode =
       overrides?.routerOnChainCode ?? ROUTER_DEPLOYED_BYTECODE
     const proxyAdminOwner = overrides?.proxyAdminOwner ?? KNOWN_TIMELOCK
@@ -183,7 +179,7 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
       },
       ethers: {
         provider: {
-          getStorageAt: async () =>
+          getStorage: async () =>
             `0x${"0".repeat(24)}${PROXY_ADMIN_ADDRESS.slice(2).toLowerCase()}`,
           getCode: async () => routerOnChainCode,
         },
@@ -209,11 +205,16 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
               ? liveWalletsCount
               : liveWalletsCountAtFinalize
           }
+          if (name === "Bridge" && method === "depositParameters") {
+            return {
+              depositDustThreshold: 0,
+              depositTreasuryFeeDivisor: 0,
+              depositTxMaxFee: 0,
+              depositRevealAheadPeriod,
+            }
+          }
           if (name === "Bridge" && method === "getReservationRouter") {
             return reservationRouterOnChain
-          }
-          if (name === "Bridge" && method === "depositParameters") {
-            return { depositRevealAheadPeriod }
           }
           throw new Error(`Unexpected read: ${name}.${method}`)
         },
@@ -383,7 +384,7 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
         "beginReservationTermUpdate",
         "finalizeReservationTermUpdate",
         "setVaultStatus",
-      ].map((method) => bridgeGovInterface.getSighash(method))
+      ].map((method) => bridgeGovInterface.getFunction(method)!.selector)
 
       const indices = selectors.map((sel) => output.indexOf(sel))
       indices.forEach((index, i) => {
@@ -502,8 +503,8 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
       await expectRejection(func(mockHre), /RENEWAL_WINDOW_SECONDS/)
     })
 
-    it("should throw when the action timeout does not exceed the safety margin", async () => {
-      process.env.RESERVATION_ACTION_TIMEOUT_SECONDS = "7200" // exactly the margin
+    it("should throw when the action timeout leaves a fresh deposit no signing window", async () => {
+      process.env.RESERVATION_ACTION_TIMEOUT_SECONDS = "14401" // 2h margin + 2h min age + 1
       const { mockHre } = createMockHre()
       await expectRejection(func(mockHre), /ACTION_TIMEOUT_SECONDS/)
     })
@@ -668,16 +669,24 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
       await expectRejection(func(mockHre), /depositRevealAheadPeriod/)
     })
 
-    it("should accept a live reveal-ahead period of exactly the largest entry plus 24 hours", async () => {
+    it("should accept a live reveal-ahead period up to the largest entry plus 24 hours less the reveal drift and feasibility margins", async () => {
+      // The setter's relation admits a reveal-ahead period up to the
+      // largest entry plus 24 hours, but the reserved-reveal feasibility
+      // guard below also subtracts the 2h reveal drift and the 1h
+      // feasibility margin: at 365 days + 21 hours the minimum feasible
+      // largest entry is exactly the 365-day entry.
       const { mockHre } = createMockHre({
-        depositRevealAheadPeriod: 365 * DAY + DEPOSIT_REFUND_SAFETY_MARGIN,
+        depositRevealAheadPeriod:
+          365 * DAY + DEPOSIT_REFUND_SAFETY_MARGIN - 3 * 60 * 60,
       })
       const capture = captureConsoleLog()
+      let output: string
       try {
         await func(mockHre)
       } finally {
-        capture.restore()
+        output = capture.restore()
       }
+      expect(output).to.include("Reserved-reveal window OK")
     })
 
     it("should throw when the renewal window is not shorter than the smallest entry", async () => {
@@ -721,6 +730,56 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
         )
         expect(message).to.include("Wallet reservations cap exceeded")
       }
+    })
+  })
+
+  describe("reserved-reveal feasibility guard", () => {
+    it("should reject the term table when the live reveal-ahead period leaves no reserved-reveal window", async () => {
+      // The reserved refund-locktime cap reads the largest term entry
+      // (365 days, 31,536,000s), not the global term. One second past
+      // 365 days + 21 hours the setter's relation still holds (the largest
+      // entry + 24h covers it) but the feasibility window is too thin: the
+      // minimum feasible largest entry is 31,536,001s
+      // (= 31,611,601 + 7,200 - 86,400 + 3,600) > 31,536,000s.
+      const { mockHre } = createMockHre({
+        depositRevealAheadPeriod: 31_611_601,
+      })
+      await expectRejection(
+        func(mockHre),
+        /minimum feasible largest term entry \(31536001s\)/
+      )
+    })
+
+    it("should accept the term table when the live reveal-ahead period is 150 days", async () => {
+      // largest entry 31,536,000s >= min feasible largest entry 12,884,400s
+      // (= 12,960,000 + 7,200 - 86,400 + 3,600); the 90-day global term
+      // plays no part in the reserved-reveal cap.
+      const { mockHre } = createMockHre({
+        depositRevealAheadPeriod: 12_960_000,
+      })
+      const capture = captureConsoleLog()
+      let output: string
+      try {
+        await func(mockHre)
+      } finally {
+        output = capture.restore()
+      }
+      expect(output).to.include("Reserved-reveal window OK")
+    })
+
+    it("should pass with no lower bound when the reveal-ahead period is zero", async () => {
+      // depositRevealAheadPeriod 0 disables the ahead-period check in
+      // Deposit.sol, so the guard has nothing to enforce on top of the
+      // existing term bounds.
+      const { mockHre } = createMockHre({ depositRevealAheadPeriod: 0 })
+      const capture = captureConsoleLog()
+      let output: string
+      try {
+        await func(mockHre)
+      } finally {
+        output = capture.restore()
+      }
+      expect(output).to.include("Reserved-reveal window OK")
     })
   })
 
@@ -774,8 +833,8 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
       expect(summary.governanceActions).to.be.an("array")
       expect(summary.governanceActions).to.have.lengthOf(12)
 
-      const expectedSelectors = ALL_METHODS.map((method) =>
-        bridgeGovInterface.getSighash(method)
+      const expectedSelectors = ALL_METHODS.map(
+        (method) => bridgeGovInterface.getFunction(method)!.selector
       )
 
       summary.governanceActions.forEach((action: any, index: number) => {

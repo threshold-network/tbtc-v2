@@ -170,10 +170,9 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     /// @param _newUnstakingPeriod Duration of the unstaking period.
     /// @dev Requirements:
     ///      - The caller must be the contract owner
-    function updateUnstakingPeriod(uint256 _newUnstakingPeriod)
-        external
-        onlyOwner
-    {
+    function updateUnstakingPeriod(
+        uint256 _newUnstakingPeriod
+    ) external onlyOwner {
         unstakingPeriod = _newUnstakingPeriod;
         emit UnstakingPeriodUpdated(unstakingPeriod);
     }
@@ -182,10 +181,9 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     /// @param _newRebatePerToken Rebate coefficient.
     /// @dev Requirements:
     ///      - The caller must be the contract owner
-    function updateRebatePerToken(uint256 _newRebatePerToken)
-        external
-        onlyOwner
-    {
+    function updateRebatePerToken(
+        uint256 _newRebatePerToken
+    ) external onlyOwner {
         rebatePerToken = _newRebatePerToken;
         emit RebatePerTokenUpdated(rebatePerToken);
     }
@@ -238,9 +236,10 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     ///        balance owner on a callback-path redemption that credits the
     ///        caller's stake. Must not be the zero address.
     /// @param authorized True to authorize, false to revoke.
-    function setRebateAuthorization(address balanceOwner, bool authorized)
-        external
-    {
+    function setRebateAuthorization(
+        address balanceOwner,
+        bool authorized
+    ) external {
         Stake storage stakeInfo = stakes[msg.sender];
         if (stakeInfo.stakedAmount == 0) {
             revert NotAStaker();
@@ -260,11 +259,10 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     /// @param redeemer The current staker address that would be credited with
     ///        the rebate.
     /// @param balanceOwner The Bank balance owner being checked.
-    function isRebateAuthorized(address redeemer, address balanceOwner)
-        external
-        view
-        returns (bool)
-    {
+    function isRebateAuthorized(
+        address redeemer,
+        address balanceOwner
+    ) external view returns (bool) {
         if (getStake(redeemer) == 0) {
             return false;
         }
@@ -281,11 +279,9 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
 
     /// @notice Calculates cap for rebate for the specified user.
     /// @param stakeInfo Staker struct
-    function getRebateCap(Stake storage stakeInfo)
-        internal
-        view
-        returns (uint64)
-    {
+    function getRebateCap(
+        Stake storage stakeInfo
+    ) internal view returns (uint64) {
         if (rebatePerToken == 0) {
             return 0;
         }
@@ -298,11 +294,9 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
 
     /// @notice Calculates available rebate for the specified user.
     /// @param user Address of depositor or redeemer
-    function getAvailableRebate(address user)
-        external
-        view
-        returns (uint64 rebateInWindow)
-    {
+    function getAvailableRebate(
+        address user
+    ) external view returns (uint64 rebateInWindow) {
         Stake storage stakeInfo = stakes[user];
         uint64 rebateCap = getRebateCap(stakeInfo);
         if (rebateCap == 0) {
@@ -332,10 +326,9 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     /// @notice Calculates used rebate in the rolling window.
     /// @param stakeInfo Staker struct
     /// @return rebateInWindow Used rebate in the rolling window
-    function getRebateInRollingWindow(Stake storage stakeInfo)
-        internal
-        returns (uint64 rebateInWindow)
-    {
+    function getRebateInRollingWindow(
+        Stake storage stakeInfo
+    ) internal returns (uint64 rebateInWindow) {
         if (stakeInfo.rebates.length == 0) {
             return 0;
         }
@@ -403,11 +396,10 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     }
 
     /// @notice Returns true if rebate is enabled for given user and fee type.
-    function isRebateEnabled(address user, TreasuryFeeType treasuryFeeType)
-        internal
-        view
-        returns (bool)
-    {
+    function isRebateEnabled(
+        address user,
+        TreasuryFeeType treasuryFeeType
+    ) internal view returns (bool) {
         RebateTreasuryFeeMode mode = stakes[user].rebateTreasuryFeeMode;
 
         // slither-disable-next-line incorrect-equality
@@ -446,10 +438,10 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     ///      in the rolling window until they age out. Effect is temporary
     ///      rolling-window cap denial, not permanent loss. Tracked as a
     ///      follow-up.
-    function cancelRebate(address user, uint256 requestedAt)
-        external
-        onlyBridge
-    {
+    function cancelRebate(
+        address user,
+        uint256 requestedAt
+    ) external onlyBridge {
         user = getStaker(user);
         Stake storage stakeInfo = stakes[user];
         if (stakeInfo.stakedAmount == 0) {
@@ -544,11 +536,10 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     /// @param index Index of the element in the array
     /// @return timestamp Timestamp of rebate
     /// @return feeRebate Amount of rebate
-    function getRebate(address user, uint256 index)
-        external
-        view
-        returns (uint32 timestamp, uint64 feeRebate)
-    {
+    function getRebate(
+        address user,
+        uint256 index
+    ) external view returns (uint32 timestamp, uint64 feeRebate) {
         Rebate storage rebateInfo = stakes[user].rebates[index];
         timestamp = rebateInfo.timestamp;
         feeRebate = rebateInfo.feeRebate;
@@ -566,7 +557,9 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     /// @param user Address of depositor or redeemer
     /// @return unstakingAmount Amount that is currently unstaking
     /// @return unstakingTimestamp Amount of rebate
-    function getUnstakingAmount(address user)
+    function getUnstakingAmount(
+        address user
+    )
         external
         view
         returns (uint96 unstakingAmount, uint32 unstakingTimestamp)
@@ -582,11 +575,9 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     ///         - 0: rebates for both deposits and redemptions,
     ///         - 1: rebates for deposits only,
     ///         - 2: rebates for redemptions only.
-    function getRebateTreasuryFeeMode(address user)
-        external
-        view
-        returns (RebateTreasuryFeeMode rebateTreasuryFeeMode)
-    {
+    function getRebateTreasuryFeeMode(
+        address user
+    ) external view returns (RebateTreasuryFeeMode rebateTreasuryFeeMode) {
         Stake storage stakeInfo = stakes[user];
         rebateTreasuryFeeMode = stakeInfo.rebateTreasuryFeeMode;
     }
@@ -594,11 +585,9 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     /// @notice Returns information about stake
     /// @param user Address of depositor or redeemer
     /// @return delegatee Delegatee address.
-    function getDelegatee(address user)
-        external
-        view
-        returns (address delegatee)
-    {
+    function getDelegatee(
+        address user
+    ) external view returns (address delegatee) {
         Stake storage stakeInfo = stakes[user];
         delegatee = stakeInfo.delegatee;
     }
@@ -606,10 +595,10 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     /// @notice Transfers ownership of stake from one address to another
     /// @param oldStaker Old staker address
     /// @param newStaker New staker address
-    function forceStakeTransfer(address oldStaker, address newStaker)
-        external
-        onlyOwner
-    {
+    function forceStakeTransfer(
+        address oldStaker,
+        address newStaker
+    ) external onlyOwner {
         if (oldStaker == address(0)) revert ZeroAddress();
         if (newStaker == address(0)) revert ZeroAddress();
 

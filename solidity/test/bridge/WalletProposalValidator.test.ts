@@ -1,29 +1,34 @@
+import { toNumber, toBigInt, BigNumberish, BytesLike } from "ethers"
 import crypto from "crypto"
 import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
-import { BigNumber, BigNumberish, BytesLike } from "ethers"
 import type {
   Bridge,
   IReservationBridge,
   IRedemptionWatchtower,
   WalletProposalValidator,
 } from "../../typechain"
-import type {
-  ReservationActionStruct,
-  ReservationRequestStruct,
-} from "../../typechain/IReservationBridge"
-import type {
-  ReservationReanchorProposalStruct,
-  ReservationAnchorProposalStruct,
-} from "../../typechain/WalletProposalValidator"
 import { walletState, movedFundsSweepRequestState } from "../fixtures"
 import { NO_MAIN_UTXO } from "../data/deposit-sweep"
 import { createMock } from "../helpers/mock"
 import type { Mock } from "../helpers/mock"
+import * as ReservationTypes from "../../typechain/contracts/bridge/IReservationBridge"
+import * as WalletProposalValidatorTypes from "../../typechain/contracts/bridge/WalletProposalValidator"
 
 const { lastBlockTime, increaseTime } = helpers.time
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
-const { AddressZero, HashZero } = ethers.constants
+const { ZeroAddress: AddressZero, ZeroHash: HashZero } = ethers
+
+// typechain v6 nests the struct types inside a per-contract namespace, which
+// the `typechain` barrel re-exports only as a bare type.
+type ReservationActionStruct =
+  ReservationTypes.Reservation.ReservationActionStruct
+type ReservationRequestStruct =
+  ReservationTypes.Reservation.ReservationRequestStruct
+type ReservationReanchorProposalStruct =
+  WalletProposalValidatorTypes.WalletProposalValidator.ReservationReanchorProposalStruct
+type ReservationAnchorProposalStruct =
+  WalletProposalValidatorTypes.WalletProposalValidator.ReservationAnchorProposalStruct
 
 const day = 86400
 const depositLocktime = 30 * day
@@ -218,9 +223,9 @@ describe("WalletProposalValidator", () => {
                   await walletProposalValidator.DEPOSIT_SWEEP_MAX_SIZE()
 
                 // Pick more deposits than allowed.
-                const depositsKeys = new Array(maxSize + 1).fill(
-                  createTestDeposit(walletPubKeyHash, vault).key
-                )
+                const depositsKeys = new Array(
+                  ethers.toNumber(maxSize) + 1
+                ).fill(createTestDeposit(walletPubKeyHash, vault).key)
 
                 await expect(
                   walletProposalValidator.validateDepositSweepProposal(
@@ -269,9 +274,8 @@ describe("WalletProposalValidator", () => {
               context("when deposit extra info length matches", () => {
                 context("when proposed sweep tx fee is invalid", () => {
                   context("when proposed sweep tx fee is zero", () => {
-                    let depositOne
-                    let depositTwo
-
+                    let depositOne: ReturnType<typeof createTestDeposit>
+                    let depositTwo: ReturnType<typeof createTestDeposit>
                     before(async () => {
                       await createSnapshot()
 
@@ -338,9 +342,8 @@ describe("WalletProposalValidator", () => {
                   context(
                     "when proposed sweep tx fee is greater than the allowed",
                     () => {
-                      let depositOne
-                      let depositTwo
-
+                      let depositOne: ReturnType<typeof createTestDeposit>
+                      let depositTwo: ReturnType<typeof createTestDeposit>
                       before(async () => {
                         await createSnapshot()
 
@@ -411,9 +414,8 @@ describe("WalletProposalValidator", () => {
                   const sweepTxFee = 5000
 
                   context("when there is a non-revealed deposit", () => {
-                    let depositOne
-                    let depositTwo
-
+                    let depositOne: ReturnType<typeof createTestDeposit>
+                    let depositTwo: ReturnType<typeof createTestDeposit>
                     before(async () => {
                       await createSnapshot()
 
@@ -482,9 +484,8 @@ describe("WalletProposalValidator", () => {
 
                   context("when all deposits are revealed", () => {
                     context("when there is an immature deposit", () => {
-                      let depositOne
-                      let depositTwo
-
+                      let depositOne: ReturnType<typeof createTestDeposit>
+                      let depositTwo: ReturnType<typeof createTestDeposit>
                       before(async () => {
                         await createSnapshot()
 
@@ -554,9 +555,8 @@ describe("WalletProposalValidator", () => {
 
                     context("when all deposits achieved the min age", () => {
                       context("when there is an already swept deposit", () => {
-                        let depositOne
-                        let depositTwo
-
+                        let depositOne: ReturnType<typeof createTestDeposit>
+                        let depositTwo: ReturnType<typeof createTestDeposit>
                         before(async () => {
                           await createSnapshot()
 
@@ -630,8 +630,9 @@ describe("WalletProposalValidator", () => {
                             context(
                               "when funding tx hashes don't match",
                               () => {
-                                let deposit
-
+                                let deposit: ReturnType<
+                                  typeof createTestDeposit
+                                >
                                 before(async () => {
                                   await createSnapshot()
 
@@ -692,8 +693,9 @@ describe("WalletProposalValidator", () => {
                             context(
                               "when 20-byte funding output hash does not match",
                               () => {
-                                let deposit
-
+                                let deposit: ReturnType<
+                                  typeof createTestDeposit
+                                >
                                 before(async () => {
                                   await createSnapshot()
 
@@ -758,8 +760,9 @@ describe("WalletProposalValidator", () => {
                             context(
                               "when 32-byte funding output hash does not match",
                               () => {
-                                let deposit
-
+                                let deposit: ReturnType<
+                                  typeof createTestDeposit
+                                >
                                 before(async () => {
                                   await createSnapshot()
 
@@ -829,9 +832,12 @@ describe("WalletProposalValidator", () => {
                             context(
                               "when there is a deposit that violates the refund safety margin",
                               () => {
-                                let depositOne
-                                let depositTwo
-
+                                let depositOne: ReturnType<
+                                  typeof createTestDeposit
+                                >
+                                let depositTwo: ReturnType<
+                                  typeof createTestDeposit
+                                >
                                 before(async () => {
                                   await createSnapshot()
 
@@ -850,16 +856,17 @@ describe("WalletProposalValidator", () => {
                                   const safetyMarginViolatedAt =
                                     await lastBlockTime()
                                   const depositRefundableAt =
-                                    safetyMarginViolatedAt +
+                                    toBigInt(safetyMarginViolatedAt) +
                                     (await walletProposalValidator.DEPOSIT_REFUND_SAFETY_MARGIN())
                                   const depositRevealedAt =
-                                    depositRefundableAt - depositLocktime
+                                    depositRefundableAt -
+                                    toBigInt(depositLocktime)
 
                                   depositTwo = createTestDeposit(
                                     walletPubKeyHash,
                                     vault,
                                     false,
-                                    depositRevealedAt
+                                    toNumber(depositRevealedAt)
                                   )
 
                                   await bridge.deposits
@@ -921,9 +928,12 @@ describe("WalletProposalValidator", () => {
                                 context(
                                   "when there is a deposit controlled by a different wallet",
                                   () => {
-                                    let depositOne
-                                    let depositTwo
-
+                                    let depositOne: ReturnType<
+                                      typeof createTestDeposit
+                                    >
+                                    let depositTwo: ReturnType<
+                                      typeof createTestDeposit
+                                    >
                                     before(async () => {
                                       await createSnapshot()
 
@@ -1005,9 +1015,12 @@ describe("WalletProposalValidator", () => {
                                     context(
                                       "when there is a deposit targeting a different vault",
                                       () => {
-                                        let depositOne
-                                        let depositTwo
-
+                                        let depositOne: ReturnType<
+                                          typeof createTestDeposit
+                                        >
+                                        let depositTwo: ReturnType<
+                                          typeof createTestDeposit
+                                        >
                                         before(async () => {
                                           await createSnapshot()
 
@@ -1091,10 +1104,15 @@ describe("WalletProposalValidator", () => {
                                         context(
                                           "when there are duplicated deposits",
                                           () => {
-                                            let depositOne
-                                            let depositTwo
-                                            let depositThree
-
+                                            let depositOne: ReturnType<
+                                              typeof createTestDeposit
+                                            >
+                                            let depositTwo: ReturnType<
+                                              typeof createTestDeposit
+                                            >
+                                            let depositThree: ReturnType<
+                                              typeof createTestDeposit
+                                            >
                                             before(async () => {
                                               await createSnapshot()
 
@@ -1191,10 +1209,15 @@ describe("WalletProposalValidator", () => {
                                         context(
                                           "when all deposits are unique",
                                           () => {
-                                            let depositOne
-                                            let depositTwo
-                                            let depositThree
-
+                                            let depositOne: ReturnType<
+                                              typeof createTestDeposit
+                                            >
+                                            let depositTwo: ReturnType<
+                                              typeof createTestDeposit
+                                            >
+                                            let depositThree: ReturnType<
+                                              typeof createTestDeposit
+                                            >
                                             before(async () => {
                                               await createSnapshot()
 
@@ -1284,7 +1307,6 @@ describe("WalletProposalValidator", () => {
                                                   depositsExtraInfo
                                                 )
 
-                                              // eslint-disable-next-line @typescript-eslint/no-unused-expressions
                                               expect(result).to.be.true
                                             })
                                           }
@@ -1452,7 +1474,9 @@ describe("WalletProposalValidator", () => {
                   await walletProposalValidator.REDEMPTION_MAX_SIZE()
 
                 // Pick more redemption requests than allowed.
-                const redeemersOutputScripts = new Array(maxSize + 1).fill(
+                const redeemersOutputScripts = new Array(
+                  ethers.toNumber(maxSize) + 1
+                ).fill(
                   createTestRedemptionRequest(walletPubKeyHash).key
                     .redeemerOutputScript
                 )
@@ -1517,9 +1541,8 @@ describe("WalletProposalValidator", () => {
                 const redemptionTxFee = 9000
 
                 context("when there is a non-pending request", () => {
-                  let requestOne
-                  let requestTwo
-
+                  let requestOne: ReturnType<typeof createTestRedemptionRequest>
+                  let requestTwo: ReturnType<typeof createTestRedemptionRequest>
                   before(async () => {
                     await createSnapshot()
 
@@ -1582,9 +1605,12 @@ describe("WalletProposalValidator", () => {
                     context(
                       "when immaturity is caused by REDEMPTION_REQUEST_MIN_AGE violation",
                       () => {
-                        let requestOne
-                        let requestTwo
-
+                        let requestOne: ReturnType<
+                          typeof createTestRedemptionRequest
+                        >
+                        let requestTwo: ReturnType<
+                          typeof createTestRedemptionRequest
+                        >
                         before(async () => {
                           await createSnapshot()
 
@@ -1651,9 +1677,12 @@ describe("WalletProposalValidator", () => {
                       "when immaturity is caused by watchtower's delay violation",
                       () => {
                         let watchtower: Mock<IRedemptionWatchtower>
-                        let requestOne
-                        let requestTwo
-
+                        let requestOne: ReturnType<
+                          typeof createTestRedemptionRequest
+                        >
+                        let requestTwo: ReturnType<
+                          typeof createTestRedemptionRequest
+                        >
                         before(async () => {
                           await createSnapshot()
 
@@ -1755,9 +1784,12 @@ describe("WalletProposalValidator", () => {
                     context(
                       "when there is a request that violates the timeout safety margin",
                       () => {
-                        let requestOne
-                        let requestTwo
-
+                        let requestOne: ReturnType<
+                          typeof createTestRedemptionRequest
+                        >
+                        let requestTwo: ReturnType<
+                          typeof createTestRedemptionRequest
+                        >
                         before(async () => {
                           await createSnapshot()
 
@@ -1774,15 +1806,16 @@ describe("WalletProposalValidator", () => {
                           // moment than allowed by the refund safety margin.
                           const safetyMarginViolatedAt = await lastBlockTime()
                           const requestTimedOutAt =
-                            safetyMarginViolatedAt +
+                            toBigInt(safetyMarginViolatedAt) +
                             (await walletProposalValidator.REDEMPTION_REQUEST_TIMEOUT_SAFETY_MARGIN())
                           const requestCreatedAt =
-                            requestTimedOutAt - bridgeRedemptionTimeout
+                            requestTimedOutAt -
+                            toBigInt(bridgeRedemptionTimeout)
 
                           requestTwo = createTestRedemptionRequest(
                             walletPubKeyHash,
                             0,
-                            requestCreatedAt
+                            toNumber(requestCreatedAt)
                           )
 
                           await bridge.pendingRedemptions
@@ -1838,9 +1871,12 @@ describe("WalletProposalValidator", () => {
                           "when there is a request that incurs an unacceptable tx fee share",
                           () => {
                             context("when there is no fee remainder", () => {
-                              let requestOne
-                              let requestTwo
-
+                              let requestOne: ReturnType<
+                                typeof createTestRedemptionRequest
+                              >
+                              let requestTwo: ReturnType<
+                                typeof createTestRedemptionRequest
+                              >
                               before(async () => {
                                 await createSnapshot()
 
@@ -1907,9 +1943,12 @@ describe("WalletProposalValidator", () => {
                             })
 
                             context("when there is a fee remainder", () => {
-                              let requestOne
-                              let requestTwo
-
+                              let requestOne: ReturnType<
+                                typeof createTestRedemptionRequest
+                              >
+                              let requestTwo: ReturnType<
+                                typeof createTestRedemptionRequest
+                              >
                               before(async () => {
                                 await createSnapshot()
 
@@ -1984,10 +2023,15 @@ describe("WalletProposalValidator", () => {
                             context(
                               "when there are duplicated requests",
                               () => {
-                                let requestOne
-                                let requestTwo
-                                let requestThree
-
+                                let requestOne: ReturnType<
+                                  typeof createTestRedemptionRequest
+                                >
+                                let requestTwo: ReturnType<
+                                  typeof createTestRedemptionRequest
+                                >
+                                let requestThree: ReturnType<
+                                  typeof createTestRedemptionRequest
+                                >
                                 before(async () => {
                                   await createSnapshot()
 
@@ -2079,9 +2123,12 @@ describe("WalletProposalValidator", () => {
                               requestTestData.forEach((requestTest) => {
                                 context(requestTest.testName, () => {
                                   let watchtower: Mock<IRedemptionWatchtower>
-                                  let requestOne
-                                  let requestTwo
-
+                                  let requestOne: ReturnType<
+                                    typeof createTestRedemptionRequest
+                                  >
+                                  let requestTwo: ReturnType<
+                                    typeof createTestRedemptionRequest
+                                  >
                                   before(async () => {
                                     await createSnapshot()
 
@@ -2163,7 +2210,6 @@ describe("WalletProposalValidator", () => {
                                         proposal
                                       )
 
-                                    // eslint-disable-next-line @typescript-eslint/no-unused-expressions
                                     expect(result).to.be.true
                                   })
                                 })
@@ -2581,7 +2627,7 @@ describe("WalletProposalValidator", () => {
                         },
                         walletMainUtxo
                       )
-                    // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+
                     expect(result).to.be.true
                   })
                 })
@@ -2850,7 +2896,7 @@ describe("WalletProposalValidator", () => {
                           movedFundsSweepTxFee: movedFundsSweepTxMaxTotalFee,
                         }
                       )
-                    // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+
                     expect(result).to.be.true
                   })
                 })
@@ -2881,7 +2927,6 @@ describe("WalletProposalValidator", () => {
           message: "0xffffffffffffffff1111111111111111",
         })
 
-        // eslint-disable-next-line @typescript-eslint/no-unused-expressions
         expect(result).to.be.true
       })
     })
@@ -2901,17 +2946,17 @@ describe("WalletProposalValidator", () => {
     // Lifecycle regression fixtures here are reachable on-chain:
     // governance requires `reservationMinAmount > reservationTxMaxFee > 0`
     // (Reservation.updateReservationParameters) and authorization requires
-    // `deposit.amount >= minAmount + txMaxFee` (reservation acceptance).
+    // `deposit.amount > minAmount + 2 * txMaxFee` (reservation acceptance).
     // The below-snapshot-floor case is an explicit mock-only test of the
     // validator's defensive invariant.
     const reservationMinAmount = 15000
     const reservationTxMaxFee = 10000
     const anchorTxFee = 6000
     // Meets the authorization floor (`reservationMinAmount +
-    // reservationTxMaxFee`) so the anchor-amount minimum check (out of
+    // 2 * reservationTxMaxFee`) so the anchor-amount minimum check (out of
     // this describe block's scope) never fires incidentally in the
     // cases below.
-    const depositAmount = reservationMinAmount + reservationTxMaxFee + 1000
+    const depositAmount = reservationMinAmount + 2 * reservationTxMaxFee + 1000
 
     const reservationActionType = {
       None: 0,
@@ -2968,7 +3013,7 @@ describe("WalletProposalValidator", () => {
       movingFundsTargetWalletsCommitmentHash: HashZero,
     })
 
-    let deposit
+    let deposit: ReturnType<typeof createTestDeposit>
 
     const buildProposal = (
       overrides: Partial<ReservationAnchorProposalStruct> = {}
@@ -3543,11 +3588,11 @@ describe("WalletProposalValidator", () => {
       before(async () => {
         await createSnapshot()
 
-        const safetyMarginViolatedAt = await lastBlockTime()
+        const safetyMarginViolatedAt = BigInt(await lastBlockTime())
         const depositRefundableAt =
           safetyMarginViolatedAt +
-          (await walletProposalValidator.DEPOSIT_REFUND_SAFETY_MARGIN())
-        const depositRevealedAt = depositRefundableAt - depositLocktime
+          BigInt(await walletProposalValidator.DEPOSIT_REFUND_SAFETY_MARGIN())
+        const depositRevealedAt = depositRefundableAt - BigInt(depositLocktime)
 
         deposit = createTestDeposit(
           walletPubKeyHash,
@@ -3718,7 +3763,6 @@ describe("WalletProposalValidator", () => {
             deposit.extraInfo
           )
 
-        // eslint-disable-next-line @typescript-eslint/no-unused-expressions
         expect(result).to.be.true
       })
     })
@@ -3784,7 +3828,6 @@ describe("WalletProposalValidator", () => {
               deposit.extraInfo
             )
 
-          // eslint-disable-next-line @typescript-eslint/no-unused-expressions
           expect(result).to.be.true
         })
       }
@@ -3919,7 +3962,6 @@ describe("WalletProposalValidator", () => {
               deposit.extraInfo
             )
 
-          // eslint-disable-next-line @typescript-eslint/no-unused-expressions
           expect(result).to.be.true
         })
       }
@@ -4274,7 +4316,6 @@ describe("WalletProposalValidator", () => {
             buildProposal()
           )
 
-        // eslint-disable-next-line @typescript-eslint/no-unused-expressions
         expect(result).to.be.true
       })
     })
@@ -4285,7 +4326,7 @@ const depositKey = (
   fundingTxHash: BytesLike,
   fundingOutputIndex: BigNumberish
 ) =>
-  ethers.utils.solidityKeccak256(
+  ethers.solidityPackedKeccak256(
     ["bytes32", "uint32"],
     [fundingTxHash, fundingOutputIndex]
   )
@@ -4294,7 +4335,7 @@ const createTestDeposit = (
   walletPubKeyHash: string,
   vault: string,
   witness = true,
-  revealedAt?: number,
+  revealedAt?: number | bigint,
   extraData?: string
 ) => {
   let resolvedRevealedAt = revealedAt
@@ -4309,10 +4350,10 @@ const createTestDeposit = (
     resolvedRevealedAt = depositRevealDefaultAnchorTime - day
   }
 
-  const refundableAt = resolvedRevealedAt + depositLocktime
+  const refundableAt = BigInt(resolvedRevealedAt) + BigInt(depositLocktime)
 
   const refundLocktime = `0x${Buffer.from(
-    BigNumber.from(refundableAt).toHexString().substring(2),
+    ethers.toBeHex(refundableAt).substring(2),
     "hex"
   )
     .reverse()
@@ -4353,12 +4394,10 @@ const createTestDeposit = (
 
   let depositScriptHash
   if (witness) {
-    depositScriptHash = `220020${ethers.utils
-      .sha256(depositScript)
-      .substring(2)}`
+    depositScriptHash = `220020${ethers.sha256(depositScript).substring(2)}`
   } else {
-    const sha256Hash = ethers.utils.sha256(depositScript)
-    const ripemd160Hash = ethers.utils.ripemd160(sha256Hash).substring(2)
+    const sha256Hash = ethers.sha256(depositScript)
+    const ripemd160Hash = ethers.ripemd160(sha256Hash).substring(2)
     depositScriptHash = `17a914${ripemd160Hash}87`
   }
 
@@ -4372,8 +4411,8 @@ const createTestDeposit = (
     locktime: "0x00000000",
   }
 
-  const fundingTxHash = ethers.utils.sha256(
-    ethers.utils.sha256(
+  const fundingTxHash = ethers.sha256(
+    ethers.sha256(
       `0x${fundingTx.version.substring(2)}` +
         `${fundingTx.inputVector.substring(2)}` +
         `${fundingTx.outputVector.substring(2)}` +
@@ -4393,7 +4432,7 @@ const createTestDeposit = (
       vault,
       treasuryFee: 0, // not relevant
       sweptAt: 0, // important to pass the validation
-      extraData: extraData ?? ethers.constants.HashZero,
+      extraData: extraData ?? ethers.ZeroHash,
     },
     extraInfo: {
       fundingTx,
@@ -4409,12 +4448,12 @@ const redemptionKey = (
   walletPubKeyHash: BytesLike,
   redeemerOutputScript: BytesLike
 ) => {
-  const scriptHash = ethers.utils.solidityKeccak256(
+  const scriptHash = ethers.solidityPackedKeccak256(
     ["bytes"],
     [redeemerOutputScript]
   )
 
-  return ethers.utils.solidityKeccak256(
+  return ethers.solidityPackedKeccak256(
     ["bytes32", "bytes20"],
     [scriptHash, walletPubKeyHash]
   )
@@ -4460,7 +4499,7 @@ const movedFundsSweepRequestKey = (
   movingFundsTxHash: BytesLike,
   movingFundsTxOutputIndex: number
 ) =>
-  ethers.utils.solidityKeccak256(
+  ethers.solidityPackedKeccak256(
     ["bytes32", "uint32"],
     [movingFundsTxHash, movingFundsTxOutputIndex]
   )
@@ -4469,10 +4508,10 @@ const buildRedemptionKey = (
   walletPubKeyHash: BytesLike,
   redeemerOutputScript: BytesLike
 ): string =>
-  ethers.utils.solidityKeccak256(
+  ethers.solidityPackedKeccak256(
     ["bytes32", "bytes20"],
     [
-      ethers.utils.solidityKeccak256(["bytes"], [redeemerOutputScript]),
+      ethers.solidityPackedKeccak256(["bytes"], [redeemerOutputScript]),
       walletPubKeyHash,
     ]
   )

@@ -143,8 +143,8 @@ contract WalletProposalValidator {
     ///      In the happy path case, i.e. where the deposit is revealed immediately
     ///      after being broadcast on the Bitcoin network, the minimum age
     ///      check also ensures block finality for Bitcoin.
-    uint32 public constant DEPOSIT_MIN_AGE =
-        WalletProposalValidatorConstants.DEPOSIT_MIN_AGE;
+    uint32 public constant DEPOSIT_MIN_AGE = WalletProposalValidatorConstants
+        .DEPOSIT_MIN_AGE;
 
     /// @notice Each deposit can be technically swept until it reaches its
     ///         refund timestamp after which it can be taken back by the depositor.
@@ -161,8 +161,10 @@ contract WalletProposalValidator {
     ///         For example, if a deposit becomes refundable after 8 pm and
     ///         DEPOSIT_REFUND_SAFETY_MARGIN is 24 hours, the deposit is valid
     ///         for a sweep only before 8 pm the previous day.
-    uint32 public constant DEPOSIT_REFUND_SAFETY_MARGIN =
-        WalletProposalValidatorConstants.DEPOSIT_REFUND_SAFETY_MARGIN;
+    uint32
+        public
+        constant DEPOSIT_REFUND_SAFETY_MARGIN = WalletProposalValidatorConstants
+            .DEPOSIT_REFUND_SAFETY_MARGIN;
 
     /// @notice The maximum count of deposits that can be swept within a
     ///         single sweep.
@@ -195,8 +197,10 @@ contract WalletProposalValidator {
     ///         For example, if a request times out after 8 pm and
     ///         REDEMPTION_REQUEST_TIMEOUT_SAFETY_MARGIN is 2 hours, the
     ///         request is valid for processing only before 6 pm.
-    uint32 public constant REDEMPTION_REQUEST_TIMEOUT_SAFETY_MARGIN =
-        WalletProposalValidatorConstants.REQUEST_TIMEOUT_SAFETY_MARGIN;
+    uint32
+        public
+        constant REDEMPTION_REQUEST_TIMEOUT_SAFETY_MARGIN = WalletProposalValidatorConstants
+            .REQUEST_TIMEOUT_SAFETY_MARGIN;
 
     /// @notice The maximum count of redemption requests that can be processed
     ///         within a single redemption.
@@ -370,10 +374,10 @@ contract WalletProposalValidator {
     ///      - The sweep tx fee must be grater than zero,
     ///      - The maximum per-deposit sweep tx fee must be lesser than or equal
     ///        the maximum fee allowed by the Bridge (`Bridge.depositTxMaxFee`).
-    function validateSweepTxFee(uint256 sweepTxFee, uint256 depositsCount)
-        internal
-        view
-    {
+    function validateSweepTxFee(
+        uint256 sweepTxFee,
+        uint256 depositsCount
+    ) internal view {
         require(sweepTxFee > 0, "Proposed transaction fee cannot be zero");
 
         // Compute the indivisible remainder that remains after dividing the
@@ -381,8 +385,8 @@ contract WalletProposalValidator {
         uint256 depositTxFeeRemainder = sweepTxFee % depositsCount;
         // Compute the transaction fee per deposit by dividing the sweep
         // transaction fee (reduced by the remainder) by the number of deposits.
-        uint256 depositTxFee = (sweepTxFee - depositTxFeeRemainder) /
-            depositsCount;
+        uint256 depositTxFee =
+            (sweepTxFee - depositTxFeeRemainder) / depositsCount;
 
         (, , uint64 depositTxMaxFee, ) = bridge.depositParameters();
 
@@ -552,11 +556,9 @@ contract WalletProposalValidator {
     ///        elapsed since their creation time,
     ///      - Each request must have the timeout safety margin preserved,
     ///      - Each request must be unique.
-    function validateRedemptionProposal(RedemptionProposal calldata proposal)
-        external
-        view
-        returns (bool)
-    {
+    function validateRedemptionProposal(
+        RedemptionProposal calldata proposal
+    ) external view returns (bool) {
         Wallets.Wallet memory wallet = bridge.wallets(
             proposal.walletPubKeyHash
         );
@@ -599,12 +601,13 @@ contract WalletProposalValidator {
 
         // Compute the indivisible remainder that remains after dividing the
         // redemption transaction fee over all requests evenly.
-        uint256 redemptionTxFeeRemainder = proposal.redemptionTxFee %
-            requestsCount;
+        uint256 redemptionTxFeeRemainder =
+            proposal.redemptionTxFee % requestsCount;
         // Compute the transaction fee per request by dividing the redemption
         // transaction fee (reduced by the remainder) by the number of requests.
-        uint256 redemptionTxFeePerRequest = (proposal.redemptionTxFee -
-            redemptionTxFeeRemainder) / requestsCount;
+        uint256 redemptionTxFeePerRequest =
+            (proposal.redemptionTxFee - redemptionTxFeeRemainder) /
+                requestsCount;
 
         address redemptionWatchtower = bridge.getRedemptionWatchtower();
 
@@ -662,8 +665,8 @@ contract WalletProposalValidator {
             );
 
             // Calculate the timeout the given request times out at.
-            uint32 requestTimeout = redemptionRequest.requestedAt +
-                redemptionTimeout;
+            uint32 requestTimeout =
+                redemptionRequest.requestedAt + redemptionTimeout;
             // Make sure we are far enough from the moment the request times out.
             require(
                 /* solhint-disable-next-line not-rely-on-time */
@@ -899,11 +902,9 @@ contract WalletProposalValidator {
     /// @return True if the proposal is valid. Reverts otherwise.
     /// @dev Requirements:
     ///      - The message to sign is a valid heartbeat message.
-    function validateHeartbeatProposal(HeartbeatProposal calldata proposal)
-        external
-        view
-        returns (bool)
-    {
+    function validateHeartbeatProposal(
+        HeartbeatProposal calldata proposal
+    ) external view returns (bool) {
         require(
             Heartbeat.isValidHeartbeatMessage(proposal.message),
             "Not a valid heartbeat message"
@@ -1182,7 +1183,7 @@ contract WalletProposalValidator {
                 IReservationBridge(address(bridge)).walletReservationsAmount(
                     proposal.targetWalletPubKeyHash
                 ) <=
-                maxReservationsAmountPerWallet,
+                    maxReservationsAmountPerWallet,
             "Wallet reserved amount cap exceeded"
         );
 
@@ -1200,10 +1201,9 @@ contract WalletProposalValidator {
 
     /// @notice Reverts unless the given wallet is in the Live or MovingFunds
     ///         state.
-    function requireWalletLiveOrMovingFunds(bytes20 walletPubKeyHash)
-        internal
-        view
-    {
+    function requireWalletLiveOrMovingFunds(
+        bytes20 walletPubKeyHash
+    ) internal view {
         Wallets.WalletState walletState = bridge
             .wallets(walletPubKeyHash)
             .state;

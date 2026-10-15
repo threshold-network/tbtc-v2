@@ -1,5 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unused-expressions */
-
 // The multi-term acceptance path end to end, at the live mainnet
 // `depositRevealAheadPeriod` of 150 days, on the Bridge fixture seeded by
 // `deploy/97` (ids 1-3: 365, 30 and 91 days). Three depositors reveal
@@ -12,8 +10,8 @@
 // credit together, through the production entry points.
 
 import { ethers, helpers } from "hardhat"
-import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
-import { BigNumber, ContractTransaction } from "ethers"
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
+import { ContractTransactionResponse } from "ethers"
 import { expect } from "chai"
 import type {
   Bank,
@@ -47,7 +45,7 @@ import { walletState } from "../fixtures"
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 const { lastBlockTime, increaseTime } = helpers.time
 
-const ZERO_BYTES32 = ethers.constants.HashZero
+const ZERO_BYTES32 = ethers.ZeroHash
 
 const DAY = 24 * 60 * 60
 const [TERM_365, TERM_30, TERM_91] = RESERVATION_TERM_ENTRIES
@@ -69,14 +67,14 @@ const RESERVATION_TERM = 90 * DAY
 const RESERVATION_GRACE = 30 * DAY
 const RESERVATION_MIN_AMOUNT = 10000
 const RESERVATION_TX_MAX_FEE = 2000
-const RESERVATION_MAX_TOTAL = BigNumber.from("10000000")
+const RESERVATION_MAX_TOTAL = BigInt("10000000")
 const MAX_RESERVATIONS_PER_WALLET = 10
 const RESERVATION_ACTION_TIMEOUT = 2 * DAY
 const RESERVATION_RENEWAL_WINDOW = 7 * DAY
 
 // The vault's mint fee at its default.
 const MINT_FEE_BPS = 20
-const SATOSHI_MULTIPLIER = BigNumber.from(10).pow(10)
+const SATOSHI_MULTIPLIER = 10n ** 10n
 const ANCHOR_FEE = 1500
 
 const ReservationState = {
@@ -84,9 +82,9 @@ const ReservationState = {
 }
 
 describe("Bridge - Reservation multi-term acceptance, end to end", () => {
-  let governance: SignerWithAddress
-  let spvMaintainer: SignerWithAddress
-  let depositors: SignerWithAddress[]
+  let governance: HardhatEthersSigner
+  let spvMaintainer: HardhatEthersSigner
+  let depositors: HardhatEthersSigner[]
 
   let relay: Mock<IRelay>
   let bank: Bank
@@ -102,7 +100,6 @@ describe("Bridge - Reservation multi-term acceptance, end to end", () => {
   const refundPubKeyHash = "0x28e081f285138ccbe389c1eb8985716230129f89"
 
   before(async () => {
-    // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({
       governance,
       spvMaintainer,
@@ -124,27 +121,27 @@ describe("Bridge - Reservation multi-term acceptance, end to end", () => {
     // Router functions are reached through the Bridge's fallback.
     reservationRouter = await ethers.getContractAt(
       "ReservationRouter",
-      bridge.address
+      bridge.target
     )
     reservationVault = await helpers.contracts.getContract("ReservationVault")
     // Bridge governance is the BridgeGovernance contract; the parameter
     // setup below impersonates it, and the disable goes through its
     // owner's begin/finalize.
-    expect(await bridge.governance()).to.equal(bridgeGovernance.address)
+    expect(await bridge.governance()).to.equal(bridgeGovernance.target)
     const bridgeGovernanceSigner = await impersonateContract(
-      bridgeGovernance.address
+      await bridgeGovernance.getAddress()
     )
 
     await bridge
       .connect(bridgeGovernanceSigner)
-      .setVaultStatus(reservationVault.address, true)
+      .setVaultStatus(reservationVault.target, true)
     await reservationRouter
       .connect(bridgeGovernanceSigner)
       .updateReservationCaps(RESERVATION_MAX_TOTAL, RESERVATION_MAX_TOTAL, 10)
     await reservationRouter
       .connect(bridgeGovernanceSigner)
       .updateReservationParameters(
-        reservationVault.address,
+        reservationVault.target,
         RESERVATION_MIN_AMOUNT,
         RESERVATION_TX_MAX_FEE,
         RESERVATION_TERM,
@@ -161,7 +158,7 @@ describe("Bridge - Reservation multi-term acceptance, end to end", () => {
     await bridge.setDepositDustThreshold(10000)
     await bridge.setDepositTxMaxFee(2000)
     await bridge.setWallet(walletPubKeyHash, {
-      ecdsaWalletID: ethers.utils.randomBytes(32),
+      ecdsaWalletID: ethers.randomBytes(32),
       mainUtxoHash: ZERO_BYTES32,
       pendingRedemptionsValue: 0,
       createdAt: await lastBlockTime(),
@@ -173,14 +170,14 @@ describe("Bridge - Reservation multi-term acceptance, end to end", () => {
     })
 
     const tbtcOwner = await impersonateContract(await tbtc.owner())
-    await tbtc.connect(tbtcOwner).transferOwnership(tbtcVault.address)
+    await tbtc.connect(tbtcOwner).transferOwnership(tbtcVault.target)
 
     // The mainnet reveal-ahead period, set through the BridgeGovernance
     // timelock so it passes the Bridge's check against the largest entry.
     await bridgeGovernance
       .connect(governance)
       .beginDepositRevealAheadPeriodUpdate(MAINNET_REVEAL_AHEAD_PERIOD)
-    await increaseTime((await bridgeGovernance.governanceDelays(0)).toNumber())
+    await increaseTime(Number(await bridgeGovernance.governanceDelays(0)))
     await bridgeGovernance
       .connect(governance)
       .finalizeDepositRevealAheadPeriodUpdate()
@@ -219,14 +216,14 @@ describe("Bridge - Reservation multi-term acceptance, end to end", () => {
   // A proof context for `depositor`'s deposit of `depositAmount` sat on
   // `termId`, with a refund deadline `REFUND_DEADLINE_OFFSET` after now.
   async function contextFor(
-    depositor: SignerWithAddress,
+    depositor: HardhatEthersSigner,
     depositAmount: number,
     termId: number
   ): Promise<ReservationProofContext> {
     return {
       bridge,
       reservationRouter,
-      reservationVault: reservationVault.address,
+      reservationVault: await reservationVault.getAddress(),
       depositor,
       spvMaintainer,
       walletPubKeyHash,
@@ -235,8 +232,8 @@ describe("Bridge - Reservation multi-term acceptance, end to end", () => {
       refundLocktime: refundLocktimeAt(
         (await lastBlockTime()) + REFUND_DEADLINE_OFFSET
       ),
-      depositAmount: BigNumber.from(depositAmount),
-      anchorAmount: BigNumber.from(depositAmount - ANCHOR_FEE),
+      depositAmount: BigInt(depositAmount),
+      anchorAmount: BigInt(depositAmount - ANCHOR_FEE),
       termId,
     }
   }
@@ -247,19 +244,23 @@ describe("Bridge - Reservation multi-term acceptance, end to end", () => {
   // off-chain consumers may rely on.
   async function requestAcceptance(
     ctx: ReservationProofContext,
-    reservationKey: BigNumber
+    reserved: RevealedReservation
   ): Promise<void> {
+    const { fundingTx, reservationKey } = reserved
     const tx = await reservationRouter
       .connect(ctx.depositor)
       .requestReservationAcceptance(
-        reservationKey,
+        fundingTx.info,
+        proofFor(fundingTx.txHash),
+        0,
         ctx.walletPubKeyHash,
         ctx.termId
       )
-    const receipt = await tx.wait()
+    const receipt = (await tx.wait())!
+    const bridgeAddress = await bridge.getAddress()
     const names = receipt.logs
-      .filter((log) => log.address === bridge.address)
-      .map((log) => reservationRouter.interface.parseLog(log).name)
+      .filter((log) => log.address === bridgeAddress)
+      .map((log) => reservationRouter.interface.parseLog(log)!.name)
     const requestedAt = names.indexOf("ReservationAcceptanceRequested")
     const selectedAt = names.indexOf("ReservationTermSelected")
     expect(requestedAt).to.not.equal(-1)
@@ -272,7 +273,7 @@ describe("Bridge - Reservation multi-term acceptance, end to end", () => {
   async function submitProof(
     ctx: ReservationProofContext,
     reserved: RevealedReservation
-  ): Promise<ContractTransaction> {
+  ): Promise<ContractTransactionResponse> {
     return reservationRouter
       .connect(ctx.spvMaintainer)
       .submitReservationAcceptanceProof(
@@ -283,9 +284,9 @@ describe("Bridge - Reservation multi-term acceptance, end to end", () => {
       )
   }
 
-  async function blockTimeOf(tx: ContractTransaction): Promise<number> {
-    const receipt = await tx.wait()
-    return (await ethers.provider.getBlock(receipt.blockNumber)).timestamp
+  async function blockTimeOf(tx: ContractTransactionResponse): Promise<number> {
+    const receipt = (await tx.wait())!
+    return (await ethers.provider.getBlock(receipt.blockNumber))!.timestamp
   }
 
   it("accepts and credits a position on each term, then disables one term for new requests only", async () => {
@@ -322,7 +323,7 @@ describe("Bridge - Reservation multi-term acceptance, end to end", () => {
     // eslint-disable-next-line no-restricted-syntax
     for (const [i, { ctx }] of positions.entries()) {
       // eslint-disable-next-line no-await-in-loop
-      await requestAcceptance(ctx, revealed[i].reservationKey)
+      await requestAcceptance(ctx, revealed[i])
     }
 
     // Then the proofs settle, and the vault credits each owner.
@@ -330,15 +331,15 @@ describe("Bridge - Reservation multi-term acceptance, end to end", () => {
     for (const [i, { entry, ctx }] of positions.entries()) {
       const { reservationKey } = revealed[i]
       const owner = ctx.depositor.address
-      const grossTbtc = ctx.anchorAmount.mul(SATOSHI_MULTIPLIER)
+      const grossTbtc = ctx.anchorAmount * SATOSHI_MULTIPLIER
       const feeBps = MINT_FEE_BPS + entry.custodyBps
-      const fee = grossTbtc.mul(feeBps).div(10000)
+      const fee = (grossTbtc * BigInt(feeBps)) / 10000n
 
       /* eslint-disable no-await-in-loop */
       const ownerBefore = await tbtc.balanceOf(owner)
-      const vaultBefore = await tbtc.balanceOf(reservationVault.address)
+      const vaultBefore = await tbtc.balanceOf(reservationVault.target)
       const supplyBefore = await tbtc.totalSupply()
-      const vaultBankBefore = await bank.balanceOf(reservationVault.address)
+      const vaultBankBefore = await bank.balanceOf(reservationVault.target)
 
       const tx = await submitProof(ctx, revealed[i])
       const settledAt = await blockTimeOf(tx)
@@ -356,17 +357,16 @@ describe("Bridge - Reservation multi-term acceptance, end to end", () => {
 
       // The owner receives gross minus 22 / 25 / 40 bps in TBTC, the vault
       // keeps the fee, and the minted total equals the anchor.
-      const ownerDelta = (await tbtc.balanceOf(owner)).sub(ownerBefore)
-      const vaultDelta = (await tbtc.balanceOf(reservationVault.address)).sub(
-        vaultBefore
-      )
-      expect(ownerDelta).to.equal(grossTbtc.sub(fee))
+      const ownerDelta = (await tbtc.balanceOf(owner)) - ownerBefore
+      const vaultDelta =
+        (await tbtc.balanceOf(reservationVault.target)) - vaultBefore
+      expect(ownerDelta).to.equal(grossTbtc - fee)
       expect(vaultDelta).to.equal(fee)
-      expect(ownerDelta.add(vaultDelta)).to.equal(grossTbtc)
-      expect((await tbtc.totalSupply()).sub(supplyBefore)).to.equal(grossTbtc)
+      expect(ownerDelta + vaultDelta).to.equal(grossTbtc)
+      expect((await tbtc.totalSupply()) - supplyBefore).to.equal(grossTbtc)
       // The Bank balance the Bridge credited to the vault is exactly what
       // the vault converted, so none of it is left stranded there.
-      expect(await bank.balanceOf(reservationVault.address)).to.equal(
+      expect(await bank.balanceOf(reservationVault.target)).to.equal(
         vaultBankBefore
       )
       await expect(tx)
@@ -383,7 +383,7 @@ describe("Bridge - Reservation multi-term acceptance, end to end", () => {
     // begin/finalize, passing its stored length and fee unchanged.
     const disabled = TERM_91
     const onDisabled = revealed[1].reservationKey
-    const snapshotOf = async (key: BigNumber) => ({
+    const snapshotOf = async (key: bigint) => ({
       position: await reservationRouter.reservations(key),
       termId: await reservationRouter.reservationTermId(key),
     })
@@ -405,7 +405,7 @@ describe("Bridge - Reservation multi-term acceptance, end to end", () => {
         disabled.custodyBps,
         false
       )
-    await increaseTime((await bridgeGovernance.governanceDelays(0)).toNumber())
+    await increaseTime(Number(await bridgeGovernance.governanceDelays(0)))
     await expect(
       bridgeGovernance.connect(governance).finalizeReservationTermUpdate()
     )
@@ -446,14 +446,13 @@ describe("Bridge - Reservation multi-term acceptance, end to end", () => {
       reservationRouter
         .connect(lateCtx.depositor)
         .requestReservationAcceptance(
-          late.reservationKey,
+          late.fundingTx.info,
+          proofFor(late.fundingTx.txHash),
+          0,
           walletPubKeyHash,
           disabled.termId
         )
     ).to.be.revertedWith("Reservation term is disabled")
-    await requestAcceptance(
-      { ...lateCtx, termId: TERM_365.termId },
-      late.reservationKey
-    )
+    await requestAcceptance({ ...lateCtx, termId: TERM_365.termId }, late)
   })
 })

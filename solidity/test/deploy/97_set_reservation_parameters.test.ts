@@ -2,7 +2,7 @@
 
 import { expect } from "chai"
 import { ethers } from "hardhat"
-import { BigNumber } from "ethers"
+import { toBigInt } from "ethers"
 import func, {
   RESERVATION_TERM_ENTRIES,
 } from "../../deploy/97_set_reservation_parameters"
@@ -28,7 +28,7 @@ describe("Deploy Script 97: reservation term table seeding", () => {
       const { bridge, bridgeGovernance } = await bridgeFixture()
       const reservationRouter = await ethers.getContractAt(
         "ReservationRouter",
-        bridge.address
+        bridge.target
       )
 
       // Every table write since genesis: the deploy script's finalizes, and
@@ -50,7 +50,7 @@ describe("Deploy Script 97: reservation term table seeding", () => {
       expect(writes).to.deep.equal(
         RESERVATION_TERM_ENTRIES.map((entry) => ({
           ...entry,
-          to: bridgeGovernance.address,
+          to: bridgeGovernance.target,
         }))
       )
 
@@ -88,24 +88,24 @@ describe("Deploy Script 97: reservation term table seeding", () => {
         | "ParametersStarted"
         | "ParametersUpdated"
       blockNumber: number
-      logIndex: number
+      index: number
       args: any[]
     }
 
     const started = (
       entry: ReservationTermEntry,
       blockNumber: number,
-      logIndex = 0
+      index = 0
     ): StagingEvent => ({
       name: "Started",
       blockNumber,
-      logIndex,
+      index,
       args: [
         entry.termId,
         entry.termSeconds,
         entry.custodyBps,
         entry.enabled,
-        BigNumber.from(STARTED_AT),
+        BigInt(STARTED_AT),
       ],
     })
 
@@ -115,7 +115,7 @@ describe("Deploy Script 97: reservation term table seeding", () => {
     ): StagingEvent => ({
       name: "Finalized",
       blockNumber,
-      logIndex: 0,
+      index: 0,
       args: [entry.termId, entry.termSeconds, entry.custodyBps, entry.enabled],
     })
 
@@ -135,10 +135,8 @@ describe("Deploy Script 97: reservation term table seeding", () => {
       return {
         name,
         blockNumber,
-        logIndex: 0,
-        args: staged
-          ? [...Object.values(staged), BigNumber.from(STARTED_AT)]
-          : [],
+        index: 0,
+        args: staged ? [...Object.values(staged), BigInt(STARTED_AT)] : [],
       }
     }
 
@@ -247,7 +245,7 @@ describe("Deploy Script 97: reservation term table seeding", () => {
           },
           read: async (name: string, method: string) => {
             if (name === "BridgeGovernance" && method === "governanceDelays") {
-              return BigNumber.from(GOVERNANCE_DELAY)
+              return BigInt(GOVERNANCE_DELAY)
             }
             throw new Error(`Unexpected read: ${name}.${method}`)
           },
@@ -262,7 +260,7 @@ describe("Deploy Script 97: reservation term table seeding", () => {
           },
         },
         ethers: {
-          BigNumber,
+          toBigInt,
           provider: {
             getBlockNumber: async () => options.latestBlock ?? LATEST_BLOCK,
             getBlock: async () => ({
@@ -277,11 +275,11 @@ describe("Deploy Script 97: reservation term table seeding", () => {
                   const entry = table.find((e) => e.termId === termId)
                   return entry
                     ? {
-                        termSeconds: entry.termSeconds,
-                        custodyBps: entry.custodyBps,
+                        termSeconds: BigInt(entry.termSeconds),
+                        custodyBps: BigInt(entry.custodyBps),
                         enabled: entry.enabled,
                       }
-                    : { termSeconds: 0, custodyBps: 0, enabled: false }
+                    : { termSeconds: 0n, custodyBps: 0n, enabled: false }
                 },
                 reservationCaps: async () => options.caps ?? UNSET_CAPS,
                 reservationParameters: async () =>

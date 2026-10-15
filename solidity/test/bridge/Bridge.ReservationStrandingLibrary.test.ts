@@ -1,9 +1,13 @@
-/* eslint-disable @typescript-eslint/no-unused-expressions */
-
-import { artifacts, ethers, waffle } from "hardhat"
+/* eslint-disable no-bitwise -- the storage helpers below set and clear bit ranges of a 256-bit word */
+/* eslint-disable @typescript-eslint/no-non-null-assertion -- ethers v6 returns nullable blocks, receipts and parsed logs that these tests have just produced */
+import { artifacts, ethers } from "hardhat"
+import { loadFixture } from "@nomicfoundation/hardhat-network-helpers"
 import { expect } from "chai"
-import { BigNumber, Contract, ContractTransaction } from "ethers"
-import type { Interface } from "ethers/lib/utils"
+import type {
+  BigNumberish,
+  ContractTransactionResponse,
+  Interface,
+} from "ethers"
 import { createMock, expectCalledOnce, expectNotCalled } from "../helpers/mock"
 
 import type { Mock } from "../helpers/mock"
@@ -50,7 +54,7 @@ const reservationActionTypeEnum = {
   Dissolution: 4,
 }
 
-const fixture = waffle.createFixtureLoader(waffle.provider.getWallets())
+const fixture = loadFixture
 
 async function deployExecutor(): Promise<ReservationStrandingExecutor> {
   // The Reservation library is `external` (its `notifyReservationStranded`,
@@ -69,73 +73,82 @@ async function deployExecutor(): Promise<ReservationStrandingExecutor> {
   // linked, not `ReservationProofs`.
   const ReservationFactory = await ethers.getContractFactory("Reservation")
   const reservation = await ReservationFactory.deploy()
-  await reservation.deployed()
+  await reservation.waitForDeployment()
 
   const Factory = await ethers.getContractFactory(
     "ReservationStrandingExecutor",
     {
       libraries: {
-        Reservation: reservation.address,
+        Reservation: await reservation.getAddress(),
       },
     }
   )
   const executor = (await Factory.deploy()) as ReservationStrandingExecutor
-  await executor.deployed()
+  await executor.waitForDeployment()
   return executor
+}
+
+function solidityKeccak256(types: string[], values: unknown[]): string {
+  return ethers.keccak256(
+    ethers.AbiCoder.defaultAbiCoder().encode(types, values)
+  )
+}
+
+const uint64Mask = (1n << 64n) - 1n
+const uint32Mask = (1n << 32n) - 1n
+
+async function readStorageWord(address: string, slot: number): Promise<bigint> {
+  return BigInt(
+    await ethers.provider.getStorage(address, ethers.toQuantity(BigInt(slot)))
+  )
+}
+
+async function writeStorageWord(
+  address: string,
+  slot: number,
+  value: bigint
+): Promise<void> {
+  await ethers.provider.send("hardhat_setStorageAt", [
+    address,
+    ethers.toQuantity(BigInt(slot)),
+    ethers.toBeHex(value, 32),
+  ])
 }
 
 async function setReservationConfig(
   executorAddress: string,
   params: {
     reservationVault?: string
-    reservationMinAmount?: number | BigNumber
-    reservationTxMaxFee?: number | BigNumber
+    reservationMinAmount?: BigNumberish
+    reservationTxMaxFee?: BigNumberish
     reservationTermSeconds?: number
     reservationDissolutionDelay?: number
-    reservationMaxTotalAmount?: number | BigNumber
-    reservationTotalAmount?: number | BigNumber
+    reservationMaxTotalAmount?: BigNumberish
+    reservationTotalAmount?: BigNumberish
     maxReservationsPerWallet?: number
     reservationRouter?: string
     reservationActionTimeout?: number
     reservationRenewalWindowSeconds?: number
-    maxReservationsAmountPerWallet?: number | BigNumber
-    reservationMaxSingleAmount?: number | BigNumber
+    maxReservationsAmountPerWallet?: BigNumberish
+    reservationMaxSingleAmount?: BigNumberish
   }
 ) {
   if (
     params.reservationMinAmount !== undefined ||
     params.reservationTermSeconds !== undefined
   ) {
-    const raw = await ethers.provider.getStorageAt(
-      executorAddress,
-      ethers.utils.hexValue(29)
-    )
-    let word29 = ethers.BigNumber.from(raw)
+    let word29 = await readStorageWord(executorAddress, 29)
     if (params.reservationMinAmount !== undefined) {
-      word29 = word29.and(
-        ethers.constants.MaxUint256.sub(
-          ethers.BigNumber.from("0xffffffffffffffff").shl(160)
-        )
-      )
-      word29 = word29.or(
-        ethers.BigNumber.from(params.reservationMinAmount).shl(160)
-      )
+      word29 =
+        (word29 & ~(uint64Mask << 160n)) |
+        (BigInt(params.reservationMinAmount) << 160n)
     }
     if (params.reservationTermSeconds !== undefined) {
-      word29 = word29.and(
-        ethers.constants.MaxUint256.sub(
-          ethers.BigNumber.from("0xffffffff").shl(224)
-        )
-      )
-      word29 = word29.or(
-        ethers.BigNumber.from(params.reservationTermSeconds).shl(224)
-      )
+      word29 =
+        (word29 & ~(uint32Mask << 224n)) |
+        (BigInt(params.reservationTermSeconds) << 224n)
     }
-    await ethers.provider.send("hardhat_setStorageAt", [
-      executorAddress,
-      ethers.utils.hexValue(29),
-      ethers.utils.hexZeroPad(word29.toHexString(), 32),
-    ])
+    await writeStorageWord(executorAddress, 29, word29)
   }
 
   if (
@@ -143,44 +156,21 @@ async function setReservationConfig(
     params.reservationTxMaxFee !== undefined ||
     params.reservationDissolutionDelay !== undefined
   ) {
-    const raw = await ethers.provider.getStorageAt(
-      executorAddress,
-      ethers.utils.hexValue(30)
-    )
-    let word30 = ethers.BigNumber.from(raw)
+    let word30 = await readStorageWord(executorAddress, 30)
     if (params.reservationVault !== undefined) {
-      word30 = word30.and(
-        ethers.constants.MaxUint256.sub(
-          ethers.BigNumber.from("0xffffffffffffffffffffffffffffffffffffffff")
-        )
-      )
-      word30 = word30.or(ethers.BigNumber.from(params.reservationVault))
+      word30 = (word30 & ~(uint64Mask << 96n)) | BigInt(params.reservationVault)
     }
     if (params.reservationTxMaxFee !== undefined) {
-      word30 = word30.and(
-        ethers.constants.MaxUint256.sub(
-          ethers.BigNumber.from("0xffffffffffffffff").shl(160)
-        )
-      )
-      word30 = word30.or(
-        ethers.BigNumber.from(params.reservationTxMaxFee).shl(160)
-      )
+      word30 =
+        (word30 & ~(uint64Mask << 160n)) |
+        (BigInt(params.reservationTxMaxFee) << 160n)
     }
     if (params.reservationDissolutionDelay !== undefined) {
-      word30 = word30.and(
-        ethers.constants.MaxUint256.sub(
-          ethers.BigNumber.from("0xffffffff").shl(224)
-        )
-      )
-      word30 = word30.or(
-        ethers.BigNumber.from(params.reservationDissolutionDelay).shl(224)
-      )
+      word30 =
+        (word30 & ~(uint32Mask << 224n)) |
+        (BigInt(params.reservationDissolutionDelay) << 224n)
     }
-    await ethers.provider.send("hardhat_setStorageAt", [
-      executorAddress,
-      ethers.utils.hexValue(30),
-      ethers.utils.hexZeroPad(word30.toHexString(), 32),
-    ])
+    await writeStorageWord(executorAddress, 30, word30)
   }
 
   if (
@@ -188,46 +178,21 @@ async function setReservationConfig(
     params.reservationTotalAmount !== undefined ||
     params.maxReservationsPerWallet !== undefined
   ) {
-    const raw = await ethers.provider.getStorageAt(
-      executorAddress,
-      ethers.utils.hexValue(31)
-    )
-    let word31 = ethers.BigNumber.from(raw)
+    let word31 = await readStorageWord(executorAddress, 31)
     if (params.reservationMaxTotalAmount !== undefined) {
-      word31 = word31.and(
-        ethers.constants.MaxUint256.sub(
-          ethers.BigNumber.from("0xffffffffffffffff")
-        )
-      )
-      word31 = word31.or(
-        ethers.BigNumber.from(params.reservationMaxTotalAmount)
-      )
+      word31 = (word31 & ~uint64Mask) | BigInt(params.reservationMaxTotalAmount)
     }
     if (params.reservationTotalAmount !== undefined) {
-      word31 = word31.and(
-        ethers.constants.MaxUint256.sub(
-          ethers.BigNumber.from("0xffffffffffffffff").shl(64)
-        )
-      )
-      word31 = word31.or(
-        ethers.BigNumber.from(params.reservationTotalAmount).shl(64)
-      )
+      word31 =
+        (word31 & ~(uint64Mask << 64n)) |
+        (BigInt(params.reservationTotalAmount) << 64n)
     }
     if (params.maxReservationsPerWallet !== undefined) {
-      word31 = word31.and(
-        ethers.constants.MaxUint256.sub(
-          ethers.BigNumber.from("0xffffffff").shl(128)
-        )
-      )
-      word31 = word31.or(
-        ethers.BigNumber.from(params.maxReservationsPerWallet).shl(128)
-      )
+      word31 =
+        (word31 & ~(uint32Mask << 128n)) |
+        (BigInt(params.maxReservationsPerWallet) << 128n)
     }
-    await ethers.provider.send("hardhat_setStorageAt", [
-      executorAddress,
-      ethers.utils.hexValue(31),
-      ethers.utils.hexZeroPad(word31.toHexString(), 32),
-    ])
+    await writeStorageWord(executorAddress, 31, word31)
   }
 
   if (
@@ -235,88 +200,47 @@ async function setReservationConfig(
     params.reservationActionTimeout !== undefined ||
     params.reservationRenewalWindowSeconds !== undefined
   ) {
-    const raw = await ethers.provider.getStorageAt(
-      executorAddress,
-      ethers.utils.hexValue(32)
-    )
-    let word32 = ethers.BigNumber.from(raw)
+    let word32 = await readStorageWord(executorAddress, 32)
     if (params.reservationRouter !== undefined) {
-      word32 = word32.and(
-        ethers.constants.MaxUint256.sub(
-          ethers.BigNumber.from("0xffffffffffffffffffffffffffffffffffffffff")
-        )
-      )
-      word32 = word32.or(ethers.BigNumber.from(params.reservationRouter))
+      word32 =
+        (word32 & ~(uint64Mask << 96n)) | BigInt(params.reservationRouter)
     }
     if (params.reservationActionTimeout !== undefined) {
-      word32 = word32.and(
-        ethers.constants.MaxUint256.sub(
-          ethers.BigNumber.from("0xffffffff").shl(160)
-        )
-      )
-      word32 = word32.or(
-        ethers.BigNumber.from(params.reservationActionTimeout).shl(160)
-      )
+      word32 =
+        (word32 & ~(uint32Mask << 160n)) |
+        (BigInt(params.reservationActionTimeout) << 160n)
     }
     if (params.reservationRenewalWindowSeconds !== undefined) {
-      word32 = word32.and(
-        ethers.constants.MaxUint256.sub(
-          ethers.BigNumber.from("0xffffffff").shl(192)
-        )
-      )
-      word32 = word32.or(
-        ethers.BigNumber.from(params.reservationRenewalWindowSeconds).shl(192)
-      )
+      word32 =
+        (word32 & ~(uint32Mask << 192n)) |
+        (BigInt(params.reservationRenewalWindowSeconds) << 192n)
     }
-    await ethers.provider.send("hardhat_setStorageAt", [
-      executorAddress,
-      ethers.utils.hexValue(32),
-      ethers.utils.hexZeroPad(word32.toHexString(), 32),
-    ])
+    await writeStorageWord(executorAddress, 32, word32)
   }
 
   if (
     params.maxReservationsAmountPerWallet !== undefined ||
     params.reservationMaxSingleAmount !== undefined
   ) {
-    const raw = await ethers.provider.getStorageAt(
-      executorAddress,
-      ethers.utils.hexValue(33)
-    )
-    let word33 = ethers.BigNumber.from(raw)
+    let word33 = await readStorageWord(executorAddress, 33)
     if (params.maxReservationsAmountPerWallet !== undefined) {
-      word33 = word33.and(
-        ethers.constants.MaxUint256.sub(
-          ethers.BigNumber.from("0xffffffffffffffff")
-        )
-      )
-      word33 = word33.or(
-        ethers.BigNumber.from(params.maxReservationsAmountPerWallet)
-      )
+      word33 =
+        (word33 & ~uint64Mask) | BigInt(params.maxReservationsAmountPerWallet)
     }
     if (params.reservationMaxSingleAmount !== undefined) {
-      word33 = word33.and(
-        ethers.constants.MaxUint256.sub(
-          ethers.BigNumber.from("0xffffffffffffffff").shl(64)
-        )
-      )
-      word33 = word33.or(
-        ethers.BigNumber.from(params.reservationMaxSingleAmount).shl(64)
-      )
+      word33 =
+        (word33 & ~(uint64Mask << 64n)) |
+        (BigInt(params.reservationMaxSingleAmount) << 64n)
     }
-    await ethers.provider.send("hardhat_setStorageAt", [
-      executorAddress,
-      ethers.utils.hexValue(33),
-      ethers.utils.hexZeroPad(word33.toHexString(), 32),
-    ])
+    await writeStorageWord(executorAddress, 33, word33)
   }
 }
 
 async function seedDepositWithVault(
   executor: ReservationStrandingExecutor,
-  depositKey: string | number | BigNumber,
+  depositKey: string | number | bigint,
   depositor: string,
-  amount: number | BigNumber = 1_000_000,
+  amount: number | bigint = 1_000_000,
   revealedAt?: number,
   vault?: string
 ) {
@@ -326,31 +250,63 @@ async function seedDepositWithVault(
     revealedAt ??
     Number(await ethers.provider.getBlock("latest").then((b) => b!.timestamp))
 
-  const baseSlot = ethers.utils.solidityKeccak256(
-    ["uint256", "uint256"],
-    [depositKey, 19]
+  const baseSlot = BigInt(
+    solidityKeccak256(["uint256", "uint256"], [BigInt(depositKey), 19n])
   )
 
-  const word0 = ethers.BigNumber.from(depositor)
-    .or(ethers.BigNumber.from(amount).shl(160))
-    .or(ethers.BigNumber.from(currentRevealedAt).shl(224))
+  const word0 =
+    BigInt(depositor) |
+    (BigInt(amount) << 160n) |
+    (BigInt(currentRevealedAt) << 224n)
   await ethers.provider.send("hardhat_setStorageAt", [
-    executor.address,
-    ethers.BigNumber.from(baseSlot).toHexString(),
-    ethers.utils.hexZeroPad(word0.toHexString(), 32),
+    await executor.getAddress(),
+    ethers.toQuantity(baseSlot),
+    ethers.toBeHex(word0, 32),
   ])
 
   if (vault) {
-    const word1 = ethers.BigNumber.from(vault)
+    const word1 = BigInt(vault)
     await ethers.provider.send("hardhat_setStorageAt", [
-      executor.address,
-      ethers.BigNumber.from(baseSlot).add(1).toHexString(),
-      ethers.utils.hexZeroPad(word1.toHexString(), 32),
+      await executor.getAddress(),
+      ethers.toQuantity(baseSlot + 1n),
+      ethers.toBeHex(word1, 32),
     ])
   }
 }
 
 const ZERO_BYTES32 = `0x${"00".repeat(32)}`
+
+// Decodes every log of a receipt with the executor's own ABI, dropping the
+// ones the ABI does not describe, and keeps the first one whose name matches.
+function findEvent(
+  receipt: NonNullable<
+    Awaited<ReturnType<ContractTransactionResponse["wait"]>>
+  >,
+  contract: ReservationStrandingExecutor,
+  name: string
+) {
+  return filterEvents(receipt, contract, name)[0]
+}
+
+function filterEvents(
+  receipt: NonNullable<
+    Awaited<ReturnType<ContractTransactionResponse["wait"]>>
+  >,
+  contract: ReservationStrandingExecutor,
+  name: string
+) {
+  return receipt.logs.flatMap((log) => {
+    try {
+      const parsed = contract.interface.parseLog({
+        topics: [...log.topics],
+        data: log.data,
+      })
+      return parsed !== null && parsed.name === name ? [parsed] : []
+    } catch {
+      return []
+    }
+  })
+}
 
 describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
   let executor: ReservationStrandingExecutor
@@ -387,53 +343,52 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       )
 
       // Sanity check: counters are populated before stranding.
-      expect(await executor.reservationState(reservationKey)).to.equal(
+      expect(Number(await executor.reservationState(reservationKey))).to.equal(
         reservationStateEnum.Active
       )
-      expect(await executor.walletReservationsCount(walletPubKeyHash)).to.equal(
-        1
-      )
       expect(
-        await executor.walletReservationsAmount(walletPubKeyHash)
+        Number(await executor.walletReservationsCount(walletPubKeyHash))
+      ).to.equal(1)
+      expect(
+        Number(await executor.walletReservationsAmount(walletPubKeyHash))
       ).to.equal(anchorAmount)
-      expect(await executor.reservationTotalAmount()).to.equal(anchorAmount)
-
-      const tx: ContractTransaction = await executor.notifyReservationStranded(
-        reservationKey
+      expect(Number(await executor.reservationTotalAmount())).to.equal(
+        anchorAmount
       )
+
+      const tx: ContractTransactionResponse =
+        await executor.notifyReservationStranded(reservationKey)
 
       // The position is now Stranded.
-      expect(await executor.reservationState(reservationKey)).to.equal(
+      expect(Number(await executor.reservationState(reservationKey))).to.equal(
         reservationStateEnum.Stranded
       )
       // All four counters decremented to zero.
-      expect(await executor.walletReservationsCount(walletPubKeyHash)).to.equal(
-        0
-      )
       expect(
-        await executor.walletReservationsAmount(walletPubKeyHash)
+        Number(await executor.walletReservationsCount(walletPubKeyHash))
       ).to.equal(0)
-      expect(await executor.reservationTotalAmount()).to.equal(0)
+      expect(
+        Number(await executor.walletReservationsAmount(walletPubKeyHash))
+      ).to.equal(0)
+      expect(Number(await executor.reservationTotalAmount())).to.equal(0)
       // Anchor outpoint reverse index released.
-      const anchorUtxoHash = ethers.utils.solidityKeccak256(
+      const anchorUtxoHash = solidityKeccak256(
         ["bytes32", "uint32"],
         [anchorTxHash, anchorTxOutputIndex]
       )
-      expect(await executor.reservationsByAnchorUtxo(anchorUtxoHash)).to.equal(
-        0
-      )
+      expect(
+        Number(await executor.reservationsByAnchorUtxo(anchorUtxoHash))
+      ).to.equal(0)
 
       // The exact args of the emitted event match the pre-stranding
       // reservation: reservationKey, walletPubKeyHash, owner, anchorAmount.
-      const receipt = await tx.wait()
-      const stranded = receipt.events?.find(
-        (e) => e.event === "ReservationStranded"
-      )
+      const receipt = (await tx.wait())!
+      const stranded = findEvent(receipt, executor, "ReservationStranded")
       expect(stranded, "ReservationStranded event missing").to.not.be.undefined
-      expect(stranded!.args!.reservationKey).to.equal(reservationKey)
-      expect(stranded!.args!.walletPubKeyHash).to.equal(walletPubKeyHash)
-      expect(stranded!.args!.owner).to.equal(owner)
-      expect(stranded!.args!.anchorAmount).to.equal(anchorAmount)
+      expect(stranded!.args.reservationKey).to.equal(reservationKey)
+      expect(stranded!.args.walletPubKeyHash).to.equal(walletPubKeyHash)
+      expect(stranded!.args.owner).to.equal(owner)
+      expect(Number(stranded!.args.anchorAmount)).to.equal(anchorAmount)
     })
 
     it("rejects when the custodying wallet is Closing", async () => {
@@ -495,48 +450,47 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
         reservationStateEnum.Active
       )
 
-      expect(await executor.reservationState(reservationKey)).to.equal(
+      expect(Number(await executor.reservationState(reservationKey))).to.equal(
         reservationStateEnum.Active
       )
-      expect(await executor.walletReservationsCount(walletPubKeyHash)).to.equal(
-        1
-      )
       expect(
-        await executor.walletReservationsAmount(walletPubKeyHash)
+        Number(await executor.walletReservationsCount(walletPubKeyHash))
+      ).to.equal(1)
+      expect(
+        Number(await executor.walletReservationsAmount(walletPubKeyHash))
       ).to.equal(anchorAmount)
-      expect(await executor.reservationTotalAmount()).to.equal(anchorAmount)
-
-      const tx: ContractTransaction = await executor.notifyReservationStranded(
-        reservationKey
+      expect(Number(await executor.reservationTotalAmount())).to.equal(
+        anchorAmount
       )
 
-      expect(await executor.reservationState(reservationKey)).to.equal(
+      const tx: ContractTransactionResponse =
+        await executor.notifyReservationStranded(reservationKey)
+
+      expect(Number(await executor.reservationState(reservationKey))).to.equal(
         reservationStateEnum.Stranded
       )
-      expect(await executor.walletReservationsCount(walletPubKeyHash)).to.equal(
-        0
-      )
       expect(
-        await executor.walletReservationsAmount(walletPubKeyHash)
+        Number(await executor.walletReservationsCount(walletPubKeyHash))
       ).to.equal(0)
-      expect(await executor.reservationTotalAmount()).to.equal(0)
-      const anchorUtxoHash = ethers.utils.solidityKeccak256(
+      expect(
+        Number(await executor.walletReservationsAmount(walletPubKeyHash))
+      ).to.equal(0)
+      expect(Number(await executor.reservationTotalAmount())).to.equal(0)
+      const anchorUtxoHash = solidityKeccak256(
         ["bytes32", "uint32"],
         [anchorTxHash, anchorTxOutputIndex]
       )
-      expect(await executor.reservationsByAnchorUtxo(anchorUtxoHash)).to.equal(
-        0
-      )
+      expect(
+        Number(await executor.reservationsByAnchorUtxo(anchorUtxoHash))
+      ).to.equal(0)
 
-      const receipt = await tx.wait()
-      const stranded = receipt.events?.find(
-        (e) => e.event === "ReservationStranded"
-      )
+      const receipt = (await tx.wait())!
+      const stranded = findEvent(receipt, executor, "ReservationStranded")
       expect(stranded, "ReservationStranded event missing").to.not.be.undefined
-      expect(stranded!.args!.reservationKey).to.equal(reservationKey)
-      expect(stranded!.args!.walletPubKeyHash).to.equal(walletPubKeyHash)
-      expect(stranded!.args!.owner).to.equal(owner)
-      expect(stranded!.args!.anchorAmount).to.equal(anchorAmount)
+      expect(stranded!.args.reservationKey).to.equal(reservationKey)
+      expect(stranded!.args.walletPubKeyHash).to.equal(walletPubKeyHash)
+      expect(stranded!.args.owner).to.equal(owner)
+      expect(Number(stranded!.args.anchorAmount)).to.equal(anchorAmount)
     })
 
     it("rejects when the reservation is not Active", async () => {
@@ -687,13 +641,10 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
         reservationStateEnum.Active
       )
 
-      const tx: ContractTransaction = await executor.notifyReservationStranded(
-        reservationKey
-      )
-      const receipt = await tx.wait()
-      const events = receipt.events?.filter(
-        (e) => e.event === "ReservationStranded"
-      )
+      const tx: ContractTransactionResponse =
+        await executor.notifyReservationStranded(reservationKey)
+      const receipt = (await tx.wait())!
+      const events = filterEvents(receipt, executor, "ReservationStranded")
       // Exactly one recovery evidence is emitted per stranding call.
       expect(events, "ReservationStranded event missing").to.have.lengthOf(1)
     })
@@ -737,45 +688,46 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
         reservationStateEnum.Active
       )
 
-      expect(await executor.walletReservationsCount(walletPubKeyHash)).to.equal(
-        2
-      )
       expect(
-        await executor.walletReservationsAmount(walletPubKeyHash)
+        Number(await executor.walletReservationsCount(walletPubKeyHash))
+      ).to.equal(2)
+      expect(
+        Number(await executor.walletReservationsAmount(walletPubKeyHash))
       ).to.equal(anchorAmount * 2)
-      expect(await executor.reservationTotalAmount()).to.equal(anchorAmount * 2)
+      expect(Number(await executor.reservationTotalAmount())).to.equal(
+        anchorAmount * 2
+      )
 
       // Strand the first reservation.
-      const tx: ContractTransaction = await executor.notifyReservationStranded(
-        reservationA
-      )
-      expect(await executor.walletReservationsCount(walletPubKeyHash)).to.equal(
-        1
-      )
+      const tx: ContractTransactionResponse =
+        await executor.notifyReservationStranded(reservationA)
       expect(
-        await executor.walletReservationsAmount(walletPubKeyHash)
+        Number(await executor.walletReservationsCount(walletPubKeyHash))
+      ).to.equal(1)
+      expect(
+        Number(await executor.walletReservationsAmount(walletPubKeyHash))
       ).to.equal(anchorAmount)
-      expect(await executor.reservationTotalAmount()).to.equal(anchorAmount)
-      // The correct reservation was stranded; the other survives untouched.
-      const receipt = await tx.wait()
-      const stranded = receipt.events?.find(
-        (e) => e.event === "ReservationStranded"
+      expect(Number(await executor.reservationTotalAmount())).to.equal(
+        anchorAmount
       )
+      // The correct reservation was stranded; the other survives untouched.
+      const receipt = (await tx.wait())!
+      const stranded = findEvent(receipt, executor, "ReservationStranded")
       expect(stranded, "ReservationStranded event missing").to.not.be.undefined
-      expect(stranded!.args!.reservationKey).to.equal(reservationA)
-      expect(await executor.reservationState(reservationB)).to.equal(
+      expect(stranded!.args.reservationKey).to.equal(reservationA)
+      expect(Number(await executor.reservationState(reservationB))).to.equal(
         reservationStateEnum.Active
       )
 
       // Strand the second reservation.
       await executor.notifyReservationStranded(reservationB)
-      expect(await executor.walletReservationsCount(walletPubKeyHash)).to.equal(
-        0
-      )
       expect(
-        await executor.walletReservationsAmount(walletPubKeyHash)
+        Number(await executor.walletReservationsCount(walletPubKeyHash))
       ).to.equal(0)
-      expect(await executor.reservationTotalAmount()).to.equal(0)
+      expect(
+        Number(await executor.walletReservationsAmount(walletPubKeyHash))
+      ).to.equal(0)
+      expect(Number(await executor.reservationTotalAmount())).to.equal(0)
     })
   })
 
@@ -800,7 +752,7 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
         false
       )
 
-      expect(await executor.pendingReservedDeposits()).to.equal(1)
+      expect(Number(await executor.pendingReservedDeposits())).to.equal(1)
       expect(await executor.pendingReservedDepositWallet(depositKey)).to.equal(
         walletPubKeyHash
       )
@@ -832,7 +784,7 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       expect(await executor.pendingReservedDepositWallet(depositKey)).to.equal(
         ZERO_BYTES20
       )
-      expect(await executor.pendingReservedDeposits()).to.equal(0)
+      expect(Number(await executor.pendingReservedDeposits())).to.equal(0)
     })
 
     it("rejects when there is no pending reserved deposit", async () => {
@@ -899,7 +851,7 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       // deposit stale until that authorization settles.
       await executor.seedPendingAction(depositKey, 0)
 
-      expect(await executor.actionState(depositKey, 0)).to.equal(
+      expect(Number(await executor.actionState(depositKey, 0))).to.equal(
         reservationActionStateEnum.Pending
       )
 
@@ -932,13 +884,13 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
         false
       )
 
-      expect(await executor.pendingReservedDeposits()).to.equal(2)
+      expect(Number(await executor.pendingReservedDeposits())).to.equal(2)
 
       await executor.notifyStaleReservedDeposit(depositKeyA)
-      expect(await executor.pendingReservedDeposits()).to.equal(1)
+      expect(Number(await executor.pendingReservedDeposits())).to.equal(1)
 
       await executor.notifyStaleReservedDeposit(depositKeyB)
-      expect(await executor.pendingReservedDeposits()).to.equal(0)
+      expect(Number(await executor.pendingReservedDeposits())).to.equal(0)
     })
   })
   describe("notifyReservationActionTimeout (Reanchor)", () => {
@@ -979,9 +931,9 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
         reservationStateEnum.Active
       )
 
-      expect(await executor.walletReservationsAmount(targetWallet)).to.equal(
-        amount
-      )
+      expect(
+        Number(await executor.walletReservationsAmount(targetWallet))
+      ).to.equal(amount)
 
       // Now seed the reanchor action for reservationKey 2 to targetWallet.
       await executor.seedPendingReservationAction(
@@ -1000,24 +952,28 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       await ethers.provider.send("evm_mine", [])
 
       const tx = await executor.notifyReservationActionTimeout(reservationKey)
-      const receipt = await tx.wait()
+      const receipt = (await tx.wait())!
 
-      const reanchorTimedOut = receipt.events?.filter(
-        (e) => e.event === "ReservationReanchorTimedOut"
+      const reanchorTimedOut = filterEvents(
+        receipt,
+        executor,
+        "ReservationReanchorTimedOut"
       )
       expect(reanchorTimedOut).to.have.lengthOf(1)
-      expect(reanchorTimedOut![0].args!.reservationKey).to.equal(reservationKey)
-      expect(reanchorTimedOut![0].args!.requestNonce).to.equal(0)
+      expect(reanchorTimedOut![0].args.reservationKey).to.equal(reservationKey)
+      expect(Number(reanchorTimedOut![0].args.requestNonce)).to.equal(0)
 
-      expect(await executor.reservationState(reservationKey)).to.equal(
+      expect(Number(await executor.reservationState(reservationKey))).to.equal(
         reservationStateEnum.Active
       )
-      expect(await executor.walletReservationsAmount(targetWallet)).to.equal(0)
+      expect(
+        Number(await executor.walletReservationsAmount(targetWallet))
+      ).to.equal(0)
       // Reanchor timeout must not touch the source wallet's own counters —
       // only the target wallet's reserved capacity is released.
-      expect(await executor.walletReservationsAmount(sourceWallet)).to.equal(
-        amount
-      )
+      expect(
+        Number(await executor.walletReservationsAmount(sourceWallet))
+      ).to.equal(amount)
     })
 
     it("reverts when action has not timed out", async () => {
@@ -1087,9 +1043,9 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
         reservationStateEnum.Active
       )
 
-      expect(await executor.walletReservationsAmount(targetWallet)).to.equal(
-        amount
-      )
+      expect(
+        Number(await executor.walletReservationsAmount(targetWallet))
+      ).to.equal(amount)
 
       // Seed the reanchor action for reservationKey 5 to targetWallet.
       await executor.seedPendingReservationAction(
@@ -1108,24 +1064,28 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       await ethers.provider.send("evm_mine", [])
 
       const tx = await executor.notifyReservationActionTimeout(reservationKey)
-      const receipt = await tx.wait()
+      const receipt = (await tx.wait())!
 
-      const reanchorTimedOut = receipt.events?.filter(
-        (e) => e.event === "ReservationReanchorTimedOut"
+      const reanchorTimedOut = filterEvents(
+        receipt,
+        executor,
+        "ReservationReanchorTimedOut"
       )
       expect(reanchorTimedOut).to.have.lengthOf(1)
-      expect(reanchorTimedOut![0].args!.reservationKey).to.equal(reservationKey)
-      expect(reanchorTimedOut![0].args!.requestNonce).to.equal(0)
+      expect(reanchorTimedOut![0].args.reservationKey).to.equal(reservationKey)
+      expect(Number(reanchorTimedOut![0].args.requestNonce)).to.equal(0)
 
-      expect(await executor.reservationState(reservationKey)).to.equal(
+      expect(Number(await executor.reservationState(reservationKey))).to.equal(
         reservationStateEnum.Active
       )
-      expect(await executor.walletReservationsAmount(targetWallet)).to.equal(0)
+      expect(
+        Number(await executor.walletReservationsAmount(targetWallet))
+      ).to.equal(0)
       // Reanchor timeout must not touch the source wallet's own counters —
       // only the target wallet's reserved capacity is released.
-      expect(await executor.walletReservationsAmount(sourceWallet)).to.equal(
-        amount
-      )
+      expect(
+        Number(await executor.walletReservationsAmount(sourceWallet))
+      ).to.equal(amount)
     })
   })
   describe("requestReservationReanchor", () => {
@@ -1147,9 +1107,9 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       // below), so read the artifact directly rather than constructing a
       // ContractFactory, which would require linking ReservationProofs.
       const reservationArtifact = await artifacts.readArtifact("Reservation")
-      reservationInterface = new ethers.utils.Interface(reservationArtifact.abi)
+      reservationInterface = new ethers.Interface(reservationArtifact.abi)
 
-      await setReservationConfig(executor.address, {
+      await setReservationConfig(await executor.getAddress(), {
         reservationTxMaxFee: txMaxFee,
         reservationActionTimeout: actionTimeout,
         maxReservationsPerWallet: maxPerWallet,
@@ -1177,27 +1137,33 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
     })
 
     it("successfully requests reservation re-anchor from MovingFunds wallet (unprivileged happy path)", async () => {
-      expect(await executor.reservationState(reservationKey)).to.equal(
+      expect(Number(await executor.reservationState(reservationKey))).to.equal(
         reservationStateEnum.Active
       )
-      expect(await executor.walletReservationsCount(targetWallet)).to.equal(0)
-      expect(await executor.walletReservationsAmount(targetWallet)).to.equal(0)
+      expect(
+        Number(await executor.walletReservationsCount(targetWallet))
+      ).to.equal(0)
+      expect(
+        Number(await executor.walletReservationsAmount(targetWallet))
+      ).to.equal(0)
 
       const tx = await executor.requestReservationReanchor(
         reservationKey,
         targetWallet,
         false
       )
-      const receipt = await tx.wait()
+      const receipt = (await tx.wait())!
 
-      expect(await executor.reservationState(reservationKey)).to.equal(
+      expect(Number(await executor.reservationState(reservationKey))).to.equal(
         reservationStateEnum.ActionPending
       )
-      expect(await executor.walletReservationsCount(targetWallet)).to.equal(1)
-      expect(await executor.walletReservationsAmount(targetWallet)).to.equal(
-        anchorAmount
-      )
-      expect(await executor.actionState(reservationKey, 1)).to.equal(
+      expect(
+        Number(await executor.walletReservationsCount(targetWallet))
+      ).to.equal(1)
+      expect(
+        Number(await executor.walletReservationsAmount(targetWallet))
+      ).to.equal(anchorAmount)
+      expect(Number(await executor.actionState(reservationKey, 1))).to.equal(
         reservationActionStateEnum.Pending
       )
 
@@ -1217,10 +1183,10 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       expect(requested, "ReservationReanchorRequested event missing").to.not.be
         .undefined
       expect(requested!.args.reservationKey).to.equal(reservationKey)
-      expect(requested!.args.requestNonce).to.equal(1)
+      expect(Number(requested!.args.requestNonce)).to.equal(1)
       expect(requested!.args.sourceWalletPubKeyHash).to.equal(sourceWallet)
       expect(requested!.args.targetWalletPubKeyHash).to.equal(targetWallet)
-      expect(requested!.args.txMaxFee).to.equal(txMaxFee)
+      expect(Number(requested!.args.txMaxFee)).to.equal(txMaxFee)
     })
 
     it("successfully requests reservation re-anchor from Closing wallet (unprivileged happy path)", async () => {
@@ -1230,27 +1196,33 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
         walletStateEnum.Closing
       )
 
-      expect(await executor.reservationState(reservationKey)).to.equal(
+      expect(Number(await executor.reservationState(reservationKey))).to.equal(
         reservationStateEnum.Active
       )
-      expect(await executor.walletReservationsCount(targetWallet)).to.equal(0)
-      expect(await executor.walletReservationsAmount(targetWallet)).to.equal(0)
+      expect(
+        Number(await executor.walletReservationsCount(targetWallet))
+      ).to.equal(0)
+      expect(
+        Number(await executor.walletReservationsAmount(targetWallet))
+      ).to.equal(0)
 
       const tx = await executor.requestReservationReanchor(
         reservationKey,
         targetWallet,
         false
       )
-      const receipt = await tx.wait()
+      const receipt = (await tx.wait())!
 
-      expect(await executor.reservationState(reservationKey)).to.equal(
+      expect(Number(await executor.reservationState(reservationKey))).to.equal(
         reservationStateEnum.ActionPending
       )
-      expect(await executor.walletReservationsCount(targetWallet)).to.equal(1)
-      expect(await executor.walletReservationsAmount(targetWallet)).to.equal(
-        anchorAmount
-      )
-      expect(await executor.actionState(reservationKey, 1)).to.equal(
+      expect(
+        Number(await executor.walletReservationsCount(targetWallet))
+      ).to.equal(1)
+      expect(
+        Number(await executor.walletReservationsAmount(targetWallet))
+      ).to.equal(anchorAmount)
+      expect(Number(await executor.actionState(reservationKey, 1))).to.equal(
         reservationActionStateEnum.Pending
       )
 
@@ -1270,10 +1242,10 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       expect(requested, "ReservationReanchorRequested event missing").to.not.be
         .undefined
       expect(requested!.args.reservationKey).to.equal(reservationKey)
-      expect(requested!.args.requestNonce).to.equal(1)
+      expect(Number(requested!.args.requestNonce)).to.equal(1)
       expect(requested!.args.sourceWalletPubKeyHash).to.equal(sourceWallet)
       expect(requested!.args.targetWalletPubKeyHash).to.equal(targetWallet)
-      expect(requested!.args.txMaxFee).to.equal(txMaxFee)
+      expect(Number(requested!.args.txMaxFee)).to.equal(txMaxFee)
     })
 
     it("successfully requests reservation re-anchor from Live wallet by governance (privileged happy path)", async () => {
@@ -1288,16 +1260,18 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
         targetWallet,
         true
       )
-      const receipt = await tx.wait()
+      const receipt = (await tx.wait())!
 
-      expect(await executor.reservationState(reservationKey)).to.equal(
+      expect(Number(await executor.reservationState(reservationKey))).to.equal(
         reservationStateEnum.ActionPending
       )
-      expect(await executor.walletReservationsCount(targetWallet)).to.equal(1)
-      expect(await executor.walletReservationsAmount(targetWallet)).to.equal(
-        anchorAmount
-      )
-      expect(await executor.actionState(reservationKey, 1)).to.equal(
+      expect(
+        Number(await executor.walletReservationsCount(targetWallet))
+      ).to.equal(1)
+      expect(
+        Number(await executor.walletReservationsAmount(targetWallet))
+      ).to.equal(anchorAmount)
+      expect(Number(await executor.actionState(reservationKey, 1))).to.equal(
         reservationActionStateEnum.Pending
       )
 
@@ -1316,10 +1290,10 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       )
       expect(requested).to.not.be.undefined
       expect(requested!.args.reservationKey).to.equal(reservationKey)
-      expect(requested!.args.requestNonce).to.equal(1)
+      expect(Number(requested!.args.requestNonce)).to.equal(1)
       expect(requested!.args.sourceWalletPubKeyHash).to.equal(sourceWallet)
       expect(requested!.args.targetWalletPubKeyHash).to.equal(targetWallet)
-      expect(requested!.args.txMaxFee).to.equal(txMaxFee)
+      expect(Number(requested!.args.txMaxFee)).to.equal(txMaxFee)
     })
 
     it("rejects when reservation is not Active", async () => {
@@ -1366,16 +1340,18 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
         targetWallet,
         false
       )
-      const receipt = await tx.wait()
+      const receipt = (await tx.wait())!
 
-      expect(await executor.reservationState(pastEligibleKey)).to.equal(
+      expect(Number(await executor.reservationState(pastEligibleKey))).to.equal(
         reservationStateEnum.ActionPending
       )
-      expect(await executor.walletReservationsCount(targetWallet)).to.equal(1)
-      expect(await executor.walletReservationsAmount(targetWallet)).to.equal(
-        anchorAmount
-      )
-      expect(await executor.actionState(pastEligibleKey, 1)).to.equal(
+      expect(
+        Number(await executor.walletReservationsCount(targetWallet))
+      ).to.equal(1)
+      expect(
+        Number(await executor.walletReservationsAmount(targetWallet))
+      ).to.equal(anchorAmount)
+      expect(Number(await executor.actionState(pastEligibleKey, 1))).to.equal(
         reservationActionStateEnum.Pending
       )
 
@@ -1395,10 +1371,10 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       expect(requested, "ReservationReanchorRequested event missing").to.not.be
         .undefined
       expect(requested!.args.reservationKey).to.equal(pastEligibleKey)
-      expect(requested!.args.requestNonce).to.equal(1)
+      expect(Number(requested!.args.requestNonce)).to.equal(1)
       expect(requested!.args.sourceWalletPubKeyHash).to.equal(sourceWallet)
       expect(requested!.args.targetWalletPubKeyHash).to.equal(targetWallet)
-      expect(requested!.args.txMaxFee).to.equal(txMaxFee)
+      expect(Number(requested!.args.txMaxFee)).to.equal(txMaxFee)
     })
 
     it("succeeds with re-anchor unbounded far into the future (10 years past dissolution eligibility)", async () => {
@@ -1423,16 +1399,18 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
         targetWallet,
         false
       )
-      const receipt = await tx.wait()
+      const receipt = (await tx.wait())!
 
-      expect(await executor.reservationState(farFutureKey)).to.equal(
+      expect(Number(await executor.reservationState(farFutureKey))).to.equal(
         reservationStateEnum.ActionPending
       )
-      expect(await executor.walletReservationsCount(targetWallet)).to.equal(1)
-      expect(await executor.walletReservationsAmount(targetWallet)).to.equal(
-        anchorAmount
-      )
-      expect(await executor.actionState(farFutureKey, 1)).to.equal(
+      expect(
+        Number(await executor.walletReservationsCount(targetWallet))
+      ).to.equal(1)
+      expect(
+        Number(await executor.walletReservationsAmount(targetWallet))
+      ).to.equal(anchorAmount)
+      expect(Number(await executor.actionState(farFutureKey, 1))).to.equal(
         reservationActionStateEnum.Pending
       )
 
@@ -1452,10 +1430,10 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       expect(requested, "ReservationReanchorRequested event missing").to.not.be
         .undefined
       expect(requested!.args.reservationKey).to.equal(farFutureKey)
-      expect(requested!.args.requestNonce).to.equal(1)
+      expect(Number(requested!.args.requestNonce)).to.equal(1)
       expect(requested!.args.sourceWalletPubKeyHash).to.equal(sourceWallet)
       expect(requested!.args.targetWalletPubKeyHash).to.equal(targetWallet)
-      expect(requested!.args.txMaxFee).to.equal(txMaxFee)
+      expect(Number(requested!.args.txMaxFee)).to.equal(txMaxFee)
     })
 
     it("succeeds when reservation is dissolution-eligible and source wallet is Live with a privileged caller", async () => {
@@ -1484,16 +1462,18 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
         targetWallet,
         true
       )
-      const receipt = await tx.wait()
+      const receipt = (await tx.wait())!
 
-      expect(await executor.reservationState(pastEligibleKey)).to.equal(
+      expect(Number(await executor.reservationState(pastEligibleKey))).to.equal(
         reservationStateEnum.ActionPending
       )
-      expect(await executor.walletReservationsCount(targetWallet)).to.equal(1)
-      expect(await executor.walletReservationsAmount(targetWallet)).to.equal(
-        anchorAmount
-      )
-      expect(await executor.actionState(pastEligibleKey, 1)).to.equal(
+      expect(
+        Number(await executor.walletReservationsCount(targetWallet))
+      ).to.equal(1)
+      expect(
+        Number(await executor.walletReservationsAmount(targetWallet))
+      ).to.equal(anchorAmount)
+      expect(Number(await executor.actionState(pastEligibleKey, 1))).to.equal(
         reservationActionStateEnum.Pending
       )
 
@@ -1513,10 +1493,10 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       expect(requested, "ReservationReanchorRequested event missing").to.not.be
         .undefined
       expect(requested!.args.reservationKey).to.equal(pastEligibleKey)
-      expect(requested!.args.requestNonce).to.equal(1)
+      expect(Number(requested!.args.requestNonce)).to.equal(1)
       expect(requested!.args.sourceWalletPubKeyHash).to.equal(sourceWallet)
       expect(requested!.args.targetWalletPubKeyHash).to.equal(targetWallet)
-      expect(requested!.args.txMaxFee).to.equal(txMaxFee)
+      expect(Number(requested!.args.txMaxFee)).to.equal(txMaxFee)
     })
 
     it("succeeds when reservation is dissolution-eligible and source wallet is Closing", async () => {
@@ -1545,16 +1525,18 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
         targetWallet,
         false
       )
-      const receipt = await tx.wait()
+      const receipt = (await tx.wait())!
 
-      expect(await executor.reservationState(pastEligibleKey)).to.equal(
+      expect(Number(await executor.reservationState(pastEligibleKey))).to.equal(
         reservationStateEnum.ActionPending
       )
-      expect(await executor.walletReservationsCount(targetWallet)).to.equal(1)
-      expect(await executor.walletReservationsAmount(targetWallet)).to.equal(
-        anchorAmount
-      )
-      expect(await executor.actionState(pastEligibleKey, 1)).to.equal(
+      expect(
+        Number(await executor.walletReservationsCount(targetWallet))
+      ).to.equal(1)
+      expect(
+        Number(await executor.walletReservationsAmount(targetWallet))
+      ).to.equal(anchorAmount)
+      expect(Number(await executor.actionState(pastEligibleKey, 1))).to.equal(
         reservationActionStateEnum.Pending
       )
 
@@ -1574,10 +1556,10 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       expect(requested, "ReservationReanchorRequested event missing").to.not.be
         .undefined
       expect(requested!.args.reservationKey).to.equal(pastEligibleKey)
-      expect(requested!.args.requestNonce).to.equal(1)
+      expect(Number(requested!.args.requestNonce)).to.equal(1)
       expect(requested!.args.sourceWalletPubKeyHash).to.equal(sourceWallet)
       expect(requested!.args.targetWalletPubKeyHash).to.equal(targetWallet)
-      expect(requested!.args.txMaxFee).to.equal(txMaxFee)
+      expect(Number(requested!.args.txMaxFee)).to.equal(txMaxFee)
     })
     it("rejects when reanchor cooldown is in effect", async () => {
       const cooldownKey = `0x${"b0".repeat(32)}`
@@ -1654,7 +1636,7 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
     })
 
     it("rejects when target wallet reservation count cap is exceeded", async () => {
-      await setReservationConfig(executor.address, {
+      await setReservationConfig(await executor.getAddress(), {
         maxReservationsPerWallet: 1,
       })
       await executor.seedReservation(
@@ -1673,7 +1655,7 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
     })
 
     it("rejects when target wallet reserved amount cap is exceeded", async () => {
-      await setReservationConfig(executor.address, {
+      await setReservationConfig(await executor.getAddress(), {
         maxReservationsAmountPerWallet: 1_500_000,
       })
       await executor.seedReservation(

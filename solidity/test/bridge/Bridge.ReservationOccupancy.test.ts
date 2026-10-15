@@ -1,10 +1,10 @@
 import { ethers } from "hardhat"
 import { expect } from "chai"
-import type { Contract } from "ethers"
+import type { TestReservation } from "../../typechain"
 import { walletState } from "../fixtures"
 import { RESERVATION_TERM_ENTRIES } from "../helpers/reservation-terms"
 
-async function deployTestReservation(): Promise<Contract> {
+async function deployTestReservation(): Promise<TestReservation> {
   const ReservationProofs = await ethers.getContractFactory("ReservationProofs")
   const reservationProofs = await ReservationProofs.deploy()
 
@@ -14,7 +14,7 @@ async function deployTestReservation(): Promise<Contract> {
   const TestReservationFactory = await ethers.getContractFactory(
     "TestReservation",
     {
-      libraries: { Reservation: reservation.address },
+      libraries: { Reservation: await reservation.getAddress() },
     }
   )
 
@@ -38,7 +38,7 @@ async function deployTestReservation(): Promise<Contract> {
 }
 
 describe("Reservation - occupancy tracking", () => {
-  let testReservation: Contract
+  let testReservation: TestReservation
 
   beforeEach(async () => {
     testReservation = await deployTestReservation()
@@ -49,7 +49,7 @@ describe("Reservation - occupancy tracking", () => {
     const reservationKey = 101
     const walletPubKeyHash = `0x${"2".repeat(40)}`
     const vault = `0x${"3".repeat(40)}`
-    const now = (await ethers.provider.getBlock("latest")).timestamp
+    const now = (await ethers.provider.getBlock("latest"))!.timestamp
 
     await testReservation.setGovernanceParameters(100, 100, 10000, 1)
     await testReservation.setMaxActiveReservations(1)
@@ -89,7 +89,7 @@ describe("Reservation - occupancy tracking", () => {
   it("notifyReservationAcceptanceTimedOut decrements activeReservationsCount and emits ReservationOccupancyChanged", async () => {
     const reservationKey = 102
     const walletPubKeyHash = `0x${"2".repeat(40)}`
-    const now = (await ethers.provider.getBlock("latest")).timestamp
+    const now = (await ethers.provider.getBlock("latest"))!.timestamp
 
     await testReservation.setActiveReservationsCount(1)
     await testReservation.setWalletReservationsCount(walletPubKeyHash, 1)
@@ -99,7 +99,7 @@ describe("Reservation - occupancy tracking", () => {
     // the action; seed the record so it resolves to the Acceptance action.
     await testReservation.setReservationFullState(
       reservationKey,
-      ethers.constants.AddressZero,
+      ethers.ZeroAddress,
       walletPubKeyHash,
       1000,
       1 /* Active */,
@@ -141,21 +141,21 @@ describe("Reservation - occupancy tracking", () => {
     const reservationKey = 1
     await testReservation.setReservationFullState(
       reservationKey,
-      ethers.constants.AddressZero,
+      ethers.ZeroAddress,
       walletPubKeyHash,
       100,
       1 /* Active */,
       1
     )
 
+    // Seed the proven-anchor custody ledger entry the way a settled
+    // acceptance would have, so `strandReservation`'s
+    // `removeAnchoredCustody` release stays balanced.
+    await testReservation.setWalletAnchoredCounters(walletPubKeyHash, 1, 100)
+
     await expect(testReservation.notifyReservationStranded(reservationKey))
       .to.emit(testReservation, "ReservationStranded")
-      .withArgs(
-        reservationKey,
-        walletPubKeyHash,
-        ethers.constants.AddressZero,
-        100
-      )
+      .withArgs(reservationKey, walletPubKeyHash, ethers.ZeroAddress, 100)
       .to.emit(testReservation, "ReservationOccupancyChanged")
       .withArgs(0)
     expect(await testReservation.activeReservationsCount()).to.equal(0)
@@ -177,21 +177,21 @@ describe("Reservation - occupancy tracking", () => {
     const reservationKey = 1
     await testReservation.setReservationFullState(
       reservationKey,
-      ethers.constants.AddressZero,
+      ethers.ZeroAddress,
       walletPubKeyHash,
       100,
       1 /* Active */,
       1
     )
 
+    // Seed the proven-anchor custody ledger entry the way a settled
+    // acceptance would have, so `strandReservation`'s
+    // `removeAnchoredCustody` release stays balanced.
+    await testReservation.setWalletAnchoredCounters(walletPubKeyHash, 1, 100)
+
     await expect(testReservation.notifyReservationStranded(reservationKey))
       .to.emit(testReservation, "ReservationStranded")
-      .withArgs(
-        reservationKey,
-        walletPubKeyHash,
-        ethers.constants.AddressZero,
-        100
-      )
+      .withArgs(reservationKey, walletPubKeyHash, ethers.ZeroAddress, 100)
       .to.emit(testReservation, "ReservationOccupancyChanged")
       .withArgs(0)
     expect(await testReservation.activeReservationsCount()).to.equal(0)
@@ -208,15 +208,15 @@ describe("Reservation - occupancy tracking", () => {
     await testReservation.setWalletState(walletPubKeyHash, walletState.Closing)
 
     const reservationKey = 1
-    const now = (await ethers.provider.getBlock("latest")).timestamp
+    const now = (await ethers.provider.getBlock("latest"))!.timestamp
     await testReservation.setReservation(reservationKey, {
-      owner: ethers.constants.AddressZero,
+      owner: ethers.ZeroAddress,
       mintedAmount: 100,
       acceptedAt: 0,
       walletPubKeyHash,
       anchorAmount: 100,
       expiresAt: 0,
-      anchorTxHash: ethers.constants.HashZero,
+      anchorTxHash: ethers.ZeroHash,
       anchorTxOutputIndex: 0,
       state: 1 /* Active */,
       requestNonce: 1,
@@ -228,10 +228,12 @@ describe("Reservation - occupancy tracking", () => {
 
     await expect(
       testReservation.notifyReservationStranded(reservationKey)
-    ).to.be.revertedWith("Wallet is not terminated")
+    ).to.be.revertedWith(
+      "Wallet is not terminated, closed, or a dissolution-eligible closing wallet"
+    )
   })
 
-  it("notifyReservationStranded reverts on a Live wallet", async () => {
+  it("notifyReservationStranded reverts on a Closing wallet whose closing period has not elapsed, even past dissolution eligibility", async () => {
     await testReservation.setMaxActiveReservations(5)
     await testReservation.setActiveReservationsCount(1)
 
@@ -239,21 +241,140 @@ describe("Reservation - occupancy tracking", () => {
     await testReservation.setWalletReservationsCount(walletPubKeyHash, 1)
     await testReservation.setWalletReservationsAmount(walletPubKeyHash, 100)
     await testReservation.setReservationTotalAmount(100)
+    await testReservation.setWalletState(walletPubKeyHash, walletState.Closing)
+
+    // Closing just started: the closing period runs far into the future.
+    const now = (await ethers.provider.getBlock("latest"))!.timestamp
+    await testReservation.setWalletClosingStartedAt(walletPubKeyHash, now)
+    await testReservation.setWalletClosingPeriod(1_000_000)
+
+    const reservationKey = 1
+    // Dissolution is already eligible, so only the closing period blocks.
+    await testReservation.setReservation(reservationKey, {
+      owner: ethers.ZeroAddress,
+      mintedAmount: 100,
+      acceptedAt: 0,
+      walletPubKeyHash,
+      anchorAmount: 100,
+      expiresAt: 0,
+      anchorTxHash: ethers.ZeroHash,
+      anchorTxOutputIndex: 0,
+      state: 1 /* Active */,
+      requestNonce: 1,
+      retryCredit: false,
+      dissolutionEligibleAt: now,
+      cumulativeReanchorFee: 0,
+      reanchorCooldownUntil: 0,
+    })
+
+    await expect(
+      testReservation.notifyReservationStranded(reservationKey)
+    ).to.be.revertedWith(
+      "Wallet is not terminated, closed, or a dissolution-eligible closing wallet"
+    )
+  })
+
+  it("notifyReservationStranded strands a Closing wallet once both dissolution eligibility and the closing period have passed", async () => {
+    await testReservation.setMaxActiveReservations(5)
+    await testReservation.setActiveReservationsCount(1)
+
+    const walletPubKeyHash = `0x${"1".repeat(40)}`
+    await testReservation.setWalletReservationsCount(walletPubKeyHash, 1)
+    await testReservation.setWalletReservationsAmount(walletPubKeyHash, 100)
+    await testReservation.setReservationTotalAmount(100)
+    await testReservation.setWalletState(walletPubKeyHash, walletState.Closing)
+
+    // The closing period ended long ago and dissolution is eligible.
+    const now = (await ethers.provider.getBlock("latest"))!.timestamp
+    await testReservation.setWalletClosingStartedAt(
+      walletPubKeyHash,
+      now - 5000
+    )
+    await testReservation.setWalletClosingPeriod(1000)
+
+    const reservationKey = 1
+    await testReservation.setReservation(reservationKey, {
+      owner: ethers.ZeroAddress,
+      mintedAmount: 100,
+      acceptedAt: 0,
+      walletPubKeyHash,
+      anchorAmount: 100,
+      expiresAt: 0,
+      anchorTxHash: ethers.ZeroHash,
+      anchorTxOutputIndex: 0,
+      state: 1 /* Active */,
+      requestNonce: 1,
+      retryCredit: false,
+      dissolutionEligibleAt: now - 10,
+      cumulativeReanchorFee: 0,
+      reanchorCooldownUntil: 0,
+    })
+
+    // Seed the proven-anchor custody ledger entry the way a settled
+    // acceptance would have, so `strandReservation`'s
+    // `removeAnchoredCustody` release stays balanced.
+    await testReservation.setWalletAnchoredCounters(walletPubKeyHash, 1, 100)
+    await expect(testReservation.notifyReservationStranded(reservationKey))
+      .to.emit(testReservation, "ReservationStranded")
+      .to.emit(testReservation, "ReservationOccupancyChanged")
+      .withArgs(0)
+    expect(await testReservation.activeReservationsCount()).to.equal(0)
+  })
+
+  async function activeOnLiveWallet(dissolutionEligibleAt: number) {
+    await testReservation.setMaxActiveReservations(5)
+    await testReservation.setActiveReservationsCount(1)
+
+    const walletPubKeyHash = `0x${"1".repeat(40)}`
+    await testReservation.setWalletReservationsCount(walletPubKeyHash, 1)
+    await testReservation.setWalletReservationsAmount(walletPubKeyHash, 100)
+    await testReservation.setReservationTotalAmount(100)
+    // The helper models an Active position whose anchor is proven; seed the
+    // proven-anchor ledger alongside the capacity counters so the strand
+    // release stays balanced.
+    await testReservation.setWalletAnchoredCounters(walletPubKeyHash, 1, 100)
     await testReservation.setWalletState(walletPubKeyHash, walletState.Live)
 
     const reservationKey = 1
     await testReservation.setReservationFullState(
       reservationKey,
-      ethers.constants.AddressZero,
+      ethers.ZeroAddress,
       walletPubKeyHash,
       100,
       1 /* Active */,
       1
     )
+    await testReservation.setReservationDissolutionEligibleAt(
+      reservationKey,
+      dissolutionEligibleAt
+    )
+    return { walletPubKeyHash, reservationKey }
+  }
+
+  it("notifyReservationStranded reverts on a Live wallet before dissolution eligibility", async () => {
+    const now = (await ethers.provider.getBlock("latest"))!.timestamp
+    const { reservationKey } = await activeOnLiveWallet(now + 86400)
 
     await expect(
       testReservation.notifyReservationStranded(reservationKey)
-    ).to.be.revertedWith("Wallet is not terminated")
+    ).to.be.revertedWith(
+      "Wallet is not terminated, closed, or a dissolution-eligible closing wallet"
+    )
+  })
+
+  it("notifyReservationStranded releases an expired position on a Live wallet", async () => {
+    const now = (await ethers.provider.getBlock("latest"))!.timestamp
+    const { walletPubKeyHash, reservationKey } = await activeOnLiveWallet(now)
+
+    await testReservation.notifyReservationStranded(reservationKey)
+
+    expect(await testReservation.activeReservationsCount()).to.equal(0)
+    expect(
+      await testReservation.walletReservationsCount(walletPubKeyHash)
+    ).to.equal(0)
+    expect(
+      await testReservation.walletReservationsAmount(walletPubKeyHash)
+    ).to.equal(0)
   })
 
   it("prepareReservationForSettlement restores activeReservationsCount on late settlement of stranded reservation and emits ReservationOccupancyChanged", async () => {
@@ -264,7 +385,7 @@ describe("Reservation - occupancy tracking", () => {
     await testReservation.setActiveReservationsCount(0)
     await testReservation.setReservationFullState(
       reservationKey,
-      ethers.constants.AddressZero,
+      ethers.ZeroAddress,
       walletPubKeyHash,
       1000,
       4 /* Stranded */,

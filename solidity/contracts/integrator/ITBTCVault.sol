@@ -19,9 +19,9 @@ pragma solidity ^0.8.0;
 /// @dev See vault/TBTCVault.sol
 interface ITBTCVault {
     /// @dev See {TBTCVault#optimisticMintingRequests}
-    function optimisticMintingRequests(uint256 depositKey)
-        external
-        returns (uint64 requestedAt, uint64 finalizedAt);
+    function optimisticMintingRequests(
+        uint256 depositKey
+    ) external returns (uint64 requestedAt, uint64 finalizedAt);
 
     /// @dev See {TBTCVault#optimisticMintingFeeDivisor}
     function optimisticMintingFeeDivisor() external view returns (uint32);

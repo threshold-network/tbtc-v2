@@ -1,5 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unused-expressions */
-
 // The term chosen at the acceptance request, carried to the position when
 // the acceptance proof settles, and the late-acceptance window, which is
 // bounded by the largest term entry rather than the generation's own term.
@@ -10,8 +8,8 @@
 // request and the one read at settlement meet under the real action key.
 
 import { ethers, helpers } from "hardhat"
-import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
-import { BigNumber, ContractTransaction } from "ethers"
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
+import { ContractTransactionResponse } from "ethers"
 import { expect } from "chai"
 import type {
   Bank,
@@ -32,13 +30,14 @@ import {
   revealReservedDeposit as revealReservedDepositWith,
   toLE,
 } from "../helpers/reservation-proofs"
+import type { BuiltTx } from "../helpers/reservation-proofs"
 import type { Mock } from "../helpers/mock"
 import { walletState } from "../fixtures"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 const { lastBlockTime, increaseTime } = helpers.time
 
-const ZERO_BYTES32 = ethers.constants.HashZero
+const ZERO_BYTES32 = ethers.ZeroHash
 
 const DAY = 24 * 60 * 60
 const [TERM_365, TERM_30, TERM_91] = RESERVATION_TERM_ENTRIES
@@ -52,7 +51,7 @@ const RESERVATION_TERM = 90 * DAY
 const RESERVATION_GRACE = 30 * DAY
 const RESERVATION_MIN_AMOUNT = 10000
 const RESERVATION_TX_MAX_FEE = 2000
-const RESERVATION_MAX_TOTAL = BigNumber.from("10000000")
+const RESERVATION_MAX_TOTAL = BigInt("10000000")
 const MAX_RESERVATIONS_PER_WALLET = 10
 const RESERVATION_ACTION_TIMEOUT = 2 * DAY
 const RESERVATION_RENEWAL_WINDOW = 7 * DAY
@@ -67,7 +66,7 @@ const ReservationState = {
   Stranded: 4,
 }
 
-const SATOSHI_MULTIPLIER = BigNumber.from(10).pow(10)
+const SATOSHI_MULTIPLIER = 10n ** 10n
 
 // The vault's mint fee at its default.
 const MINT_FEE_BPS = 20
@@ -84,8 +83,8 @@ const ActionState = {
 }
 
 describe("Bridge - Reservation term carried to the position at proof", () => {
-  let spvMaintainer: SignerWithAddress
-  let thirdParty: SignerWithAddress
+  let spvMaintainer: HardhatEthersSigner
+  let thirdParty: HardhatEthersSigner
 
   let relay: Mock<IRelay>
   let bridge: Bridge & BridgeStub
@@ -94,7 +93,7 @@ describe("Bridge - Reservation term carried to the position at proof", () => {
   let tbtcVault: TBTCVault
   let bank: Bank
   let reservationVault: ReservationVault
-  let bridgeGovernanceSigner: SignerWithAddress
+  let bridgeGovernanceSigner: HardhatEthersSigner
 
   const walletPubKeyHash = "0x8db50eb52063ea9d98b3eac91489a90f738986f6"
   const blindingFactor = "0xf9f0c90d00039523"
@@ -102,19 +101,18 @@ describe("Bridge - Reservation term carried to the position at proof", () => {
   let refundLocktime: string
   let refundDeadline: number
 
-  const depositAmount = BigNumber.from(3000000)
+  const depositAmount = BigInt(3000000)
   const anchorFee = 1500
-  const anchorAmount = depositAmount.sub(anchorFee)
+  const anchorAmount = depositAmount - BigInt(anchorFee)
 
   before(async () => {
-    // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({ spvMaintainer, thirdParty, relay, bridge, tbtc, tbtcVault, bank } =
       await bridgeFixture())
 
     // Router functions are reached through the Bridge's fallback.
     reservationRouter = await ethers.getContractAt(
       "ReservationRouter",
-      bridge.address
+      bridge.target
     )
     reservationVault = await helpers.contracts.getContract("ReservationVault")
     bridgeGovernanceSigner = await impersonateContract(
@@ -125,14 +123,14 @@ describe("Bridge - Reservation term carried to the position at proof", () => {
 
     await bridge
       .connect(bridgeGovernanceSigner)
-      .setVaultStatus(reservationVault.address, true)
+      .setVaultStatus(reservationVault.target, true)
     await reservationRouter
       .connect(bridgeGovernanceSigner)
       .updateReservationCaps(RESERVATION_MAX_TOTAL, RESERVATION_MAX_TOTAL, 10)
     await reservationRouter
       .connect(bridgeGovernanceSigner)
       .updateReservationParameters(
-        reservationVault.address,
+        reservationVault.target,
         RESERVATION_MIN_AMOUNT,
         RESERVATION_TX_MAX_FEE,
         RESERVATION_TERM,
@@ -150,7 +148,7 @@ describe("Bridge - Reservation term carried to the position at proof", () => {
     await bridge.setDepositTxMaxFee(2000)
     await bridge.setDepositRevealAheadPeriod(0)
     await bridge.setWallet(walletPubKeyHash, {
-      ecdsaWalletID: ethers.utils.randomBytes(32),
+      ecdsaWalletID: ethers.randomBytes(32),
       mainUtxoHash: ZERO_BYTES32,
       pendingRedemptionsValue: 0,
       createdAt: await lastBlockTime(),
@@ -162,7 +160,7 @@ describe("Bridge - Reservation term carried to the position at proof", () => {
     })
 
     const tbtcOwner = await impersonateContract(await tbtc.owner())
-    await tbtc.connect(tbtcOwner).transferOwnership(tbtcVault.address)
+    await tbtc.connect(tbtcOwner).transferOwnership(tbtcVault.target)
 
     // The global term differs from the largest entry (see RESERVATION_TERM).
     expect(
@@ -188,45 +186,77 @@ describe("Bridge - Reservation term carried to the position at proof", () => {
     await restoreSnapshot()
   })
 
+  // Funding transactions by reservation key, for the acceptance requests
+  // that prove them.
+  const fundingTxs = new Map<bigint, BuiltTx>()
+
+  // The custodian wallet's record with its state replaced, as `setWallet`
+  // takes it.
+  async function walletWithState(state: number) {
+    const wallet = await bridge.wallets(walletPubKeyHash)
+    return {
+      ecdsaWalletID: wallet.ecdsaWalletID,
+      mainUtxoHash: wallet.mainUtxoHash,
+      pendingRedemptionsValue: wallet.pendingRedemptionsValue,
+      createdAt: wallet.createdAt,
+      movingFundsRequestedAt: wallet.movingFundsRequestedAt,
+      closingStartedAt: wallet.closingStartedAt,
+      pendingMovedFundsSweepRequestsCount:
+        wallet.pendingMovedFundsSweepRequestsCount,
+      state,
+      movingFundsTargetWalletsCommitmentHash:
+        wallet.movingFundsTargetWalletsCommitmentHash,
+    }
+  }
+
   // Reveals a fresh reserved deposit to the reservation vault.
   async function revealReservedDeposit() {
-    const { reservationKey, anchorTx } = await revealReservedDepositWith({
-      bridge,
-      reservationRouter,
-      reservationVault: reservationVault.address,
-      depositor: thirdParty,
-      spvMaintainer,
-      walletPubKeyHash,
-      blindingFactor,
-      refundPubKeyHash,
-      refundLocktime,
-      depositAmount,
-      anchorAmount,
-    })
+    const { reservationKey, anchorTx, fundingTx } =
+      await revealReservedDepositWith({
+        bridge,
+        reservationRouter,
+        reservationVault: await reservationVault.getAddress(),
+        depositor: thirdParty,
+        spvMaintainer,
+        walletPubKeyHash,
+        blindingFactor,
+        refundPubKeyHash,
+        refundLocktime,
+        depositAmount,
+        anchorAmount,
+      })
+    fundingTxs.set(reservationKey, fundingTx)
     return { reservationKey, anchorTx }
   }
 
   async function requestAcceptance(
-    reservationKey: BigNumber,
+    reservationKey: bigint,
     termId: number
   ): Promise<number> {
+    const fundingTx = fundingTxs.get(reservationKey)!
     await reservationRouter
       .connect(thirdParty)
-      .requestReservationAcceptance(reservationKey, walletPubKeyHash, termId)
-    return (
-      await reservationRouter.reservations(reservationKey)
-    ).requestNonce.toNumber()
+      .requestReservationAcceptance(
+        fundingTx.info,
+        proofFor(fundingTx.txHash),
+        0,
+        walletPubKeyHash,
+        termId
+      )
+    return Number(
+      (await reservationRouter.reservations(reservationKey)).requestNonce
+    )
   }
 
   // Lets the named generation time out and reports it, releasing its
   // capacity; returns the generation's `timeoutAt`.
   async function timeOut(
-    reservationKey: BigNumber,
+    reservationKey: bigint,
     requestNonce: number
   ): Promise<number> {
-    const { timeoutAt } = await reservationRouter.reservationActions(
-      reservationKey,
-      requestNonce
+    const timeoutAt = Number(
+      (await reservationRouter.reservationActions(reservationKey, requestNonce))
+        .timeoutAt
     )
     const now = await lastBlockTime()
     await increaseTime(timeoutAt - now + 1)
@@ -242,10 +272,10 @@ describe("Bridge - Reservation term carried to the position at proof", () => {
 
   async function submitProofAt(
     anchorTx: ReturnType<typeof buildTx>,
-    reservationKey: BigNumber,
+    reservationKey: bigint,
     requestNonce: number,
     timestamp?: number
-  ): Promise<ContractTransaction> {
+  ): Promise<ContractTransactionResponse> {
     if (timestamp !== undefined) {
       await ethers.provider.send("evm_setNextBlockTimestamp", [timestamp])
     }
@@ -260,14 +290,14 @@ describe("Bridge - Reservation term carried to the position at proof", () => {
       )
   }
 
-  async function blockTimeOf(tx: ContractTransaction): Promise<number> {
-    const receipt = await tx.wait()
-    return (await ethers.provider.getBlock(receipt.blockNumber)).timestamp
+  async function blockTimeOf(tx: ContractTransactionResponse): Promise<number> {
+    const receipt = (await tx.wait())!
+    return (await ethers.provider.getBlock(receipt.blockNumber))!.timestamp
   }
 
   async function expectPositionOnTerm(
-    tx: ContractTransaction,
-    reservationKey: BigNumber,
+    tx: ContractTransactionResponse,
+    reservationKey: bigint,
     termId: number,
     termSeconds: number
   ) {
@@ -450,25 +480,25 @@ describe("Bridge - Reservation term carried to the position at proof", () => {
     })
   })
   describe("vault credit at acceptance", () => {
-    const grossTbtc = anchorAmount.mul(SATOSHI_MULTIPLIER)
+    const grossTbtc = anchorAmount * SATOSHI_MULTIPLIER
 
-    const feeAt = (bps: number): BigNumber => grossTbtc.mul(bps).div(10000)
+    const feeAt = (bps: number): bigint => (grossTbtc * BigInt(bps)) / 10000n
 
     type Funds = {
-      owner: BigNumber
-      vault: BigNumber
-      supply: BigNumber
-      ownerBank: BigNumber
-      vaultBank: BigNumber
+      owner: bigint
+      vault: bigint
+      supply: bigint
+      ownerBank: bigint
+      vaultBank: bigint
     }
 
     async function readFunds(): Promise<Funds> {
       return {
         owner: await tbtc.balanceOf(thirdParty.address),
-        vault: await tbtc.balanceOf(reservationVault.address),
+        vault: await tbtc.balanceOf(reservationVault.target),
         supply: await tbtc.totalSupply(),
         ownerBank: await bank.balanceOf(thirdParty.address),
-        vaultBank: await bank.balanceOf(reservationVault.address),
+        vaultBank: await bank.balanceOf(reservationVault.target),
       }
     }
 
@@ -477,17 +507,17 @@ describe("Bridge - Reservation term carried to the position at proof", () => {
     async function expectSplit(
       before: Funds,
       expectedFeeBps: number,
-      tx: ContractTransaction
+      tx: ContractTransactionResponse
     ) {
       const after = await readFunds()
       const fee = feeAt(expectedFeeBps)
-      const ownerDelta = after.owner.sub(before.owner)
-      const vaultDelta = after.vault.sub(before.vault)
-      expect(ownerDelta).to.equal(grossTbtc.sub(fee))
+      const ownerDelta = after.owner - before.owner
+      const vaultDelta = after.vault - before.vault
+      expect(ownerDelta).to.equal(grossTbtc - fee)
       expect(vaultDelta).to.equal(fee)
       // The minted total equals the anchor: owner plus vault fee, exactly.
-      expect(ownerDelta.add(vaultDelta)).to.equal(grossTbtc)
-      expect(after.supply.sub(before.supply)).to.equal(grossTbtc)
+      expect(ownerDelta + vaultDelta).to.equal(grossTbtc)
+      expect(after.supply - before.supply).to.equal(grossTbtc)
       // The Bank balance the Bridge credited is fully converted.
       expect(after.vaultBank).to.equal(before.vaultBank)
       expect(after.ownerBank).to.equal(before.ownerBank)
@@ -587,13 +617,15 @@ describe("Bridge - Reservation term carried to the position at proof", () => {
         MINT_FEE_BPS,
         ReservationState.Stranded,
         async () => {
-          // The wallet leaves Live between the request and the proof, so
-          // the settlement strands the position before the credit runs.
-          const wallet = await bridge.wallets(walletPubKeyHash)
-          await bridge.setWallet(walletPubKeyHash, {
-            ...wallet,
-            state: walletState.Closing,
-          })
+          // The wallet reaches a terminal state between the request and
+          // the proof, so the settlement strands the position before the
+          // credit runs. A Closing wallet would not: its positions stay
+          // Active and keep their re-anchor right through the closing
+          // period.
+          await bridge.setWallet(
+            walletPubKeyHash,
+            await walletWithState(walletState.Terminated)
+          )
         }
       )
     })
@@ -660,11 +692,10 @@ describe("Bridge - Reservation term carried to the position at proof", () => {
           TERM_365.termId
         )
         const timeoutAt = await timeOut(reservationKey, requestNonce)
-        const wallet = await bridge.wallets(walletPubKeyHash)
-        await bridge.setWallet(walletPubKeyHash, {
-          ...wallet,
-          state: walletState.Terminated,
-        })
+        await bridge.setWallet(
+          walletPubKeyHash,
+          await walletWithState(walletState.Terminated)
+        )
 
         const before = await readFunds()
         const tx = await submitProofAt(
@@ -691,13 +722,13 @@ describe("Bridge - Reservation term carried to the position at proof", () => {
         )
         await bridge
           .connect(bridgeGovernanceSigner)
-          .setVaultStatus(reservationVault.address, false)
+          .setVaultStatus(reservationVault.target, false)
 
         const before = await readFunds()
         const tx = await submitProofAt(anchorTx, reservationKey, requestNonce)
         const after = await readFunds()
 
-        expect(after.ownerBank.sub(before.ownerBank)).to.equal(anchorAmount)
+        expect(after.ownerBank - before.ownerBank).to.equal(anchorAmount)
         expect(after.vaultBank).to.equal(before.vaultBank)
         expect(after.owner).to.equal(before.owner)
         expect(after.vault).to.equal(before.vault)

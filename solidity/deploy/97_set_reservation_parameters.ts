@@ -1,8 +1,6 @@
 import type { HardhatRuntimeEnvironment } from "hardhat/types"
 import type { DeployFunction } from "hardhat-deploy/types"
-import { BigNumber } from "ethers"
-import type { Contract, Event, EventFilter } from "ethers"
-import type { Result } from "ethers/lib/utils"
+import type { BaseContract, ContractEventName, EventLog } from "ethers"
 
 const DAY = 24 * 60 * 60
 
@@ -39,12 +37,12 @@ const EVENT_QUERY_CHUNK_BLOCKS = 2000
 const FALLBACK_LOOKBACK_BLOCKS = 200_000
 
 async function queryEventsInChunks(
-  contract: Contract,
-  filter: EventFilter,
+  contract: BaseContract,
+  filter: ContractEventName,
   fromBlock: number,
   toBlock: number
-): Promise<Event[]> {
-  const events: Event[] = []
+): Promise<EventLog[]> {
+  const events: EventLog[] = []
   for (
     let chunkStart = fromBlock;
     chunkStart <= toBlock;
@@ -56,7 +54,7 @@ async function queryEventsInChunks(
       chunkStart,
       Math.min(chunkStart + EVENT_QUERY_CHUNK_BLOCKS - 1, toBlock)
     )
-    events.push(...chunkEvents)
+    events.push(...(chunkEvents as EventLog[]))
   }
   return events
 }
@@ -74,7 +72,8 @@ function differingFields(
     typeof targets[index] === "string"
       ? String(values[index]).toLowerCase() !==
         String(targets[index]).toLowerCase()
-      : !BigNumber.from(values[index]).eq(targets[index] as BigNumber)
+      : BigInt(values[index] as string | number | bigint) !==
+        BigInt(targets[index] as string | number | bigint)
   )
 }
 
@@ -83,14 +82,16 @@ function differingFields(
  * address string parses as the number it encodes).
  */
 function isUnset(values: readonly unknown[]): boolean {
-  return values.every((value) => BigNumber.from(value).isZero())
+  return values.every(
+    (value) => BigInt(value as string | number | bigint) === 0n
+  )
 }
 
-function isLaterEvent(a: Event, b: Event | undefined): boolean {
+function isLaterEvent(a: EventLog, b: EventLog | undefined): boolean {
   return (
     !b ||
     a.blockNumber > b.blockNumber ||
-    (a.blockNumber === b.blockNumber && (a.logIndex ?? 0) > (b.logIndex ?? 0))
+    (a.blockNumber === b.blockNumber && (a.index ?? 0) > (b.index ?? 0))
   )
 }
 
@@ -189,7 +190,10 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
       "governanceDelays",
       0
     )
-    await helpers.time.increaseTime(governanceDelay.toNumber() + 1)
+    // Normalize the decoded value before converting to a timestamp offset.
+    await helpers.time.increaseTime(
+      Number(ethers.toBigInt(governanceDelay.toString())) + 1
+    )
   }
 
   // Router functions are reached through `Bridge.fallback()`, so the router
@@ -201,9 +205,9 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
   )
 
   const queryEvents = async (
-    contract: Contract,
-    filter: EventFilter
-  ): Promise<Event[]> => {
+    contract: BaseContract,
+    filter: ContractEventName
+  ): Promise<EventLog[]> => {
     const latestBlockNumber = await ethers.provider.getBlockNumber()
     const fromBlock =
       BridgeGovernance.receipt?.blockNumber ??
@@ -232,12 +236,12 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
     update: "Caps" | "Parameters",
     names: readonly string[],
     targets: readonly unknown[],
-    readLive: () => Promise<Result>
+    readLive: () => Promise<unknown>
   ): Promise<"begin" | "applied" | "staged" | "refused"> => {
     if (isLocalNetwork) {
       return "begin"
     }
-    const live = await readLive()
+    const live = (await readLive()) as Record<string, unknown>
     const liveValues = names.map((name) => live[name])
     const liveDiffering = differingFields(liveValues, names, targets)
     if (liveDiffering.length === 0) {
@@ -304,9 +308,9 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
     // more throughput for exercising the reservation flow in tests and are
     // deliberately NOT meant to mirror the mainnet configuration.
     // values per agent-docs/inventory/reservation-parameters.md
-    ethers.BigNumber.from("1000000"), // maxReservationsAmountPerWallet
-    ethers.BigNumber.from("100000"), // reservationMaxSingleAmount
-    ethers.BigNumber.from("100"), // maxActiveReservations
+    ethers.toBigInt("1000000"), // maxReservationsAmountPerWallet
+    ethers.toBigInt("100000"), // reservationMaxSingleAmount
+    ethers.toBigInt("100"), // maxActiveReservations
   ]
   const capsState = await stagingState(
     "Caps",
@@ -350,16 +354,16 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
   deployments.log("[2/4] beginReservationParametersUpdate")
   const parametersTargets = [
     ReservationVault.address, // reservationVault
-    ethers.BigNumber.from("10000"), // reservationMinAmount
-    ethers.BigNumber.from("1000"), // reservationTxMaxFee
-    ethers.BigNumber.from("7776000"), // reservationTermSeconds (90 days, above the 30-day MIN_RESERVATION_TERM)
-    ethers.BigNumber.from("86400"), // reservationDissolutionDelay (1 day)
-    ethers.BigNumber.from("10000000"), // reservationMaxTotalAmount
+    ethers.toBigInt("10000"), // reservationMinAmount
+    ethers.toBigInt("1000"), // reservationTxMaxFee
+    ethers.toBigInt("7776000"), // reservationTermSeconds (90 days, above the 30-day MIN_RESERVATION_TERM)
+    ethers.toBigInt("86400"), // reservationDissolutionDelay (1 day)
+    ethers.toBigInt("10000000"), // reservationMaxTotalAmount
     // NOTE: 5, not the mainnet-required 1 (see the divergence note above
     // Step 1) -- deliberately larger for local/test throughput.
-    ethers.BigNumber.from("5"), // maxReservationsPerWallet
-    ethers.BigNumber.from("86400"), // reservationActionTimeout
-    ethers.BigNumber.from("86400"), // reservationRenewalWindowSeconds
+    ethers.toBigInt("5"), // maxReservationsPerWallet
+    ethers.toBigInt("86400"), // reservationActionTimeout
+    ethers.toBigInt("86400"), // reservationRenewalWindowSeconds
   ]
   const parametersState = await stagingState(
     "Parameters",
@@ -467,11 +471,11 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
   for (const entry of RESERVATION_TERM_ENTRIES) {
     // eslint-disable-next-line no-await-in-loop
     const stored = await reservationRouter.reservationTerm(entry.termId)
-    if (stored.termSeconds === 0) {
+    if (stored.termSeconds === 0n) {
       missingEntries.push(entry)
     } else if (
-      stored.termSeconds !== entry.termSeconds ||
-      stored.custodyBps !== entry.custodyBps ||
+      stored.termSeconds !== BigInt(entry.termSeconds) ||
+      stored.custodyBps !== BigInt(entry.custodyBps) ||
       stored.enabled !== entry.enabled
     ) {
       throw new Error(
@@ -550,9 +554,9 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
     // finalized first can break the reveal-ahead relation, and a staged
     // entry this script did not stage is left for the owner to resolve.
     if (
-      stagedId !== expected.termId ||
-      stagedSeconds !== expected.termSeconds ||
-      stagedCustodyBps !== expected.custodyBps ||
+      Number(stagedId) !== expected.termId ||
+      Number(stagedSeconds) !== expected.termSeconds ||
+      Number(stagedCustodyBps) !== expected.custodyBps ||
       stagedEnabled !== expected.enabled
     ) {
       throw new Error(
@@ -564,9 +568,9 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
       )
     }
 
-    const readyAt = startedAt.add(delay)
-    const { timestamp: now } = await ethers.provider.getBlock("latest")
-    if (readyAt.gt(now)) {
+    const readyAt = BigInt(startedAt) + BigInt(delay)
+    const { timestamp: now } = (await ethers.provider.getBlock("latest"))!
+    if (readyAt > BigInt(now)) {
       deployments.log(
         `[PENDING FINALIZE] Network: ${network.name} | Function: finalizeReservationTermUpdate | ` +
           `Staged term ${expected.termId} | ` +

@@ -41,10 +41,9 @@ contract WormholeBridgeStub is IWormholeTokenBridge {
         wormholeToken = _wormholeToken;
     }
 
-    function completeTransferWithPayload(bytes memory encodedVm)
-        external
-        returns (bytes memory)
-    {
+    function completeTransferWithPayload(
+        bytes memory encodedVm
+    ) external returns (bytes memory) {
         emit WormholeBridgeStub_completeTransferWithPayload(encodedVm);
         wormholeToken.mint(msg.sender, transferAmount);
 
@@ -52,8 +51,8 @@ contract WormholeBridgeStub is IWormholeTokenBridge {
         // Wormhole code to this contract and then encoding parmaters in unit
         // tests, we allow to set the receiver address on the stub contract and
         // we return it here. The rest of the parameters does not matter.
-        IWormholeTokenBridge.TransferWithPayload memory transfer = IWormholeTokenBridge
-            .TransferWithPayload(
+        IWormholeTokenBridge.TransferWithPayload
+            memory transfer = IWormholeTokenBridge.TransferWithPayload(
                 1, // payloadID
                 2, // amount
                 0x3000000000000000000000000000000000000000000000000000000000000000, // tokenAddress
@@ -105,7 +104,9 @@ contract WormholeBridgeStub is IWormholeTokenBridge {
         return 888;
     }
 
-    function parseTransferWithPayload(bytes memory encoded)
+    function parseTransferWithPayload(
+        bytes memory encoded
+    )
         external
         pure
         returns (IWormholeTokenBridge.TransferWithPayload memory transfer)

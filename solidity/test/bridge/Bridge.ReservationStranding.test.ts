@@ -63,14 +63,12 @@
  * idempotence; the internal branch is a defensive guard against a future
  * code path that calls `strandReservation` directly.
  */
-/* eslint-disable @typescript-eslint/no-unused-expressions */
 
 // Stranding tests for `notifyReservationStranded` and
 // `notifyStaleReservedDeposit`.
 
 import { ethers, helpers } from "hardhat"
-import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
-import { BigNumber, Contract } from "ethers"
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import { expect } from "chai"
 import type {
   Bank,
@@ -94,7 +92,7 @@ import { ecdsaWalletTestData } from "../data/ecdsa"
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 const { lastBlockTime, increaseTime } = helpers.time
 
-const ZERO_BYTES32 = ethers.constants.HashZero
+const ZERO_BYTES32 = ethers.ZeroHash
 
 const RESERVATION_TERM = 31536000 // 365 days
 // The seeded 365-day entry, so acceptances keep the term above.
@@ -110,12 +108,12 @@ const RESERVATION_TX_MAX_FEE = 2000
 // (`reservationMaxTotalAmount <= maxActiveReservations *
 // reservationMaxSingleAmount`) is live from that deploy step onward, so
 // RESERVATION_MAX_TOTAL must fit under the caps set below.
-const RESERVATION_MAX_TOTAL = BigNumber.from("10000000")
+const RESERVATION_MAX_TOTAL = 10000000n
 const MAX_RESERVATIONS_PER_WALLET = 10
 const RESERVATION_ACTION_TIMEOUT = 172800 // 48 hours
 const RESERVATION_RENEWAL_WINDOW = 604800 // 7 days
 
-const SATOSHI_MULTIPLIER = BigNumber.from(10).pow(10)
+const SATOSHI_MULTIPLIER = 10n ** 10n
 
 const ReservationState = {
   Unknown: 0,
@@ -143,10 +141,10 @@ const ActionState = {
 }
 
 describe("Bridge - Reservation stranding", () => {
-  let governance: SignerWithAddress
-  let spvMaintainer: SignerWithAddress
-  let thirdParty: SignerWithAddress
-  let deployer: SignerWithAddress
+  let governance: HardhatEthersSigner
+  let spvMaintainer: HardhatEthersSigner
+  let thirdParty: HardhatEthersSigner
+  let deployer: HardhatEthersSigner
 
   let bank: Bank & BankStub
   let relay: Mock<IRelay>
@@ -154,10 +152,10 @@ describe("Bridge - Reservation stranding", () => {
   let bridge: Bridge & BridgeStub
   let reservationRouter: ReservationRouter
   let reimbursementPool: ReimbursementPool
-  let tbtc: TBTC & Contract
-  let tbtcVault: TBTCVault & Contract
+  let tbtc: TBTC
+  let tbtcVault: TBTCVault
   let reservationVault: ReservationVault
-  let bridgeGovernanceSigner: SignerWithAddress
+  let bridgeGovernanceSigner: HardhatEthersSigner
 
   const walletPubKeyHash = "0x8db50eb52063ea9d98b3eac91489a90f738986f6"
   const secondWalletPubKeyHash = "0xafcdf88d15a0e0c2134dbbc9f6da24d0e26c8f21"
@@ -165,13 +163,12 @@ describe("Bridge - Reservation stranding", () => {
   const refundPubKeyHash = "0x28e081f285138ccbe389c1eb8985716230129f89"
   let refundLocktime: string
 
-  const depositAmount = BigNumber.from(3000000)
+  const depositAmount = 3000000n
   const anchorFee = 1500
-  const anchorAmount = depositAmount.sub(anchorFee)
-  const grossTbtc = anchorAmount.mul(SATOSHI_MULTIPLIER)
+  const anchorAmount = depositAmount - BigInt(anchorFee)
+  const grossTbtc = anchorAmount * SATOSHI_MULTIPLIER
 
   before(async () => {
-    // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({
       deployer,
       governance,
@@ -198,7 +195,7 @@ describe("Bridge - Reservation stranding", () => {
     // `Bridge.fallback()`, exactly like the production caller path.
     reservationRouter = await ethers.getContractAt(
       "ReservationRouter",
-      bridge.address
+      bridge.target
     )
     reservationVault = await helpers.contracts.getContract("ReservationVault")
     bridgeGovernanceSigner = await impersonateContract(
@@ -208,7 +205,7 @@ describe("Bridge - Reservation stranding", () => {
 
     await bridge
       .connect(bridgeGovernanceSigner)
-      .setVaultStatus(reservationVault.address, true)
+      .setVaultStatus(reservationVault.target, true)
     // `deploy/97_set_reservation_parameters.ts` already set
     // `reservationMaxSingleAmount` to 100,000 as part of the fixture, but
     // this fixture's anchor is 2,998,500 sat - well over that single-
@@ -221,7 +218,7 @@ describe("Bridge - Reservation stranding", () => {
     await reservationRouter
       .connect(bridgeGovernanceSigner)
       .updateReservationParameters(
-        reservationVault.address,
+        reservationVault.target,
         RESERVATION_MIN_AMOUNT,
         RESERVATION_TX_MAX_FEE,
         RESERVATION_TERM,
@@ -241,12 +238,12 @@ describe("Bridge - Reservation stranding", () => {
     await liveWallet(walletPubKeyHash)
 
     const tbtcOwner = await impersonateContract(await tbtc.owner())
-    await tbtc.connect(tbtcOwner).transferOwnership(tbtcVault.address)
+    await tbtc.connect(tbtcOwner).transferOwnership(tbtcVault.target)
   })
 
   async function impersonateContract(
     address: string
-  ): Promise<SignerWithAddress> {
+  ): Promise<HardhatEthersSigner> {
     await ethers.provider.send("hardhat_impersonateAccount", [address])
     await ethers.provider.send("hardhat_setBalance", [
       address,
@@ -257,7 +254,7 @@ describe("Bridge - Reservation stranding", () => {
 
   async function liveWallet(pkh: string) {
     await bridge.setWallet(pkh, {
-      ecdsaWalletID: ethers.utils.randomBytes(32),
+      ecdsaWalletID: ethers.randomBytes(32),
       mainUtxoHash: ZERO_BYTES32,
       pendingRedemptionsValue: 0,
       createdAt: await lastBlockTime(),
@@ -277,7 +274,7 @@ describe("Bridge - Reservation stranding", () => {
   // `strandReservation` accounting transition).
   async function terminatedWallet(pkh: string) {
     await bridge.setWallet(pkh, {
-      ecdsaWalletID: ethers.utils.randomBytes(32),
+      ecdsaWalletID: ethers.randomBytes(32),
       mainUtxoHash: ZERO_BYTES32,
       pendingRedemptionsValue: 0,
       createdAt: await lastBlockTime(),
@@ -293,7 +290,7 @@ describe("Bridge - Reservation stranding", () => {
   // non-Live states `notifyReservationStranded` must reject.
   async function movingFundsWallet(pkh: string) {
     await bridge.setWallet(pkh, {
-      ecdsaWalletID: ethers.utils.randomBytes(32),
+      ecdsaWalletID: ethers.randomBytes(32),
       mainUtxoHash: ZERO_BYTES32,
       pendingRedemptionsValue: 0,
       createdAt: await lastBlockTime(),
@@ -308,21 +305,18 @@ describe("Bridge - Reservation stranding", () => {
   // ---- Bitcoin fixture crafting (regtest-style difficulty) ----
 
   const REGTEST_BITS_LE = "ffff7f20"
-  const REGTEST_TARGET = BigNumber.from("0x7fffff").mul(
-    BigNumber.from(2).pow(8 * (0x20 - 3))
-  )
+  const REGTEST_TARGET = 0x7fffffn * 2n ** BigInt(8 * (0x20 - 3))
 
   const reverseHex = (hex: string): string =>
     hex.replace(/^0x/, "").match(/../g)!.reverse().join("")
 
   const hash256 = (hexData: string): string =>
-    ethers.utils.sha256(ethers.utils.sha256(hexData))
+    ethers.sha256(ethers.sha256(hexData))
 
-  const toLE = (value: number | BigNumber, byteLength: number): string =>
+  const toLE = (value: number | bigint, byteLength: number): string =>
     reverseHex(
-      BigNumber.from(value)
-        .toHexString()
-        .slice(2)
+      BigInt(value)
+        .toString(16)
         .padStart(byteLength * 2, "0")
     )
 
@@ -335,7 +329,7 @@ describe("Bridge - Reservation stranding", () => {
 
   function buildTx(
     inputs: { txHash: string; index: number }[],
-    outputs: { valueSat: BigNumber | number; script: string }[]
+    outputs: { valueSat: bigint | number; script: string }[]
   ) {
     const inputVector = `0x${compactSize(inputs.length)}${inputs
       .map((i) => `${i.txHash.slice(2)}${toLE(i.index, 4)}00ffffffff`)
@@ -343,7 +337,7 @@ describe("Bridge - Reservation stranding", () => {
     const outputVector = `0x${compactSize(outputs.length)}${outputs
       .map(
         (o) =>
-          `${toLE(BigNumber.from(o.valueSat), 8)}${compactSize(
+          `${toLE(BigInt(o.valueSat), 8)}${compactSize(
             o.script.length / 2
           )}${o.script}`
       )
@@ -361,25 +355,21 @@ describe("Bridge - Reservation stranding", () => {
   }
 
   function mineHeader(merkleRoot: string): string {
-    const prevBlock = ethers.utils
-      .hexlify(ethers.utils.randomBytes(32))
-      .slice(2)
+    const prevBlock = ethers.hexlify(ethers.randomBytes(32)).slice(2)
     const base = `20000000${prevBlock}${merkleRoot.slice(
       2
     )}662a2c68${REGTEST_BITS_LE}`
     for (let nonce = 0; ; nonce++) {
       const header = `0x${base}${toLE(nonce, 4)}`
-      if (
-        BigNumber.from(`0x${reverseHex(hash256(header))}`).lte(REGTEST_TARGET)
-      ) {
+      if (BigInt(`0x${reverseHex(hash256(header))}`) <= REGTEST_TARGET) {
         return header
       }
     }
   }
 
   function proofFor(txHash: string) {
-    const coinbasePreimage = ethers.utils.sha256(ethers.utils.randomBytes(32))
-    const coinbaseTxId = ethers.utils.sha256(coinbasePreimage)
+    const coinbasePreimage = ethers.sha256(ethers.randomBytes(32))
+    const coinbaseTxId = ethers.sha256(coinbasePreimage)
     const merkleRoot = hash256(`0x${coinbaseTxId.slice(2)}${txHash.slice(2)}`)
     return {
       merkleProof: coinbaseTxId,
@@ -404,12 +394,12 @@ describe("Bridge - Reservation stranding", () => {
     )}b175ac68`
 
   const p2wshScript = (script: string): string =>
-    `0020${ethers.utils.sha256(`0x${script}`).slice(2)}`
+    `0020${ethers.sha256(`0x${script}`).slice(2)}`
 
   const p2wpkhScript = (pkh: string): string => `0014${pkh.slice(2)}`
 
   const randomRedeemerScript = (): string =>
-    `0x16${p2wpkhScript(ethers.utils.hexlify(ethers.utils.randomBytes(20)))}`
+    `0x16${p2wpkhScript(ethers.hexlify(ethers.randomBytes(20)))}`
 
   // Reveals a single fresh reserved deposit to the bridge. Does NOT
   // request acceptance. After this returns:
@@ -425,7 +415,7 @@ describe("Bridge - Reservation stranding", () => {
     const fundingTx = buildTx(
       [
         {
-          txHash: ethers.utils.hexlify(ethers.utils.randomBytes(32)),
+          txHash: ethers.hexlify(ethers.randomBytes(32)),
           index: 0,
         },
       ],
@@ -451,11 +441,11 @@ describe("Bridge - Reservation stranding", () => {
       walletPubKeyHash: custodian,
       refundPubKeyHash,
       refundLocktime,
-      vault: reservationVault.address,
+      vault: reservationVault.target,
     })
 
-    const depositKey = BigNumber.from(
-      ethers.utils.solidityKeccak256(
+    const depositKey = BigInt(
+      ethers.solidityPackedKeccak256(
         ["bytes32", "uint32"],
         [fundingTx.txHash, 0]
       )
@@ -475,7 +465,13 @@ describe("Bridge - Reservation stranding", () => {
 
     await reservationRouter
       .connect(thirdParty)
-      .requestReservationAcceptance(depositKey, custodian, ACCEPTANCE_TERM_ID)
+      .requestReservationAcceptance(
+        fundingTx.info,
+        proofFor(fundingTx.txHash),
+        0,
+        custodian,
+        ACCEPTANCE_TERM_ID
+      )
 
     const anchorTx = buildTx(
       [{ txHash: fundingTx.txHash, index: 0 }],
@@ -512,12 +508,10 @@ describe("Bridge - Reservation stranding", () => {
     const active = await reservationRouter.activeReservationsCount()
     return {
       activeCount: active.count,
-      walletCount: await reservationRouter.walletReservationsCount(
-        walletPubKeyHash
-      ),
-      walletAmount: await reservationRouter.walletReservationsAmount(
-        walletPubKeyHash
-      ),
+      walletCount:
+        await reservationRouter.walletReservationsCount(walletPubKeyHash),
+      walletAmount:
+        await reservationRouter.walletReservationsAmount(walletPubKeyHash),
     }
   }
 
@@ -554,9 +548,9 @@ describe("Bridge - Reservation stranding", () => {
       expect(reservation.anchorAmount).to.equal(anchorAmount)
 
       const after = await readStrandingGlobals()
-      expect(after.activeCount).to.equal(before.activeCount - 1)
-      expect(after.walletCount).to.equal(before.walletCount - 1)
-      expect(after.walletAmount).to.equal(before.walletAmount.sub(anchorAmount))
+      expect(after.activeCount).to.equal(before.activeCount - 1n)
+      expect(after.walletCount).to.equal(before.walletCount - 1n)
+      expect(after.walletAmount).to.equal(before.walletAmount - anchorAmount)
     })
 
     it("strands an Active reservation on a wallet driven to Terminated by a real moving-funds-timeout call chain, not direct state injection", async () => {
@@ -571,7 +565,7 @@ describe("Bridge - Reservation stranding", () => {
       // `notifyReservationStranded` against the resulting real
       // Terminated wallet, asserting the same state/counter/event triple
       // the injection-based test above asserts.
-      const custodian = ethers.utils.hexlify(ecdsaWalletTestData.pubKeyHash160)
+      const custodian = ethers.hexlify(ecdsaWalletTestData.pubKeyHash160)
 
       await bridge.setWallet(custodian, {
         ecdsaWalletID: ecdsaWalletTestData.walletID,
@@ -587,12 +581,10 @@ describe("Bridge - Reservation stranding", () => {
 
       const { reservationKey } = await makeAcceptedReservation(custodian)
 
-      const beforeCount = await reservationRouter.walletReservationsCount(
-        custodian
-      )
-      const beforeAmount = await reservationRouter.walletReservationsAmount(
-        custodian
-      )
+      const beforeCount =
+        await reservationRouter.walletReservationsCount(custodian)
+      const beforeAmount =
+        await reservationRouter.walletReservationsAmount(custodian)
       const beforeActive = await reservationRouter.activeReservationsCount()
       expect(beforeCount).to.equal(1)
       expect(beforeAmount).to.equal(anchorAmount)
@@ -613,7 +605,7 @@ describe("Bridge - Reservation stranding", () => {
 
       // Real MovingFunds -> Terminated transition.
       const { movingFundsTimeout } = await bridge.movingFundsParameters()
-      await increaseTime(movingFundsTimeout + 1)
+      await increaseTime(Number(movingFundsTimeout + 1n))
       await bridge.notifyMovingFundsTimeout(custodian, [])
       expect((await bridge.wallets(custodian)).state).to.equal(
         walletState.Terminated
@@ -629,13 +621,13 @@ describe("Bridge - Reservation stranding", () => {
 
       expect(
         await reservationRouter.walletReservationsCount(custodian)
-      ).to.equal(beforeCount - 1)
+      ).to.equal(beforeCount - 1n)
       expect(
         await reservationRouter.walletReservationsAmount(custodian)
-      ).to.equal(beforeAmount.sub(anchorAmount))
+      ).to.equal(beforeAmount - anchorAmount)
       expect(
         (await reservationRouter.activeReservationsCount()).count
-      ).to.equal(beforeActive.count - 1)
+      ).to.equal(beforeActive.count - 1n)
     })
 
     it("rejects a second stranding call after a successful strand (state is no longer Active)", async () => {
@@ -675,7 +667,9 @@ describe("Bridge - Reservation stranding", () => {
 
       await expect(
         reservationRouter.notifyReservationStranded(reservationKey)
-      ).to.be.revertedWith("Wallet is not terminated")
+      ).to.be.revertedWith(
+        "Wallet is not terminated, closed, or a dissolution-eligible closing wallet"
+      )
     })
 
     it("rejects when the wallet is in MovingFunds", async () => {
@@ -687,7 +681,9 @@ describe("Bridge - Reservation stranding", () => {
 
       await expect(
         reservationRouter.notifyReservationStranded(reservationKey)
-      ).to.be.revertedWith("Wallet is not terminated")
+      ).to.be.revertedWith(
+        "Wallet is not terminated, closed, or a dissolution-eligible closing wallet"
+      )
     })
   })
 
@@ -741,11 +737,7 @@ describe("Bridge - Reservation stranding", () => {
       // fixture setup. Going forward by (refundLocktime - now + 1)
       // lands us past the deposit's refund deadline.
       const targetTime = (await lastBlockTime()) + 89 * 24 * 60 * 60 + 2
-      await increaseTime(
-        BigNumber.from(targetTime)
-          .sub(await lastBlockTime())
-          .toNumber()
-      )
+      await increaseTime(targetTime - (await lastBlockTime()))
 
       await expect(reservationRouter.notifyStaleReservedDeposit(depositKey))
         .to.emit(reservationRouter, "ReservedDepositMarkedStale")
@@ -755,9 +747,9 @@ describe("Bridge - Reservation stranding", () => {
     })
 
     it("rejects when the deposit key is not a pending reserved deposit", async () => {
-      const unknownKey = ethers.utils.solidityKeccak256(
+      const unknownKey = ethers.solidityPackedKeccak256(
         ["bytes32", "uint32"],
-        [ethers.utils.hexlify(ethers.utils.randomBytes(32)), 0]
+        [ethers.hexlify(ethers.randomBytes(32)), 0]
       )
 
       expect(await reservationRouter.pendingReservedDeposits()).to.equal(0)
@@ -797,11 +789,7 @@ describe("Bridge - Reservation stranding", () => {
       // is the simplest deterministic time travel that lands us past
       // both the reveal-ahead period AND the deposit's refund deadline.
       const targetTime = (await lastBlockTime()) + 89 * 24 * 60 * 60 + 2
-      await increaseTime(
-        BigNumber.from(targetTime)
-          .sub(await lastBlockTime())
-          .toNumber()
-      )
+      await increaseTime(targetTime - (await lastBlockTime()))
 
       await expect(reservationRouter.notifyStaleReservedDeposit(depositKey))
         .to.emit(reservationRouter, "ReservedDepositMarkedStale")
@@ -830,11 +818,7 @@ describe("Bridge - Reservation stranding", () => {
       // `refundDeadlineValidated` tests above) so this test isolates the
       // acceptance-authorization-pending rejection specifically.
       const targetTime = (await lastBlockTime()) + 89 * 24 * 60 * 60 + 2
-      await increaseTime(
-        BigNumber.from(targetTime)
-          .sub(await lastBlockTime())
-          .toNumber()
-      )
+      await increaseTime(targetTime - (await lastBlockTime()))
 
       await expect(
         reservationRouter.notifyStaleReservedDeposit(depositKey)

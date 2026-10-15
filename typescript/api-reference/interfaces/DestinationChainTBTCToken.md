@@ -7,6 +7,7 @@ canonical destination chain tBTC token.
 
 - [`ArbitrumTBTCToken`](../classes/ArbitrumTBTCToken.md)
 - [`BaseTBTCToken`](../classes/BaseTBTCToken.md)
+- [`SolanaTBTCToken`](../classes/SolanaTBTCToken.md)
 - [`StarkNetTBTCToken`](../classes/StarkNetTBTCToken.md)
 
 ## Table of contents

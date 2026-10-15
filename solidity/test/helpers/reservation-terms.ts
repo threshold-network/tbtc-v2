@@ -47,7 +47,7 @@ export async function seedReservationTerms(
 ): Promise<number[]> {
   const reservationRouter: ReservationRouter = await ethers.getContractAt(
     "ReservationRouter",
-    bridge.address
+    await bridge.getAddress()
   )
   const governanceAddress = await bridge.governance()
   await ethers.provider.send("hardhat_impersonateAccount", [governanceAddress])
@@ -67,10 +67,10 @@ export async function seedReservationTerms(
       // eslint-disable-next-line no-await-in-loop
       const stored = await reservationRouter.reservationTerm(entry.termId)
 
-      if (stored.termSeconds !== 0) {
+      if (stored.termSeconds !== 0n) {
         if (
-          stored.termSeconds !== entry.termSeconds ||
-          stored.custodyBps !== entry.custodyBps ||
+          stored.termSeconds !== BigInt(entry.termSeconds) ||
+          stored.custodyBps !== BigInt(entry.custodyBps) ||
           stored.enabled !== entry.enabled
         ) {
           throw new Error(

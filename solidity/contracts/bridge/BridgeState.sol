@@ -489,6 +489,13 @@ library BridgeState {
         // must keep accepting late proofs of their confirmed Bitcoin
         // transactions.
         mapping(uint256 => Reservation.ReservationAction) reservationActions;
+        // Count and amount of the reservations whose proven anchor UTXO
+        // currently sits at the wallet (Active or ActionPending positions
+        // custodied there). Unlike `walletReservationInfo`, it excludes the
+        // capacity reserved for pending acceptance and re-anchor targets,
+        // which no Bitcoin proof backs yet. Used by the wallet lifecycle
+        // checks that must tell real custody from reserved capacity.
+        mapping(bytes20 => WalletReservationInfo) walletAnchoredInfo;
         // Governed menu of reservation terms indexed by term id (1 to
         // `Reservation.MAX_RESERVATION_TERM_ID`). An entry is written once
         // by `Reservation.setReservationTerm` and never rewritten or
@@ -520,22 +527,23 @@ library BridgeState {
         // planned upgrades of the Bridge contract. If more entires are added to
         // the struct in the upcoming versions we need to reduce the array size.
         // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
-        // This milestone consumed 9 of the original 48 slots for the
+        // This milestone consumed 10 of the original 48 slots for the
         // reservation feature (down from an initial 15 after this PR
         // dropped `maxCumulativeReanchorFee`, `reservationDissolutionTxMaxFee`,
         // `walletPendingDissolution`, `reservationRetryCreditActionNonce`,
         // `reservationMaxBackingFractionBps`, `walletReservationKeys`, and
         // `walletReservationKeyIndex`
-        // as unused/dead, freeing 6 slots via re-packing). The remaining 39
+        // as unused/dead, freeing 6 slots via re-packing, then adding
+        // `walletAnchoredInfo`). The remaining 38
         // slots are shared budget for all future Bridge upgrades, not
         // reserved for reservations specifically - a later unrelated PR
         // should not assume it can spend the rest. The multi-term
         // reservation menu consumed 4 more (`reservationTerms`,
         // `reservationActionTermIds`, `reservationTermIds`, and one slot
         // packing `largestReservationTerm` with `smallestReservationTerm`),
-        // leaving 35.
+        // leaving 34.
         // slither-disable-next-line unused-state
-        uint256[35] __gap;
+        uint256[34] __gap;
     }
 
     event DepositParametersUpdated(
@@ -658,9 +666,9 @@ library BridgeState {
         require(
             largestTermSeconds == 0 ||
                 _depositRevealAheadPeriod <=
-                largestTermSeconds +
-                    WalletProposalValidatorConstants
-                        .DEPOSIT_REFUND_SAFETY_MARGIN,
+                    largestTermSeconds +
+                        WalletProposalValidatorConstants
+                            .DEPOSIT_REFUND_SAFETY_MARGIN,
             "Deposit reveal ahead period must not exceed largest term"
         );
 
@@ -777,8 +785,8 @@ library BridgeState {
         self.redemptionTxMaxTotalFee = _redemptionTxMaxTotalFee;
         self.redemptionTimeout = _redemptionTimeout;
         self.redemptionTimeoutSlashingAmount = _redemptionTimeoutSlashingAmount;
-        self
-            .redemptionTimeoutNotifierRewardMultiplier = _redemptionTimeoutNotifierRewardMultiplier;
+        self.redemptionTimeoutNotifierRewardMultiplier =
+            _redemptionTimeoutNotifierRewardMultiplier;
 
         emit RedemptionParametersUpdated(
             _redemptionDustThreshold,
@@ -916,17 +924,17 @@ library BridgeState {
         self.movingFundsDustThreshold = _movingFundsDustThreshold;
         self.movingFundsTimeoutResetDelay = _movingFundsTimeoutResetDelay;
         self.movingFundsTimeout = _movingFundsTimeout;
-        self
-            .movingFundsTimeoutSlashingAmount = _movingFundsTimeoutSlashingAmount;
-        self
-            .movingFundsTimeoutNotifierRewardMultiplier = _movingFundsTimeoutNotifierRewardMultiplier;
+        self.movingFundsTimeoutSlashingAmount =
+            _movingFundsTimeoutSlashingAmount;
+        self.movingFundsTimeoutNotifierRewardMultiplier =
+            _movingFundsTimeoutNotifierRewardMultiplier;
         self.movingFundsCommitmentGasOffset = _movingFundsCommitmentGasOffset;
         self.movedFundsSweepTxMaxTotalFee = _movedFundsSweepTxMaxTotalFee;
         self.movedFundsSweepTimeout = _movedFundsSweepTimeout;
-        self
-            .movedFundsSweepTimeoutSlashingAmount = _movedFundsSweepTimeoutSlashingAmount;
-        self
-            .movedFundsSweepTimeoutNotifierRewardMultiplier = _movedFundsSweepTimeoutNotifierRewardMultiplier;
+        self.movedFundsSweepTimeoutSlashingAmount =
+            _movedFundsSweepTimeoutSlashingAmount;
+        self.movedFundsSweepTimeoutNotifierRewardMultiplier =
+            _movedFundsSweepTimeoutNotifierRewardMultiplier;
 
         emit MovingFundsParametersUpdated(
             _movingFundsTxMaxTotalFee,
@@ -1100,9 +1108,10 @@ library BridgeState {
     ///      initialization of the rebate staking contract. Changing
     ///      the rebate staking address after it is set requires a
     ///      dedicated upgrade path.
-    function setRebateStaking(Storage storage self, address _rebateStaking)
-        internal
-    {
+    function setRebateStaking(
+        Storage storage self,
+        address _rebateStaking
+    ) internal {
         require(self.rebateStaking == address(0), "Rebate staking already set");
 
         require(
@@ -1200,11 +1209,9 @@ library BridgeState {
     ///      bounding the relations it once satisfied. Read from the cache
     ///      `addReservationTerm` maintains, so this costs one storage read
     ///      on every reserved reveal and acceptance proof.
-    function largestReservationTermSeconds(Storage storage self)
-        internal
-        view
-        returns (uint32)
-    {
+    function largestReservationTermSeconds(
+        Storage storage self
+    ) internal view returns (uint32) {
         return self.largestReservationTerm;
     }
 
@@ -1217,11 +1224,9 @@ library BridgeState {
     /// @dev Disabled entries count, for the same reason as in
     ///      `largestReservationTermSeconds`. Read from the cache
     ///      `addReservationTerm` maintains.
-    function smallestReservationTermSeconds(Storage storage self)
-        internal
-        view
-        returns (uint32)
-    {
+    function smallestReservationTermSeconds(
+        Storage storage self
+    ) internal view returns (uint32) {
         return self.smallestReservationTerm;
     }
 }

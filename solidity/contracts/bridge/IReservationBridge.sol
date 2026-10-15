@@ -295,17 +295,24 @@ interface IReservationBridge {
     ///      active reservations count stays below the global occupancy
     ///      cap; and a valid signing window exists between the deposit's
     ///      minimum age and its refund deadline; and `termId` names an
-    ///      existing, enabled term entry. See
-    ///      `Reservation.requestReservationAcceptance` for the full
+    ///      existing, enabled term entry. The deposit's funding
+    ///      transaction must carry a valid SPV proof; the reservation key is
+    ///      `keccak256(fundingTxHash | fundingOutputIndex)` of the proven
+    ///      transaction. See `ReservationRouter.requestReservationAcceptance`
+    ///      and `Reservation.requestReservationAcceptance` for the full
     ///      requirement list.
-    /// @param reservationKey The deposit key of the revealed reserved
-    ///        deposit (doubles as the reservation key).
+    /// @param fundingTx Bitcoin funding transaction of the deposit.
+    /// @param fundingProof SPV proof of `fundingTx`.
+    /// @param fundingOutputIndex Index of the deposit output in
+    ///        `fundingTx`.
     /// @param walletPubKeyHash 20-byte public key hash of the wallet that
     ///        will anchor the deposit.
     /// @param termId Id of the reservation term entry the position is
     ///        opened on.
     function requestReservationAcceptance(
-        uint256 reservationKey,
+        BitcoinTx.Info calldata fundingTx,
+        BitcoinTx.Proof calldata fundingProof,
+        uint32 fundingOutputIndex,
         bytes20 walletPubKeyHash,
         uint8 termId
     ) external;
@@ -415,8 +422,9 @@ interface IReservationBridge {
     ///      `Reservation.notifyReservationAcceptanceTimedOut`.
     /// @param reservationKey The deposit key of the revealed reserved
     ///        deposit, which doubles as the reservation key.
-    function notifyReservationAcceptanceTimedOut(uint256 reservationKey)
-        external;
+    function notifyReservationAcceptanceTimedOut(
+        uint256 reservationKey
+    ) external;
 
     /// @notice Updates parameters of reservations, including the
     ///         reservation vault address. Deposits revealed with the
@@ -601,10 +609,9 @@ interface IReservationBridge {
     /// @return The reservation position record; a zeroed struct
     ///         (`state == ReservationState.Unknown`) when no reservation
     ///         exists for the key.
-    function reservations(uint256 reservationKey)
-        external
-        view
-        returns (Reservation.ReservationRequest memory);
+    function reservations(
+        uint256 reservationKey
+    ) external view returns (Reservation.ReservationRequest memory);
 
     /// @notice Returns the action record of the given reservation
     ///         generation. See the `Reservation.ReservationAction` struct
@@ -614,10 +621,10 @@ interface IReservationBridge {
     /// @return The action record; a zeroed struct
     ///         (`state == ActionState.Unknown`) when no such generation
     ///         exists.
-    function reservationActions(uint256 reservationKey, uint64 requestNonce)
-        external
-        view
-        returns (Reservation.ReservationAction memory);
+    function reservationActions(
+        uint256 reservationKey,
+        uint64 requestNonce
+    ) external view returns (Reservation.ReservationAction memory);
 
     /// @notice Returns the reservation term entry of the given id.
     /// @param termId Id of the entry.
@@ -625,22 +632,19 @@ interface IReservationBridge {
     ///         an id that was never added.
     /// @return custodyBps Custody fee of the term, in basis points.
     /// @return enabled Whether new positions may select the term.
-    function reservationTerm(uint8 termId)
+    function reservationTerm(
+        uint8 termId
+    )
         external
         view
-        returns (
-            uint32 termSeconds,
-            uint16 custodyBps,
-            bool enabled
-        );
+        returns (uint32 termSeconds, uint16 custodyBps, bool enabled);
 
     /// @notice Returns the term id of the given reservation position.
     /// @param reservationKey The key of the reservation.
     /// @return The position's term id; zero when none is recorded.
-    function reservationTermId(uint256 reservationKey)
-        external
-        view
-        returns (uint8);
+    function reservationTermId(
+        uint256 reservationKey
+    ) external view returns (uint8);
 
     /// @notice Returns the current values of Bridge reservation parameters.
     /// @return reservationVault Address of the reservation vault. Deposits
@@ -686,19 +690,17 @@ interface IReservationBridge {
     ///         custodied by the given wallet.
     /// @param walletPubKeyHash 20-byte public key hash of the wallet.
     /// @return Total reserved amount, in satoshi, custodied by the wallet.
-    function walletReservationsAmount(bytes20 walletPubKeyHash)
-        external
-        view
-        returns (uint64);
+    function walletReservationsAmount(
+        bytes20 walletPubKeyHash
+    ) external view returns (uint64);
 
     /// @notice Returns the number of reservations custodied by the given
     ///         wallet (including reserved capacity of pending actions).
     /// @param walletPubKeyHash 20-byte public key hash of the wallet.
     /// @return Number of reservations custodied by the wallet.
-    function walletReservationsCount(bytes20 walletPubKeyHash)
-        external
-        view
-        returns (uint32);
+    function walletReservationsCount(
+        bytes20 walletPubKeyHash
+    ) external view returns (uint32);
 
     /// @notice Returns the reservation key whose current anchor is the
     ///         given outpoint, or zero when the outpoint is not a tracked
@@ -718,10 +720,9 @@ interface IReservationBridge {
     /// @param depositKey The deposit key of the reserved deposit.
     /// @return 20-byte public key hash of the designated wallet, or zero
     ///         when the deposit is not a pending reserved deposit.
-    function reservedDepositWallet(uint256 depositKey)
-        external
-        view
-        returns (bytes20);
+    function reservedDepositWallet(
+        uint256 depositKey
+    ) external view returns (bytes20);
 
     /// @notice Returns the number of revealed reserved deposits that were
     ///         neither accepted nor marked stale yet.

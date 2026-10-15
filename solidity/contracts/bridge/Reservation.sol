@@ -459,11 +459,10 @@ library Reservation {
 
     /// @notice Computes the storage key of the action record of the given
     ///         reservation generation.
-    function actionKey(uint256 reservationKey, uint64 requestNonce)
-        internal
-        pure
-        returns (uint256)
-    {
+    function actionKey(
+        uint256 reservationKey,
+        uint64 requestNonce
+    ) internal pure returns (uint256) {
         return
             uint256(keccak256(abi.encodePacked(reservationKey, requestNonce)));
     }
@@ -487,19 +486,16 @@ library Reservation {
         uint64 requestNonce,
         uint8 termId
     ) private {
-        self.reservationActionTermIds[
-            actionKey(reservationKey, requestNonce)
-        ] = termId;
+        self.reservationActionTermIds[actionKey(reservationKey, requestNonce)] =
+            termId;
     }
 
     /// @notice Returns the canonical hash of a reservation anchor outpoint.
     ///         Action generations snapshot this value so a late proof can
     ///         only consume the exact anchor that generation authorized.
-    function anchorUtxoHash(ReservationRequest storage reservation)
-        internal
-        view
-        returns (bytes32)
-    {
+    function anchorUtxoHash(
+        ReservationRequest storage reservation
+    ) internal view returns (bytes32) {
         return
             keccak256(
                 abi.encodePacked(
@@ -629,21 +625,30 @@ library Reservation {
         uint64 txMaxFee = self.reservationTxMaxFee;
         uint64 minAmount = self.reservationMinAmount;
 
+        // The acceptance anchor pays up to `txMaxFee`, so it is at least
+        // `deposit.amount - txMaxFee`. A re-anchor needs an anchor strictly
+        // above `minAmount + txMaxFee` (requestReservationReanchor). Requiring
+        // `deposit.amount > minAmount + 2 * txMaxFee` makes every accepted
+        // anchor re-anchorable under the same parameters; with the old
+        // `>= minAmount + txMaxFee` anchors in [minAmount, minAmount +
+        // txMaxFee] could never move.
         require(
-            deposit.amount >= minAmount + txMaxFee,
+            uint256(deposit.amount) >
+                uint256(minAmount) + 2 * uint256(txMaxFee),
             "Deposit amount too small for a reservation"
         );
 
-        /* solhint-disable-next-line not-rely-on-time */
-        uint32 timeoutAt = uint32(block.timestamp) +
-            self.reservationActionTimeout;
+        uint32 timeoutAt =
+            /* solhint-disable-next-line not-rely-on-time */
+            uint32(block.timestamp) + self.reservationActionTimeout;
 
         // Proposal timestamps are integer seconds and must be later than both
         // the strict deposit-age boundary and the block creating the action.
         // The first admissible timestamp is therefore one second after the
         // greater of those two lower bounds.
-        uint256 signingLowerBound = uint256(deposit.revealedAt) +
-            WalletProposalValidatorConstants.DEPOSIT_MIN_AGE;
+        uint256 signingLowerBound =
+            uint256(deposit.revealedAt) +
+                WalletProposalValidatorConstants.DEPOSIT_MIN_AGE;
         /* solhint-disable-next-line not-rely-on-time */
         if (signingLowerBound < block.timestamp) {
             /* solhint-disable-next-line not-rely-on-time */
@@ -651,8 +656,9 @@ library Reservation {
         }
         uint256 earliestSigningAt = signingLowerBound + 1;
 
-        uint256 actionSigningDeadline = uint256(timeoutAt) -
-            WalletProposalValidatorConstants.REQUEST_TIMEOUT_SAFETY_MARGIN;
+        uint256 actionSigningDeadline =
+            uint256(timeoutAt) -
+                WalletProposalValidatorConstants.REQUEST_TIMEOUT_SAFETY_MARGIN;
         require(
             earliestSigningAt < actionSigningDeadline,
             "Acceptance authorization has no signing window"
@@ -673,9 +679,9 @@ library Reservation {
             uint256(reservedDeposit.refundDeadline) >
                 WalletProposalValidatorConstants.DEPOSIT_REFUND_SAFETY_MARGIN &&
                 earliestSigningAt <
-                uint256(reservedDeposit.refundDeadline) -
-                    WalletProposalValidatorConstants
-                        .DEPOSIT_REFUND_SAFETY_MARGIN,
+                    uint256(reservedDeposit.refundDeadline) -
+                        WalletProposalValidatorConstants
+                            .DEPOSIT_REFUND_SAFETY_MARGIN,
             "Deposit refund deadline allows no signing window"
         );
 
@@ -860,9 +866,9 @@ library Reservation {
         uint64 txMaxFee = self.reservationTxMaxFee;
         uint64 minAmount = self.reservationMinAmount;
 
-        /* solhint-disable-next-line not-rely-on-time */
-        uint32 timeoutAt = uint32(block.timestamp) +
-            self.reservationActionTimeout;
+        uint32 timeoutAt =
+            /* solhint-disable-next-line not-rely-on-time */
+            uint32(block.timestamp) + self.reservationActionTimeout;
 
         // A re-anchor authorization carries no deposit-reveal age floor
         // (unlike acceptance): the earliest admissible signing timestamp is
@@ -876,9 +882,9 @@ library Reservation {
                     .REQUEST_TIMEOUT_SAFETY_MARGIN &&
                 /* solhint-disable-next-line not-rely-on-time */
                 uint256(block.timestamp) + 1 <
-                uint256(timeoutAt) -
-                    WalletProposalValidatorConstants
-                        .REQUEST_TIMEOUT_SAFETY_MARGIN,
+                    uint256(timeoutAt) -
+                        WalletProposalValidatorConstants
+                            .REQUEST_TIMEOUT_SAFETY_MARGIN,
             "Reanchor authorization has no signing window"
         );
         // Request-time amount floor: this is the only on-chain bound on
@@ -896,26 +902,24 @@ library Reservation {
 
         // Reserve the target wallet's count and amount capacity; the
         // source wallet's are released at settlement (or kept on timeout).
-        uint32 targetCount = self
-            .walletReservationInfo[targetWalletPubKeyHash]
-            .count + 1;
+        uint32 targetCount =
+            self.walletReservationInfo[targetWalletPubKeyHash].count + 1;
         require(
             targetCount <= self.maxReservationsPerWallet,
             "Wallet reservations cap exceeded"
         );
         self.walletReservationInfo[targetWalletPubKeyHash].count = targetCount;
 
-        uint64 targetAmount = self
-            .walletReservationInfo[targetWalletPubKeyHash]
-            .amount + anchorAmount;
+        uint64 targetAmount =
+            self.walletReservationInfo[targetWalletPubKeyHash].amount +
+                anchorAmount;
         require(
             self.maxReservationsAmountPerWallet == 0 ||
                 targetAmount <= self.maxReservationsAmountPerWallet,
             "Wallet reserved amount cap exceeded"
         );
-        self
-            .walletReservationInfo[targetWalletPubKeyHash]
-            .amount = targetAmount;
+        self.walletReservationInfo[targetWalletPubKeyHash].amount =
+            targetAmount;
 
         reservation.state = ReservationState.ActionPending;
         uint64 requestNonce = ++reservation.requestNonce;
@@ -990,8 +994,7 @@ library Reservation {
 
         /* solhint-disable not-rely-on-time */
         reservation.reanchorCooldownUntil =
-            uint32(block.timestamp) +
-            (action.timeoutAt - action.requestedAt);
+            uint32(block.timestamp) + (action.timeoutAt - action.requestedAt);
         /* solhint-enable not-rely-on-time */
 
         emit ReservationReanchorTimedOut(
@@ -1024,18 +1027,16 @@ library Reservation {
         );
         self.reservationTotalAmount = newTotal;
 
-        uint32 walletCount = self
-            .walletReservationInfo[walletPubKeyHash]
-            .count + 1;
+        uint32 walletCount =
+            self.walletReservationInfo[walletPubKeyHash].count + 1;
         require(
             walletCount <= self.maxReservationsPerWallet,
             "Wallet reservations cap exceeded"
         );
         self.walletReservationInfo[walletPubKeyHash].count = walletCount;
 
-        uint64 walletAmount = self
-            .walletReservationInfo[walletPubKeyHash]
-            .amount + amount;
+        uint64 walletAmount =
+            self.walletReservationInfo[walletPubKeyHash].amount + amount;
         require(
             self.maxReservationsAmountPerWallet == 0 ||
                 walletAmount <= self.maxReservationsAmountPerWallet,
@@ -1069,6 +1070,29 @@ library Reservation {
         self.walletReservationInfo[targetWalletPubKeyHash].amount -= amount;
     }
 
+    /// @notice Records a proven anchor arriving at a wallet (acceptance or
+    ///         re-anchor settlement, or the reconstruction of a stranded
+    ///         lineage for a late proof).
+    function addAnchoredCustody(
+        BridgeState.Storage storage self,
+        bytes20 walletPubKeyHash,
+        uint64 anchorAmount
+    ) internal {
+        self.walletAnchoredInfo[walletPubKeyHash].count += 1;
+        self.walletAnchoredInfo[walletPubKeyHash].amount += anchorAmount;
+    }
+
+    /// @notice Records a proven anchor leaving a wallet's tracked custody
+    ///         (re-anchor settlement at the source, strand or close).
+    function removeAnchoredCustody(
+        BridgeState.Storage storage self,
+        bytes20 walletPubKeyHash,
+        uint64 anchorAmount
+    ) internal {
+        self.walletAnchoredInfo[walletPubKeyHash].count -= 1;
+        self.walletAnchoredInfo[walletPubKeyHash].amount -= anchorAmount;
+    }
+
     /// @notice Strands a reservation: releases its tracked capacity and
     ///         emits the canonical recovery evidence. The caller decides
     ///         whether the anchor was honestly spent before invoking this
@@ -1085,6 +1109,7 @@ library Reservation {
 
         if (!alreadyStranded) {
             releaseAcceptanceCapacity(self, walletPubKeyHash, anchorAmount);
+            removeAnchoredCustody(self, walletPubKeyHash, anchorAmount);
             delete self.reservationsByAnchorUtxo[
                 uint256(
                     keccak256(
@@ -1137,6 +1162,11 @@ library Reservation {
             reservation.walletPubKeyHash,
             reservation.anchorAmount
         );
+        removeAnchoredCustody(
+            self,
+            reservation.walletPubKeyHash,
+            reservation.anchorAmount
+        );
         delete self.reservationsByAnchorUtxo[
             uint256(
                 keccak256(
@@ -1151,29 +1181,32 @@ library Reservation {
     }
 
     /// @notice Marks a reservation custodied by a terminated or closed
-    ///         wallet as stranded: an idle position closes, capacity
-    ///         is released and the owner's minted balance remains an ordinary
-    ///         pooled claim. Pending actions remain proof-eligible and
-    ///         cannot be stranded.
+    ///         wallet, or past its dissolution eligibility, as stranded: an
+    ///         idle position closes, capacity is released and the owner's
+    ///         minted balance remains an ordinary pooled claim. Pending
+    ///         actions remain proof-eligible and cannot be stranded.
     /// @param reservationKey The key of the stranded reservation.
     /// @dev Requirements:
     ///      - The custodying wallet must be in the Terminated or Closed state,
-    ///        or in the Closing state once the reservation's
-    ///        `dissolutionEligibleAt` has passed (i.e., `block.timestamp >=
-    ///        reservation.dissolutionEligibleAt`). Closing is excluded before
-    ///        that point: `requestReservationReanchor` accepts a Closing source
-    ///        wallet, so allowing a Closing wallet to also be stranded here
-    ///        would race a legitimate reanchor with a permissionless strand.
-    ///        `requestReservationReanchor` no longer gates on
-    ///        `dissolutionEligibleAt` (that on-chain check was deliberately
-    ///        removed; see the field's own doc comment on
-    ///        `dissolutionEligibleAt`), so after the deadline passes both a
-    ///        reanchor and a strand become independently callable. They
-    ///        still cannot race unsafely: both require
-    ///        `reservation.state == Active` as a precondition, so whichever
-    ///        transaction lands first flips the state and the other
-    ///        reverts, making Closing eligible for stranding a safe
-    ///        milestone-1 release path.
+    ///        or in the Live state once the reservation's
+    ///        `dissolutionEligibleAt` has passed, or in the Closing state once
+    ///        both `dissolutionEligibleAt` and the wallet's closing period
+    ///        (`closingStartedAt + walletClosingPeriod`) have passed.
+    ///      - Live: an expired position otherwise pinned its wallet's and the
+    ///        global capacity forever, because milestone 1 has no other
+    ///        release path (`closeReservation` has no caller). Only
+    ///        governance can re-anchor from a Live wallet, so an extra
+    ///        exclusive window would protect no owner action.
+    ///      - Closing: `requestReservationReanchor` accepts a Closing source
+    ///        wallet, so the closing period is an exclusive re-anchor window:
+    ///        every position on a Closing wallet gets at least one full
+    ///        closing period to move before anyone may strand it. Without it
+    ///        a wallet pushed Live -> MovingFunds -> Closing by permissionless
+    ///        calls could be stranded in the same transaction, before the
+    ///        owner could request a re-anchor.
+    ///      After the deadlines a re-anchor and a strand are both callable;
+    ///      both require `reservation.state == Active`, so whichever lands
+    ///      first flips the state and the other reverts.
     function notifyReservationStranded(
         BridgeState.Storage storage self,
         uint256 reservationKey
@@ -1186,15 +1219,22 @@ library Reservation {
             "Reservation is not active"
         );
 
-        Wallets.WalletState walletState = self
-            .registeredWallets[reservation.walletPubKeyHash]
-            .state;
+        Wallets.Wallet storage wallet = self.registeredWallets[
+            reservation.walletPubKeyHash
+        ];
+        Wallets.WalletState walletState = wallet.state;
+        /* solhint-disable-next-line not-rely-on-time */
+        bool eligible = block.timestamp >= reservation.dissolutionEligibleAt;
         require(
             walletState == Wallets.WalletState.Terminated ||
                 walletState == Wallets.WalletState.Closed ||
+                (walletState == Wallets.WalletState.Live && eligible) ||
                 (walletState == Wallets.WalletState.Closing &&
+                    eligible &&
                     /* solhint-disable-next-line not-rely-on-time */
-                    block.timestamp >= reservation.dissolutionEligibleAt),
+                    block.timestamp >=
+                        uint256(wallet.closingStartedAt) +
+                            self.walletClosingPeriod),
             "Wallet is not terminated, closed, or a dissolution-eligible closing wallet"
         );
 
@@ -1313,7 +1353,7 @@ library Reservation {
             reservationMaxSingleAmount == 0 ||
                 maxActiveReservations == 0 ||
                 reservationMaxTotalAmount <=
-                uint256(maxActiveReservations) * reservationMaxSingleAmount,
+                    uint256(maxActiveReservations) * reservationMaxSingleAmount,
             "Amount cap exceeds slot capacity"
         );
     }
@@ -1388,10 +1428,18 @@ library Reservation {
                 reservationRenewalWindowSeconds < smallestTermSeconds,
             "Renewal window must be shorter than every term entry"
         );
+        // A request on a deposit revealed in the same block can sign no
+        // earlier than `now + DEPOSIT_MIN_AGE + 1` and no later than
+        // `now + reservationActionTimeout - REQUEST_TIMEOUT_SAFETY_MARGIN`.
+        // Any smaller timeout leaves that request without a signing window,
+        // and at `REQUEST_TIMEOUT_SAFETY_MARGIN + 1` every acceptance and
+        // re-anchor request reverts.
         require(
             reservationActionTimeout >
-                WalletProposalValidatorConstants.REQUEST_TIMEOUT_SAFETY_MARGIN,
-            "Reservation action timeout must exceed the safety margin"
+                WalletProposalValidatorConstants.REQUEST_TIMEOUT_SAFETY_MARGIN +
+                    WalletProposalValidatorConstants.DEPOSIT_MIN_AGE +
+                    1,
+            "Reservation action timeout leaves no signing window"
         );
         require(
             maxReservationsPerWallet > 0,

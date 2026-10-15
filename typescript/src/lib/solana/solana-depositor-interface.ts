@@ -35,7 +35,6 @@ export class SolanaRelayerDepositConflictError extends Error {
 
 /**
  * Implementation of the Solana Depositor Interface handle.
- * @see {BitcoinDepositor} for reference.
  */
 export class SolanaDepositorInterface implements BitcoinDepositor {
   readonly #extraDataEncoder: SolanaExtraDataEncoder
@@ -45,37 +44,28 @@ export class SolanaDepositorInterface implements BitcoinDepositor {
     this.#extraDataEncoder = new SolanaExtraDataEncoder()
   }
 
-  // eslint-disable-next-line valid-jsdoc
-  /**
-   * @see {BitcoinDepositor#getDepositOwner}
-   */
   getDepositOwner(): ChainIdentifier | undefined {
     return this.#depositOwner
   }
 
-  // eslint-disable-next-line valid-jsdoc
-  /**
-   * @see {BitcoinDepositor#setDepositOwner}
-   */
   setDepositOwner(depositOwner: ChainIdentifier | undefined): void {
     this.#depositOwner = depositOwner
   }
 
-  // eslint-disable-next-line valid-jsdoc
-  /**
-   * @see {BitcoinDepositor#extraDataEncoder}
-   */
   extraDataEncoder(): SolanaExtraDataEncoder {
     return this.#extraDataEncoder
   }
 
-  // eslint-disable-next-line valid-jsdoc
   /**
-   * @see {BitcoinDepositor#initializeDeposit}
+   * Initializes a deposit by calling the external relayer service at
+   * `https://relayer.tbtcscan.com/api/reveal` to trigger the deposit transaction
+   * via an off-chain relayer process.
    *
-   * This method calls the external service at `https://relayer.tbtcscan.com/api/reveal`
-   * to trigger the deposit transaction via a relayer off-chain process.
-   * It returns the resulting transaction hash as a Hex.
+   * @param depositTx - The Bitcoin raw transaction vectors.
+   * @param depositOutputIndex - The output index of the deposit in the funding transaction.
+   * @param deposit - The deposit receipt.
+   * @param vault - Optional vault identifier.
+   * @returns The resulting transaction receipt containing the transaction hash.
    */
   async initializeDeposit(
     depositTx: BitcoinRawTxVectors,

@@ -360,7 +360,8 @@ contract Bridge is
     ///      - fundingOutputIndex: 1
     function initializeV2_FixVaultZeroDeposit() external reinitializer(2) {
         // Deposit key: keccak256(fundingTxHash || fundingOutputIndex)
-        uint256 depositKey = 0xf3bc9cd6f46f4c206bc8711e40bb5692e8fe5f0ac4d4da0a709dc71bb751c98a;
+        uint256 depositKey =
+            0xf3bc9cd6f46f4c206bc8711e40bb5692e8fe5f0ac4d4da0a709dc71bb751c98a;
 
         // Target vault: TBTCVault on mainnet
         address tbtcVault = 0x9C070027cdC9dc8F82416B2e5314E11DFb4FE3CD;
@@ -385,10 +386,9 @@ contract Bridge is
     ///      staking address. Versions 3-4 were reserved for other potential
     ///      upgrades but ultimately unused. This function can only be called
     ///      once per proxy deployment.
-    function initializeV5_RepairRebateStaking(address newRebateStaking)
-        external
-        reinitializer(5)
-    {
+    function initializeV5_RepairRebateStaking(
+        address newRebateStaking
+    ) external reinitializer(5) {
         address oldRebateStaking = self.rebateStaking;
 
         require(
@@ -1043,9 +1043,9 @@ contract Bridge is
     ///          and the active wallet is old enough, i.e. the creation period
     ///          was elapsed since its creation time,
     ///        - The active wallet BTC balance is above the maximum threshold.
-    function requestNewWallet(BitcoinTx.UTXO calldata activeWalletMainUtxo)
-        external
-    {
+    function requestNewWallet(
+        BitcoinTx.UTXO calldata activeWalletMainUtxo
+    ) external {
         self.requestNewWallet(activeWalletMainUtxo);
     }
 
@@ -1109,9 +1109,9 @@ contract Bridge is
     /// @dev Requirements:
     ///      - The wallet must be in the Closing state,
     ///      - The wallet closing period must have elapsed.
-    function notifyWalletClosingPeriodElapsed(bytes20 walletPubKeyHash)
-        external
-    {
+    function notifyWalletClosingPeriodElapsed(
+        bytes20 walletPubKeyHash
+    ) external {
         self.notifyWalletClosingPeriodElapsed(walletPubKeyHash);
     }
 
@@ -1289,10 +1289,10 @@ contract Bridge is
     /// @param vault The address of the vault.
     /// @param isTrusted flag indicating whether the vault is trusted or not.
     /// @dev Can only be called by the Governance.
-    function setVaultStatus(address vault, bool isTrusted)
-        external
-        onlyGovernance
-    {
+    function setVaultStatus(
+        address vault,
+        bool isTrusted
+    ) external onlyGovernance {
         self.isVaultTrusted[vault] = isTrusted;
         emit VaultStatusUpdated(vault, isTrusted);
     }
@@ -1314,10 +1314,10 @@ contract Bridge is
     /// @param spvMaintainer The address of the SPV maintainer.
     /// @param isTrusted flag indicating whether the address is trusted or not.
     /// @dev Can only be called by the Governance.
-    function setSpvMaintainerStatus(address spvMaintainer, bool isTrusted)
-        external
-        onlyGovernance
-    {
+    function setSpvMaintainerStatus(
+        address spvMaintainer,
+        bool isTrusted
+    ) external onlyGovernance {
         self.isSpvMaintainer[spvMaintainer] = isTrusted;
         emit SpvMaintainerStatusUpdated(spvMaintainer, isTrusted);
     }
@@ -1627,21 +1627,17 @@ contract Bridge is
     ///         and fundingOutputIndex an uint32. This mapping may contain valid
     ///         and invalid deposits and the wallet is responsible for
     ///         validating them before attempting to execute a sweep.
-    function deposits(uint256 depositKey)
-        external
-        view
-        returns (Deposit.DepositRequest memory)
-    {
+    function deposits(
+        uint256 depositKey
+    ) external view returns (Deposit.DepositRequest memory) {
         return self.deposits[depositKey];
     }
 
     /// @notice Returns whether the deposit was routed to the reservation
     ///         vault that was configured at reveal time.
-    function isReservedDeposit(uint256 depositKey)
-        external
-        view
-        returns (bool)
-    {
+    function isReservedDeposit(
+        uint256 depositKey
+    ) external view returns (bool) {
         return self.pendingReservedDeposit[depositKey].isReserved;
     }
 
@@ -1659,11 +1655,9 @@ contract Bridge is
     ///           successfully,
     ///         - `notifyRedemptionTimeout` in case the request was reported
     ///           to be timed out.
-    function pendingRedemptions(uint256 redemptionKey)
-        external
-        view
-        returns (Redemption.RedemptionRequest memory)
-    {
+    function pendingRedemptions(
+        uint256 redemptionKey
+    ) external view returns (Redemption.RedemptionRequest memory) {
         return self.pendingRedemptions[redemptionKey];
     }
 
@@ -1682,11 +1676,9 @@ contract Bridge is
     ///         Only one method can remove entries from this mapping:
     ///         - `submitRedemptionProof` in case the timed out redemption
     ///           request was a part of the proven transaction.
-    function timedOutRedemptions(uint256 redemptionKey)
-        external
-        view
-        returns (Redemption.RedemptionRequest memory)
-    {
+    function timedOutRedemptions(
+        uint256 redemptionKey
+    ) external view returns (Redemption.RedemptionRequest memory) {
         return self.timedOutRedemptions[redemptionKey];
     }
 
@@ -1704,11 +1696,9 @@ contract Bridge is
     /// @param walletPubKeyHash The 20-byte wallet public key hash (computed
     ///        using Bitcoin HASH160 over the compressed ECDSA public key).
     /// @return Wallet details.
-    function wallets(bytes20 walletPubKeyHash)
-        external
-        view
-        returns (Wallets.Wallet memory)
-    {
+    function wallets(
+        bytes20 walletPubKeyHash
+    ) external view returns (Wallets.Wallet memory) {
         return self.registeredWallets[walletPubKeyHash];
     }
 
@@ -1728,11 +1718,9 @@ contract Bridge is
 
     /// @notice Returns the fraud challenge identified by the given key built
     ///         as keccak256(walletPublicKey|sighash).
-    function fraudChallenges(uint256 challengeKey)
-        external
-        view
-        returns (Fraud.FraudChallenge memory)
-    {
+    function fraudChallenges(
+        uint256 challengeKey
+    ) external view returns (Fraud.FraudChallenge memory) {
         return self.fraudChallenges[challengeKey];
     }
 
@@ -1745,11 +1733,9 @@ contract Bridge is
     /// @param requestKey Request key built as
     ///        `keccak256(movingFundsTxHash | movingFundsOutputIndex)`.
     /// @return Details of the moved funds sweep request.
-    function movedFundsSweepRequests(uint256 requestKey)
-        external
-        view
-        returns (MovingFunds.MovedFundsSweepRequest memory)
-    {
+    function movedFundsSweepRequests(
+        uint256 requestKey
+    ) external view returns (MovingFunds.MovedFundsSweepRequest memory) {
         return self.movedFundsSweepRequests[requestKey];
     }
 
@@ -2063,10 +2049,9 @@ contract Bridge is
     ///      - The caller must be the governance,
     ///      - Redemption watchtower address must not be already set,
     ///      - Redemption watchtower address must not be 0x0.
-    function setRedemptionWatchtower(address redemptionWatchtower)
-        external
-        onlyGovernance
-    {
+    function setRedemptionWatchtower(
+        address redemptionWatchtower
+    ) external onlyGovernance {
         // The internal function is defined in the `BridgeState` library.
         self.setRedemptionWatchtower(redemptionWatchtower);
     }
@@ -2107,10 +2092,9 @@ contract Bridge is
     ///      - The caller must be the governance,
     ///      - Reservation router address must not be already set,
     ///      - Reservation router address must not be 0x0.
-    function setReservationRouter(address _reservationRouter)
-        external
-        onlyGovernance
-    {
+    function setReservationRouter(
+        address _reservationRouter
+    ) external onlyGovernance {
         // The internal function is defined in the `BridgeState` library.
         self.setReservationRouter(_reservationRouter);
     }

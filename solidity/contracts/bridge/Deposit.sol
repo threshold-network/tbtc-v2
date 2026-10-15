@@ -213,8 +213,8 @@ library Deposit {
             "Vault is not trusted"
         );
 
-        bool isReserved = reveal.vault != address(0) &&
-            reveal.vault == self.reservationVault;
+        bool isReserved =
+            reveal.vault != address(0) && reveal.vault == self.reservationVault;
         uint32 refundDeadline = 0;
         bool refundDeadlineValidated = false;
         if (self.depositRevealAheadPeriod > 0) {
@@ -384,9 +384,10 @@ library Deposit {
         /* solhint-disable-next-line not-rely-on-time */
         deposit.revealedAt = uint32(block.timestamp);
         deposit.vault = reveal.vault;
-        deposit.treasuryFee = self.depositTreasuryFeeDivisor > 0
-            ? fundingOutputAmount / self.depositTreasuryFeeDivisor
-            : 0;
+        deposit.treasuryFee =
+            self.depositTreasuryFeeDivisor > 0
+                ? fundingOutputAmount / self.depositTreasuryFeeDivisor
+                : 0;
         deposit.extraData = extraData;
 
         if (isReserved) {
