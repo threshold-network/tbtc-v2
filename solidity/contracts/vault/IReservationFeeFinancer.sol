@@ -15,13 +15,27 @@
 
 pragma solidity 0.8.17;
 
-/// @notice Interface of the reservation vault's in-kind fee financing hook.
-///         The Bridge calls it when a reservation settlement pays a Bitcoin
-///         miner fee that no party surrenders TBTC for (re-anchor and
-///         dissolution transactions): the vault burns supply equal to the
-///         fee from its custody-fee reserve so total TBTC supply shrinks in
-///         lockstep with the Bitcoin backing.
+/// @notice Interface of the reservation vault's Bridge-only hooks.
+///         The Bridge calls `creditReservation` when it proves a
+///         reservation's acceptance anchor, and `financeInKindFee` when a
+///         reservation settlement pays a Bitcoin miner fee that no party
+///         surrenders TBTC for (re-anchor and dissolution transactions): the
+///         vault burns supply equal to the fee from its custody-fee reserve
+///         so total TBTC supply shrinks in lockstep with the Bitcoin backing.
 interface IReservationFeeFinancer {
+    /// @notice Credits an accepted reservation: the Bridge has just
+    ///         increased the vault's Bank balance by the position's gross
+    ///         anchored amount, and the vault mints TBTC gross, keeps the
+    ///         acceptance fee and forwards the rest to the position's owner.
+    ///         The vault reads the owner, the amount, the state and the term
+    ///         of the position from the Bridge; the Bridge passes only the
+    ///         key.
+    /// @dev Called inside the acceptance proof, so the implementation must
+    ///      not revert beyond checking that the caller is the Bridge: a
+    ///      revert would leave a confirmed anchor unsettleable.
+    /// @param reservationKey The key of the accepted reservation.
+    function creditReservation(uint256 reservationKey) external;
+
     /// @notice Finances an in-kind Bitcoin miner fee: burns TBTC equal to
     ///         `feeSat` from the vault's fee reserve and the corresponding
     ///         Bank balance. If the reserve cannot cover the full amount,

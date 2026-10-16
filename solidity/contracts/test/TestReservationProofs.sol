@@ -20,8 +20,21 @@ contract MockReservationVault is IVault {
     // records them so tests can assert the financing leg without token logic.
     uint256 public inKindFeesFinanced;
 
+    // Acceptance credits routed through the Bridge-only credit hook; the
+    // mock records the key and the caller so tests can assert which vault
+    // was credited, for which position, by whom.
+    uint256 public creditCount;
+    uint256 public lastCreditedKey;
+    address public lastCreditCaller;
+
     function financeInKindFee(uint64 feeSat) external {
         inKindFeesFinanced += feeSat;
+    }
+
+    function creditReservation(uint256 reservationKey) external {
+        creditCount += 1;
+        lastCreditedKey = reservationKey;
+        lastCreditCaller = msg.sender;
     }
 
     constructor(address _bank) {

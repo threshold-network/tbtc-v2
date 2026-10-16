@@ -111,6 +111,12 @@ contract ReservationRouter is Governable, Initializable {
         uint32 timeoutAt
     );
 
+    event ReservationTermSelected(
+        uint256 indexed reservationKey,
+        uint64 requestNonce,
+        uint8 termId
+    );
+
     event ReservationAccepted(
         uint256 indexed reservationKey,
         uint64 requestNonce,
@@ -181,6 +187,13 @@ contract ReservationRouter is Governable, Initializable {
         uint32 reservationRenewalWindowSeconds
     );
 
+    event ReservationTermUpdated(
+        uint8 indexed termId,
+        uint32 termSeconds,
+        uint16 custodyBps,
+        bool enabled
+    );
+
     event ReservationVaultUpdated(address reservationVault);
 
     event ReservationCapsUpdated(
@@ -219,11 +232,14 @@ contract ReservationRouter is Governable, Initializable {
     ///        `fundingTx`.
     /// @param walletPubKeyHash 20-byte public key hash of the wallet that
     ///        will anchor the deposit.
+    /// @param termId Id of an existing, enabled reservation term entry the
+    ///        position is opened on.
     function requestReservationAcceptance(
         BitcoinTx.Info calldata fundingTx,
         BitcoinTx.Proof calldata fundingProof,
         uint32 fundingOutputIndex,
-        bytes20 walletPubKeyHash
+        bytes20 walletPubKeyHash,
+        uint8 termId
     ) external {
         bytes32 fundingTxHash = BitcoinTx.validateProof(
             self,
@@ -234,7 +250,8 @@ contract ReservationRouter is Governable, Initializable {
             uint256(
                 keccak256(abi.encodePacked(fundingTxHash, fundingOutputIndex))
             ),
-            walletPubKeyHash
+            walletPubKeyHash,
+            termId
         );
     }
 
@@ -359,9 +376,14 @@ contract ReservationRouter is Governable, Initializable {
     ///        amount in satoshis.
     /// @param reservationTxMaxFee New value of the reservation transaction
     ///        max fee in satoshis.
-    /// @param reservationTermSeconds New value of the reservation custody
-    ///        term length in seconds, within the protocol bounds. Applies
-    ///        to future term grants; never alters an existing expiry.
+    /// @param reservationTermSeconds New value of the global reservation
+    ///        term in seconds, within the protocol bounds. Kept readable for
+    ///        decoders (additive ABI) and still an upper bound on the
+    ///        renewal window; no position's lifecycle reads it. A new
+    ///        position takes the seconds of the term entry chosen at its
+    ///        acceptance request (`reservationTerm(id)`,
+    ///        `reservationTermId(key)`), and the reveal cap and late
+    ///        acceptance window use the largest entry.
     /// @param reservationDissolutionDelay New value of the post-expiry
     ///        dissolution delay in seconds. Snapshotted per granted term.
     /// @param reservationMaxTotalAmount New cap on the total amount in
@@ -398,6 +420,25 @@ contract ReservationRouter is Governable, Initializable {
             reservationActionTimeout,
             reservationRenewalWindowSeconds
         );
+    }
+
+    /// @notice Adds a reservation term entry, or flips the `enabled` flag of
+    ///         an existing one. Entries are never rewritten or removed.
+    /// @param termId Id of the entry, in [1, 8].
+    /// @param termSeconds Length of the custody term in seconds.
+    /// @param custodyBps Custody fee of the term in basis points.
+    /// @param enabled Whether new positions may select the term.
+    /// @dev Requirements:
+    ///      - The caller must be the governance,
+    ///      - See `Reservation.setReservationTerm` for parameter
+    ///        requirements.
+    function setReservationTerm(
+        uint8 termId,
+        uint32 termSeconds,
+        uint16 custodyBps,
+        bool enabled
+    ) external onlyGovernance {
+        self.setReservationTerm(termId, termSeconds, custodyBps, enabled);
     }
 
     /// @notice Marks a revealed reserved deposit as stale so it stops
@@ -558,6 +599,33 @@ contract ReservationRouter is Governable, Initializable {
             self.reservationActions[
                 Reservation.actionKey(reservationKey, requestNonce)
             ];
+    }
+
+    /// @notice Returns the reservation term entry of the given id. All
+    ///         fields are zero for an id that was never added.
+    /// @param termId Id of the entry.
+    function reservationTerm(
+        uint8 termId
+    )
+        external
+        view
+        returns (uint32 termSeconds, uint16 custodyBps, bool enabled)
+    {
+        Reservation.ReservationTerm storage term = self.reservationTerms[
+            termId
+        ];
+        termSeconds = term.termSeconds;
+        custodyBps = term.custodyBps;
+        enabled = term.enabled;
+    }
+
+    /// @notice Returns the term id of the given reservation position; zero
+    ///         when none is recorded.
+    /// @param reservationKey The key of the reservation.
+    function reservationTermId(
+        uint256 reservationKey
+    ) external view returns (uint8) {
+        return self.reservationTermIds[reservationKey];
     }
 
     /// @notice Returns the current values of Bridge reservation parameters.

@@ -611,17 +611,20 @@ describe("ReservationProofs", () => {
         0
       )
 
-      // 7. Bank balance of vault increased and vault notified
+      // 7. Bank balance of vault increased and the vault credited by key
+      // through the Bridge-only hook, never through the Bank callback
       expect(await bank.balanceOf(mockReservationVault.target)).to.equal(
         anchorAmount
       )
-      expect(await mockReservationVault.totalReceived()).to.equal(anchorAmount)
-      expect(await mockReservationVault.getLastDepositors()).to.deep.equal([
-        depositor.address,
-      ])
-      const lastAmounts = await mockReservationVault.getLastAmounts()
-      expect(lastAmounts.length).to.equal(1)
-      expect(lastAmounts[0]).to.equal(anchorAmount)
+      expect(await bank.balanceOf(depositor.address)).to.equal(0)
+      expect(await mockReservationVault.creditCount()).to.equal(1)
+      expect(await mockReservationVault.lastCreditedKey()).to.equal(
+        sampleReservationKey
+      )
+      expect(await mockReservationVault.lastCreditCaller()).to.equal(
+        testReservationProofs.target
+      )
+      expect(await mockReservationVault.totalReceived()).to.equal(0)
 
       // 8. Capacity difference (miner fee) released
       expect(await testReservationProofs.getReservationTotalAmount()).to.equal(
@@ -672,6 +675,26 @@ describe("ReservationProofs", () => {
         await testReservationProofs.getReservation(sampleReservationKey)
       expect(reservation.state).to.equal(1) // Active
       expect(reservation.anchorAmount).to.equal(anchorAmount)
+    })
+
+    it("should credit the depositor directly, with no vault call, when the vault is no longer trusted", async () => {
+      await testReservationProofs.setVaultTrusted(
+        mockReservationVault.target,
+        false
+      )
+
+      await testReservationProofs.executeAcceptancePipeline(
+        inputVector,
+        outputVector,
+        sampleReservationKey,
+        requestNonce,
+        sampleAnchorTxHash
+      )
+
+      expect(await bank.balanceOf(depositor.address)).to.equal(anchorAmount)
+      expect(await bank.balanceOf(mockReservationVault.target)).to.equal(0)
+      expect(await mockReservationVault.creditCount()).to.equal(0)
+      expect(await mockReservationVault.totalReceived()).to.equal(0)
     })
   })
 
@@ -1543,7 +1566,12 @@ describe("ReservationProofs", () => {
         await testReservationProofs.getReservation(anchorReservationKey)
       expect(reservation.state).to.equal(1) // Active
       expect(reservation.anchorAmount).to.equal(anchorAmount)
-      expect(await mockReservationVault.totalReceived()).to.equal(anchorAmount)
+      expect(await bank.balanceOf(mockReservationVault.target)).to.equal(
+        anchorAmount
+      )
+      expect(await mockReservationVault.lastCreditedKey()).to.equal(
+        anchorReservationKey
+      )
     })
 
     it("should revert with no state mutation when the SPV merkle proof is tampered with", async () => {
@@ -1566,7 +1594,8 @@ describe("ReservationProofs", () => {
       const reservation =
         await testReservationProofs.getReservation(anchorReservationKey)
       expect(reservation.state).to.equal(0) // still Unknown, no mutation
-      expect(await mockReservationVault.totalReceived()).to.equal(0)
+      expect(await bank.balanceOf(mockReservationVault.target)).to.equal(0)
+      expect(await mockReservationVault.creditCount()).to.equal(0)
     })
 
     it("should settle re-anchor SPV proof, update reverse anchor index, and strand cleanly", async () => {
@@ -1839,8 +1868,10 @@ describe("ReservationProofs", () => {
         sampleAnchorTxHash
       )
 
-      expect(await vaultA.totalReceived()).to.equal(anchorAmount)
-      expect(await vaultB.totalReceived()).to.equal(0)
+      expect(await bank.balanceOf(vaultA.target)).to.equal(anchorAmount)
+      expect(await vaultA.lastCreditedKey()).to.equal(routingReservationKey)
+      expect(await vaultB.creditCount()).to.equal(0)
+      expect(await bank.balanceOf(vaultB.target)).to.equal(0)
     })
   })
 

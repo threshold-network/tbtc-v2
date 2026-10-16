@@ -46,6 +46,7 @@ import type {
   TBTC,
 } from "../../typechain"
 import bridgeFixture from "../fixtures/bridge"
+import { RESERVATION_TERM_ENTRIES } from "../helpers/reservation-terms"
 import type { Mock } from "../helpers/mock"
 import { walletState } from "../fixtures"
 
@@ -55,6 +56,8 @@ const { lastBlockTime, increaseTime } = helpers.time
 const ZERO_BYTES32 = ethers.ZeroHash
 
 const RESERVATION_TERM = 31536000 // 365 days
+// The seeded 365-day entry, so acceptances keep the term above.
+const ACCEPTANCE_TERM_ID = RESERVATION_TERM_ENTRIES[0].termId
 const RESERVATION_GRACE = 2592000 // 30 days
 const RESERVATION_MIN_AMOUNT = 10000
 const RESERVATION_TX_MAX_FEE = 2000
@@ -69,7 +72,7 @@ const RESERVATION_TX_MAX_FEE = 2000
 const RESERVATION_MAX_TOTAL = 10000000n
 const MAX_RESERVATIONS_PER_WALLET = 10
 const RESERVATION_ACTION_TIMEOUT = 172800 // 48 hours
-const RESERVATION_RENEWAL_WINDOW = 2592000 // 30 days
+const RESERVATION_RENEWAL_WINDOW = 604800 // 7 days
 
 const SATOSHI_MULTIPLIER = 10n ** 10n
 
@@ -237,12 +240,12 @@ async function liveWallet(pkh: string) {
 // tests already reserved. Found 2026-08-27.
 async function establishReservationPreconditions() {
   // Intervening `waffle.loadFixture` reverts can restore the shared
-  // governance account to a snapshot where it has no ETH. Re-fund the
-  // impersonated signer before using it here.
-  await ethers.provider.send("hardhat_setBalance", [
-    bridgeGovernanceSigner.address,
-    "0x8AC7230489E80000",
-  ])
+  // governance account to a snapshot where it has no ETH, and an
+  // intervening re-run of the seeded Bridge fixture stops the governance
+  // impersonation (the seeding helper stops it on exit, and impersonation
+  // is node state no snapshot revert restores). Re-impersonate and re-fund
+  // the governance before using it here.
+  bridgeGovernanceSigner = await impersonateContract(await bridge.governance())
   await liveWallet(walletPubKeyHash)
   await bridge
     .connect(bridgeGovernanceSigner)
@@ -386,8 +389,8 @@ const p2wpkhScript = (pkh: string): string => `0014${pkh.slice(2)}`
 const randomRedeemerScript = (): string =>
   `0x16${p2wpkhScript(ethers.hexlify(ethers.randomBytes(20)))}`
 
-// Reveals a fresh reserved deposit and requests acceptance (generation 1).
-async function makeRequestedReservation(custodian = walletPubKeyHash) {
+// Reveals a fresh reserved deposit without requesting its acceptance.
+async function revealReservedDeposit(custodian = walletPubKeyHash) {
   const fundingTx = buildTx(
     [
       {
@@ -424,13 +427,25 @@ async function makeRequestedReservation(custodian = walletPubKeyHash) {
     ethers.solidityPackedKeccak256(["bytes32", "uint32"], [fundingTx.txHash, 0])
   )
 
+  return { fundingTx, reservationKey }
+}
+
+// Reveals a fresh reserved deposit and requests acceptance (generation 1)
+// on the given term entry.
+async function makeRequestedReservation(
+  custodian = walletPubKeyHash,
+  termId = ACCEPTANCE_TERM_ID
+) {
+  const { fundingTx, reservationKey } = await revealReservedDeposit(custodian)
+
   await reservationRouter
     .connect(thirdParty)
     .requestReservationAcceptance(
       fundingTx.info,
       proofFor(fundingTx.txHash),
       0,
-      custodian
+      custodian,
+      termId
     )
 
   const anchorTx = buildTx(
@@ -513,7 +528,8 @@ describe("capacity reserved before signing (fill-then-prove)", () => {
         fundingTx.info,
         proofFor(fundingTx.txHash),
         0,
-        walletPubKeyHash
+        walletPubKeyHash,
+        ACCEPTANCE_TERM_ID
       )
 
     // The caps fill up after the authorization (a governance tightening
@@ -571,7 +587,8 @@ describe("capacity reserved before signing (fill-then-prove)", () => {
           otherFundingTx.info,
           proofFor(otherFundingTx.txHash),
           0,
-          walletPubKeyHash
+          walletPubKeyHash,
+          ACCEPTANCE_TERM_ID
         )
     ).to.be.revertedWith("Total reserved amount cap exceeded")
 
@@ -646,7 +663,8 @@ describe("acceptance authorization timeout", () => {
         fundingTx.info,
         proofFor(fundingTx.txHash),
         0,
-        walletPubKeyHash
+        walletPubKeyHash,
+        ACCEPTANCE_TERM_ID
       )
 
     const totalBefore = (await reservationRouter.reservationParameters())
@@ -689,6 +707,76 @@ describe("acceptance authorization timeout", () => {
   })
 })
 
+describe("term chosen at the acceptance request (router path)", () => {
+  before(async () => {
+    await establishReservationPreconditions()
+    await createSnapshot()
+  })
+
+  after(async () => {
+    await restoreSnapshot()
+  })
+
+  it("snapshots the selected entry and announces it", async () => {
+    // The seeded 30-day entry, so the snapshot differs from the global
+    // term (`RESERVATION_TERM`, 365 days) the request used to copy.
+    const entry = RESERVATION_TERM_ENTRIES[1]
+    const { reservationKey } = await makeRequestedReservation(
+      walletPubKeyHash,
+      entry.termId
+    )
+
+    const action = await reservationRouter.reservationActions(reservationKey, 1)
+    expect(action.termSeconds).to.equal(entry.termSeconds)
+
+    const [log] = await reservationRouter.queryFilter(
+      reservationRouter.filters.ReservationTermSelected(reservationKey)
+    )
+    expect(log.args.requestNonce).to.equal(1)
+    expect(log.args.termId).to.equal(entry.termId)
+  })
+
+  it("rejects an unknown term id", async () => {
+    const { fundingTx } = await revealReservedDeposit()
+    await expect(
+      reservationRouter
+        .connect(thirdParty)
+        .requestReservationAcceptance(
+          fundingTx.info,
+          proofFor(fundingTx.txHash),
+          0,
+          walletPubKeyHash,
+          4
+        )
+    ).to.be.revertedWith("Reservation term does not exist")
+  })
+
+  it("rejects a disabled term id", async () => {
+    const entry = RESERVATION_TERM_ENTRIES[2]
+    await reservationRouter
+      .connect(bridgeGovernanceSigner)
+      .setReservationTerm(
+        entry.termId,
+        entry.termSeconds,
+        entry.custodyBps,
+        false
+      )
+
+    const { fundingTx } = await revealReservedDeposit()
+    await expect(
+      reservationRouter
+        .connect(thirdParty)
+        .requestReservationAcceptance(
+          fundingTx.info,
+          proofFor(fundingTx.txHash),
+          0,
+          walletPubKeyHash,
+          entry.termId
+        )
+    ).to.be.revertedWith("Reservation term is disabled")
+  })
+})
+
 describe("acceptance request needs the funding transaction's proof", () => {
   before(async () => {
     await establishReservationPreconditions()
@@ -699,46 +787,11 @@ describe("acceptance request needs the funding transaction's proof", () => {
     await restoreSnapshot()
   })
 
-  // Reveals a fresh reserved deposit without requesting acceptance.
-  async function revealReservedDeposit() {
-    const fundingTx = buildTx(
-      [
-        {
-          txHash: ethers.hexlify(ethers.randomBytes(32)),
-          index: 0,
-        },
-      ],
-      [
-        {
-          valueSat: depositAmount,
-          script: p2wshScript(
-            buildDepositScript(
-              thirdParty.address,
-              blindingFactor,
-              walletPubKeyHash,
-              refundPubKeyHash,
-              refundLocktime
-            )
-          ),
-        },
-      ]
-    )
-    await bridge.connect(thirdParty).revealDeposit(fundingTx.info, {
-      fundingOutputIndex: 0,
-      blindingFactor,
-      walletPubKeyHash,
-      refundPubKeyHash,
-      refundLocktime,
-      vault: reservationVault.target,
-    })
-    return fundingTx
-  }
-
   const reservedTotal = async () =>
     (await reservationRouter.reservationParameters()).reservationTotalAmount
 
   it("reverts when the proof does not belong to the funding transaction, and reserves nothing", async () => {
-    const fundingTx = await revealReservedDeposit()
+    const { fundingTx } = await revealReservedDeposit()
     const totalBefore = await reservedTotal()
 
     await expect(
@@ -748,7 +801,8 @@ describe("acceptance request needs the funding transaction's proof", () => {
           fundingTx.info,
           proofFor(ethers.hexlify(ethers.randomBytes(32))),
           0,
-          walletPubKeyHash
+          walletPubKeyHash,
+          ACCEPTANCE_TERM_ID
         )
     ).to.be.revertedWith(
       "Tx merkle proof is not valid for provided header and tx hash"
@@ -779,7 +833,8 @@ describe("acceptance request needs the funding transaction's proof", () => {
           unrevealed.info,
           proofFor(unrevealed.txHash),
           0,
-          walletPubKeyHash
+          walletPubKeyHash,
+          ACCEPTANCE_TERM_ID
         )
     ).to.be.revertedWith("Deposit not revealed")
 
@@ -787,7 +842,7 @@ describe("acceptance request needs the funding transaction's proof", () => {
   })
 
   it("reserves capacity once the funding transaction is proven", async () => {
-    const fundingTx = await revealReservedDeposit()
+    const { fundingTx } = await revealReservedDeposit()
     const totalBefore = await reservedTotal()
 
     await reservationRouter
@@ -796,7 +851,8 @@ describe("acceptance request needs the funding transaction's proof", () => {
         fundingTx.info,
         proofFor(fundingTx.txHash),
         0,
-        walletPubKeyHash
+        walletPubKeyHash,
+        ACCEPTANCE_TERM_ID
       )
 
     expect(await reservedTotal()).to.equal(totalBefore + depositAmount)
