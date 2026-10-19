@@ -719,6 +719,47 @@ describe("Reservation", () => {
           await testReservation.walletReservationsAmount(walletPubKeyHash)
         ).to.equal(3000000)
       })
+
+      // Exact-boundary cases: a request that lands exactly on a cap is
+      // allowed. Each cap check uses `<=`; these tests fail if it becomes `<`.
+      it("should succeed when the deposit amount equals the single-reservation cap", async () => {
+        await setupValidDeposit(reservationKey1, walletPubKeyHash, {
+          depositAmount: 1000000,
+        })
+        await testReservation.setReservationMaxSingleAmount(1000000)
+
+        await expect(
+          testReservation
+            .connect(depositor)
+            .requestReservationAcceptance(reservationKey1, walletPubKeyHash)
+        ).to.not.be.reverted
+      })
+
+      it("should succeed when the new total equals reservationMaxTotalAmount", async () => {
+        await setupValidDeposit(reservationKey1, walletPubKeyHash, {
+          depositAmount: 1000000,
+        })
+        await testReservation.setReservationMaxTotalAmount(1000000)
+
+        await testReservation
+          .connect(depositor)
+          .requestReservationAcceptance(reservationKey1, walletPubKeyHash)
+        expect(await testReservation.reservationTotalAmount()).to.equal(1000000)
+      })
+
+      it("should succeed when the wallet amount equals maxReservationsAmountPerWallet", async () => {
+        await setupValidDeposit(reservationKey1, walletPubKeyHash, {
+          depositAmount: 1000000,
+        })
+        await testReservation.setMaxReservationsAmountPerWallet(1000000)
+
+        await testReservation
+          .connect(depositor)
+          .requestReservationAcceptance(reservationKey1, walletPubKeyHash)
+        expect(
+          await testReservation.walletReservationsAmount(walletPubKeyHash)
+        ).to.equal(1000000)
+      })
     })
 
     describe("guard 19: maxActiveReservations occupancy limit", () => {

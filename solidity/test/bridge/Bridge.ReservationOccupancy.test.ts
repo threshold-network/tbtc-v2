@@ -300,6 +300,52 @@ describe("Reservation - occupancy tracking", () => {
     expect(await testReservation.activeReservationsCount()).to.equal(0)
   })
 
+  // Exact boundary: the strand is allowed in the block whose timestamp equals
+  // `closingStartedAt + walletClosingPeriod`. Fails if the `>=` closing-period
+  // check becomes `>`.
+  it("notifyReservationStranded strands a Closing wallet exactly at the end of its closing period", async () => {
+    await testReservation.setMaxActiveReservations(5)
+    await testReservation.setActiveReservationsCount(1)
+
+    const walletPubKeyHash = `0x${"2".repeat(40)}`
+    await testReservation.setWalletReservationsCount(walletPubKeyHash, 1)
+    await testReservation.setWalletReservationsAmount(walletPubKeyHash, 100)
+    await testReservation.setReservationTotalAmount(100)
+    await testReservation.setWalletState(walletPubKeyHash, walletState.Closing)
+
+    const now = (await ethers.provider.getBlock("latest"))!.timestamp
+    const closingEnd = now + 100
+    await testReservation.setWalletClosingStartedAt(
+      walletPubKeyHash,
+      closingEnd - 1000
+    )
+    await testReservation.setWalletClosingPeriod(1000)
+
+    const reservationKey = 2
+    await testReservation.setReservation(reservationKey, {
+      owner: ethers.ZeroAddress,
+      mintedAmount: 100,
+      acceptedAt: 0,
+      walletPubKeyHash,
+      anchorAmount: 100,
+      expiresAt: 0,
+      anchorTxHash: ethers.ZeroHash,
+      anchorTxOutputIndex: 0,
+      state: 1 /* Active */,
+      requestNonce: 1,
+      retryCredit: false,
+      dissolutionEligibleAt: now - 10,
+      cumulativeReanchorFee: 0,
+      reanchorCooldownUntil: 0,
+    })
+    await testReservation.setWalletAnchoredCounters(walletPubKeyHash, 1, 100)
+
+    await ethers.provider.send("evm_setNextBlockTimestamp", [closingEnd])
+    await expect(
+      testReservation.notifyReservationStranded(reservationKey)
+    ).to.emit(testReservation, "ReservationStranded")
+  })
+
   async function activeOnLiveWallet(dissolutionEligibleAt: number) {
     await testReservation.setMaxActiveReservations(5)
     await testReservation.setActiveReservationsCount(1)

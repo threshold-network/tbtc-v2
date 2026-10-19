@@ -1672,5 +1672,17 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
         executor.requestReservationReanchor(reservationKey, targetWallet, false)
       ).to.be.revertedWith("Wallet reserved amount cap exceeded")
     })
+
+    // Exact boundary: a target count landing exactly on the cap is allowed.
+    // Fails if the `<=` check on the target count becomes `<`.
+    it("accepts when the target wallet count lands exactly on the cap", async () => {
+      await setReservationConfig(await executor.getAddress(), {
+        maxReservationsPerWallet: 1,
+      })
+
+      await expect(
+        executor.requestReservationReanchor(reservationKey, targetWallet, false)
+      ).to.not.be.reverted
+    })
   })
 })
