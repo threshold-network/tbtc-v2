@@ -71,6 +71,10 @@ contract ReservationStrandingExecutor is TestReservation {
         Reservation.notifyStaleReservedDeposit(state, depositKey);
     }
 
+    function forceStaleReservedDeposit(uint256 depositKey) external {
+        Reservation.forceStaleReservedDeposit(state, depositKey);
+    }
+
     function requestReservationReanchor(
         uint256 reservationKey,
         bytes20 targetWalletPubKeyHash,

@@ -822,6 +822,25 @@ describe("ReservationProofs", () => {
         )
       ).to.be.revertedWith("Deposit already swept")
     })
+
+    it("should decrement pendingReservedDeposits by exactly one with several pending", async () => {
+      const inputVector = assembleInputVector(
+        sampleFundingTxHash,
+        sampleFundingOutputIndex
+      )
+      // Three pending reserved deposits, so a decrement is distinguishable
+      // from a halving.
+      await testReservationProofs.setPendingReservedDeposits(3)
+
+      await testReservationProofs.consumeAcceptedDeposit(
+        inputVector,
+        sampleReservationKey
+      )
+
+      expect(
+        Number(await testReservationProofs.getPendingReservedDeposits())
+      ).to.equal(2)
+    })
   })
 
   describe("8. Late-settle and pending newer generation unwinding", () => {
@@ -1025,6 +1044,76 @@ describe("ReservationProofs", () => {
         await testReservationProofs.getReservation(sampleReservationKey)
       expect(reservation.state).to.equal(1) // Active
       expect(reservation.anchorAmount).to.equal(anchorAmount)
+    })
+
+    // `+=` and `=`/`|=`/`^=` agree whenever the prior counter is 0, which is
+    // the case in every other late-settlement test because the timed-out
+    // generation released everything. With another position holding the
+    // counters, only a real increment lands on the sum of the two.
+    it("should add to counters already held by other positions when settling late", async () => {
+      await testReservationProofs.setReservationAction(
+        sampleReservationKey,
+        olderNonce,
+        buildReservationAction({
+          actionType: 1, // Acceptance
+          state: 3, // TimedOut
+          amount: depositAmount,
+          timeoutAt: 4294967295 - termSeconds, // late-settle window not expired
+        })
+      )
+      await testReservationProofs.setReservation(
+        sampleReservationKey,
+        buildReservationRequest({
+          owner: ethers.ZeroAddress,
+          mintedAmount: 0,
+          acceptedAt: 0,
+          walletPubKeyHash,
+          anchorAmount: 0,
+          expiresAt: 0,
+          anchorTxHash: ethers.ZeroHash,
+          anchorTxOutputIndex: 0,
+          state: 2, // ActionPending
+          requestNonce: olderNonce,
+          retryCredit: false,
+          dissolutionEligibleAt: 0,
+          cumulativeReanchorFee: 0,
+        })
+      )
+      // Three other positions hold capacity on the same wallet.
+      await testReservationProofs.setReservationTotalAmount(anchorAmount * 3)
+      await testReservationProofs.setWalletReservationsAmount(
+        walletPubKeyHash,
+        anchorAmount * 3
+      )
+      await testReservationProofs.setWalletReservationsCount(
+        walletPubKeyHash,
+        3
+      )
+      await testReservationProofs.setActiveReservationsCount(3)
+      await testReservationProofs.setWalletState(walletPubKeyHash, 1) // Live
+
+      await testReservationProofs.settleAcceptance(
+        sampleReservationKey,
+        olderNonce,
+        true, // late
+        sampleAnchorTxHash,
+        anchorAmount
+      )
+
+      expect(await testReservationProofs.getReservationTotalAmount()).to.equal(
+        anchorAmount * 4
+      )
+      expect(
+        await testReservationProofs.getWalletReservationsAmount(
+          walletPubKeyHash
+        )
+      ).to.equal(anchorAmount * 4)
+      expect(
+        await testReservationProofs.getWalletReservationsCount(walletPubKeyHash)
+      ).to.equal(4)
+      expect(await testReservationProofs.getActiveReservationsCount()).to.equal(
+        4
+      )
     })
 
     it("should revert if unwindPendingAction is called on non-pending action", async () => {

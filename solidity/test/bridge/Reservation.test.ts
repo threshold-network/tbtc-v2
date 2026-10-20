@@ -1504,14 +1504,27 @@ describe("Reservation", () => {
         4, // Stranded
         requestNonce
       )
+      // Three other positions still hold capacity on this wallet. The
+      // reconstruction must add to them, not replace them.
+      const priorAmount = anchorAmount * 3
+      await testReservation.setWalletReservationsCounters(
+        walletPubKeyHash,
+        3,
+        priorAmount
+      )
+      await testReservation.setGlobalReservationCounters(priorAmount, 3)
+
       await testReservation.prepareReservationForSettlement(key, true)
       expect(await testReservation.reservationTotalAmount()).to.equal(
-        anchorAmount
+        anchorAmount * 4
       )
       expect(
         await testReservation.walletReservationsCount(walletPubKeyHash)
-      ).to.equal(1)
-      expect(await testReservation.activeReservationsCount()).to.equal(1)
+      ).to.equal(4)
+      expect(
+        await testReservation.walletReservationsAmount(walletPubKeyHash)
+      ).to.equal(anchorAmount * 4)
+      expect(await testReservation.activeReservationsCount()).to.equal(4)
     })
 
     it("prepareReservationForSettlement should reject an on-time settlement of a stranded reservation", async () => {
@@ -1648,19 +1661,21 @@ describe("Reservation", () => {
       )
       await testReservation.setWalletReservationsCounters(
         targetWalletPubKeyHash,
-        1,
-        amount
+        3,
+        amount * 3
       )
-      await testReservation.setGlobalReservationCounters(amount, 1)
+      await testReservation.setGlobalReservationCounters(amount * 3, 3)
 
       await testReservation.notifyReservationAcceptanceTimedOut(reservationKey)
 
       expect(await testReservation.actionState(reservationKey, 0)).to.equal(3) // TimedOut
       expect(
         await testReservation.walletReservationsCount(targetWalletPubKeyHash)
-      ).to.equal(0)
-      expect(await testReservation.reservationTotalAmount()).to.equal(0)
-      expect(await testReservation.activeReservationsCount()).to.equal(0)
+      ).to.equal(2)
+      expect(await testReservation.reservationTotalAmount()).to.equal(
+        amount * 2
+      )
+      expect(await testReservation.activeReservationsCount()).to.equal(2)
       // Acceptance timeout reverts the position to Unknown (its
       // pre-request state), not Active -- it was never a custodied
       // reservation.
@@ -1702,11 +1717,13 @@ describe("Reservation", () => {
         amount
       )
 
-      // Seed target wallet counters (which should be decremented) and source wallet counters (which should be untouched)
+      // Seed target wallet counters (which should be decremented) and source
+      // wallet counters (which should be untouched). Three target slots, so
+      // a decrement is distinguishable from a halving.
       await testReservation.setWalletReservationsCounters(
         targetWalletPubKeyHash,
-        2,
-        amount * 2
+        3,
+        amount * 3
       )
       await testReservation.setWalletReservationsCounters(
         sourceWalletPubKeyHash,
@@ -1730,10 +1747,10 @@ describe("Reservation", () => {
       // 2. Target wallet capacity and count are released (decremented)
       expect(
         await testReservation.walletReservationsCount(targetWalletPubKeyHash)
-      ).to.equal(1)
+      ).to.equal(2)
       expect(
         await testReservation.walletReservationsAmount(targetWalletPubKeyHash)
-      ).to.equal(amount)
+      ).to.equal(amount * 2)
 
       // 3. Source wallet counters remain untouched
       expect(
