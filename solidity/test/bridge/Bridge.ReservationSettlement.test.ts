@@ -606,4 +606,199 @@ describe("Bridge - Reservation settlement", () => {
       ).to.be.revertedWith("Only governance can rotate a Live wallet's anchor")
     })
   })
+
+  describe("counters with several positions open", () => {
+    beforeEach(async () => {
+      await createSnapshot()
+    })
+
+    afterEach(async () => {
+      await restoreSnapshot()
+    })
+
+    async function setWalletState(pkh: string, state: number) {
+      await bridge.setWallet(pkh, {
+        ecdsaWalletID: ethers.randomBytes(32),
+        mainUtxoHash: ZERO_BYTES32,
+        pendingRedemptionsValue: 0,
+        createdAt: await lastBlockTime(),
+        movingFundsRequestedAt: 0,
+        closingStartedAt: 0,
+        pendingMovedFundsSweepRequestsCount: 0,
+        state,
+        movingFundsTargetWalletsCommitmentHash: ZERO_BYTES32,
+      })
+    }
+
+    // With one or two positions open, `count -= 1` and `count >>= 1` give
+    // the same result. Three positions on one wallet tell them apart, both
+    // for the pending reserved deposit counter on acceptance and for the
+    // source wallet count on re-anchor settlement.
+    it("decrements pending deposits and the source wallet count by exactly one", async () => {
+      const requested = [
+        await makeRequestedReservation(),
+        await makeRequestedReservation(),
+        await makeRequestedReservation(),
+      ]
+      expect(await reservationRouter.pendingReservedDeposits()).to.equal(3)
+
+      await reservationRouter
+        .connect(spvMaintainer)
+        .submitReservationAcceptanceProof(
+          requested[0].anchorTx.info,
+          proofFor(requested[0].anchorTx.txHash),
+          requested[0].reservationKey,
+          1
+        )
+      expect(await reservationRouter.pendingReservedDeposits()).to.equal(2)
+
+      await reservationRouter
+        .connect(spvMaintainer)
+        .submitReservationAcceptanceProof(
+          requested[1].anchorTx.info,
+          proofFor(requested[1].anchorTx.txHash),
+          requested[1].reservationKey,
+          1
+        )
+      await reservationRouter
+        .connect(spvMaintainer)
+        .submitReservationAcceptanceProof(
+          requested[2].anchorTx.info,
+          proofFor(requested[2].anchorTx.txHash),
+          requested[2].reservationKey,
+          1
+        )
+      expect(await reservationRouter.pendingReservedDeposits()).to.equal(0)
+      expect(
+        await reservationRouter.walletReservationsCount(walletPubKeyHash)
+      ).to.equal(3)
+
+      await liveWallet(secondWalletPubKeyHash)
+      const { anchorTx, reservationKey } = requested[0]
+      await reservationRouter
+        .connect(bridgeGovernanceSigner)
+        .requestReservationReanchor(reservationKey, secondWalletPubKeyHash)
+      const hopTx = buildTx(
+        [{ txHash: anchorTx.txHash, index: 0 }],
+        [
+          {
+            valueSat: anchorAmount,
+            script: p2wpkhScript(secondWalletPubKeyHash),
+          },
+        ]
+      )
+      await reservationRouter
+        .connect(spvMaintainer)
+        .submitReservationReanchorProof(
+          hopTx.info,
+          proofFor(hopTx.txHash),
+          reservationKey,
+          2
+        )
+
+      expect(
+        await reservationRouter.walletReservationsCount(walletPubKeyHash)
+      ).to.equal(2)
+      expect(
+        await reservationRouter.walletReservationsCount(secondWalletPubKeyHash)
+      ).to.equal(1)
+      const [activeCount] = await reservationRouter.activeReservationsCount()
+      expect(activeCount).to.equal(3)
+    })
+
+    // A position stranded while its re-anchor was timed out already carries
+    // its stranding evidence. When the late re-anchor proof then lands on a
+    // closed target wallet, the position is stranded again without a second
+    // `ReservationStranded` event.
+    it("does not emit stranding evidence twice for a late re-anchor of a stranded position", async () => {
+      const { anchorTx, reservationKey } = await makeAcceptedReservation()
+      await liveWallet(secondWalletPubKeyHash)
+      await reservationRouter
+        .connect(bridgeGovernanceSigner)
+        .requestReservationReanchor(reservationKey, secondWalletPubKeyHash)
+
+      await increaseTime(RESERVATION_ACTION_TIMEOUT + 1)
+      await reservationRouter.notifyReservationActionTimeout(reservationKey)
+
+      await setWalletState(walletPubKeyHash, walletState.Terminated)
+      await expect(
+        reservationRouter.notifyReservationStranded(reservationKey)
+      ).to.emit(reservationRouter, "ReservationStranded")
+
+      await setWalletState(secondWalletPubKeyHash, walletState.Closed)
+      const hopTx = buildTx(
+        [{ txHash: anchorTx.txHash, index: 0 }],
+        [
+          {
+            valueSat: anchorAmount,
+            script: p2wpkhScript(secondWalletPubKeyHash),
+          },
+        ]
+      )
+      const tx = reservationRouter
+        .connect(spvMaintainer)
+        .submitReservationReanchorProof(
+          hopTx.info,
+          proofFor(hopTx.txHash),
+          reservationKey,
+          2
+        )
+      await expect(tx).to.emit(reservationRouter, "ReservationReanchored")
+      await expect(tx).to.not.emit(reservationRouter, "ReservationStranded")
+      expect(
+        (await reservationRouter.reservations(reservationKey)).state
+      ).to.equal(ReservationState.Stranded)
+    })
+
+    // Caps are request-time throttles. A late acceptance proof for a
+    // generation that already timed out re-takes capacity without a cap
+    // check, because its anchor is already confirmed on Bitcoin
+    // (`ReservationProofs.settleAcceptance`, late branch). So a wallet can
+    // end one position above its cap. This is intended behaviour.
+    it("lets a late acceptance proof take a wallet one position above its cap", async () => {
+      await reservationRouter
+        .connect(bridgeGovernanceSigner)
+        .updateReservationParameters(
+          reservationVault.target,
+          RESERVATION_MIN_AMOUNT,
+          RESERVATION_TX_MAX_FEE,
+          RESERVATION_TERM,
+          RESERVATION_GRACE,
+          RESERVATION_MAX_TOTAL,
+          1, // maxReservationsPerWallet
+          RESERVATION_ACTION_TIMEOUT,
+          RESERVATION_RENEWAL_WINDOW
+        )
+
+      const late = await makeRequestedReservation()
+      await increaseTime(RESERVATION_ACTION_TIMEOUT + 1)
+      await reservationRouter.notifyReservationAcceptanceTimedOut(
+        late.reservationKey
+      )
+
+      const onTime = await makeAcceptedReservation()
+      expect(
+        await reservationRouter.walletReservationsCount(walletPubKeyHash)
+      ).to.equal(1)
+
+      await reservationRouter
+        .connect(spvMaintainer)
+        .submitReservationAcceptanceProof(
+          late.anchorTx.info,
+          proofFor(late.anchorTx.txHash),
+          late.reservationKey,
+          1
+        )
+
+      expect(
+        await reservationRouter.walletReservationsCount(walletPubKeyHash)
+      ).to.equal(2)
+      expect(
+        (await reservationRouter.reservations(late.reservationKey)).state
+      ).to.equal(ReservationState.Active)
+      expect(
+        (await reservationRouter.reservations(onTime.reservationKey)).state
+      ).to.equal(ReservationState.Active)
+    })
+  })
 })

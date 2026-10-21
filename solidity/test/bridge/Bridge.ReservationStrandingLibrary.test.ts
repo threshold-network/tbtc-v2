@@ -864,8 +864,10 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       const walletPubKeyHash = `0x${"e7".repeat(20)}` as `0x${string}`
       const depositKeyA = `0x${"a7".repeat(32)}`
       const depositKeyB = `0x${"b7".repeat(32)}`
+      const depositKeyC = `0x${"c7".repeat(32)}`
+      const depositKeyD = `0x${"d7".repeat(32)}`
       const depositor = ethers.Wallet.createRandom().address
-      // Elapsed deadline: the check is unconditional now, so both calls
+      // Elapsed deadline: the check is unconditional now, so every call
       // must clear it regardless of the refundDeadlineValidated flag.
       const elapsedDeadline = 1
 
@@ -883,13 +885,36 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
         elapsedDeadline,
         false
       )
+      await executor.seedDepositBasic(depositKeyC, depositor)
+      await executor.seedPendingReservedDepositBasic(
+        depositKeyC,
+        walletPubKeyHash,
+        elapsedDeadline,
+        false
+      )
+      await executor.seedDepositBasic(depositKeyD, depositor)
+      await executor.seedPendingReservedDepositBasic(
+        depositKeyD,
+        walletPubKeyHash,
+        elapsedDeadline,
+        false
+      )
 
-      expect(Number(await executor.pendingReservedDeposits())).to.equal(2)
+      // Four pending deposits, and both clear paths are exercised while the
+      // counter is above two and odd, so a decrement is distinguishable from
+      // a halving for each line.
+      expect(Number(await executor.pendingReservedDeposits())).to.equal(4)
+
+      await executor.forceStaleReservedDeposit(depositKeyB)
+      expect(Number(await executor.pendingReservedDeposits())).to.equal(3)
 
       await executor.notifyStaleReservedDeposit(depositKeyA)
+      expect(Number(await executor.pendingReservedDeposits())).to.equal(2)
+
+      await executor.notifyStaleReservedDeposit(depositKeyC)
       expect(Number(await executor.pendingReservedDeposits())).to.equal(1)
 
-      await executor.notifyStaleReservedDeposit(depositKeyB)
+      await executor.notifyStaleReservedDeposit(depositKeyD)
       expect(Number(await executor.pendingReservedDeposits())).to.equal(0)
     })
   })
@@ -1671,6 +1696,18 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       await expect(
         executor.requestReservationReanchor(reservationKey, targetWallet, false)
       ).to.be.revertedWith("Wallet reserved amount cap exceeded")
+    })
+
+    // Exact boundary: a target count landing exactly on the cap is allowed.
+    // Fails if the `<=` check on the target count becomes `<`.
+    it("accepts when the target wallet count lands exactly on the cap", async () => {
+      await setReservationConfig(await executor.getAddress(), {
+        maxReservationsPerWallet: 1,
+      })
+
+      await expect(
+        executor.requestReservationReanchor(reservationKey, targetWallet, false)
+      ).to.not.be.reverted
     })
   })
 })
