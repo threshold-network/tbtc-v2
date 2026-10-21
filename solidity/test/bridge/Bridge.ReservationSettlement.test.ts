@@ -749,5 +749,56 @@ describe("Bridge - Reservation settlement", () => {
         (await reservationRouter.reservations(reservationKey)).state
       ).to.equal(ReservationState.Stranded)
     })
+
+    // Caps are request-time throttles. A late acceptance proof for a
+    // generation that already timed out re-takes capacity without a cap
+    // check, because its anchor is already confirmed on Bitcoin
+    // (`ReservationProofs.settleAcceptance`, late branch). So a wallet can
+    // end one position above its cap. This is intended behaviour.
+    it("lets a late acceptance proof take a wallet one position above its cap", async () => {
+      await reservationRouter
+        .connect(bridgeGovernanceSigner)
+        .updateReservationParameters(
+          reservationVault.target,
+          RESERVATION_MIN_AMOUNT,
+          RESERVATION_TX_MAX_FEE,
+          RESERVATION_TERM,
+          RESERVATION_GRACE,
+          RESERVATION_MAX_TOTAL,
+          1, // maxReservationsPerWallet
+          RESERVATION_ACTION_TIMEOUT,
+          RESERVATION_RENEWAL_WINDOW
+        )
+
+      const late = await makeRequestedReservation()
+      await increaseTime(RESERVATION_ACTION_TIMEOUT + 1)
+      await reservationRouter.notifyReservationAcceptanceTimedOut(
+        late.reservationKey
+      )
+
+      const onTime = await makeAcceptedReservation()
+      expect(
+        await reservationRouter.walletReservationsCount(walletPubKeyHash)
+      ).to.equal(1)
+
+      await reservationRouter
+        .connect(spvMaintainer)
+        .submitReservationAcceptanceProof(
+          late.anchorTx.info,
+          proofFor(late.anchorTx.txHash),
+          late.reservationKey,
+          1
+        )
+
+      expect(
+        await reservationRouter.walletReservationsCount(walletPubKeyHash)
+      ).to.equal(2)
+      expect(
+        (await reservationRouter.reservations(late.reservationKey)).state
+      ).to.equal(ReservationState.Active)
+      expect(
+        (await reservationRouter.reservations(onTime.reservationKey)).state
+      ).to.equal(ReservationState.Active)
+    })
   })
 })
