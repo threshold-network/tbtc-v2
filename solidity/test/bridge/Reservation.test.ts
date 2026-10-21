@@ -6,6 +6,7 @@ import { walletState } from "../fixtures"
 import { createMock } from "../helpers/mock"
 import { requireValue } from "../../helpers/require-value"
 import type { Mock } from "../helpers/mock"
+import { RESERVATION_TERM_ENTRIES } from "../helpers/reservation-terms"
 
 const { lastBlockTime, increaseTime } = helpers.time
 const AddressZero = ethers.ZeroAddress
@@ -57,6 +58,8 @@ describe("Reservation", () => {
   const defaultActionTimeout = 14400 // 4 hours
   const twoHours = 7200
   const twentyFourHours = 86400
+  // The seeded 365-day entry; the default term of every acceptance request.
+  const defaultTermId = RESERVATION_TERM_ENTRIES[0].termId
 
   beforeEach(async () => {
     const signers = await ethers.getSigners()
@@ -76,6 +79,20 @@ describe("Reservation", () => {
     testReservation = (await TestReservationFactory.connect(
       deployer
     ).deploy()) as TestReservation
+
+    // The harness storage is never reached by the Bridge fixture's seeding,
+    // so the initial term entries are added here through the harness wrapper
+    // of the production setter.
+    // eslint-disable-next-line no-restricted-syntax
+    for (const entry of RESERVATION_TERM_ENTRIES) {
+      // eslint-disable-next-line no-await-in-loop
+      await testReservation.setReservationTerm(
+        entry.termId,
+        entry.termSeconds,
+        entry.custodyBps,
+        entry.enabled
+      )
+    }
   })
 
   async function setupValidDeposit(
@@ -141,7 +158,11 @@ describe("Reservation", () => {
         await expect(
           testReservation
             .connect(depositor)
-            .requestReservationAcceptance(reservationKey1, walletPubKeyHash)
+            .requestReservationAcceptance(
+              reservationKey1,
+              walletPubKeyHash,
+              defaultTermId
+            )
         ).to.be.revertedWith("Reservations are disabled")
       })
     })
@@ -161,7 +182,11 @@ describe("Reservation", () => {
         await expect(
           testReservation
             .connect(depositor)
-            .requestReservationAcceptance(reservationKey1, walletPubKeyHash)
+            .requestReservationAcceptance(
+              reservationKey1,
+              walletPubKeyHash,
+              defaultTermId
+            )
         ).to.be.revertedWith("Deposit not revealed")
       })
     })
@@ -173,7 +198,11 @@ describe("Reservation", () => {
         await expect(
           testReservation
             .connect(thirdParty)
-            .requestReservationAcceptance(reservationKey1, walletPubKeyHash)
+            .requestReservationAcceptance(
+              reservationKey1,
+              walletPubKeyHash,
+              defaultTermId
+            )
         ).to.be.revertedWith("Caller is not the deposit's depositor")
       })
 
@@ -183,7 +212,11 @@ describe("Reservation", () => {
         await expect(
           testReservation
             .connect(depositor)
-            .requestReservationAcceptance(reservationKey1, walletPubKeyHash)
+            .requestReservationAcceptance(
+              reservationKey1,
+              walletPubKeyHash,
+              defaultTermId
+            )
         ).to.not.be.reverted
       })
     })
@@ -197,7 +230,11 @@ describe("Reservation", () => {
         await expect(
           testReservation
             .connect(depositor)
-            .requestReservationAcceptance(reservationKey1, walletPubKeyHash)
+            .requestReservationAcceptance(
+              reservationKey1,
+              walletPubKeyHash,
+              defaultTermId
+            )
         ).to.be.revertedWith("Deposit already swept")
       })
     })
@@ -217,7 +254,11 @@ describe("Reservation", () => {
         await expect(
           testReservation
             .connect(depositor)
-            .requestReservationAcceptance(reservationKey1, walletPubKeyHash)
+            .requestReservationAcceptance(
+              reservationKey1,
+              walletPubKeyHash,
+              defaultTermId
+            )
         ).to.be.revertedWith("Deposit was not revealed as reserved")
       })
     })
@@ -238,7 +279,11 @@ describe("Reservation", () => {
         await expect(
           testReservation
             .connect(depositor)
-            .requestReservationAcceptance(reservationKey1, walletPubKeyHash)
+            .requestReservationAcceptance(
+              reservationKey1,
+              walletPubKeyHash,
+              defaultTermId
+            )
         ).to.be.revertedWith("Deposit not routed to the reservation vault")
       })
     })
@@ -258,7 +303,8 @@ describe("Reservation", () => {
             .connect(depositor)
             .requestReservationAcceptance(
               reservationKey1,
-              differentWalletPubKeyHash
+              differentWalletPubKeyHash,
+              defaultTermId
             )
         ).to.be.revertedWith("Wallet is not the deposit's designated wallet")
       })
@@ -275,7 +321,11 @@ describe("Reservation", () => {
         await expect(
           testReservation
             .connect(depositor)
-            .requestReservationAcceptance(reservationKey1, walletPubKeyHash)
+            .requestReservationAcceptance(
+              reservationKey1,
+              walletPubKeyHash,
+              defaultTermId
+            )
         ).to.be.revertedWith("Reservation already exists")
       })
 
@@ -289,7 +339,11 @@ describe("Reservation", () => {
         await expect(
           testReservation
             .connect(depositor)
-            .requestReservationAcceptance(reservationKey1, walletPubKeyHash)
+            .requestReservationAcceptance(
+              reservationKey1,
+              walletPubKeyHash,
+              defaultTermId
+            )
         ).to.be.revertedWith("Reservation already exists")
       })
     })
@@ -301,13 +355,21 @@ describe("Reservation", () => {
         // First request succeeds
         await testReservation
           .connect(depositor)
-          .requestReservationAcceptance(reservationKey1, walletPubKeyHash)
+          .requestReservationAcceptance(
+            reservationKey1,
+            walletPubKeyHash,
+            defaultTermId
+          )
 
         // Second request before settle should revert because action is pending
         await expect(
           testReservation
             .connect(depositor)
-            .requestReservationAcceptance(reservationKey1, walletPubKeyHash)
+            .requestReservationAcceptance(
+              reservationKey1,
+              walletPubKeyHash,
+              defaultTermId
+            )
         ).to.be.revertedWith("Acceptance already pending")
       })
     })
@@ -321,7 +383,11 @@ describe("Reservation", () => {
         await expect(
           testReservation
             .connect(depositor)
-            .requestReservationAcceptance(reservationKey1, walletPubKeyHash)
+            .requestReservationAcceptance(
+              reservationKey1,
+              walletPubKeyHash,
+              defaultTermId
+            )
         ).to.be.revertedWith("Wallet must be in Live state")
       })
 
@@ -333,7 +399,11 @@ describe("Reservation", () => {
         await expect(
           testReservation
             .connect(depositor)
-            .requestReservationAcceptance(reservationKey1, walletPubKeyHash)
+            .requestReservationAcceptance(
+              reservationKey1,
+              walletPubKeyHash,
+              defaultTermId
+            )
         ).to.be.revertedWith("Wallet must be in Live state")
       })
 
@@ -345,7 +415,11 @@ describe("Reservation", () => {
         await expect(
           testReservation
             .connect(depositor)
-            .requestReservationAcceptance(reservationKey1, walletPubKeyHash)
+            .requestReservationAcceptance(
+              reservationKey1,
+              walletPubKeyHash,
+              defaultTermId
+            )
         ).to.be.revertedWith("Wallet must be in Live state")
       })
 
@@ -357,7 +431,11 @@ describe("Reservation", () => {
         await expect(
           testReservation
             .connect(depositor)
-            .requestReservationAcceptance(reservationKey1, walletPubKeyHash)
+            .requestReservationAcceptance(
+              reservationKey1,
+              walletPubKeyHash,
+              defaultTermId
+            )
         ).to.be.revertedWith("Wallet must be in Live state")
       })
     })
@@ -377,7 +455,11 @@ describe("Reservation", () => {
         await expect(
           testReservation
             .connect(depositor)
-            .requestReservationAcceptance(reservationKey1, walletPubKeyHash)
+            .requestReservationAcceptance(
+              reservationKey1,
+              walletPubKeyHash,
+              defaultTermId
+            )
         ).to.be.revertedWith("Deposit amount too small for a reservation")
       })
 
@@ -394,7 +476,11 @@ describe("Reservation", () => {
         await expect(
           testReservation
             .connect(depositor)
-            .requestReservationAcceptance(reservationKey1, walletPubKeyHash)
+            .requestReservationAcceptance(
+              reservationKey1,
+              walletPubKeyHash,
+              defaultTermId
+            )
         ).to.be.revertedWith("Deposit amount too small for a reservation")
       })
 
@@ -412,7 +498,11 @@ describe("Reservation", () => {
         await expect(
           testReservation
             .connect(depositor)
-            .requestReservationAcceptance(reservationKey1, walletPubKeyHash)
+            .requestReservationAcceptance(
+              reservationKey1,
+              walletPubKeyHash,
+              defaultTermId
+            )
         ).to.not.be.reverted
       })
     })
@@ -442,7 +532,11 @@ describe("Reservation", () => {
         await expect(
           testReservation
             .connect(depositor)
-            .requestReservationAcceptance(reservationKey1, walletPubKeyHash)
+            .requestReservationAcceptance(
+              reservationKey1,
+              walletPubKeyHash,
+              defaultTermId
+            )
         ).to.not.be.reverted
       })
 
@@ -471,7 +565,11 @@ describe("Reservation", () => {
         await expect(
           testReservation
             .connect(depositor)
-            .requestReservationAcceptance(reservationKey1, walletPubKeyHash)
+            .requestReservationAcceptance(
+              reservationKey1,
+              walletPubKeyHash,
+              defaultTermId
+            )
         ).to.be.revertedWith(
           "Authorization window would overlap the deposit refund window"
         )
@@ -495,7 +593,11 @@ describe("Reservation", () => {
         await expect(
           testReservation
             .connect(depositor)
-            .requestReservationAcceptance(reservationKey1, walletPubKeyHash)
+            .requestReservationAcceptance(
+              reservationKey1,
+              walletPubKeyHash,
+              defaultTermId
+            )
         ).to.be.revertedWith("Acceptance authorization has no signing window")
       })
 
@@ -516,7 +618,11 @@ describe("Reservation", () => {
         await expect(
           testReservation
             .connect(depositor)
-            .requestReservationAcceptance(reservationKey1, walletPubKeyHash)
+            .requestReservationAcceptance(
+              reservationKey1,
+              walletPubKeyHash,
+              defaultTermId
+            )
         ).to.be.revertedWith(
           "Authorization window would overlap the deposit refund window"
         )
@@ -537,7 +643,11 @@ describe("Reservation", () => {
         await expect(
           testReservation
             .connect(depositor)
-            .requestReservationAcceptance(reservationKey1, walletPubKeyHash)
+            .requestReservationAcceptance(
+              reservationKey1,
+              walletPubKeyHash,
+              defaultTermId
+            )
         ).to.be.revertedWith(
           "Authorization window would overlap the deposit refund window"
         )
@@ -554,7 +664,11 @@ describe("Reservation", () => {
         await expect(
           testReservation
             .connect(depositor)
-            .requestReservationAcceptance(reservationKey1, walletPubKeyHash)
+            .requestReservationAcceptance(
+              reservationKey1,
+              walletPubKeyHash,
+              defaultTermId
+            )
         ).to.be.revertedWith("Reservation exceeds the single-reservation cap")
       })
 
@@ -567,7 +681,11 @@ describe("Reservation", () => {
         await expect(
           testReservation
             .connect(depositor)
-            .requestReservationAcceptance(reservationKey1, walletPubKeyHash)
+            .requestReservationAcceptance(
+              reservationKey1,
+              walletPubKeyHash,
+              defaultTermId
+            )
         ).to.not.be.reverted
       })
 
@@ -581,7 +699,11 @@ describe("Reservation", () => {
         // First request of 1,000,000 succeeds (total becomes 1,000,000)
         await testReservation
           .connect(depositor)
-          .requestReservationAcceptance(reservationKey1, walletPubKeyHash)
+          .requestReservationAcceptance(
+            reservationKey1,
+            walletPubKeyHash,
+            defaultTermId
+          )
 
         expect(await testReservation.reservationTotalAmount()).to.equal(1000000)
 
@@ -604,7 +726,11 @@ describe("Reservation", () => {
         await expect(
           testReservation
             .connect(depositor)
-            .requestReservationAcceptance(reservationKey2, walletPubKeyHash)
+            .requestReservationAcceptance(
+              reservationKey2,
+              walletPubKeyHash,
+              defaultTermId
+            )
         ).to.be.revertedWith("Total reserved amount cap exceeded")
       })
 
@@ -615,7 +741,11 @@ describe("Reservation", () => {
         // First request succeeds
         await testReservation
           .connect(depositor)
-          .requestReservationAcceptance(reservationKey1, walletPubKeyHash)
+          .requestReservationAcceptance(
+            reservationKey1,
+            walletPubKeyHash,
+            defaultTermId
+          )
 
         expect(
           await testReservation.walletReservationsCount(walletPubKeyHash)
@@ -640,7 +770,11 @@ describe("Reservation", () => {
         await expect(
           testReservation
             .connect(depositor)
-            .requestReservationAcceptance(reservationKey2, walletPubKeyHash)
+            .requestReservationAcceptance(
+              reservationKey2,
+              walletPubKeyHash,
+              defaultTermId
+            )
         ).to.be.revertedWith("Wallet reservations cap exceeded")
       })
 
@@ -653,7 +787,11 @@ describe("Reservation", () => {
         // First request of 1,000,000 succeeds
         await testReservation
           .connect(depositor)
-          .requestReservationAcceptance(reservationKey1, walletPubKeyHash)
+          .requestReservationAcceptance(
+            reservationKey1,
+            walletPubKeyHash,
+            defaultTermId
+          )
 
         expect(
           await testReservation.walletReservationsAmount(walletPubKeyHash)
@@ -678,7 +816,11 @@ describe("Reservation", () => {
         await expect(
           testReservation
             .connect(depositor)
-            .requestReservationAcceptance(reservationKey2, walletPubKeyHash)
+            .requestReservationAcceptance(
+              reservationKey2,
+              walletPubKeyHash,
+              defaultTermId
+            )
         ).to.be.revertedWith("Wallet reserved amount cap exceeded")
       })
 
@@ -691,7 +833,11 @@ describe("Reservation", () => {
         // First request
         await testReservation
           .connect(depositor)
-          .requestReservationAcceptance(reservationKey1, walletPubKeyHash)
+          .requestReservationAcceptance(
+            reservationKey1,
+            walletPubKeyHash,
+            defaultTermId
+          )
 
         // Seed second deposit of 2,000,000
         const now = await lastBlockTime()
@@ -712,7 +858,11 @@ describe("Reservation", () => {
         await expect(
           testReservation
             .connect(depositor)
-            .requestReservationAcceptance(reservationKey2, walletPubKeyHash)
+            .requestReservationAcceptance(
+              reservationKey2,
+              walletPubKeyHash,
+              defaultTermId
+            )
         ).to.not.be.reverted
 
         expect(
@@ -776,7 +926,11 @@ describe("Reservation", () => {
         // First request fills the capacity
         await testReservation
           .connect(depositor)
-          .requestReservationAcceptance(reservationKey1, walletPubKeyHash)
+          .requestReservationAcceptance(
+            reservationKey1,
+            walletPubKeyHash,
+            defaultTermId
+          )
 
         expect(await testReservation.activeReservationsCount()).to.equal(1)
 
@@ -799,7 +953,11 @@ describe("Reservation", () => {
         await expect(
           testReservation
             .connect(depositor)
-            .requestReservationAcceptance(reservationKey2, walletPubKeyHash)
+            .requestReservationAcceptance(
+              reservationKey2,
+              walletPubKeyHash,
+              defaultTermId
+            )
         ).to.be.revertedWith("Active reservations cap exceeded")
       })
 
@@ -814,7 +972,11 @@ describe("Reservation", () => {
         // First request fills the occupancy
         await testReservation
           .connect(depositor)
-          .requestReservationAcceptance(reservationKey1, walletPubKeyHash)
+          .requestReservationAcceptance(
+            reservationKey1,
+            walletPubKeyHash,
+            defaultTermId
+          )
 
         expect(await testReservation.activeReservationsCount()).to.equal(1)
 
@@ -858,7 +1020,11 @@ describe("Reservation", () => {
         await expect(
           testReservation
             .connect(depositor)
-            .requestReservationAcceptance(reservationKey2, walletPubKeyHash)
+            .requestReservationAcceptance(
+              reservationKey2,
+              walletPubKeyHash,
+              defaultTermId
+            )
         ).to.not.be.reverted
 
         expect(await testReservation.activeReservationsCount()).to.equal(1)
@@ -879,7 +1045,11 @@ describe("Reservation", () => {
 
         const tx = await testReservation
           .connect(depositor)
-          .requestReservationAcceptance(reservationKey1, walletPubKeyHash)
+          .requestReservationAcceptance(
+            reservationKey1,
+            walletPubKeyHash,
+            defaultTermId
+          )
 
         // Verify event
         await expect(tx)
@@ -924,6 +1094,130 @@ describe("Reservation", () => {
     })
   })
 
+  describe("requestReservationAcceptance term selection", () => {
+    // Requests acceptance of `reservationKey1` on `termId`.
+    async function requestOnTerm(termId: number) {
+      return testReservation
+        .connect(depositor)
+        .requestReservationAcceptance(reservationKey1, walletPubKeyHash, termId)
+    }
+
+    // Seeds `reservationKey1` with a refund deadline far enough out for a
+    // second generation after a timeout.
+    async function setupLongDeposit() {
+      const now = await lastBlockTime()
+      await setupValidDeposit(reservationKey1, walletPubKeyHash, {
+        refundDeadline: now + 4 * defaultActionTimeout + 2 * twentyFourHours,
+      })
+    }
+
+    describe("when the term id names no entry", () => {
+      // 0 and 9 are outside the id range; 4 and 8 are in range but unused
+      // (the harness table holds ids 1-3); 255 is the largest uint8.
+      const unknownTermIds = [0, 4, 8, 9, 255]
+
+      unknownTermIds.forEach((termId) => {
+        it(`should revert for id ${termId}`, async () => {
+          await setupLongDeposit()
+          await expect(requestOnTerm(termId)).to.be.revertedWith(
+            "Reservation term does not exist"
+          )
+        })
+      })
+    })
+
+    describe("when the term entry is disabled", () => {
+      it("should revert", async () => {
+        const entry = RESERVATION_TERM_ENTRIES[1]
+        await testReservation.setReservationTerm(
+          entry.termId,
+          entry.termSeconds,
+          entry.custodyBps,
+          false
+        )
+        await setupLongDeposit()
+
+        await expect(requestOnTerm(entry.termId)).to.be.revertedWith(
+          "Reservation term is disabled"
+        )
+      })
+
+      it("should accept the entry again once re-enabled", async () => {
+        const entry = RESERVATION_TERM_ENTRIES[1]
+        await testReservation.setReservationTerm(
+          entry.termId,
+          entry.termSeconds,
+          entry.custodyBps,
+          false
+        )
+        await testReservation.setReservationTerm(
+          entry.termId,
+          entry.termSeconds,
+          entry.custodyBps,
+          true
+        )
+        await setupLongDeposit()
+
+        await expect(requestOnTerm(entry.termId)).to.not.be.reverted
+      })
+    })
+
+    describe("when the term entry exists and is enabled", () => {
+      RESERVATION_TERM_ENTRIES.forEach((entry) => {
+        it(`should snapshot the ${entry.termSeconds} s entry (id ${entry.termId}), record its id and announce it`, async () => {
+          await setupLongDeposit()
+
+          const tx = await requestOnTerm(entry.termId)
+
+          const action = await testReservation.getAction(reservationKey1, 1)
+          expect(action.termSeconds).to.equal(entry.termSeconds)
+          expect(
+            await testReservation.reservationActionTermId(reservationKey1, 1)
+          ).to.equal(entry.termId)
+          await expect(tx)
+            .to.emit(testReservation, "ReservationTermSelected")
+            .withArgs(reservationKey1, 1, entry.termId)
+          await expect(tx).to.emit(
+            testReservation,
+            "ReservationAcceptanceRequested"
+          )
+        })
+      })
+    })
+
+    describe("when a timed-out generation is re-requested on another term", () => {
+      it("should record the new term under the new generation and leave the old one untouched", async () => {
+        const first = RESERVATION_TERM_ENTRIES[0]
+        const second = RESERVATION_TERM_ENTRIES[1]
+        await setupLongDeposit()
+
+        await requestOnTerm(first.termId)
+        await increaseTime(defaultActionTimeout + 1)
+        await testReservation.notifyReservationAcceptanceTimedOut(
+          reservationKey1
+        )
+
+        const tx = await requestOnTerm(second.termId)
+        await expect(tx)
+          .to.emit(testReservation, "ReservationTermSelected")
+          .withArgs(reservationKey1, 2, second.termId)
+
+        const newAction = await testReservation.getAction(reservationKey1, 2)
+        expect(newAction.termSeconds).to.equal(second.termSeconds)
+        expect(
+          await testReservation.reservationActionTermId(reservationKey1, 2)
+        ).to.equal(second.termId)
+
+        const oldAction = await testReservation.getAction(reservationKey1, 1)
+        expect(oldAction.state).to.equal(actionState.TimedOut)
+        expect(oldAction.termSeconds).to.equal(first.termSeconds)
+        expect(
+          await testReservation.reservationActionTermId(reservationKey1, 1)
+        ).to.equal(first.termId)
+      })
+    })
+  })
+
   describe("strandReservation", () => {
     it("should decrement counts, update state to Stranded, clear anchor UTXO mapping, and emit ReservationStranded", async () => {
       await setupValidDeposit(reservationKey1, walletPubKeyHash)
@@ -931,7 +1225,11 @@ describe("Reservation", () => {
       // Request acceptance first
       await testReservation
         .connect(depositor)
-        .requestReservationAcceptance(reservationKey1, walletPubKeyHash)
+        .requestReservationAcceptance(
+          reservationKey1,
+          walletPubKeyHash,
+          defaultTermId
+        )
 
       const anchorAmount = defaultDepositAmount
       const anchorTxHash = ethers.zeroPadValue("0xa1b2c3", 32)
@@ -1006,7 +1304,11 @@ describe("Reservation", () => {
 
       await testReservation
         .connect(depositor)
-        .requestReservationAcceptance(reservationKey1, walletPubKeyHash)
+        .requestReservationAcceptance(
+          reservationKey1,
+          walletPubKeyHash,
+          defaultTermId
+        )
 
       const anchorAmount = defaultDepositAmount
       await testReservation.setReservationAnchorAmount(
@@ -1960,7 +2262,11 @@ describe("Reservation", () => {
       // Call
       await testReservation
         .connect(depositor)
-        .requestReservationAcceptance(reservationKey, walletPubKeyHash)
+        .requestReservationAcceptance(
+          reservationKey,
+          walletPubKeyHash,
+          defaultTermId
+        )
 
       // Assert
       expect(

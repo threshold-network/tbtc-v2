@@ -179,6 +179,11 @@ export function extractBridgeStateStorageSnapshot(
         selfType.members,
         "walletReservationInfo"
       ),
+      ReservationTerm: extractStructMembersFromMapping(
+        layout,
+        selfType.members,
+        "reservationTerms"
+      ),
     },
   }
 }

@@ -167,9 +167,10 @@ library Deposit {
     ///      - BTC deposit for the given `fundingTxHash`, `fundingOutputIndex`
     ///        can be revealed only one time,
     ///      - If `reveal.vault` is the reservation vault, `reveal.refundLocktime`
-    ///        must not decode to a timestamp further than
-    ///        `reservationTermSeconds` plus the deposit refund safety margin
-    ///        beyond the reveal time.
+    ///        must not decode to a timestamp further than the largest
+    ///        reservation term entry ever added (enabled or disabled) plus
+    ///        the deposit refund safety margin beyond the reveal time. Over
+    ///        an empty term table the cap is the safety margin alone.
     ///
     ///      If any of these requirements is not met, the wallet _must_ refuse
     ///      to sweep the deposit and the depositor has to wait until the
@@ -238,13 +239,18 @@ library Deposit {
             // which blocks governance from changing `reservationVault` (see
             // `Reservation.updateReservationParameters`) until every pending
             // record clears. Cap the refund deadline so a reserved deposit
-            // that is never anchored is always able to self-clear via
-            // parking the guard indefinitely with a far-future locktime.
+            // that is never anchored cannot park the guard indefinitely
+            // with a far-future locktime.
+            // The cap uses the largest term entry, not the position's term:
+            // the term is chosen only at acceptance and starts at the anchor
+            // proof, and the cap must stay at least
+            // `depositRevealAheadPeriod` minus the safety margin, or
+            // `validateDepositRefundLocktime` leaves no valid deadline.
             /* solhint-disable not-rely-on-time */
             require(
                 refundDeadline <=
                     block.timestamp +
-                        self.reservationTermSeconds +
+                        BridgeState.largestReservationTermSeconds(self) +
                         WalletProposalValidatorConstants
                             .DEPOSIT_REFUND_SAFETY_MARGIN,
                 "Refund locktime too far in the future for a reservation"

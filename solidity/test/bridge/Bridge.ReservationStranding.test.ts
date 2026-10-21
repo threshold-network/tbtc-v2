@@ -84,6 +84,7 @@ import type {
   TBTC,
 } from "../../typechain"
 import bridgeFixture from "../fixtures/bridge"
+import { RESERVATION_TERM_ENTRIES } from "../helpers/reservation-terms"
 import type { Mock } from "../helpers/mock"
 import { walletState } from "../fixtures"
 import { ecdsaWalletTestData } from "../data/ecdsa"
@@ -94,6 +95,8 @@ const { lastBlockTime, increaseTime } = helpers.time
 const ZERO_BYTES32 = ethers.ZeroHash
 
 const RESERVATION_TERM = 31536000 // 365 days
+// The seeded 365-day entry, so acceptances keep the term above.
+const ACCEPTANCE_TERM_ID = RESERVATION_TERM_ENTRIES[0].termId
 const RESERVATION_GRACE = 2592000 // 30 days
 const RESERVATION_MIN_AMOUNT = 10000
 const RESERVATION_TX_MAX_FEE = 2000
@@ -108,7 +111,7 @@ const RESERVATION_TX_MAX_FEE = 2000
 const RESERVATION_MAX_TOTAL = 10000000n
 const MAX_RESERVATIONS_PER_WALLET = 10
 const RESERVATION_ACTION_TIMEOUT = 172800 // 48 hours
-const RESERVATION_RENEWAL_WINDOW = 2592000 // 30 days
+const RESERVATION_RENEWAL_WINDOW = 604800 // 7 days
 
 const SATOSHI_MULTIPLIER = 10n ** 10n
 
@@ -466,7 +469,8 @@ describe("Bridge - Reservation stranding", () => {
         fundingTx.info,
         proofFor(fundingTx.txHash),
         0,
-        custodian
+        custodian,
+        ACCEPTANCE_TERM_ID
       )
 
     const anchorTx = buildTx(

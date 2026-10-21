@@ -4,6 +4,8 @@ import path from "path"
 import { HardhatRuntimeEnvironment } from "hardhat/types"
 import { DeployFunction } from "hardhat-deploy/types"
 import { Interface, ZeroAddress, getAddress } from "ethers"
+import { RESERVATION_TERM_ENTRIES } from "./97_set_reservation_parameters"
+import type { ReservationTermEntry } from "./97_set_reservation_parameters"
 
 // Known mainnet Timelock Controller address. Owner of the ProxyAdmin,
 // used for scheduling and executing proxy upgrades with a 24h delay. This
@@ -30,15 +32,17 @@ const EIP_1967_ADMIN_SLOT =
 // value fails fast in this script rather than reverting on-chain at
 // finalize -- up to 48h after the begin calldata this script generates is
 // submitted and staged.
-const MIN_RESERVATION_TERM = 7_776_000 // 90 days
+const MIN_RESERVATION_TERM = 2_592_000 // 30 days
 const MAX_RESERVATION_TERM = 63_072_000 // 730 days
+const MAX_RESERVATION_TERM_ID = 8
+const MAX_RESERVATION_TERM_CUSTODY_BPS = 500
 // Mirrored from WalletProposalValidatorConstants.REQUEST_TIMEOUT_SAFETY_MARGIN
 // and DEPOSIT_MIN_AGE.
 const REQUEST_TIMEOUT_SAFETY_MARGIN = 7_200 // 2 hours
 const DEPOSIT_MIN_AGE = 7_200 // 2 hours
 // Mirrored from WalletProposalValidatorConstants.DEPOSIT_REFUND_SAFETY_MARGIN;
 // Deposit.sol caps a reserved deposit's refund locktime at the reveal time
-// plus the reservation term plus this margin.
+// plus the largest reservation term entry ever added plus this margin.
 const DEPOSIT_REFUND_SAFETY_MARGIN = 86_400 // 24 hours
 // Clock drift between the mined head and the reveal block in Deposit.sol's
 // refund-deadline checks.
@@ -64,7 +68,9 @@ interface CalldataAction extends ActionDefinition {
 
 /**
  * Builds the full ordered list of reservation bootstrap governance actions,
- * from the one-off router wiring through to the final vault activation.
+ * from the one-off router wiring, through the caps and parameters updates
+ * and one begin/finalize cycle per reservation term entry, to the final
+ * vault activation.
  * This is the single source of truth for the action set -- console output
  * and the JSON action-array output are both derived from it, rather than
  * each maintaining their own copy.
@@ -79,10 +85,13 @@ interface CalldataAction extends ActionDefinition {
  *      `updateReservationCaps` owns). The three begin* calls carry no such
  *      ordering constraint among themselves -- only the finalize* calls do
  *      -- so they may be submitted as a single batch.
+ *   3. The term cycles run one at a time, in the listed order (see
+ *      `buildReservationTermActionDefinitions`), and before setVaultStatus,
+ *      so the vault is activated only once the term table exists.
  * finalizeReservationCapsUpdate/finalizeReservationParametersUpdate/
- * setVaultStatus are each irreversible, point-of-no-return transactions:
- * once setVaultStatus(vault, true) executes, deposits can be revealed
- * against the vault.
+ * finalizeReservationTermUpdate/setVaultStatus are each irreversible,
+ * point-of-no-return transactions: once setVaultStatus(vault, true)
+ * executes, deposits can be revealed against the vault.
  */
 export function buildReservationActionDefinitions(params: {
   reservationRouter: string
@@ -98,6 +107,7 @@ export function buildReservationActionDefinitions(params: {
   maxReservationsPerWallet: number
   actionTimeout: number
   renewalWindowSeconds: number
+  reservationTerms: readonly ReservationTermEntry[]
 }): ActionDefinition[] {
   return [
     {
@@ -179,6 +189,7 @@ export function buildReservationActionDefinitions(params: {
         Note: "MUST execute AFTER finalizeReservationCapsUpdate.",
       },
     },
+    ...buildReservationTermActionDefinitions(params.reservationTerms),
     {
       method: "setVaultStatus",
       args: [params.reservationVault, true],
@@ -192,13 +203,142 @@ export function buildReservationActionDefinitions(params: {
           "been confirmed on-chain -- otherwise the vault is marked trusted " +
           "while reservationVault is still the zero address, letting " +
           "deposits routed to the vault be revealed as ordinary " +
-          "(non-reserved) deposits. Activation-ordering gate: also execute " +
-          "at or after this network's keep-core activation block; see " +
-          "solidity/docs/RESERVATION_CAPS_DEPLOYMENT.md, " +
+          "(non-reserved) deposits. Execute after the last " +
+          "finalizeReservationTermUpdate, so the vault is activated only " +
+          "once the term table exists. Activation-ordering gate: also " +
+          "execute at or after this network's keep-core activation block; " +
+          "see solidity/docs/RESERVATION_CAPS_DEPLOYMENT.md, " +
           "'Client Activation Ordering Gate'.",
       },
     },
   ]
+}
+
+/**
+ * Checks the reservation term entries, in the order they will be added,
+ * against the relations the Bridge's `setReservationTerm` enforces on every
+ * addition, so a bad table fails here rather than reverting at a finalize
+ * up to 48h after its begin is staged. Throws on the first violation.
+ *
+ * - With each entry added, the largest entry so far plus
+ *   DEPOSIT_REFUND_SAFETY_MARGIN must be at least `depositRevealAheadPeriod`.
+ *   This is checked per addition, not only over the whole table, because
+ *   the setter checks it per addition: the first entry must cover the period
+ *   on its own.
+ * - The renewal window must be strictly shorter than every entry.
+ * - Each entry itself passes the setter's direct checks: its id is in
+ *   [1, MAX_RESERVATION_TERM_ID] and not repeated in the list, its length
+ *   is within [MIN_RESERVATION_TERM, MAX_RESERVATION_TERM], and its custody
+ *   fee is at most MAX_RESERVATION_TERM_CUSTODY_BPS.
+ *
+ * @param entries Entries in the order their begin/finalize cycles run.
+ * @param depositRevealAheadPeriod The Bridge's reveal-ahead period, seconds.
+ * @param renewalWindowSeconds The renewal window in force when the entries
+ *        are finalized, seconds.
+ */
+export function checkReservationTermTable(
+  entries: readonly ReservationTermEntry[],
+  depositRevealAheadPeriod: number,
+  renewalWindowSeconds: number
+): void {
+  let largestTermSeconds = 0
+  const seenTermIds = new Set<number>()
+  entries.forEach((entry) => {
+    if (
+      entry.termId < 1 ||
+      entry.termId > MAX_RESERVATION_TERM_ID ||
+      seenTermIds.has(entry.termId)
+    ) {
+      throw new Error(
+        `Reservation term id ${entry.termId} is outside [1, ` +
+          `${MAX_RESERVATION_TERM_ID}] or repeated; setReservationTerm ` +
+          "would revert or reject it as a rewrite at finalize"
+      )
+    }
+    seenTermIds.add(entry.termId)
+    if (
+      entry.termSeconds < MIN_RESERVATION_TERM ||
+      entry.termSeconds > MAX_RESERVATION_TERM
+    ) {
+      throw new Error(
+        `Reservation term ${entry.termId} (${entry.termSeconds}s) is outside ` +
+          "[MIN_RESERVATION_TERM, MAX_RESERVATION_TERM] " +
+          `([${MIN_RESERVATION_TERM}s, ${MAX_RESERVATION_TERM}s]); ` +
+          "setReservationTerm would revert at finalize"
+      )
+    }
+    if (entry.custodyBps > MAX_RESERVATION_TERM_CUSTODY_BPS) {
+      throw new Error(
+        `Reservation term ${entry.termId} custody fee (${entry.custodyBps} ` +
+          "bps) exceeds MAX_RESERVATION_TERM_CUSTODY_BPS " +
+          `(${MAX_RESERVATION_TERM_CUSTODY_BPS}); setReservationTerm would ` +
+          "revert at finalize"
+      )
+    }
+    largestTermSeconds = Math.max(largestTermSeconds, entry.termSeconds)
+    if (
+      largestTermSeconds + DEPOSIT_REFUND_SAFETY_MARGIN <
+      depositRevealAheadPeriod
+    ) {
+      throw new Error(
+        `Reservation term ${entry.termId} (${entry.termSeconds}s) would be ` +
+          `added while the largest entry is ${largestTermSeconds}s, below ` +
+          `depositRevealAheadPeriod (${depositRevealAheadPeriod}s) minus ` +
+          `DEPOSIT_REFUND_SAFETY_MARGIN (${DEPOSIT_REFUND_SAFETY_MARGIN}s); ` +
+          "setReservationTerm would revert at finalize. Add an entry " +
+          "covering the period first."
+      )
+    }
+    if (renewalWindowSeconds >= entry.termSeconds) {
+      throw new Error(
+        `Renewal window (${renewalWindowSeconds}s) is not shorter than ` +
+          `reservation term ${entry.termId} (${entry.termSeconds}s); ` +
+          "setReservationTerm would revert at finalize"
+      )
+    }
+  })
+}
+
+/**
+ * Builds the begin/finalize governance action pair for each reservation
+ * term entry, in the given order. BridgeGovernance stages one term entry
+ * at a time, so each pair must complete (begin, governance delay, finalize)
+ * before the next begin: a begin overwrites the staged entry.
+ */
+export function buildReservationTermActionDefinitions(
+  entries: readonly ReservationTermEntry[]
+): ActionDefinition[] {
+  return entries.flatMap((entry): ActionDefinition[] => [
+    {
+      method: "beginReservationTermUpdate",
+      args: [entry.termId, entry.termSeconds, entry.custodyBps, entry.enabled],
+      label: `beginReservationTermUpdate (stages reservation term ${entry.termId})`,
+      details: {
+        "Term id": entry.termId.toString(),
+        "Term (seconds)": entry.termSeconds.toString(),
+        "Custody fee (bps)": entry.custodyBps.toString(),
+        Enabled: entry.enabled.toString(),
+        "Governance delay": "172800s (48h)",
+        Note:
+          "One term entry is staged at a time: submit only after the " +
+          "previous term entry's finalize has executed.",
+      },
+    },
+    {
+      method: "finalizeReservationTermUpdate",
+      args: [],
+      label: `finalizeReservationTermUpdate (POINT OF NO RETURN - adds reservation term ${entry.termId}; entries are never rewritten)`,
+      details: {
+        Note:
+          "MUST execute AFTER setReservationRouter, and in the listed " +
+          "order: the Bridge checks the largest entry against " +
+          "depositRevealAheadPeriod on every addition. Re-run this " +
+          "script's checks before each term finalize: " +
+          "depositRevealAheadPeriod is read when this calldata is " +
+          "generated, not when it executes.",
+      },
+    },
+  ])
 }
 
 /** Logs a single resolved governance calldata action with consistent formatting. */
@@ -219,7 +359,8 @@ function logCalldataSummary(actions: CalldataAction[]): void {
   console.log("=".repeat(80))
   console.log(
     "Ordering: router FIRST; finalizeReservationCapsUpdate BEFORE " +
-      "finalizeReservationParametersUpdate BEFORE setVaultStatus"
+      "finalizeReservationParametersUpdate; then one begin/finalize " +
+      "cycle per reservation term entry, in order; setVaultStatus LAST"
   )
 
   actions.forEach((action, index) => {
@@ -231,7 +372,7 @@ function logCalldataSummary(actions: CalldataAction[]): void {
     })
   })
   console.log(`\n${"=".repeat(80)}`)
-  // All six actions above target BridgeGovernance, owned by the Council
+  // Every action above targets BridgeGovernance, owned by the Council
   // Safe -- NOT the Timelock, which owns only the ProxyAdmin and is
   // unrelated to reservation governance. Routing through the Timelock
   // would make msg.sender the Timelock and revert on BridgeGovernance's
@@ -263,13 +404,13 @@ function logCalldataSummary(actions: CalldataAction[]): void {
   )
   // Trust-revocation notice: after setVaultStatus(vault, false), every
   // acceptance settled while the vault is untrusted (on time or late)
-  // settles by direct credit to the depositor with no initiation fee;
+  // settles by direct credit to the depositor with no acceptance fee;
   // see solidity/docs/RESERVATION_CAPS_DEPLOYMENT.md, "Fee Fallback When
   // Vault Trust Is Revoked".
   console.log(
     "Trust-revocation notice: after setVaultStatus(vault, false), every " +
       "acceptance settled while the vault is untrusted (on time or late) " +
-      "settles by direct credit to the depositor with no initiation fee; " +
+      "settles by direct credit to the depositor with no acceptance fee; " +
       "see solidity/docs/RESERVATION_CAPS_DEPLOYMENT.md, " +
       "'Fee Fallback When Vault Trust Is Revoked'."
   )
@@ -457,7 +598,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   if (RES_TERM_SECONDS < MIN_RESERVATION_TERM) {
     throw new Error(
       `RESERVATION_TERM_SECONDS (${RES_TERM_SECONDS}) is below the on-chain ` +
-        `MIN_RESERVATION_TERM (${MIN_RESERVATION_TERM}s / 90 days) and would ` +
+        `MIN_RESERVATION_TERM (${MIN_RESERVATION_TERM}s / 30 days) and would ` +
         "revert on finalizeReservationParametersUpdate"
     )
   }
@@ -510,6 +651,24 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     )
   }
 
+  // Check the term table against the live reveal-ahead period and the
+  // renewal window staged above, which is in force at the term finalizes:
+  // they run after finalizeReservationParametersUpdate.
+  const depositParameters = await read("Bridge", "depositParameters")
+  const depositRevealAheadPeriod = Number(
+    depositParameters.depositRevealAheadPeriod
+  )
+  checkReservationTermTable(
+    RESERVATION_TERM_ENTRIES,
+    depositRevealAheadPeriod,
+    RES_RENEWAL_WINDOW
+  )
+  console.log(
+    "\nReservation term table OK against depositRevealAheadPeriod " +
+      `(${depositRevealAheadPeriod}s) and the renewal window ` +
+      `(${RES_RENEWAL_WINDOW}s)`
+  )
+
   // Verify Decision 1 invariant holds:
   // reservationMaxTotalAmount <= maxActiveReservations * reservationMaxSingleAmount
   const slotCapacity = BigInt(MAX_ACTIVE) * SINGLE_AMOUNT_CAP
@@ -561,48 +720,60 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
       `liveWalletsCount * maxReservationsPerWallet (${slotCapacityByWallets})`
   )
 
-  // --- Verify a reserved deposit can actually be revealed under the chosen
-  // term. Deposit._revealDeposit bounds the refund locktime two ways when
+  // --- Verify a reserved deposit can actually be revealed under the term
+  // table. Deposit._revealDeposit bounds the refund locktime two ways when
   // depositRevealAheadPeriod is set: it must be at least the reveal time plus
   // depositRevealAheadPeriod, and for a reserved deposit also at most the
-  // reveal time plus the term plus the 24h deposit refund safety margin
-  // (otherwise it reverts with "Refund locktime too far in the future for a
-  // reservation"). requestReservationAcceptance additionally needs the
-  // refund deadline at least the reveal time plus actionTimeout plus that
-  // same 24h margin. The feasibility rule takes the lower bound as
+  // reveal time plus the largest term entry ever added plus the 24h deposit
+  // refund safety margin (otherwise it reverts with "Refund locktime too far
+  // in the future for a reservation"). The global reservationTermSeconds
+  // plays no part in that cap. requestReservationAcceptance additionally
+  // needs the refund deadline at least the reveal time plus actionTimeout
+  // plus that same 24h margin. The feasibility rule takes the lower bound as
   // max(reveal-ahead + 2h drift, actionTimeout + 24h + 2h drift) and
-  // requires it to fit inside term + 24h - 1h, so we mirror the same
-  // numbers here and fail fast instead of reverting on every reveal.
-  const depositParams = await read("Bridge", "depositParameters")
-  const revealAheadPeriod = Number(depositParams.depositRevealAheadPeriod)
+  // requires it to fit inside largest entry + 24h - 1h, so we mirror the
+  // same numbers here and fail fast instead of reverting on every reveal.
+  // The term table check above enforces the setter's own relation (largest
+  // entry + 24h at least the reveal-ahead period); this one adds the drift
+  // and feasibility margins.
+  const largestTermSeconds = Math.max(
+    ...RESERVATION_TERM_ENTRIES.map((entry) => entry.termSeconds)
+  )
   let minFeasibleTerm = 0
-  if (revealAheadPeriod > 0) {
+  if (depositRevealAheadPeriod > 0) {
     const lowest = Math.max(
-      revealAheadPeriod + REVEAL_DRIFT_SECONDS,
+      depositRevealAheadPeriod + REVEAL_DRIFT_SECONDS,
       RES_ACTION_TIMEOUT + DEPOSIT_REFUND_SAFETY_MARGIN + REVEAL_DRIFT_SECONDS
     )
     minFeasibleTerm =
       lowest - DEPOSIT_REFUND_SAFETY_MARGIN + REVEAL_FEASIBILITY_MARGIN_SECONDS
-    if (RES_TERM_SECONDS < minFeasibleTerm) {
+    if (largestTermSeconds < minFeasibleTerm) {
       throw new Error(
-        `RESERVATION_TERM_SECONDS (${RES_TERM_SECONDS}) is below the ` +
-          `minimum feasible term (${minFeasibleTerm}s) for the on-chain ` +
-          `depositRevealAheadPeriod (${revealAheadPeriod}s): Deposit.sol ` +
-          "needs a reserved deposit's refund locktime in " +
-          `[reveal + ${lowest}s, reveal + term + ${DEPOSIT_REFUND_SAFETY_MARGIN}s]` +
-          ". With the term bound and the 1h feasibility margin the window " +
-          "is empty or too thin for this term. Raise " +
-          `RESERVATION_TERM_SECONDS to at least ${minFeasibleTerm}s, or ` +
-          "lower depositRevealAheadPeriod via 14_set_deposit_parameters.ts " +
+        `The largest reservation term entry (${largestTermSeconds}s) is ` +
+          `below the minimum feasible largest term entry ` +
+          `(${minFeasibleTerm}s) for the on-chain depositRevealAheadPeriod ` +
+          `(${depositRevealAheadPeriod}s): Deposit.sol needs a reserved ` +
+          "deposit's refund locktime in " +
+          `[reveal + ${lowest}s, reveal + largest entry + ` +
+          `${DEPOSIT_REFUND_SAFETY_MARGIN}s]. With the largest entry bound ` +
+          "and the 1h feasibility margin the window is empty or too thin. " +
+          "Add a term entry of at least " +
+          `${minFeasibleTerm}s to RESERVATION_TERM_ENTRIES, or lower ` +
+          "depositRevealAheadPeriod via 14_set_deposit_parameters.ts " +
           "governance."
       )
     }
   }
   console.log(
     `${
-      `\nReserved-reveal window OK: term (${RES_TERM_SECONDS}s) vs ` +
-      `depositRevealAheadPeriod (${revealAheadPeriod}s)`
-    }${revealAheadPeriod > 0 ? `, min feasible term ${minFeasibleTerm}s` : ""}`
+      `\nReserved-reveal window OK: largest term entry ` +
+      `(${largestTermSeconds}s) vs depositRevealAheadPeriod ` +
+      `(${depositRevealAheadPeriod}s)`
+    }${
+      depositRevealAheadPeriod > 0
+        ? `, min feasible largest term entry ${minFeasibleTerm}s`
+        : ""
+    }`
   )
 
   // --- Re-verify live-wallet slot capacity immediately before generating
@@ -640,7 +811,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 
   // --- Generate governance calldata ---
   console.log(
-    "\n--- Generating governance calldata (router, then caps+params begin, then caps+params finalize, then activation) ---"
+    "\n--- Generating governance calldata (router, then caps+params begin, then caps+params finalize, then term entries, then activation) ---"
   )
 
   // Single ABI source: the compiled BridgeGovernance artifact, not a
@@ -664,6 +835,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     maxReservationsPerWallet: MAX_RESERVATIONS_PER_WALLET,
     actionTimeout: RES_ACTION_TIMEOUT,
     renewalWindowSeconds: RES_RENEWAL_WINDOW,
+    reservationTerms: RESERVATION_TERM_ENTRIES,
   })
 
   const actions: CalldataAction[] = actionDefinitions.map((definition) => ({
