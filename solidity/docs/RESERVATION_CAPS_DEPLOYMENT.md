@@ -349,7 +349,6 @@ function updateReservationCaps(
   uint64 reservationMaxSingleAmount,
   uint32 maxActiveReservations
 ) external;
-
 ```
 
 `ReservationCapsUpdated` event signature change:

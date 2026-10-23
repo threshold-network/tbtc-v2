@@ -523,7 +523,7 @@ jobs:
     if: |
       github.event_name == 'push'
         || needs.contracts-detect-changes.outputs.path-filter == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: ./solidity
