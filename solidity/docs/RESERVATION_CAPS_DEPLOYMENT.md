@@ -9,23 +9,214 @@ Changes relative to #1094:
 - `updateReservationCaps` now takes a third argument `maxActiveReservations` (uint32, must be > 0). The 4-byte selector changes; existing Defender / Safe / Tenderly / multisend scripts that encode the 2-argument version will revert.
 - The `ReservationCapsUpdated` event gained a third field `maxActiveReservations`. Off-chain indexers and dashboards that decode the 2-field version will need to update their event ABI; consumers that only read a subset of fields and ignore unknown trailing fields may only need a rebind/restart.
 - `updateReservationParameters` enforces the Decision 1 on-chain relational check `reservationMaxTotalAmount <= maxActiveReservations * reservationMaxSingleAmount` by reading both `self.maxActiveReservations` and `self.reservationMaxSingleAmount` from storage. In the pristine pre-launch bootstrap state, both are zero, so the check short-circuits and any `reservationMaxTotalAmount` is accepted. Subsequent calls can revert with `Amount cap exceeds slot capacity` if governance sets `reservationMaxTotalAmount` first and the later `updateReservationCaps` operands cannot accommodate it.
-
----
+- A second, independent precondition applies whenever `updateReservationParameters` changes `reservationVault` to a non-zero address: the stored `self.maxActiveReservations` must already be greater than zero, or the call reverts with `Max active reservations must be greater than zero`. On a chain that has never run `updateReservationCaps`, `maxActiveReservations` is zero, so the bootstrap write that wires the vault into the Bridge **cannot** be the first reservation write. The caps write must land first — see "Deploy Order (Decision 1)".
 
 ## Deploy Order (Decision 1)
 
-During the initial bootstrap of the reservation subsystem, calling `updateReservationCaps` **before** `updateReservationParameters` is recommended as the safe runbook default.
+During the initial bootstrap of the reservation subsystem, `updateReservationCaps` **must** land before `updateReservationParameters`. Two independent on-chain reasons make that order mandatory rather than merely recommended:
 
-While calling `updateReservationParameters` first is accepted during initial bootstrap because `self.reservationMaxSingleAmount` and `self.maxActiveReservations` are still zero (the slot-capacity check `reservationMaxTotalAmount <= maxActiveReservations * reservationMaxSingleAmount` short-circuits when either operand is zero), calling in the reverse order introduces a potential hazard: if the subsequent `updateReservationCaps` call sets caps whose product `maxActiveReservations * reservationMaxSingleAmount` cannot accommodate the already-committed `reservationMaxTotalAmount`, that subsequent `updateReservationCaps` call will revert with `Amount cap exceeds slot capacity`. (Any call order succeeds if `reservationMaxSingleAmount` is set to zero, since a zero single-amount cap disables the relational check).
+1. **The vault-wiring precondition.** `updateReservationParameters` only re-points `reservationVault` when the value actually changes. On a chain where the vault has never been wired, that write changes the value from the zero address to the vault address, and the setter then requires `self.maxActiveReservations > 0`, reverting with `Max active reservations must be greater than zero` otherwise. `maxActiveReservations` is written only by `updateReservationCaps`, so on a fresh chain the parameters write cannot go first.
+2. **The Decision 1 relational check.** `updateReservationCaps` mirrors the check that `updateReservationParameters` owns: it re-evaluates `reservationMaxTotalAmount <= maxActiveReservations * reservationMaxSingleAmount` using its _own_ new operands against the _stored_ `reservationMaxTotalAmount`. If the parameters write landed first and committed a total that the later caps operands cannot accommodate, that caps write reverts with `Amount cap exceeds slot capacity`.
 
-Safe operational sequence:
+The check itself short-circuits when either operand is zero (`reservationMaxSingleAmount == 0 || maxActiveReservations == 0`), which is why the pristine pre-launch state accepts any total. That short-circuit is what makes the _first_ (caps) write safe: at that moment the stored `reservationMaxTotalAmount` is still 0, so the check evaluates `0 <= anything`. It is **not** a licence to write the parameters first on a fresh chain, because reason (1) still applies independently of the relational check.
 
-1. Call `updateReservationCaps(maxReservationsAmountPerWallet, reservationMaxSingleAmount, maxActiveReservations)` — sets the per-wallet amount cap, the single-reservation amount cap, and the global occupancy cap together. The Decision 1 check evaluates `0 <= maxActiveReservations * reservationMaxSingleAmount` (trivially true because `reservationMaxTotalAmount` is still 0).
-2. Call `updateReservationParameters(reservationVault, ...)` — sets `reservationMaxTotalAmount` and the other parameters. The Decision 1 check now evaluates `reservationMaxTotalAmount <= maxActiveReservations * reservationMaxSingleAmount` against the just-set storage values.
+Safe operational sequence (the ordering the staged governance ceremony in "Activation Runbook" implements):
+
+1. Call `updateReservationCaps(maxReservationsAmountPerWallet, reservationMaxSingleAmount, maxActiveReservations)` — sets the per-wallet amount cap, the single-reservation amount cap, and the global occupancy cap together. `maxActiveReservations` must be greater than zero or the call reverts with `Active reservations cap must be greater than zero`. The Decision 1 check evaluates `0 <= maxActiveReservations * reservationMaxSingleAmount` (trivially true because the stored `reservationMaxTotalAmount` is still 0).
+2. Call `updateReservationParameters(reservationVault, ...)` — sets `reservationMaxTotalAmount` and the other parameters, and wires the vault address into the Bridge (there is no separate `setReservationVault` setter). The Decision 1 check now evaluates `reservationMaxTotalAmount <= maxActiveReservations * reservationMaxSingleAmount` against the just-set storage values, and the vault-repoint branch sees `maxActiveReservations > 0`.
 
 If the two updates must land in the same block, an atomic multicall preserves the ordering guarantee.
 
 The existing regression test `Bridge.ReservationCaps.test.ts` in the `describe("bootstrap ordering")` group pins both the deploy-ordering hazard and the safe operational order; review it before any deployment.
+
+---
+
+## Activation Runbook
+
+This section is the executable ceremony. Every selector, argument, actor and delay below is taken from the merged contracts and deploy scripts; nothing here is illustrative.
+
+### Two distinct governance paths — do not conflate them
+
+**Proxy upgrades**
+
+- Actor: the ProxyAdmin owner, acting through the Timelock.
+- Contract called: `ProxyAdmin.upgrade` / `ProxyAdmin.upgradeAndCall`.
+- Delay: the Timelock's `minDelay` (24h on mainnet).
+- Ownership: the ProxyAdmin is owned by the Timelock.
+
+**Reservation bootstrap**
+
+- Actor: the Council Safe, acting through `BridgeGovernance`.
+- Contract called: `BridgeGovernance.<method>`.
+- Delay: `BridgeGovernance.governanceDelays(0)` = 172800s (48h) for the `begin*`/`finalize*` pairs; the one-off hooks carry no delay.
+- Ownership: `BridgeGovernance` is `Ownable`, owned by the Council Safe.
+
+Routing a reservation setter through the Timelock makes `msg.sender` the Timelock and reverts on `BridgeGovernance`'s `onlyOwner` check. There is no bypass in the other direction either: a proxy upgrade must go through the Timelock, because `ProxyAdmin` is `Ownable` and its owner is the Timelock, so a direct `ProxyAdmin.upgrade` from the Council Safe is rejected by `ProxyAdmin`'s `onlyOwner` check. The two paths are independent ceremonies, and neither one can be used in place of the other.
+
+### Stage 0 — Establish a reservation-capable `BridgeGovernance`
+
+The reservation setters only exist on a `BridgeGovernance` build that carries them. Decide **fresh deployment vs. reuse** from on-chain state, not from the repository — and never from a bytecode substring match. A selector present in the deployed bytecode proves at most that _some_ build exposes that selector: it does not identify the deployed source revision, the linked libraries, or the ABI, so a `cast code ... | grep -c <selector>` scan may support inspection but never authorizes reuse. Every candidate — reused or freshly deployed — must clear the same two preflights. Declare the addresses as environment variables first; every `cast` command in this document is read-only and broadcasts nothing:
+
+```bash
+: "${BRIDGE:?Set BRIDGE from the verified Bridge deployment record}"
+: "${BRIDGE_GOVERNANCE:?Set BRIDGE_GOVERNANCE from the verified candidate deployment}"
+: "${COUNCIL_SAFE:?Set COUNCIL_SAFE from the approved governance record}"
+: "${REBATE_STAKING_PROXY:?Set REBATE_STAKING_PROXY from the verified deployment record}"
+: "${REBATE_STAKING_IMPL:?Set REBATE_STAKING_IMPL from the proxy implementation slot}"
+: "${RESERVATION_VAULT:?Set RESERVATION_VAULT from the verified deployment record}"
+: "${FEE_RESERVE_TARGET:?Set FEE_RESERVE_TARGET to the approved integer base-unit amount}"
+
+# The reservation API must be callable on the candidate.
+cast call "$BRIDGE_GOVERNANCE" "governanceDelays(uint256)(uint256)" 0 # expect 172800
+cast call "$BRIDGE_GOVERNANCE" "owner()(address)"                     # expect $COUNCIL_SAFE
+cast call "$BRIDGE" "governance()(address)"                           # expect the candidate, after Stage 1
+```
+
+1. **Correct deployment, source and ABI.** The candidate's deployment is recorded, its deployed bytecode matches the artifact built from this repository's `BridgeGovernance.sol` together with its linked library `BridgeGovernanceParameters`, and its ABI exposes the whole reservation surface this runbook uses — `setReservationRouter(address)`, `beginReservationCapsUpdate(uint64,uint64,uint32)`, `finalizeReservationCapsUpdate()`, `beginReservationParametersUpdate(address,uint64,uint64,uint32,uint32,uint64,uint32,uint32,uint32)`, `finalizeReservationParametersUpdate()`, `setVaultStatus(address,bool)`, plus the `governanceDelays(uint256)` and `owner()` getters. A candidate built from a different source revision, or linked differently, is a fresh-deployment decision, not a reuse decision.
+2. **Successful read-only preflights.** Each call above must succeed. Verify the candidate's `governanceDelays(0)` and Council Safe ownership. Record `Bridge.governance()` before the handoff: it may still return the old governance address. Equality with the candidate is the postcondition of Stage 1, not a prerequisite for deploying the candidate. A candidate still owned by the deployer must transfer ownership to the Council Safe before Safe calls.
+
+- **Reuse** a candidate whose deployment, source, ABI, owner and delay are verified. Stage 1 determines whether the Bridge governance handoff is still required.
+- **Fresh deployment** is required if no verified reservation-capable candidate exists. Deploy `BridgeGovernanceParameters` and `BridgeGovernance` as `deploy/09_deploy_bridge_governance.ts` specifies (`args: [Bridge.address, 172800]`; 60s only on Sepolia), then transfer ownership to the Council Safe as `deploy/22_transfer_bridge_governance_ownership.ts` specifies. Verify the source, ABI, owner and delay before Stage 1; verify `Bridge.governance()` equals the candidate after Stage 1.
+
+### Stage 1 — Hand Bridge governance over to `BridgeGovernance` (48h)
+
+`BridgeGovernance`'s setters call into the Bridge, and the Bridge accepts them only from its own `governance` slot. That slot must point at `BridgeGovernance` before any reservation call.
+
+If the Bridge's governance already points at a reservation-capable `BridgeGovernance`, skip Stage 1 and record that fact in the governance log. Otherwise the handoff runs through the **old** `BridgeGovernance`, which owns the Bridge:
+
+1. Council Safe → old `BridgeGovernance.beginBridgeGovernanceTransfer(newBridgeGovernance)` (selector `0x8b18a505`). One-off, no delay on the begin itself.
+2. Wait the governance delay of the _old_ `BridgeGovernance` (read `governanceDelays(0)` on it; 172800s on mainnet).
+3. Council Safe → old `BridgeGovernance.finalizeBridgeGovernanceTransfer()` (selector `0x605da053`). This calls `Bridge.transferGovernance(newBridgeGovernance)`.
+
+Verify after the finalize: re-run the Stage 0 preflight `cast call "$BRIDGE" "governance()(address)"` and confirm it now returns the new `BridgeGovernance` (until this handoff completes it returns the old one).
+
+### Stage 2 — RebateStaking and Bridge implementation ordering
+
+The Bridge implementation upgrade and the `RebateStaking` proxy upgrade are **proxy upgrades**: they run through the ProxyAdmin under the Timelock's 24h delay (see "Two distinct governance paths" above). They are not part of the 48h reservation ceremony, but their relative order matters.
+
+Ordering hazard: the Bridge's `Deposit` and `Redemption` libraries call `RebateStaking` for the treasury-fee rebate. `Redemption` calls `RebateStaking.isRebateAuthorized(address,address)` (selector `0x96253dad`) on the callback-redemption path, and `Deposit`/`Redemption` call `applyForRebate(address,uint64,uint8)`. `RebateStaking` has **no fallback function**: a call to a selector the installed implementation does not expose reverts. So a Bridge implementation that calls a newer `RebateStaking` selector while the on-chain `RebateStaking` proxy still points at the older implementation turns ordinary deposits and redemptions into reverting calls.
+
+Therefore: **the `RebateStaking` proxy upgrade must land before, or in the same scheduled batch as and ahead of, the Bridge implementation upgrade.** The existing upgrade scripts already encode that order — the `RebateStaking` proxy upgrade is Timelock action `[0]` and the Bridge upgrade is action `[1]` in `deploy/85_deploy_tip109_governance_upgrade.ts` and `deploy/86_deploy_tip109_hotfix.ts`.
+
+Fresh on-chain selector and state verification before submitting either upgrade:
+
+```bash
+# 1. Which implementation does the RebateStaking proxy point at? EIP-1967
+#    implementation slot, as used by deploy/85_deploy_tip109_governance_upgrade.ts.
+cast storage "$REBATE_STAKING_PROXY" 0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc
+
+# 2. Does that implementation expose the selectors the new Bridge libraries call?
+cast code "$REBATE_STAKING_IMPL" | grep -c 96253dad # isRebateAuthorized(address,address)
+cast code "$REBATE_STAKING_IMPL" | grep -c cd2387f6 # applyForRebate(address,uint64,uint8)
+
+# 3. The proxy's Bridge pointer must stay the Bridge proxy across the upgrade.
+cast call "$REBATE_STAKING_PROXY" "bridge()(address)"
+
+# 4. The Bridge's rebate pointer, before and after.
+cast call "$BRIDGE" "getRebateStaking()(address)" # selector 0x3edf8238
+
+# 5. The Bridge proxy's initializer slot: the reservation upgrade needs no bump.
+cast storage "$BRIDGE" 0x32 # slot 50; expect 5 (the spent reinitializer(5))
+```
+
+The `applyForRebate` selector above is the one the current `RebateStaking` source exposes. Those greps are inspection only: they show that a selector string occurs in the installed bytecode, not which source revision produced it, so they never on their own establish compatibility. Verify the implementation actually being installed — its deployed bytecode and its ABI — rather than assuming: the `RebateStaking` deployment artifacts recorded in this repository predate the current source, so an older installed implementation may expose a different `applyForRebate` selector than the one the newly deployed Bridge libraries will call. If the Bridge's `getRebateStaking()` is still the zero address, the Bridge-side wiring (`BridgeGovernance.setRebateStaking(address)`, selector `0xca73c462`) has not run yet; that call is a direct `onlyOwner` action on `BridgeGovernance` with no staging delay, and it is separate from the reservation ceremony.
+
+Schedule `ProxyAdmin.upgrade(proxy, implementation)` through the Timelock. This reservation implementation introduces no new initializer. Verify the expected zero bits and slots against the recorded pre-upgrade storage layout before the implementation swap; do not assume that deployed state matches the expected layout.
+
+Do **not** replay the TIP-109 `upgradeAndCall` payload. At the rehearsed block, initializer slot 50 held version 5 and `initializeV5_RepairRebateStaking(address)` was already spent. Recheck the current initializer version and layout before this upgrade. The expected reservation path is plain `ProxyAdmin.upgrade(Bridge, newImplementation)`, without an initializer call. If the live version is not the expected 5, or a different implementation requires another initializer, stop for a separate maintainer-reviewed upgrade plan.
+
+### Stage 3 — The six Council Safe → `BridgeGovernance` calls
+
+All six calls target `BridgeGovernance` and are submitted by the Council Safe (its owner). The `begin*`/`finalize*` pairs each wait 48h; the two one-off hooks carry no delay.
+
+**Call 1 — `setReservationRouter(router)`** (selector `0xd394a4d3`, one-off, no delay).
+
+Must be first. Every later reservation selector (`updateReservationCaps`, `updateReservationParameters`, and the reservation getters) is a router selector reached through `Bridge.fallback()`, and the fallback reverts with `Reservation router not set` while the router is unset. The Bridge-side setter is write-once: it reverts with `Reservation router already set` on a second call, requires a non-zero address, and requires the address to be a contract. Pre-check with `cast call "$BRIDGE" "getReservationRouter()(address)"` (selector `0x5157ec0a`); expect the zero address.
+
+**Call 2 — `beginReservationCapsUpdate(maxReservationsAmountPerWallet, reservationMaxSingleAmount, maxActiveReservations)`** (selector `0x9ba2ddd1`).
+
+Stages the three caps. `maxActiveReservations` must be greater than zero.
+
+**Call 3 — `beginReservationParametersUpdate(reservationVault, reservationMinAmount, reservationTxMaxFee, reservationTermSeconds, reservationDissolutionDelay, reservationMaxTotalAmount, maxReservationsPerWallet, reservationActionTimeout, reservationRenewalWindowSeconds)`** (selector `0x674ccdcb`).
+
+Stages all nine parameters, including the vault address — there is no separate `setReservationVault`. The `begin*` calls carry no ordering constraint among themselves and may be batched; only the two `finalize*` calls are order-constrained.
+
+**Wait 48 hours.** Read the live delay from `governanceDelays(0)` on the `BridgeGovernance` that owns the staged change. The `begin*` calls are not delayed: they only record the initiation timestamp (`block.timestamp`) of the staged change. The delay is enforced on the `finalize*` calls, each of which reverts with `Governance delay has not elapsed` unless `block.timestamp - <its own initiation timestamp> >= governanceDelay`. Each staged pair carries its own initiation timestamp, so a single 48h wait suffices when Calls 2 and 3 are submitted in the same batch; if they are submitted separately, each pair needs its own full delay measured from its own begin.
+
+**Call 4 — `finalizeReservationCapsUpdate()`** (selector `0x7d87eff2`).
+
+Applies the staged caps. Must execute **before** Call 5: the parameters finalize reads the caps this call writes.
+
+**Call 5 — `finalizeReservationParametersUpdate()`** (selector `0x093bc481`).
+
+Applies the staged parameters and wires the vault into the Bridge. On a fresh bootstrap, finalizing parameters **before** caps does not reach the slot-capacity check at all: the vault-wiring branch fires first and reverts with `Max active reservations must be greater than zero`, because the stored `maxActiveReservations` is still zero. `Amount cap exceeds slot capacity` is the _second_, independent guard: it fires only once `maxActiveReservations > 0` is already stored (i.e. the caps write has landed) and the staged total exceeds `maxActiveReservations * reservationMaxSingleAmount`. Both guards are described under "Deploy Order (Decision 1)"; a params-first attempt on a fresh chain hits the first one.
+
+**Call 6 — `setVaultStatus(vault, true)`** (selector `0x60d712fc`, one-off, no delay). Marks the vault trusted. It must not execute before Call 5 is confirmed on-chain: while `reservationVault` is still the zero address, a trusted vault lets deposits routed to it be revealed as ordinary, non-reserved deposits. It must also not execute before the client gate in "Client Activation Ordering Gate" is satisfied.
+
+### Stage 4 — Launch values are a human decision
+
+No launch value is fixed by this document, and `deploy/98_generate_reservation_mainnet_calldata.ts` deliberately has **no defaults**: every value is a required environment variable, and a missing or malformed one hard-fails rather than silently generating example calldata. Governance must supply and sign off on each of `RESERVATION_PER_WALLET_CAP_SATS`, `RESERVATION_SINGLE_AMOUNT_CAP_SATS`, `RESERVATION_MAX_ACTIVE`, `RESERVATION_MIN_AMOUNT_SATS`, `RESERVATION_TX_MAX_FEE_SATS`, `RESERVATION_TERM_SECONDS`, `RESERVATION_DISSOLUTION_DELAY_SECONDS`, `RESERVATION_MAX_TOTAL_AMOUNT_SATS`, `RESERVATION_MAX_PER_WALLET`, `RESERVATION_ACTION_TIMEOUT_SECONDS`, `RESERVATION_RENEWAL_WINDOW_SECONDS`.
+
+The script hard-fails on the launch-posture values that are already decided, and on every remaining on-chain `require` it mirrors:
+
+- `RESERVATION_MAX_PER_WALLET` must be exactly 1 (the decided M1 launch value).
+- `RESERVATION_MAX_ACTIVE` must not exceed `liveWalletsCount * maxReservationsPerWallet`. A global cap **at or below** that slot capacity is reachable: the global cap binds once that many positions are open. Only a global cap **above** the physical slot capacity is dead configuration — individual wallets saturate first with `Wallet reservations cap exceeded`, so the global ceiling never becomes the binding constraint and the value buys nothing. The script re-checks this relation twice during calldata generation — once with the initial read and once with a fresh `liveWalletsCount` read immediately before emitting the finalize calldata — because up to 48h can pass between the begin calls and the actual finalize execution, and a wallet can retire in that window. That re-check is **not** performed automatically 48h later at execution time: the operator must re-run the script (or otherwise re-read `liveWalletsCount` and re-derive the relation) immediately before finalizing the transactions, and abort if the relation no longer holds.
+- `RESERVATION_TX_MAX_FEE_SATS > 0`, `RESERVATION_MIN_AMOUNT_SATS > RESERVATION_TX_MAX_FEE_SATS`, `0 < RESERVATION_RENEWAL_WINDOW_SECONDS < RESERVATION_TERM_SECONDS`, and `RESERVATION_ACTION_TIMEOUT_SECONDS > REQUEST_TIMEOUT_SAFETY_MARGIN + DEPOSIT_MIN_AGE + 1` (7200 + 7200 + 1 = 14401), each mirroring the corresponding `require` in `Reservation.updateReservationParameters`.
+- Decision 1: `RESERVATION_MAX_TOTAL_AMOUNT_SATS <= RESERVATION_MAX_ACTIVE * RESERVATION_SINGLE_AMOUNT_CAP_SATS`.
+
+### Stage 5 — Term and reveal-window feasibility
+
+The term is not free-form. `Reservation.MIN_RESERVATION_TERM` is 90 days (7,776,000s) and `MAX_RESERVATION_TERM` is 730 days (63,072,000s); `updateReservationParameters` reverts with `Reservation term out of protocol bounds` outside that band.
+
+There is a second, tighter constraint, because `Deposit._revealDeposit` bounds a reserved deposit's refund locktime and `Reservation.requestReservationAcceptance` needs the deadline to be at least the reveal time plus the action timeout plus the 24h refund safety margin. `deploy/98_generate_reservation_mainnet_calldata.ts` mirrors this as a feasibility formula rather than a magic number:
+
+```
+lowest       = max(depositRevealAheadPeriod + 7200,
+                   reservationActionTimeout + 86400 + 7200)
+minFeasibleTerm = lowest - 86400 + 3600
+```
+
+where `depositRevealAheadPeriod` is read live from `Bridge.depositParameters()` and the constants are `REVEAL_DRIFT_SECONDS = 7200`, `DEPOSIT_REFUND_SAFETY_MARGIN = 86400`, `REVEAL_FEASIBILITY_MARGIN_SECONDS = 3600`. The chosen term must be at least `minFeasibleTerm`, otherwise the reveal window is empty or too thin and every reserved reveal reverts with `Refund locktime too far in the future for a reservation`. The formula is only meaningful while `depositRevealAheadPeriod > 0`; when it is zero the ahead-period check is disabled and the on-chain term bounds alone apply. A 90-day term is **not** a safe default — with a 150-day reveal-ahead period the minimum feasible term is 12,884,400s (149.125 days), so the term must be raised or `depositRevealAheadPeriod` lowered through `deploy/14_set_deposit_parameters.ts` governance.
+
+The deposit-side bound is a live read, not a constant: `depositRevealAheadPeriod` can change between the begin and the finalize, so re-derive the feasible term against the value in force at finalize time.
+
+### Stage 6 — Reserve-target decision (before activation)
+
+See "Fee-Reserve Target Governance Step" below for the full rationale. `ReservationVault.updateFeeReserveTarget(uint256)` is `onlyOwner` and returns nothing — it has no return value, so it is not a `(bool)`-returning call — and the vault's owner is the Council Safe, not an EOA. The calldata is therefore built for a Safe transaction and submitted by the Council Safe; no key, no `cast send` from a deployer, and no direct EOA broadcast:
+
+```bash
+# Build the calldata for the Council Safe transaction (read-only: encodes,
+# does not broadcast). $FEE_RESERVE_TARGET is in TBTC with 18 decimals.
+cast calldata "updateFeeReserveTarget(uint256)" "$FEE_RESERVE_TARGET"
+```
+
+Submit that calldata as a **Council Safe transaction** to `ReservationVault` (`updateFeeReserveTarget(uint256)`, selector `0x3f2bac56`); the Safe is the owner, so the transaction must be proposed, approved and executed by the Safe itself. It applies instantly in M1, with no governance delay. Verify the resulting state through the public getter, and the state change through the event:
+
+```bash
+cast call "$RESERVATION_VAULT" "feeReserveTarget()(uint256)" # selector 0x5dc5296c
+```
+
+The state change is observable as the `FeeReserveTargetUpdated(uint256)` event on the vault. Record the chosen target, or the explicit decision to accept a zero reserve, in the governance log together with the launch values from Stage 4 and the activation block from the client gate.
+
+### Stage 7 — Client-first gate and activation block
+
+See "Client Activation Ordering Gate" below. The client release must be live on every node before the on-chain activation, and the chosen activation block must be at or after that release is live.
+
+### Post-activation verification
+
+```bash
+# Router is wired.
+cast call "$BRIDGE" "getReservationRouter()(address)"
+# Vault is wired and trusted.
+cast call "$BRIDGE" "isVaultTrusted(address)(bool)" "$RESERVATION_VAULT"
+cast call "$BRIDGE" "reservationParameters()(address,uint64,uint64,uint32,uint32,uint64,uint64,uint32,uint32,uint32)"
+# Caps, occupancy and pending-deposit counters.
+cast call "$BRIDGE" "reservationCaps()(uint64,uint64,uint32)"
+cast call "$BRIDGE" "activeReservationsCount()(uint32,uint32)"
+cast call "$BRIDGE" "pendingReservedDeposits()(uint64)"
+```
+
+Note that the reservation getters are router selectors: before the router is set they revert with `Reservation router not set`, and after it is set they are served by the router's `delegatecall` on the Bridge's own storage.
 
 ---
 
@@ -35,11 +226,14 @@ The existing regression test `Bridge.ReservationCaps.test.ts` in the `describe("
 >
 > Once any reservation is accepted, `ReservationVault` can only be swapped, upgraded, or repointed if the bridge reaches `reservationTotalAmount == 0 && pendingReservedDeposits == 0` — under Milestone 1 (variant B), this state is reachable **only** via complete wallet termination / stranding / acceptance timeouts, because voluntary early exits (such as redemptions or dissolutions) are deferred to Milestone 2.
 >
-> The vault re-point gate in `Bridge.updateReservationParameters` requires:
+> The vault re-point gate in `Bridge.updateReservationParameters` requires, exactly and in this order:
 >
 > ```solidity
-> self.reservationTotalAmount == 0 && self.pendingReservedDeposits == 0
+> self.reservationTotalAmount == 0     // "Active reservations exist"
+> self.pendingReservedDeposits == 0    // "Pending reserved deposits exist"
 > ```
+>
+> Both conditions must hold. `reservationTotalAmount` is the total satoshi amount locked under open reservation positions; `pendingReservedDeposits` counts revealed reserved deposits that have been neither accepted nor marked stale. The two are cleared by different paths: a pending reserved deposit clears when it is accepted (`consumeAcceptedDeposit`), marked stale by the permissionless `notifyStaleReservedDeposit` after its refund deadline elapses, or force-cleared by governance via `BridgeGovernance.forceStaleReservedDeposit(uint256)`; the locked total clears when the position is stranded (`notifyReservationStranded`) or closed.
 >
 > Setting a non-zero `reservationVault` in `updateReservationParameters` and accepting the first reservation permanently locks in that vault contract for the entire lifetime of live reservations. Explicit governance and deployer sign-off acknowledging this irreversibility is **required** prior to the activation ceremony.
 
@@ -47,8 +241,19 @@ The existing regression test `Bridge.ReservationCaps.test.ts` in the `describe("
 
 On-chain activation (`setVaultStatus(vault, true)`) and client activation (keep-core's reservation task scheduling) are two independent axes that MUST be coupled in this order:
 
-1. **Ship the keep-core release first.** Release and deploy a keep-core binary whose `reservationsActivationBlocks` table contains the chosen entry for the target network (see `keep-core pkg/tbtc/coordination.go`: `ReservationsActivationBlock`). All maintainers, orchestrators, and tBTCpg coordinators on that network must run that release before the on-chain activation block is reached.
-2. **Choose the activation block at or after the release is live on every node.** The value written into `reservationsActivationBlocks` for the network is the block height at which clients start proposing acceptance and re-anchor actions. The `setVaultStatus(vault, true)` transaction must execute at or after that block.
+1. **Ship the keep-core release first.** Release and deploy a keep-core binary whose `reservationsActivationBlocks` table contains the chosen entry for the target network (see `keep-core pkg/tbtc/coordination.go`: `ReservationsActivationBlock`). All maintainers, orchestrators, and tBTCpg coordinators on that network must run that release before the on-chain activation block is reached. The entry must be an explicit height for the target network: `ReservationsActivationBlock` returns 0 only for the local developer network, and returns `math.MaxUint64` for every network without an entry, so a release that omits the network's entry never activates reservation coordination there.
+2. **Choose the activation block at or after the release is live on every node.** The value written into `reservationsActivationBlocks` for the network is the block height at which clients start proposing acceptance and re-anchor actions. The `setVaultStatus(vault, true)` transaction must execute at or after that block. The block height is a human decision and must be recorded in the governance log alongside the launch values; it is not derivable from the tbtc-v2 side of this release.
+
+Executable form of the gate, to be completed before Call 6 of the Activation Runbook:
+
+```bash
+# The on-chain activation block must be at or after the client activation block.
+# Read the height at which setVaultStatus is mined, and compare it with the
+# height recorded in keep-core's reservationsActivationBlocks for the network.
+cast block [SET_VAULT_STATUS_TX_HASH] # -> number
+```
+
+The check is a comparison against the recorded client activation block, not an on-chain read: the client activation block lives in the keep-core release, not in a contract. Record both heights (the client activation block and the mined `setVaultStatus` block) in the governance log; the pair is the evidence that the ordering gate was honoured.
 
 Consequence of the wrong order (activating on-chain before the released clients are live): the Bridge immediately accepts reserved reveals and acceptance requests, but no keep-core client coordinates acceptance or re-anchor until the network's activation block is reached. keep-core starts coordinating a network only once the chain's block height reaches the activation block configured for that network in `reservationsActivationBlocks` (see `keep-core pkg/tbtc/coordination.go`: `ReservationsActivationBlock`), so the gap has two distinct shapes:
 
@@ -71,13 +276,14 @@ Operational consequences:
 
 `ReservationVault` deploys with `feeReserveTarget == 0`. Nothing in the activation flow (scripts 95/96/97 or the mainnet calldata script 98) calls `updateFeeReserveTarget`: script 97 performs only the caps update, the parameters update, and `setVaultStatus(vault, true)`. Re-anchor settlement already finances miner fees in kind in milestone 1, so the reserve-target decision cannot wait for a later milestone: a zero reserve target means `sweepFees` may sweep the vault's entire TBTC balance to the recipient, including the TBTC that in-kind fee financing needs: if a re-anchor hop or late fee event consumes more than the vault holds, the shortfall is recorded as `inKindFeeDebtSat` and the system runs over-supplied by that amount until `repayInKindFeeDebt` or a later `sweepFees` burns it back down. This does not block any milestone-1 settlement, but the fee debt must be consciously owned.
 
-Explicit governance step to add to the activation runbook, to be completed before on-chain activation (`setVaultStatus(vault, true)`), i.e. before the first M1 re-anchor settlement can land in kind:
+Explicit governance step, to be completed before on-chain activation (`setVaultStatus(vault, true)`), i.e. before the first M1 re-anchor settlement can land in kind. See "Stage 6 — Reserve-target decision" in the Activation Runbook for the executable form.
 
-1. Choose the target: a TBTC amount (18 decimals) large enough to cover the expected in-kind miner-fee pipeline, or deliberately accept a zero reserve.
-2. Execute `ReservationVault.updateFeeReserveTarget(target)` via the Council Safe (`onlyOwner`-gated; the vault owner is governance).
-3. Verify: call the public getter `ReservationVault.feeReserveTarget()` and confirm it returns the chosen value; the state change is also observable as a `FeeReserveTargetUpdated` event.
+1. Choose the target: a TBTC amount (18 decimals) large enough to cover the expected in-kind miner-fee pipeline, or deliberately accept a zero reserve. The target is a TBTC amount, not a satoshi amount; the vault's own accounting is satoshi-granular (`inKindFeeDebtSat`), so a target that is not a whole number of satoshis leaves a sub-satoshi remainder the vault cannot hold exactly.
+2. Execute `ReservationVault.updateFeeReserveTarget(target)` via the Council Safe. The call is `onlyOwner`-gated, and the vault owner is the Council Safe (`deploy/96_transfer_reservation_vault_ownership.ts` transfers `ReservationVault` ownership from the deployer to the `governance` named account). It applies instantly in M1 — there is no governance delay on this setter — so it can be executed as a standalone Safe transaction.
+3. Verify: call the public getter `ReservationVault.feeReserveTarget()` (selector `0x5dc5296c`) and confirm it returns the chosen value; the state change is also observable as a `FeeReserveTargetUpdated(uint256)` event on the vault.
+4. Record the decision in the governance log, together with the launch values and the activation block. The record must state the chosen target, or the explicit decision to accept a zero reserve, and must be reproducible from the vault getter at a stated block.
 
-Record the decision in the governance log. If a zero reserve is accepted, note that in-kind fee debt is expected to be repaid opportunistically and is a known, publicly visible (`inKindFeeDebtSat`) accounting item.
+If a zero reserve is accepted, note that in-kind fee debt is expected to be repaid opportunistically and is a known, publicly visible (`inKindFeeDebtSat`) accounting item. Note also that `feeReserveTarget` bounds only what `sweepFees` may remove: it is not a floor protecting debt repayment, because `sweepFees` repays outstanding in-kind debt from the vault's full balance first, including the part the target would otherwise keep.
 
 ---
 
@@ -85,9 +291,17 @@ Record the decision in the governance log. If a zero reserve is accepted, note t
 
 In Milestone 1, `maxActiveReservations` acts as an occupancy launch gate and capacity ceiling:
 
-- **Occupancy lifecycle and release paths in M1:** Once reservation requests are authorized and accepted on-chain, `activeReservationsCount` increments. Voluntary protocol-level exits from an accepted reservation position (such as dissolution, veto, and dedicated reservation redemptions) are deferred to Milestone 2. However, `activeReservationsCount` is decremented on the two variant-B release paths that exist in M1: acceptance timeout (when acceptance proofs expire) and stranding (when a wallet closes or terminates). Thus, while not a strictly monotonic one-way ratchet, capacity releases occur exclusively through non-voluntary timeout/stranding paths rather than depositor-initiated exits. Occupancy is not derivable from a single field or event: the `ReservationOccupancyChanged` event alone reports only the raw `activeReservationsCount` counter, not effective occupancy. Deriving effective occupancy from current on-chain views requires combining `IReservationBridge.activeReservationsCount()` with `reservationParameters()` (for `maxReservationsPerWallet`) and the live-wallet count. This yields two distinct quantities that should not be conflated: aggregate wallet-slot utilization (`activeReservationsCount` against `liveWalletsCount * maxReservationsPerWallet`) and governance-cap utilization (`activeReservationsCount` against the global `maxActiveReservations` ceiling).
+- **Occupancy lifecycle and release paths in M1:** Once reservation requests are authorized on-chain, `activeReservationsCount` increments (`reserveAcceptanceCapacity`, at request time — not at proof time). Voluntary protocol-level exits from an accepted reservation position (such as dissolution, veto, and dedicated reservation redemptions) are deferred to Milestone 2, and `closeReservation` has no reachable caller in M1. The global counter is nevertheless decremented on the two release paths that exist in M1: (a) acceptance timeout — `notifyReservationAcceptanceTimedOut(uint256)` releases the capacity reserved at request time, including the global `activeReservationsCount`, when an acceptance authorization expires; and (b) stranding — `notifyReservationStranded(uint256)` releases the position's capacity entirely. A third path, the re-anchor action timeout (`notifyReservationActionTimeout(uint256)`), releases only the _target_ wallet's reserved capacity and returns the position to `Active`; it does **not** touch `activeReservationsCount` or `reservationTotalAmount`, because the position stays custodied at the source wallet. Capacity release is therefore not strictly monotonic, and not all of it is depositor-initiated. Occupancy is not derivable from a single field or event: the `ReservationOccupancyChanged` event alone reports only the raw `activeReservationsCount` counter, not effective occupancy. Deriving effective occupancy from current on-chain views requires combining `IReservationBridge.activeReservationsCount()` with `reservationParameters()` (for `maxReservationsPerWallet`) and the live-wallet count. This yields two distinct quantities that should not be conflated: aggregate wallet-slot utilization (`activeReservationsCount` against `liveWalletsCount * maxReservationsPerWallet`) and governance-cap utilization (`activeReservationsCount` against the global `maxActiveReservations` ceiling).
+- **Permissionless stranding of eligible positions (including on Live wallets):** `notifyReservationStranded(uint256)` is permissionless and router-reachable, and it does **not** require the custodying wallet to have closed or terminated. It accepts a position whose custodying wallet is:
+
+  - `Terminated` or `Closed` — no further condition;
+  - `Live` — once `block.timestamp >= reservation.dissolutionEligibleAt` (the position's term plus its dissolution delay). Milestone 1 has no other release path for such a position (`closeReservation` has no caller), so without this branch an expired position would pin its wallet's and the global capacity forever; only governance can re-anchor from a Live wallet, so no owner action is protected by withholding the strand;
+  - `Closing` — once `block.timestamp >= reservation.dissolutionEligibleAt` **and** `block.timestamp >= wallet.closingStartedAt + walletClosingPeriod`. The closing period is an exclusive re-anchor window, because `requestReservationReanchor` accepts a `Closing` source wallet; without it, a wallet pushed `Live -> MovingFunds -> Closing` by permissionless calls could be stranded in the same transaction, before the owner could request a re-anchor.
+
+  In every branch the position must still be `Active`, and whichever of a re-anchor and a strand lands first flips the state and makes the other revert. A stranded position's owner keeps the ordinary pooled Bank claim for the already-minted amount; the `ReservationStranded` event is the canonical recovery evidence. The consequence for capacity management: an occupancy ceiling can free up without any depositor action and without the wallet retiring, so operators must not treat a non-zero `activeReservationsCount` as evidence that a wallet is still holding a live anchor, and must not treat a decreasing counter as evidence of a voluntary exit.
+
 - **Underlying tBTC funds are not locked:** This occupancy accounting applies only to the position of the dedicated-UTXO reservation. Depositor funds are not locked: upon `settleAcceptance`, the depositor is already credited liquid tBTC via the standard Bridge/vault deposit-crediting (mint) path (this mint/credit flow is completely unrelated to the distinct `redeemReservation` feature, which is disabled in Milestone 1). Only the dedicated-UTXO reservation position itself lacks an early voluntary close mechanism in M1.
-- **Wallet-closing gate dependency:** The safety story for `maxActiveReservations` relies on wallets not being able to retire while they still hold live reservation anchors. The `walletReservationInfo[wallet].count == 0` precondition is enforced at the two points that can still block _before_ any Bitcoin funds have moved: `moveFunds`'s routing decision (a wallet with a nonzero reservation count is always routed through `MovingFunds`, never straight to `Closing`) and `notifyWalletClosingPeriodElapsed`. It is deliberately _absent_ from `beginWalletClosing` and `finalizeWalletClosing`: both are reached only after a moving-funds Bitcoin transaction has already been proven on-chain via SPV proof, and blocking wallet retirement at that point (with funds already gone) would leave the wallet stuck mid-closing while its `movingFundsTimeout` clock keeps running, eventually triggering operator slashing for a state the protocol itself created. A wallet can therefore complete closing while still holding a live reservation anchor if reservations were requested against it after the `moveFunds` decision was made; the anchor itself is separately recovered via `notifyReservationStranded` once the wallet reaches `Terminated`/`Closed`/dissolution-eligible-`Closing`.
+- **Wallet-closing gate dependency:** The safety story for `maxActiveReservations` relies on wallets not being able to retire while they still hold live reservation anchors. Two different counters play different roles here. `moveFunds`'s routing decision uses `walletAnchoredInfo[wallet].count == 0` — the number of **proven** reservation anchors — not the reserved-count field: a wallet with no main UTXO and no proven anchors begins closing immediately, while a wallet that still custodies proven anchors is routed through `MovingFunds` so that `WalletMovingFunds` is emitted to trigger re-anchoring of the remaining reservations. Capacity reserved for a pending acceptance or re-anchor target deliberately does not count there, because no Bitcoin proof backs it. The stricter `walletReservationInfo[wallet].count == 0` precondition (which also covers reserved pending-action capacity) is enforced at `notifyWalletClosingPeriodElapsed`, i.e. at the `Closing -> Closed` step. It is deliberately _absent_ from `beginWalletClosing` and `finalizeWalletClosing`: both are reached only after a moving-funds Bitcoin transaction has already been proven on-chain via SPV proof, and blocking wallet retirement at that point (with funds already gone) would leave the wallet stuck mid-closing while its `movingFundsTimeout` clock keeps running, eventually triggering operator slashing for a state the protocol itself created. A wallet can therefore complete closing while still holding a live reservation anchor if reservations were requested against it after the `moveFunds` decision was made; the anchor itself is separately recovered via `notifyReservationStranded` once the wallet reaches `Terminated`/`Closed`, or once a `Closing` wallet passes both its closing period and the position's `dissolutionEligibleAt`.
 - **Procedure for raising capacity:** When active occupancy saturates or additional headroom is required, governance can raise the occupancy limit by calling `updateReservationCaps(maxReservationsAmountPerWallet, reservationMaxSingleAmount, newMaxActiveReservations)` with a higher `newMaxActiveReservations` value.
 - **Sizing constraint:** Any update to `maxActiveReservations` or `reservationMaxSingleAmount` must maintain the Decision 1 relational invariant:
   `reservationMaxTotalAmount <= maxActiveReservations * reservationMaxSingleAmount`
@@ -135,6 +349,7 @@ function updateReservationCaps(
   uint64 reservationMaxSingleAmount,
   uint32 maxActiveReservations
 ) external;
+
 ```
 
 `ReservationCapsUpdated` event signature change:
@@ -257,10 +472,27 @@ require(Ownable(reservationVault).owner() == expectedVaultOwner, "Vault ownershi
 require(Bridge(bridgeAddress).isVaultTrusted(reservationVault), "Vault not trusted");
 ```
 
+All of the reservation getters above (`reservationParameters`, `reservationCaps`, `activeReservationsCount`, `reservationRouter`) are router selectors: they are served at the Bridge address through the Bridge's `delegatecall` fallback and revert with `Reservation router not set` while the router is unset. `isVaultTrusted` and `getReservationRouter` are declared on the Bridge itself.
+
 The three views together supply the three quantities the Decision 1 invariant is written in terms of:
-`reservationMaxTotalAmount <= maxActiveReservations * reservationMaxSingleAmount` (or `reservationMaxSingleAmount == 0`).
+`reservationMaxTotalAmount <= maxActiveReservations * reservationMaxSingleAmount` — **conditional**: the check is skipped when `reservationMaxSingleAmount == 0` or `maxActiveReservations == 0`, because a zero operand means that cap is disabled and there is no ceiling to violate. The same short-circuit applies on-chain, in `Reservation.validateReservationCapsInvariant`, and the `updateReservationCaps` mirror evaluates it against the _stored_ `reservationMaxTotalAmount`.
 
 > **Precondition note:** Setting a new non-zero `reservationVault` in `updateReservationParameters` also requires `maxActiveReservations > 0`; the call reverts otherwise, so the Decision 1 invariant check above is not sufficient on its own when activating the vault for the first time.
+
+### Governance record checklist
+
+The activation is not complete until the governance log contains, at minimum:
+
+- The `BridgeGovernance` address used, its owner (the Council Safe), and its `governanceDelays(0)` value at activation time.
+- The Bridge governance handoff: the `beginBridgeGovernanceTransfer` / `finalizeBridgeGovernanceTransfer` transaction hashes and the 48h window between them, or a note that the Bridge's governance already pointed at that `BridgeGovernance`.
+- The reservation router address and the on-chain code check that confirmed it is a contract at a non-zero address.
+- The three staged values (per-wallet cap, single-amount cap, `maxActiveReservations`) and the nine staged parameters, each with the environment-variable name it was generated from.
+- The Decision 1 arithmetic as evaluated: `reservationMaxTotalAmount` against `maxActiveReservations * reservationMaxSingleAmount`.
+- The `liveWalletsCount * maxReservationsPerWallet` slot-capacity check, with the block at which `liveWalletsCount` was read.
+- The chosen term, the `depositRevealAheadPeriod` in force at finalize time, and the derived `minFeasibleTerm`.
+- The reserve target: the chosen value (or the explicit decision to accept zero), verified against `feeReserveTarget()` at a stated block.
+- The client activation block and the mined `setVaultStatus` block, proving the ordering gate was honoured.
+- The explicit governance and deployer sign-off on the irreversibility of the vault choice.
 
 Because setter transactions revert on an invariant violation, a rejected configuration modifies no storage. If governance encounters a revert with `Amount cap exceeds slot capacity` during configuration, the remedy is:
 
