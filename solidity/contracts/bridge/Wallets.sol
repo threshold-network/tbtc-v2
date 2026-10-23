@@ -343,9 +343,17 @@ library Wallets {
             block.timestamp >= wallet.createdAt + self.walletMaxAge;
         /* solhint-enable not-rely-on-time */
 
+        // Proven reservation anchors are BTC the wallet custodies outside its
+        // main UTXO. Without them a young wallet holding large anchors read
+        // as nearly empty and anyone could push it out of Live.
+        // Pending acceptance and re-anchor capacity is not counted: no
+        // Bitcoin proof backs it.
         require(
             walletOldEnough ||
-                getWalletBtcBalance(self, walletPubKeyHash, walletMainUtxo) <
+                uint256(
+                    getWalletBtcBalance(self, walletPubKeyHash, walletMainUtxo)
+                ) +
+                    self.walletAnchoredInfo[walletPubKeyHash].amount <
                     self.walletClosureMinBtcBalance,
             "Wallet needs to be old enough or have too few satoshis"
         );
@@ -376,6 +384,14 @@ library Wallets {
             block.timestamp >
                 wallet.closingStartedAt + self.walletClosingPeriod,
             "Closing period has not elapsed yet"
+        );
+
+        // A wallet still custodying reservation anchors must not close
+        // ultimately; its reservations must first be re-anchored to other
+        // wallets or dissolved into the main UTXO.
+        require(
+            self.walletReservationInfo[walletPubKeyHash].count == 0,
+            "Wallet still custodies reservations"
         );
 
         finalizeWalletClosing(self, walletPubKeyHash);
@@ -575,22 +591,48 @@ library Wallets {
     }
 
     /// @notice Requests a wallet to move their funds. If the wallet balance
-    ///         is zero, the wallet closing begins immediately. If the move
-    ///         funds request refers to the current active wallet, such a wallet
-    ///         is no longer considered active and the active wallet slot
-    ///         is unset allowing to trigger a new wallet creation immediately.
+    ///         is zero and the wallet has no active reservations, the wallet
+    ///         closing begins immediately. If the move funds request refers to
+    ///         the current active wallet, such a wallet is no longer considered
+    ///         active and the active wallet slot is unset allowing to trigger a
+    ///         new wallet creation immediately.
     /// @param walletPubKeyHash 20-byte public key hash of the wallet.
     /// @dev Requirements:
     ///      - The caller must make sure that the wallet is in the Live state.
+    ///
+    ///      A wallet whose main UTXO is zero and that custodies no proven
+    ///      reservation anchor (`walletAnchoredInfo[wallet].count == 0`)
+    ///      begins closing immediately. Capacity reserved for pending
+    ///      acceptance or re-anchor targets does not count here: no Bitcoin
+    ///      proof backs it, and counting it let anyone send an empty wallet
+    ///      into MovingFunds, where it risks the moving-funds timeout slash
+    ///      Such a pending action still blocks the final
+    ///      Closing -> Closed step in `notifyWalletClosingPeriodElapsed`
+    ///      (`walletReservationInfo[wallet].count == 0`) until it settles or
+    ///      times out. The permissionless release path for a stranded active
+    ///      reservation (`notifyReservationStranded`) exists and is
+    ///      router-reachable. The routing check is intentionally not
+    ///      re-checked inside `beginWalletClosing` or
+    ///      `finalizeWalletClosing` themselves, since those are also invoked
+    ///      after a moving funds Bitcoin transaction has already been proven
+    ///      on-chain, where blocking on a still-active reservation would strand
+    ///      the wallet's `movingFundsTimeout` clock. A wallet whose main UTXO
+    ///      is zero but still custodies proven anchors enters MovingFunds so
+    ///      that `WalletMovingFunds` is emitted to trigger re-anchoring of any
+    ///      remaining reservations.
     function moveFunds(
         BridgeState.Storage storage self,
         bytes20 walletPubKeyHash
     ) internal {
         Wallet storage wallet = self.registeredWallets[walletPubKeyHash];
 
-        if (wallet.mainUtxoHash == bytes32(0)) {
-            // If the wallet has no main UTXO, that means its BTC balance
-            // is zero and the wallet closing should begin immediately.
+        if (
+            wallet.mainUtxoHash == bytes32(0) &&
+            self.walletAnchoredInfo[walletPubKeyHash].count == 0
+        ) {
+            // If the wallet has no main UTXO and no proven reservation
+            // anchors, its BTC balance is zero and the wallet closing should
+            // begin immediately.
             beginWalletClosing(self, walletPubKeyHash);
         } else {
             // Otherwise, initialize the moving funds process.

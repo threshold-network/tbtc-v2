@@ -74,6 +74,7 @@ additional_compiler_profiles = [
 compilation_restrictions = [
     { paths = "node_modules/@keep-network/ecdsa/contracts/WalletRegistry.sol", optimizer_runs = 200 },
     { paths = "contracts/bridge/BridgeGovernance.sol", optimizer_runs = 200 },
+    { paths = "contracts/bridge/Bridge.sol", optimizer_runs = 200 },
     { paths = "contracts/cross-chain/wormhole/L1BTCDepositorNttWithExecutor.sol", optimizer_runs = 1 }
 ]
 
