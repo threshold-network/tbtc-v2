@@ -589,6 +589,7 @@ jobs:
       [
         contracts-detect-changes,
         contracts-build-and-test,
+        contracts-foundry,
         contracts-format,
         contracts-slither,
         contracts-deployment-dry-run,
@@ -602,6 +603,7 @@ jobs:
           EVENT: ${{ github.event_name }}
           FILTER: ${{ needs.contracts-detect-changes.outputs.path-filter }}
           BUILD_TEST: ${{ needs.contracts-build-and-test.result }}
+          FOUNDRY: ${{ needs.contracts-foundry.result }}
           FORMAT: ${{ needs.contracts-format.result }}
           SLITHER: ${{ needs.contracts-slither.result }}
           DRY_RUN: ${{ needs.contracts-deployment-dry-run.result }}
@@ -615,14 +617,14 @@ jobs:
           # for this event + path-filter. Compute "expected to run" from the
           # same condition the job uses; expected jobs must be `success`,
           # not-expected jobs must be `skipped` (the only legitimate skip).
-          # build-and-test / deployment-dry-run:
+          # build-and-test / contracts-foundry / deployment-dry-run:
           #   if: github.event_name != 'pull_request' || filter == 'true'
           # format / slither:
           #   if: github.event_name == 'push' || filter == 'true'
           if [ "$EVENT" != "pull_request" ] || [ "$FILTER" = "true" ]; then
-            BT_EXPECTED=true; DR_EXPECTED=true
+            BT_EXPECTED=true; DR_EXPECTED=true; FOUNDRY_EXPECTED=true
           else
-            BT_EXPECTED=false; DR_EXPECTED=false
+            BT_EXPECTED=false; DR_EXPECTED=false; FOUNDRY_EXPECTED=false
           fi
           if [ "$EVENT" = "push" ] || [ "$FILTER" = "true" ]; then
             F_EXPECTED=true; S_EXPECTED=true
@@ -645,6 +647,7 @@ jobs:
             fi
           }
           check "$BUILD_TEST" "$BT_EXPECTED" contracts-build-and-test
+          check "$FOUNDRY"    "$FOUNDRY_EXPECTED" contracts-foundry
           check "$FORMAT"    "$F_EXPECTED"  contracts-format
           check "$SLITHER"   "$S_EXPECTED"  contracts-slither
           check "$DRY_RUN"   "$DR_EXPECTED" contracts-deployment-dry-run
