@@ -1,49 +1,28 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.17;
 
-// PoC for fuzz lead SP-106 "wallet entered MovingFunds without a main UTXO or
-// proven anchors" (solidity/fizz_data/triage/SP106.verdict.md; Foundry repro
-// test_repro_property_walletMovesNeedBtcOrProvenAnchors in
-// solidity/test/fizz/FoundryTester.sol:70-80). The fuzzer reached the end
-// state only through a governance-privileged reanchor. This file asks which
-// routes reach the same end state for an UNPRIVILEGED caller.
+// Regression tests for R-13 (fuzz lead SP-106, "wallet entered MovingFunds
+// without a main UTXO or proven anchors") and R-14 (SP-107, closeable route).
 //
-// End state under test: a wallet that was Live is now MovingFunds while
-// wallet.mainUtxoHash == 0 (zero BTC) and no reservation is anchored at it
-// (reservations(key).walletPubKeyHash never equals the wallet).
+// R-13: `Wallets.moveFunds` routed a zero-BTC wallet to MovingFunds whenever
+// `walletReservationInfo[w].count > 0`. That count includes capacity reserved
+// for pending acceptance and re-anchor targets, which no Bitcoin proof backs,
+// so anyone could load a zero-BTC wallet with a fabricated deposit (route A),
+// a third-party re-anchor (route B) or a governance re-anchor (route C) and
+// push it into MovingFunds, where nobody can commit a move and the operators
+// are slashed if no one reports BelowDust in time. The gate now uses
+// `walletAnchoredInfo[w].count` (proven anchors only): each route ends in
+// Closing, which is not slashable, and Closing still waits for the pending
+// action before the wallet can close. Before the fix the route tests fail
+// ("wallet state": MovingFunds instead of Closing).
 //
-// Source lines involved (solidity/contracts/bridge):
-//   Wallets.sol:607-639      moveFunds: mainUtxoHash == 0 && count == 0 goes to
-//                            Closing; any non-zero count goes to MovingFunds
-//                            (decrements liveWalletsCount, unsets the active
-//                            wallet if it was the active one)
-//   Wallets.sol:323-351      notifyWalletCloseable: permissionless, rejects the
-//                            active wallet, zero balance passes the
-//                            "too few satoshis" check
-//   Reservation.sol:488-639  requestReservationAcceptance: depositor only,
-//                            reserveAcceptanceCapacity (948) does count += 1
-//                            with no Bitcoin proof
-//   Reservation.sol:723-859  requestReservationReanchor: Live source needs
-//                            governance (749-753), MovingFunds or Closing
-//                            source is open to anyone (754-759); the target
-//                            count is bumped at request time (820)
-//   Reservation.sol:861-915  notifyReservationActionTimeout (releases the
-//                            target count, 982)
-//   Reservation.sol:656-692  notifyReservationAcceptanceTimedOut
-//   Deposit.sol:198-420      _revealDeposit: needs only a Live wallet and a
-//                            well formed script; no SPV proof of the funding tx
-//   MovingFunds.sol:164-262  submitMovingFundsCommitment (balance > 0 at 211)
-//   MovingFunds.sol:567-588  notifyMovingFundsTimeout (slash, Terminated)
-//   MovingFunds.sol:603-624  notifyMovingFundsBelowDust (free exit to Closing)
-//   Wallets.sol:360-387      notifyWalletClosingPeriodElapsed (needs count 0)
-//   Wallets.sol:286-306      notifyWalletHeartbeatFailed (registry only)
+// R-14: `notifyWalletCloseable` read only the main UTXO, so a young wallet
+// holding large proven anchors passed "too few satoshis". It now adds the
+// proven anchor amount (`test_R14_*`).
 //
-// Parameters (test/fizz/Base.sol): moving funds timeout 3 days, slashing 100 T,
-// notifier reward multiplier 100, action timeout 1 day, closing period 2 days,
-// reservation min 10_000 sat, tx max fee 1_000 sat. Bridge.sol:329-331 defaults
-// are 7 days, 100 T, 100.
-//
-// Every test PASSES when the behaviour described in its name is observed.
+// Parameters (test/fizz/Base.sol): moving funds timeout 3 days, action
+// timeout 1 day, closing period 2 days, wallet max age 14 days, closure
+// minimum 50_000 sat.
 
 import {Test} from "forge-std/Test.sol";
 import {Handlers} from "../fizz/handlers/Handlers.sol";
@@ -97,15 +76,16 @@ contract SP106PermissionlessMovingFunds is Test, Handlers {
     // ------------------------------------------------------------------
 
     /// @notice Without any reservation count, a zero-BTC non-active Live
-    ///         wallet goes straight to Closing (Wallets.sol:613-620) and no
-    ///         operator is slashed. This is the behaviour the count gate
-    ///         changes.
+    ///         wallet goes straight to Closing and no operator is slashed.
     function test_SP106_control_zeroBalanceWalletWithoutCountGoesStraightToClosing()
         public
     {
+        // Counts are relative to the harness baseline: `setup()` already
+        // leaves more than one Live wallet (the hand-off reserve spare).
+        uint32 liveBefore = bridge.liveWalletsCount();
         _registerWalletFromKey(1); // w1 becomes active, w0 is superseded
         assertEq(uint256(reservationRouter.walletReservationsCount(w0)), 0);
-        assertEq(uint256(bridge.liveWalletsCount()), 2);
+        assertEq(uint256(bridge.liveWalletsCount()), uint256(liveBefore) + 1);
 
         vm.prank(bystander);
         bridge.notifyWalletCloseable(w0, _none());
@@ -113,9 +93,12 @@ contract SP106PermissionlessMovingFunds is Test, Handlers {
         Wallets.Wallet memory w = bridge.wallets(w0);
         _assertStateOf(w, Wallets.WalletState.Closing);
         assertEq(uint256(w.closingStartedAt), block.timestamp);
-        assertEq(uint256(w.movingFundsRequestedAt), 0, "never entered MovingFunds");
-        assertEq(w.mainUtxoHash, bytes32(0));
-        assertEq(uint256(bridge.liveWalletsCount()), 1);
+        assertEq(
+            uint256(w.movingFundsRequestedAt),
+            0,
+            "never entered MovingFunds"
+        );
+        assertEq(uint256(bridge.liveWalletsCount()), uint256(liveBefore));
         assertEq(walletRegistry.seizeCalls(), 0, "Closing is not slashable");
     }
 
@@ -123,169 +106,69 @@ contract SP106PermissionlessMovingFunds is Test, Handlers {
     // Route A: depositor acceptance request with a fabricated deposit
     // ------------------------------------------------------------------
 
-    /// @notice REACHABLE without any role. An account with no Bank balance,
-    ///         no TBTC and no privileges reveals a fabricated reserved
-    ///         deposit for the superseded zero-BTC wallet (no Bitcoin proof is
-    ///         checked at reveal), requests acceptance (count 0 -> 1, nothing
-    ///         proven) and anyone then calls notifyWalletCloseable. The wallet
-    ///         ends MovingFunds with no main UTXO and no anchor.
-    function test_SP106_routeA_fakeDepositAcceptanceRequestPushesWalletToMovingFunds()
+    /// @notice A fabricated reserved deposit and its acceptance request load
+    ///         the zero-BTC wallet with pending capacity only. Pushing the
+    ///         wallet now sends it to Closing, as if it held nothing.
+    function test_SP106_routeA_fakeDepositAcceptanceRequestLeadsToClosing()
         public
     {
         _registerWalletFromKey(1); // w0 superseded, w1 active
-        assertEq(bank.balanceOf(attacker), 0);
-        assertEq(tbtc.balanceOf(attacker), 0);
-        uint256 liveBefore = bridge.liveWalletsCount();
-
         (uint256 key, , ) = _sp106Reveal(attacker, w0, DEPOSIT_SAT);
         _sp106RequestAcceptance(attacker, key, w0);
-
-        // The only thing backing the count is a pending authorization.
         assertEq(uint256(reservationRouter.walletReservationsCount(w0)), 1);
-        Reservation.ReservationRequest memory r = reservationRouter
-            .reservations(key);
-        assertEq(uint256(uint8(r.state)), uint256(uint8(Reservation.ReservationState.Unknown)));
-        assertEq(r.walletPubKeyHash, bytes20(0), "no anchor anywhere");
-        Reservation.ReservationAction memory a = reservationRouter
-            .reservationActions(key, r.requestNonce);
-        assertEq(uint256(uint8(a.actionType)), uint256(uint8(Reservation.ActionType.Acceptance)));
-        assertEq(uint256(uint8(a.state)), uint256(uint8(Reservation.ActionState.Pending)));
-        assertEq(bridge.wallets(w0).mainUtxoHash, bytes32(0));
-        assertTrue(bridge.activeWalletPubKeyHash() != w0);
-
-        vm.prank(bystander); // any third party
-        bridge.notifyWalletCloseable(w0, _none());
-
-        Wallets.Wallet memory w = bridge.wallets(w0);
-        _assertStateOf(w, Wallets.WalletState.MovingFunds);
-        assertEq(uint256(w.movingFundsRequestedAt), block.timestamp);
-        assertEq(uint256(w.closingStartedAt), 0, "skipped Closing");
-        assertEq(w.mainUtxoHash, bytes32(0), "still no main UTXO");
-        assertEq(uint256(bridge.liveWalletsCount()), liveBefore - 1);
         assertEq(
             reservationRouter.reservations(key).walletPubKeyHash,
             bytes20(0),
-            "still no proven anchor at w0"
+            "no anchor anywhere"
         );
-        assertEq(walletRegistry.seizeCalls(), 0, "no slash yet");
+
+        vm.prank(bystander);
+        bridge.notifyWalletCloseable(w0, _none());
+
+        Wallets.Wallet memory w = bridge.wallets(w0);
+        _assertStateOf(w, Wallets.WalletState.Closing);
+        assertEq(uint256(w.movingFundsRequestedAt), 0, "skipped MovingFunds");
+        assertEq(walletRegistry.seizeCalls(), 0, "no slash");
     }
 
-    /// @notice Consequence 1: a MovingFunds wallet with no BTC cannot do what
-    ///         the state asks. The commitment step (the first move step) is
-    ///         impossible (MovingFunds.sol:211).
-    function test_SP106_routeA_consequence_walletCannotCommitAMove() public {
-        _sp106PushViaFakeDeposit();
-
-        uint32[] memory ids = new uint32[](0);
-        bytes20[] memory targets = new bytes20[](1);
-        targets[0] = w1;
-        vm.expectRevert(bytes(ERR_ZERO_BALANCE));
-        bridge.submitMovingFundsCommitment(w0, _none(), ids, 0, targets);
-    }
-
-    /// @notice Consequence 2: if nobody reports BelowDust within
-    ///         movingFundsTimeout, the wallet operators are slashed and the
-    ///         wallet is Terminated, and the reward goes to whoever reports,
-    ///         here the attacker.
-    function test_SP106_routeA_consequence_timeoutSlashesOperatorsAndPaysAttacker()
-        public
-    {
-        _sp106PushViaFakeDeposit();
-        uint32 requestedAt = bridge.wallets(w0).movingFundsRequestedAt;
-
-        // Exactly at the boundary the report is still premature.
-        vm.warp(uint256(requestedAt) + MOVING_FUNDS_TIMEOUT);
-        uint32[] memory ids = new uint32[](0);
-        vm.expectRevert(bytes("Moving funds has not timed out yet"));
-        vm.prank(attacker);
-        bridge.notifyMovingFundsTimeout(w0, ids);
-
-        vm.warp(uint256(requestedAt) + MOVING_FUNDS_TIMEOUT + 1);
-        vm.prank(attacker);
-        bridge.notifyMovingFundsTimeout(w0, ids);
-
-        _assertState(w0, Wallets.WalletState.Terminated);
-        assertEq(walletRegistry.seizeCalls(), 1);
-        assertEq(walletRegistry.lastSeizeNotifier(), attacker);
-        assertEq(
-            walletRegistry.totalSeizeRequested(),
-            uint256(MOVING_FUNDS_TIMEOUT_SLASHING_AMOUNT) *
-                MOVING_FUNDS_TIMEOUT_NOTIFIER_REWARD_MULTIPLIER
-        );
-        assertEq(walletRegistry.lastSeizeWalletID(), bridge.wallets(w0).ecdsaWalletID);
-        // terminateWallet also closes the wallet in the registry (Wallets.sol:709).
-        assertEq(walletRegistry.closeWalletCalls(), 1);
-    }
-
-    /// @notice Mitigation check: BelowDust is permissionless and free for a
-    ///         zero-BTC wallet, moves it to Closing with no slash, and the
-    ///         wallet cannot finish closing until the fake pending
-    ///         authorization is reported as timed out (also permissionless).
-    function test_SP106_routeA_exit_belowDustAvoidsSlashAndClosingFinishesAfterAcceptanceTimeout()
+    /// @notice The pushed wallet cannot be slashed through the moving-funds
+    ///         timeout, and it closes once the fake authorization is reported
+    ///         as timed out.
+    function test_SP106_routeA_noSlashAndClosingFinishesAfterAcceptanceTimeout()
         public
     {
         (uint256 key, ) = _sp106PushViaFakeDeposit();
-
-        vm.prank(bystander);
-        bridge.notifyMovingFundsBelowDust(w0, _none());
         Wallets.Wallet memory w = bridge.wallets(w0);
-        _assertStateOf(w, Wallets.WalletState.Closing);
-        assertEq(walletRegistry.seizeCalls(), 0, "no slash on the exit");
 
-        vm.warp(uint256(w.closingStartedAt) + 2 days + 1);
+        vm.warp(uint256(w.closingStartedAt) + MOVING_FUNDS_TIMEOUT + 1);
+        uint32[] memory ids = new uint32[](0);
+        vm.prank(attacker);
+        vm.expectRevert();
+        bridge.notifyMovingFundsTimeout(w0, ids);
+        assertEq(walletRegistry.seizeCalls(), 0, "no slash");
+
+        // The pending authorization still blocks the final step.
         vm.expectRevert(bytes(ERR_STILL_CUSTODIES));
         bridge.notifyWalletClosingPeriodElapsed(w0);
 
         vm.prank(bystander);
         reservationRouter.notifyReservationAcceptanceTimedOut(key);
-        assertEq(uint256(reservationRouter.walletReservationsCount(w0)), 0);
-
         bridge.notifyWalletClosingPeriodElapsed(w0);
         _assertState(w0, Wallets.WalletState.Closed);
-        assertEq(walletRegistry.closeWalletCalls(), 1);
     }
 
-    /// @notice The attacker's count is only needed for the single
-    ///         notifyWalletCloseable call. Once the authorization is reported
-    ///         timed out the count is 0 again but the wallet stays in
-    ///         MovingFunds: the transition is not undone.
-    function test_SP106_routeA_stateIsNotRevertedWhenCountIsReleased() public {
-        (uint256 key, ) = _sp106PushViaFakeDeposit();
-        Reservation.ReservationRequest memory r = reservationRouter
-            .reservations(key);
-        Reservation.ReservationAction memory a = reservationRouter
-            .reservationActions(key, r.requestNonce);
-
-        vm.warp(uint256(a.timeoutAt));
-        vm.prank(bystander);
-        reservationRouter.notifyReservationAcceptanceTimedOut(key);
-
-        assertEq(uint256(reservationRouter.walletReservationsCount(w0)), 0);
-        _assertState(w0, Wallets.WalletState.MovingFunds, "count released, MovingFunds stays");
-    }
-
-    /// @notice Pre-positioning variant: the attacker files the fake
-    ///         authorization while w0 is still the active wallet. While w0 is
-    ///         active notifyWalletCloseable rejects it (NOT REACHABLE then);
-    ///         as soon as another wallet is registered and w0 is superseded,
-    ///         the same count lets anyone push it, with no further attacker
-    ///         action.
+    /// @notice Pre-positioning variant: the fake authorization is filed while
+    ///         w0 is active; after rotation the push still ends in Closing.
     function test_SP106_routeA_prepositionOnActiveWalletThenRotation() public {
-        assertEq(bridge.activeWalletPubKeyHash(), w0);
         (uint256 key, , ) = _sp106Reveal(attacker, w0, DEPOSIT_SAT);
         _sp106RequestAcceptance(attacker, key, w0);
-        assertEq(uint256(reservationRouter.walletReservationsCount(w0)), 1);
 
         vm.expectRevert(bytes(ERR_ACTIVE));
         bridge.notifyWalletCloseable(w0, _none());
-        _assertState(w0, Wallets.WalletState.Live);
 
-        _registerWalletFromKey(1); // DKG for a new wallet completes
-        assertEq(uint256(reservationRouter.walletReservationsCount(w0)), 1);
-
+        _registerWalletFromKey(1);
         bridge.notifyWalletCloseable(w0, _none());
-        _assertState(w0, Wallets.WalletState.MovingFunds);
-        assertEq(bridge.wallets(w0).mainUtxoHash, bytes32(0));
+        _assertState(w0, Wallets.WalletState.Closing);
     }
 
     // ------------------------------------------------------------------
@@ -297,74 +180,38 @@ contract SP106PermissionlessMovingFunds is Test, Handlers {
     ///         (normal retirement of a wallet holding reservations). Anyone may
     ///         then pick any Live target, here a zero-BTC non-active wallet,
     ///         whose count rises to 1 at request time. One notifyWalletCloseable
-    ///         later the target is MovingFunds with no main UTXO and no anchor.
-    function test_SP106_routeB_thirdPartyReanchorLoadsTargetThenTargetIsPushed()
+    ///         later the target is Closing, not an empty MovingFunds wallet.
+    function test_SP106_routeB_thirdPartyReanchorLoadsTargetThenTargetGoesToClosing()
         public
     {
         // Honest reservation, really anchored at w0 (active at the time).
         uint256 key = _sp106HonestAccept(actors[0], w0, DEPOSIT_SAT, 0);
-        assertEq(
-            uint256(uint8(reservationRouter.reservations(key).state)),
-            uint256(uint8(Reservation.ReservationState.Active))
-        );
-        assertEq(reservationRouter.reservations(key).walletPubKeyHash, w0);
-
         _registerWalletFromKey(1);
         _registerWalletFromKey(2); // w2 active; w0 and w1 superseded
-        assertEq(bridge.activeWalletPubKeyHash(), w2);
-        assertEq(uint256(bridge.liveWalletsCount()), 3);
 
-        // Legitimate retirement of w0: it holds a proven anchor, so the count
-        // gate sends it to MovingFunds (the design intent, Wallets.sol:604-606).
+        // Legitimate retirement of w0 by age: it holds a proven anchor, so
+        // the gate sends it to MovingFunds to trigger re-anchoring.
+        skipTime(WALLET_MAX_AGE);
         vm.prank(bystander);
         bridge.notifyWalletCloseable(w0, _none());
         _assertState(w0, Wallets.WalletState.MovingFunds);
 
-        // Target w1: Live, not active, no BTC, no reservations.
-        assertEq(uint256(reservationRouter.walletReservationsCount(w1)), 0);
-        assertEq(bridge.wallets(w1).mainUtxoHash, bytes32(0));
-
-        // Unprivileged reanchor request (msg.sender != governance).
+        // Unprivileged re-anchor request loads the zero-BTC target w1.
         vm.prank(attacker);
-        reservationRouter.requestReservationReanchor(key, w1);
-
-        Reservation.ReservationRequest memory r = reservationRouter
-            .reservations(key);
-        assertEq(uint256(uint8(r.state)), uint256(uint8(Reservation.ReservationState.ActionPending)));
-        assertEq(r.walletPubKeyHash, w0, "anchor is still at w0");
+        reservationRouter.requestReservationReanchor(
+            key,
+            w1,
+            new uint32[](0),
+            0
+        );
         assertEq(uint256(reservationRouter.walletReservationsCount(w1)), 1);
-        _assertState(w1, Wallets.WalletState.Live);
 
         vm.prank(bystander);
         bridge.notifyWalletCloseable(w1, _none());
-
         Wallets.Wallet memory w = bridge.wallets(w1);
-        _assertStateOf(w, Wallets.WalletState.MovingFunds);
-        assertEq(w.mainUtxoHash, bytes32(0));
-        assertEq(uint256(w.closingStartedAt), 0);
-        assertEq(
-            reservationRouter.reservations(key).walletPubKeyHash,
-            w0,
-            "no anchor at w1"
-        );
-        assertEq(uint256(bridge.liveWalletsCount()), 1, "only w2 remains Live");
-        assertEq(bridge.activeWalletPubKeyHash(), w2);
-
-        // Same lasting effect as route A: after the pending reanchor times out
-        // the count is released but w1 stays MovingFunds, and w1 cannot commit
-        // a move because it holds no BTC.
-        Reservation.ReservationAction memory a = reservationRouter
-            .reservationActions(key, r.requestNonce);
-        vm.warp(uint256(a.timeoutAt));
-        reservationRouter.notifyReservationActionTimeout(key);
-        assertEq(uint256(reservationRouter.walletReservationsCount(w1)), 0);
-        _assertState(w1, Wallets.WalletState.MovingFunds);
-
-        uint32[] memory ids = new uint32[](0);
-        bytes20[] memory targets = new bytes20[](1);
-        targets[0] = w2;
-        vm.expectRevert(bytes(ERR_ZERO_BALANCE));
-        bridge.submitMovingFundsCommitment(w1, _none(), ids, 0, targets);
+        _assertStateOf(w, Wallets.WalletState.Closing);
+        assertEq(uint256(w.movingFundsRequestedAt), 0, "skipped MovingFunds");
+        assertEq(walletRegistry.seizeCalls(), 0, "no slash");
     }
 
     // ------------------------------------------------------------------
@@ -374,23 +221,56 @@ contract SP106PermissionlessMovingFunds is Test, Handlers {
     /// @notice PRIVILEGED only. Reproduces the fuzzer sequence with named
     ///         roles: governance rotates an anchor away from a Live wallet to
     ///         a zero-BTC target, and the target is then pushed by anyone.
-    function test_SP106_routeC_governanceReanchorFromLiveSourceReproducesFuzzerState()
-        public
-    {
+    function test_SP106_routeC_governanceReanchorTargetGoesToClosing() public {
         uint256 key = _sp106HonestAccept(actors[0], w0, DEPOSIT_SAT, 0);
         _registerWalletFromKey(1);
         _registerWalletFromKey(2);
         _assertState(w0, Wallets.WalletState.Live, "source wallet is Live");
 
         vm.prank(governance);
-        reservationRouter.requestReservationReanchor(key, w1);
+        reservationRouter.requestReservationReanchor(
+            key,
+            w1,
+            new uint32[](0),
+            0
+        );
         assertEq(uint256(reservationRouter.walletReservationsCount(w1)), 1);
-        assertEq(reservationRouter.reservations(key).walletPubKeyHash, w0);
 
         vm.prank(bystander);
         bridge.notifyWalletCloseable(w1, _none());
-        _assertState(w1, Wallets.WalletState.MovingFunds);
-        assertEq(bridge.wallets(w1).mainUtxoHash, bytes32(0));
+        _assertState(w1, Wallets.WalletState.Closing);
+    }
+
+    // ------------------------------------------------------------------
+    // R-14: the closeable check counts proven anchors
+    // ------------------------------------------------------------------
+
+    /// @notice A young non-active wallet with no main UTXO but a proven
+    ///         50_000 sat anchor (the closure minimum) is not "too few
+    ///         satoshis": the push is refused while the wallet is young.
+    function test_R14_youngWalletWithProvenAnchorIsNotCloseable() public {
+        _sp106HonestAccept(actors[0], w0, DEPOSIT_SAT, 0);
+        _registerWalletFromKey(1);
+        assertEq(bridge.wallets(w0).mainUtxoHash, bytes32(0));
+
+        vm.prank(bystander);
+        vm.expectRevert(
+            bytes("Wallet needs to be old enough or have too few satoshis")
+        );
+        bridge.notifyWalletCloseable(w0, _none());
+        _assertState(w0, Wallets.WalletState.Live);
+    }
+
+    /// @notice Once the wallet is old enough the push is allowed and, with
+    ///         a proven anchor, it enters MovingFunds (re-anchoring trigger).
+    function test_R14_oldWalletWithProvenAnchorMovesFunds() public {
+        _sp106HonestAccept(actors[0], w0, DEPOSIT_SAT, 0);
+        _registerWalletFromKey(1);
+        skipTime(WALLET_MAX_AGE);
+
+        vm.prank(bystander);
+        bridge.notifyWalletCloseable(w0, _none());
+        _assertState(w0, Wallets.WalletState.MovingFunds);
     }
 
     /// @notice NOT REACHABLE for an unprivileged caller: the same reanchor
@@ -405,11 +285,15 @@ contract SP106PermissionlessMovingFunds is Test, Handlers {
 
         vm.expectRevert(bytes(ERR_LIVE_NEEDS_GOV));
         vm.prank(attacker);
-        reservationRouter.requestReservationReanchor(key, w1);
+        reservationRouter.requestReservationReanchor(
+            key,
+            w1,
+            new uint32[](0),
+            0
+        );
 
         assertEq(uint256(reservationRouter.walletReservationsCount(w1)), 0);
-        // With count 0 the same call that pushed w1 to MovingFunds in the
-        // other tests sends it to Closing instead.
+        // With count 0 the push sends w1 to Closing.
         bridge.notifyWalletCloseable(w1, _none());
         _assertState(w1, Wallets.WalletState.Closing);
     }
@@ -428,9 +312,14 @@ contract SP106PermissionlessMovingFunds is Test, Handlers {
         _registerWalletFromKey(1);
         (uint256 key, , ) = _sp106Reveal(actors[0], w0, DEPOSIT_SAT);
 
-        vm.expectRevert(bytes(ERR_NOT_DEPOSITOR));
+        (
+            BitcoinTx.Info memory fi,
+            BitcoinTx.Proof memory fp,
+            uint32 fo
+        ) = _fundingArgs(key);
         vm.prank(attacker);
-        reservationRouter.requestReservationAcceptance(key, w0);
+        vm.expectRevert(bytes(ERR_NOT_DEPOSITOR));
+        reservationRouter.requestReservationAcceptance(fi, fp, fo, w0);
         assertEq(uint256(reservationRouter.walletReservationsCount(w0)), 0);
     }
 
@@ -475,12 +364,16 @@ contract SP106PermissionlessMovingFunds is Test, Handlers {
         nonce = reservationRouter.reservations(key).requestNonce;
         vm.prank(bystander);
         bridge.notifyWalletCloseable(w0, _none());
-        _assertState(w0, Wallets.WalletState.MovingFunds);
+        _assertState(w0, Wallets.WalletState.Closing);
     }
 
     /// @dev Reveals a reserved deposit of `depositor` for `wallet`. The
     ///      funding transaction is fabricated: nothing is proven on Bitcoin.
-    function _sp106Reveal(address depositor, bytes20 wallet, uint64 amount)
+    function _sp106Reveal(
+        address depositor,
+        bytes20 wallet,
+        uint64 amount
+    )
         internal
         returns (
             uint256 key,
@@ -516,6 +409,7 @@ contract SP106PermissionlessMovingFunds is Test, Handlers {
         vm.startPrank(depositor);
         bridge.revealDeposit(fundingTx, reveal);
         vm.stopPrank();
+        _recordFunding(key, fundingTx, outputIndex);
     }
 
     function _sp106RequestAcceptance(
@@ -523,8 +417,7 @@ contract SP106PermissionlessMovingFunds is Test, Handlers {
         uint256 key,
         bytes20 wallet
     ) internal {
-        vm.prank(depositor);
-        reservationRouter.requestReservationAcceptance(key, wallet);
+        _requestAcceptanceAs(depositor, key, wallet);
     }
 
     /// @dev Full honest acceptance: reveal, request, wallet anchor tx proven
@@ -578,19 +471,24 @@ contract SP106PermissionlessMovingFunds is Test, Handlers {
     }
 
     function _sp106Pkh(uint256 keyIndex) internal view returns (bytes20) {
-        return BtcBuilder.pubKeyHash(walletPubX[keyIndex], walletPubY[keyIndex]);
+        return
+            BtcBuilder.pubKeyHash(walletPubX[keyIndex], walletPubY[keyIndex]);
     }
 
     function _sp106Le32(uint32 v) internal pure returns (bytes4) {
         return
             bytes4(
-                (v << 24) | ((v & 0xff00) << 8) | ((v >> 8) & 0xff00) | (v >> 24)
+                (v << 24) |
+                    ((v & 0xff00) << 8) |
+                    ((v >> 8) & 0xff00) |
+                    (v >> 24)
             );
     }
 
-    function _assertState(bytes20 wallet, Wallets.WalletState expected)
-        internal
-    {
+    function _assertState(
+        bytes20 wallet,
+        Wallets.WalletState expected
+    ) internal {
         _assertState(wallet, expected, "wallet state");
     }
 
@@ -606,10 +504,15 @@ contract SP106PermissionlessMovingFunds is Test, Handlers {
         );
     }
 
-    function _assertStateOf(Wallets.Wallet memory w, Wallets.WalletState expected)
-        internal
-    {
-        assertEq(uint256(uint8(w.state)), uint256(uint8(expected)), "wallet state");
+    function _assertStateOf(
+        Wallets.Wallet memory w,
+        Wallets.WalletState expected
+    ) internal {
+        assertEq(
+            uint256(uint8(w.state)),
+            uint256(uint8(expected)),
+            "wallet state"
+        );
     }
 
     function _none() internal pure returns (BitcoinTx.UTXO memory) {

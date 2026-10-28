@@ -3,7 +3,8 @@ pragma solidity 0.8.17;
 
 // Regression tests for five mutations of ReservationProofs that survived the
 // Foundry gate and the Hardhat reservation suites (slither-mutate AOR pass of
-// 2026-10-09, rows M-200 to M-204 in fizz_data/mutation/TRIAGE.md).
+// 2026-10-09, rows M-200 to M-204 in the audit record
+// (solidity/docs/audit/pr-1116-reservations.md, section 7)).
 //
 // 1. ReservationProofs.sol:434 `pendingReservedDeposits -= 1` becomes `%= 1`.
 //    With one pending reserved deposit both give 0; with two the mutant zeroes
@@ -67,8 +68,7 @@ contract ReservationProofsAccountingTest is Test, Handlers {
             "two pending reserved deposits"
         );
 
-        vm.prank(actors[0]);
-        reservationRouter.requestReservationAcceptance(a.key, w0);
+        _requestAcceptanceAs(actors[0], a.key, w0);
         _proveAcceptance(a, w0, ANCHOR_SAT, 1);
 
         assertEq(
@@ -183,30 +183,29 @@ contract ReservationProofsAccountingTest is Test, Handlers {
     }
 
     /// @dev Active reservation anchored on w0 through a real acceptance proof.
-    function _active(address depositor, uint256 salt)
-        internal
-        returns (uint256 key, bytes32 anchorTxHash)
-    {
+    function _active(
+        address depositor,
+        uint256 salt
+    ) internal returns (uint256 key, bytes32 anchorTxHash) {
         Dep memory d = _reveal(depositor, w0, DEPOSIT_SAT, salt);
-        vm.prank(depositor);
-        reservationRouter.requestReservationAcceptance(d.key, w0);
+        _requestAcceptanceAs(depositor, d.key, w0);
         anchorTxHash = _proveAcceptance(d, w0, ANCHOR_SAT, 1);
         key = d.key;
     }
 
     /// @dev Active reservation on w0, then a governance re-anchor request to
     ///      w1. Returns the key, the current anchor txid and the generation.
-    function _activeAndRequest(uint256 salt)
-        internal
-        returns (
-            uint256 key,
-            bytes32 anchorTxHash,
-            uint64 nonce
-        )
-    {
+    function _activeAndRequest(
+        uint256 salt
+    ) internal returns (uint256 key, bytes32 anchorTxHash, uint64 nonce) {
         (key, anchorTxHash) = _active(actors[0], salt);
         vm.prank(governance);
-        reservationRouter.requestReservationReanchor(key, w1);
+        reservationRouter.requestReservationReanchor(
+            key,
+            w1,
+            new uint32[](0),
+            0
+        );
         nonce = reservationRouter.reservations(key).requestNonce;
         assertEq(uint256(nonce), 2, "re-anchor is generation 2");
     }
@@ -239,6 +238,7 @@ contract ReservationProofsAccountingTest is Test, Handlers {
         d.key = uint256(keccak256(abi.encodePacked(d.fundingTxHash, d.outIdx)));
         vm.prank(depositor);
         bridge.revealDeposit(fundingTx, reveal);
+        _recordFunding(d.key, fundingTx, d.outIdx);
     }
 
     /// @dev Proves the 1-input (deposit outpoint) 1-output (wallet) anchor

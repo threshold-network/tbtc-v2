@@ -83,10 +83,8 @@ contract AcceptanceTimeoutOnceTest is Test, Handlers {
 
         Counters memory beforeAny = _counters(wallet0);
 
-        vm.prank(depositor);
-        reservationRouter.requestReservationAcceptance(keyA, wallet0);
-        vm.prank(depositor);
-        reservationRouter.requestReservationAcceptance(keyB, wallet0);
+        _requestAcceptanceAs(depositor, keyA, wallet0);
+        _requestAcceptanceAs(depositor, keyB, wallet0);
 
         Reservation.ReservationAction memory actionA = reservationRouter
             .reservationActions(keyA, 1);
@@ -218,7 +216,9 @@ contract AcceptanceTimeoutOnceTest is Test, Handlers {
 
     /// @dev Reads the wallet exposure (count and amount), the global
     ///      reserved total and the global occupancy from the router getters.
-    function _counters(bytes20 wallet) internal view returns (Counters memory c) {
+    function _counters(
+        bytes20 wallet
+    ) internal view returns (Counters memory c) {
         c.walletCount = reservationRouter.walletReservationsCount(wallet);
         c.walletAmount = reservationRouter.walletReservationsAmount(wallet);
         c.reservedTotal = uint64(_reservationParameterWords()[6]);
@@ -244,10 +244,9 @@ contract AcceptanceTimeoutOnceTest is Test, Handlers {
     /// @dev Reveals an unfunded reserved deposit through the real Bridge and
     ///      returns its key and the exact refund deadline of its script. The
     ///      deadline is 91 days out, far beyond `timeoutAt + 24h`.
-    function _revealReserved(bytes20 wallet)
-        internal
-        returns (uint256 key, uint32 deadline)
-    {
+    function _revealReserved(
+        bytes20 wallet
+    ) internal returns (uint256 key, uint32 deadline) {
         bytes32 entropy = keccak256(abi.encode("timeoutonce.deposit", ++nonce));
         deadline = uint32(
             block.timestamp + uint256(RESERVATION_TERM_SECONDS) + 1 days
@@ -279,12 +278,16 @@ contract AcceptanceTimeoutOnceTest is Test, Handlers {
         );
         vm.prank(depositor);
         bridge.revealDeposit(fundingTx, reveal);
+        _recordFunding(key, fundingTx, outputIndex);
     }
 
     function _le32(uint32 v) internal pure returns (bytes4) {
         return
             bytes4(
-                (v << 24) | ((v & 0xff00) << 8) | ((v >> 8) & 0xff00) | (v >> 24)
+                (v << 24) |
+                    ((v & 0xff00) << 8) |
+                    ((v >> 8) & 0xff00) |
+                    (v >> 24)
             );
     }
 }

@@ -116,12 +116,22 @@ contract NotifyStaleReservedDepositRouterTest is Test, Handlers {
             uint256(uint8(reservationRouter.reservations(key).state)),
             uint256(uint8(Reservation.ReservationState.Unknown))
         );
-        assertEq(uint256(reservationRouter.walletReservationsCount(wallet0)), 0);
+        assertEq(
+            uint256(reservationRouter.walletReservationsCount(wallet0)),
+            0
+        );
 
         // A stale deposit cannot be authorized for acceptance any more.
-        vm.prank(depositor);
-        vm.expectRevert(bytes(ERR_WRONG_WALLET));
-        reservationRouter.requestReservationAcceptance(key, wallet0);
+        {
+            (
+                BitcoinTx.Info memory fi,
+                BitcoinTx.Proof memory fp,
+                uint32 fo
+            ) = _fundingArgs(key);
+            vm.prank(depositor);
+            vm.expectRevert(bytes(ERR_WRONG_WALLET));
+            reservationRouter.requestReservationAcceptance(fi, fp, fo, wallet0);
+        }
 
         // It cannot be marked stale twice.
         vm.prank(anyone);
@@ -205,8 +215,7 @@ contract NotifyStaleReservedDepositRouterTest is Test, Handlers {
     {
         (uint256 key, uint32 deadline) = _revealReserved(wallet0);
 
-        vm.prank(depositor);
-        reservationRouter.requestReservationAcceptance(key, wallet0);
+        _requestAcceptanceAs(depositor, key, wallet0);
 
         // Past the refund deadline. The action is still `Pending` because
         // nobody called `notifyReservationAcceptanceTimedOut`.
@@ -226,10 +235,9 @@ contract NotifyStaleReservedDepositRouterTest is Test, Handlers {
 
     /// @dev Reveals an unfunded reserved deposit through the real Bridge and
     ///      returns its key and the exact refund deadline of its script.
-    function _revealReserved(bytes20 wallet)
-        internal
-        returns (uint256 key, uint32 deadline)
-    {
+    function _revealReserved(
+        bytes20 wallet
+    ) internal returns (uint256 key, uint32 deadline) {
         bytes32 entropy = keccak256(abi.encode("stale.deposit", ++nonce));
         deadline = uint32(
             block.timestamp + uint256(RESERVATION_TERM_SECONDS) + 1 days
@@ -261,12 +269,16 @@ contract NotifyStaleReservedDepositRouterTest is Test, Handlers {
         );
         vm.prank(depositor);
         bridge.revealDeposit(fundingTx, reveal);
+        _recordFunding(key, fundingTx, outputIndex);
     }
 
     function _le32(uint32 v) internal pure returns (bytes4) {
         return
             bytes4(
-                (v << 24) | ((v & 0xff00) << 8) | ((v >> 8) & 0xff00) | (v >> 24)
+                (v << 24) |
+                    ((v & 0xff00) << 8) |
+                    ((v >> 8) & 0xff00) |
+                    (v >> 24)
             );
     }
 }

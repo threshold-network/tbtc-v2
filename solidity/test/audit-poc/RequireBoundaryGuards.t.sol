@@ -6,8 +6,8 @@ pragma solidity 0.8.17;
 // `<`/`<=`, `>`/`>=`, `==`/`!=`). slither 0.11.6 ROR could not mutate
 // `require` conditions (it nests the statement inside itself), so these
 // comparisons were never mutation-tested before. Each test pins the exact
-// boundary the surviving mutant moves. Rows in
-// fizz_data/mutation/TRIAGE.md (fifth pass).
+// boundary the surviving mutant moves. Rows in the audit record
+// (solidity/docs/audit/pr-1116-reservations.md, section 7).
 //
 // Source lines involved (solidity/contracts/bridge/Reservation.sol unless
 // noted):
@@ -28,6 +28,7 @@ import {BtcBuilder} from "../fizz/utils/BtcBuilder.sol";
 import {BitcoinTx} from "../../contracts/bridge/BitcoinTx.sol";
 import {Deposit} from "../../contracts/bridge/Deposit.sol";
 import {Reservation} from "../../contracts/bridge/Reservation.sol";
+import {Wallets} from "../../contracts/bridge/Wallets.sol";
 
 contract RequireBoundaryGuardsTest is Test, Handlers {
     modifier asActor() override {
@@ -54,14 +55,30 @@ contract RequireBoundaryGuardsTest is Test, Handlers {
     // ------------------------------------------------------------------
 
     /// @notice Line 739: a permissionless re-anchor is allowed exactly at
-    ///         `reanchorCooldownUntil` and refused one second earlier.
+    ///         `reanchorCooldownUntil` and refused one second earlier. The
+    ///         source wallet reaches MovingFunds through a heartbeat failure:
+    ///         it holds a proven anchor, so `moveFunds` routes it there.
     function test_reanchor_allowedExactlyAtCooldownEnd() public {
         (uint256 key, bytes20 src, bytes20 dst) = _openReservation(37_999);
-        BitcoinTx.UTXO memory none = BitcoinTx.UTXO(bytes32(0), 0, 0);
-        bridge.notifyWalletCloseable(src, none); // anchor-blind: MovingFunds
+        for (uint256 s; s < 4; s++) {
+            (bool found, bytes20 w) = _bridge_pickWallet(s, bridge_LIVE);
+            if (found && w == src) {
+                _bridge_heartbeatFailedClamped(s);
+                break;
+            }
+        }
+        require(
+            bridge.wallets(src).state == Wallets.WalletState.MovingFunds,
+            "source wallet not in MovingFunds"
+        );
 
         vm.prank(honest);
-        reservationRouter.requestReservationReanchor(key, dst);
+        reservationRouter.requestReservationReanchor(
+            key,
+            dst,
+            new uint32[](0),
+            0
+        );
         uint64 nonce = reservationRouter.reservations(key).requestNonce;
         vm.warp(reservationRouter.reservationActions(key, nonce).timeoutAt);
         reservationRouter.notifyReservationActionTimeout(key);
@@ -72,11 +89,21 @@ contract RequireBoundaryGuardsTest is Test, Handlers {
         vm.warp(uint256(cooldownUntil) - 1);
         vm.prank(honest);
         vm.expectRevert(bytes("Reanchor cooldown in effect"));
-        reservationRouter.requestReservationReanchor(key, dst);
+        reservationRouter.requestReservationReanchor(
+            key,
+            dst,
+            new uint32[](0),
+            0
+        );
 
         vm.warp(cooldownUntil);
         vm.prank(honest);
-        reservationRouter.requestReservationReanchor(key, dst);
+        reservationRouter.requestReservationReanchor(
+            key,
+            dst,
+            new uint32[](0),
+            0
+        );
         assertEq(
             uint256(uint8(reservationRouter.reservations(key).state)),
             uint256(uint8(Reservation.ReservationState.ActionPending)),
@@ -85,13 +112,44 @@ contract RequireBoundaryGuardsTest is Test, Handlers {
     }
 
     /// @notice Line 807: an anchor of exactly `minAmount + txMaxFee` cannot
-    ///         be re-anchored (the floor is strict). The position is built
-    ///         with direct calls: the fuzz flow handler would fire SP-85 on
-    ///         this very anchor.
+    ///         be re-anchored (the floor is strict). With the R-09 floor no
+    ///         acceptance lands there, but a re-anchor may spend up to
+    ///         `txMaxFee`, so it is reached legitimately: accept
+    ///         `min + 2 * txMaxFee + 1` with the full fee (anchor
+    ///         `min + txMaxFee + 1`), re-anchor with a fee of 1, and the next
+    ///         re-anchor is refused.
     function test_reanchor_refusedAtExactFloor() public {
         bytes20 dst = _registerWalletFromKey(1);
+        bytes20 src = harnessWallets[0];
         uint64 floorAmount = RESERVATION_MIN_AMOUNT + RESERVATION_TX_MAX_FEE;
-        uint256 key = _acceptDirect(harnessWallets[0], floorAmount, floorAmount);
+        uint256 key = _acceptDirect(
+            src,
+            floorAmount + RESERVATION_TX_MAX_FEE + 1,
+            floorAmount + 1
+        );
+
+        vm.prank(governance);
+        reservationRouter.requestReservationReanchor(
+            key,
+            dst,
+            new uint32[](0),
+            0
+        );
+        uint64 nonce = reservationRouter.reservations(key).requestNonce;
+        BtcBuilder.TxIn[] memory ins = new BtcBuilder.TxIn[](1);
+        ins[0] = BtcBuilder.TxIn({
+            prevTxHash: reservationRouter.reservations(key).anchorTxHash,
+            prevOutIndex: 0
+        });
+        BtcBuilder.TxOut[] memory outs = new BtcBuilder.TxOut[](1);
+        outs[0] = BtcBuilder.TxOut({
+            value: floorAmount,
+            script: BtcBuilder.p2wpkh(dst)
+        });
+        BitcoinTx.Info memory t = BtcBuilder.buildTx(ins, outs);
+        BitcoinTx.Proof memory proof = BtcBuilder.prove(t, 1);
+        vm.prank(spvMaintainer);
+        reservationRouter.submitReservationReanchorProof(t, proof, key, nonce);
         assertEq(
             uint256(reservationRouter.reservations(key).anchorAmount),
             uint256(floorAmount),
@@ -102,7 +160,12 @@ contract RequireBoundaryGuardsTest is Test, Handlers {
         vm.expectRevert(
             bytes("Reanchor would fall below the minimum reservation amount")
         );
-        reservationRouter.requestReservationReanchor(key, dst);
+        reservationRouter.requestReservationReanchor(
+            key,
+            src,
+            new uint32[](0),
+            0
+        );
     }
 
     /// @notice Line 827: a re-anchor whose target lands exactly on the
@@ -110,13 +173,24 @@ contract RequireBoundaryGuardsTest is Test, Handlers {
     function test_reanchor_allowedExactlyAtPerWalletAmountCap() public {
         (uint256 key, , bytes20 dst) = _openReservation(37_999);
         uint64 anchor = reservationRouter.reservations(key).anchorAmount;
-        (, uint64 single, uint32 maxActive) = reservationRouter
+        (, uint64 single, uint32 maxActive, ) = reservationRouter
             .reservationCaps();
         vm.prank(governance);
-        reservationRouter.updateReservationCaps(anchor, single, maxActive);
+        reservationRouter.updateReservationCaps(
+            anchor,
+            single,
+            maxActive,
+            MAX_THIRD_PARTY_REANCHOR_HOLDS_PER_WALLET,
+            HANDOFF_RESERVE_WALLETS
+        );
 
         vm.prank(governance);
-        reservationRouter.requestReservationReanchor(key, dst);
+        reservationRouter.requestReservationReanchor(
+            key,
+            dst,
+            new uint32[](0),
+            0
+        );
         assertEq(
             uint256(reservationRouter.walletReservationsAmount(dst)),
             uint256(anchor),
@@ -128,19 +202,23 @@ contract RequireBoundaryGuardsTest is Test, Handlers {
     // Acceptance proof boundary
     // ------------------------------------------------------------------
 
-    /// @notice ReservationProofs.sol:464: the smallest admissible deposit
-    ///         (minAmount + txMaxFee) proven with the full fee gives an
-    ///         anchor of exactly `minAmount`, which is accepted.
-    function test_acceptanceProof_anchorExactlyAtMinimumAccepted() public {
+    /// @notice ReservationProofs.sol:464 (`anchorAmount >= minAmount`): with
+    ///         the R-09 acceptance floor (`amount > min + 2 * txMaxFee`) the
+    ///         smallest admissible deposit proven with the full fee gives an
+    ///         anchor of `minAmount + txMaxFee + 1`, which is accepted. The
+    ///         exact-minimum anchor this guard used to pin is no longer
+    ///         reachable through the router, so the line is now a second
+    ///         line of defense.
+    function test_acceptanceProof_smallestAdmittedAnchorAccepted() public {
         uint256 key = _acceptDirect(
             harnessWallets[0],
-            RESERVATION_MIN_AMOUNT + RESERVATION_TX_MAX_FEE,
-            RESERVATION_MIN_AMOUNT
+            RESERVATION_MIN_AMOUNT + 2 * RESERVATION_TX_MAX_FEE + 1,
+            RESERVATION_MIN_AMOUNT + RESERVATION_TX_MAX_FEE + 1
         );
         assertEq(
             uint256(reservationRouter.reservations(key).anchorAmount),
-            uint256(RESERVATION_MIN_AMOUNT),
-            "anchor exactly at the minimum"
+            uint256(RESERVATION_MIN_AMOUNT + RESERVATION_TX_MAX_FEE + 1),
+            "anchor one satoshi above the re-anchor floor"
         );
     }
 
@@ -152,11 +230,22 @@ contract RequireBoundaryGuardsTest is Test, Handlers {
         uint64 amount,
         uint64 anchorValue
     ) internal returns (uint256 key) {
+        BitcoinTx.Info memory fundingTx;
+        BitcoinTx.Proof memory fundingProof;
         bytes32 fundingTxHash;
         uint32 outIdx;
-        (key, fundingTxHash, outIdx) = _reveal(actors[0], wallet, amount);
+        (key, fundingTxHash, outIdx, fundingTx, fundingProof) = _reveal(
+            actors[0],
+            wallet,
+            amount
+        );
         vm.prank(actors[0]);
-        reservationRouter.requestReservationAcceptance(key, wallet);
+        reservationRouter.requestReservationAcceptance(
+            fundingTx,
+            fundingProof,
+            outIdx,
+            wallet
+        );
 
         BtcBuilder.TxIn[] memory ins = new BtcBuilder.TxIn[](1);
         ins[0] = BtcBuilder.TxIn({
@@ -200,14 +289,16 @@ contract RequireBoundaryGuardsTest is Test, Handlers {
         );
     }
 
-    /// @notice Line 1292: an action timeout of exactly the 2 h safety
-    ///         margin is refused.
-    function test_setter_refusesActionTimeoutEqualToSafetyMargin() public {
+    /// @notice Line 1292: an action timeout of exactly the lower bound is
+    ///         refused. The R-50 bound is `SAFETY_MARGIN + DEPOSIT_MIN_AGE + 1`
+    ///         (4 h + 1 s), so exactly 4 h + 1 s is refused; 4 h + 2 s is
+    ///         accepted (AcceptanceSigningWindowBoundary.t.sol).
+    function test_setter_refusesActionTimeoutAtLowerBound() public {
         uint256[10] memory w = _words();
-        w[8] = 2 hours;
+        w[8] = 4 hours + 1;
         _expectSetterRevert(
             w,
-            "Reservation action timeout must exceed the safety margin"
+            "Reservation action timeout leaves no signing window"
         );
     }
 
@@ -230,7 +321,7 @@ contract RequireBoundaryGuardsTest is Test, Handlers {
         uint256 raw = uint256(vm.load(address(bridge), bytes32(SLOT_CAPS)));
         raw &= ~(uint256(type(uint32).max) << MAX_ACTIVE_SHIFT);
         vm.store(address(bridge), bytes32(SLOT_CAPS), bytes32(raw));
-        (, , uint32 maxActive) = reservationRouter.reservationCaps();
+        (, , uint32 maxActive, ) = reservationRouter.reservationCaps();
         assertEq(uint256(maxActive), 0, "cap zeroed");
 
         uint256[10] memory w = _words();
@@ -249,14 +340,9 @@ contract RequireBoundaryGuardsTest is Test, Handlers {
     ///      on setup's wallet 0 with a zero miner fee. `amountSeed` 0 gives
     ///      the smallest admissible deposit (minAmount + txMaxFee), 37_999
     ///      gives 49_000 sat.
-    function _openReservation(uint256 amountSeed)
-        internal
-        returns (
-            uint256 key,
-            bytes20 src,
-            bytes20 dst
-        )
-    {
+    function _openReservation(
+        uint256 amountSeed
+    ) internal returns (uint256 key, bytes20 src, bytes20 dst) {
         dst = _registerWalletFromKey(1);
         src = harnessWallets[0];
         reservationRouter_revealAndAcceptReservedDeposit_flow(
@@ -275,9 +361,10 @@ contract RequireBoundaryGuardsTest is Test, Handlers {
 
     /// @dev Calls the setter as governance with words `w` (word 6, the
     ///      running total, is not an argument) and expects `reason`.
-    function _expectSetterRevert(uint256[10] memory w, string memory reason)
-        internal
-    {
+    function _expectSetterRevert(
+        uint256[10] memory w,
+        string memory reason
+    ) internal {
         vm.prank(governance);
         vm.expectRevert(bytes(reason));
         reservationRouter.updateReservationParameters(
@@ -314,7 +401,9 @@ contract RequireBoundaryGuardsTest is Test, Handlers {
         returns (
             uint256 key,
             bytes32 fundingTxHash,
-            uint32 outIdx
+            uint32 outIdx,
+            BitcoinTx.Info memory fundingTx,
+            BitcoinTx.Proof memory fundingProof
         )
     {
         Deposit.DepositRevealInfo memory reveal = Deposit.DepositRevealInfo({
@@ -325,7 +414,6 @@ contract RequireBoundaryGuardsTest is Test, Handlers {
             refundLocktime: _le32(uint32(block.timestamp + 4 days)),
             vault: address(reservationVault)
         });
-        BitcoinTx.Info memory fundingTx;
         (fundingTx, outIdx) = BtcBuilder.depositFundingTx(
             reveal,
             depositor,
@@ -337,6 +425,9 @@ contract RequireBoundaryGuardsTest is Test, Handlers {
         );
         fundingTxHash = BtcBuilder.txHash(fundingTx);
         key = uint256(keccak256(abi.encodePacked(fundingTxHash, outIdx)));
+        // Build the proof before any prank (BtcBuilder uses the sha256
+        // precompile, which would consume a pending vm.prank).
+        fundingProof = BtcBuilder.prove(fundingTx, 1);
         vm.prank(depositor);
         bridge.revealDeposit(fundingTx, reveal);
     }

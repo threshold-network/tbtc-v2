@@ -83,3 +83,10 @@ runs = 256
 
 [profile.ci.fuzz]
 runs = 1000
+
+# Audit proof-of-concept guards (test/audit-poc) and the test/fizz helpers they
+# import. Opt-in: the default and ci profiles keep test-foundry as the only
+# suite, so CI is unchanged. Run them with `yarn test:audit-poc` or
+# `FOUNDRY_PROFILE=audit forge test -vvv`.
+[profile.audit]
+test = "test/audit-poc"

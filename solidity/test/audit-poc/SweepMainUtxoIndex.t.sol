@@ -40,8 +40,10 @@ contract SweepMainUtxoIndexTest is Test, Handlers {
     /// @notice An input with the main UTXO's txid but another output index
     ///         is not the main UTXO; the sweep reverts.
     function test_sweep_rejectsMainUtxoTxidWithWrongIndex() public {
-        (bridge_SweepPlan memory plan, BitcoinTx.Info memory sweepTx) =
-            _sweepWithMainInput(1);
+        (
+            bridge_SweepPlan memory plan,
+            BitcoinTx.Info memory sweepTx
+        ) = _sweepWithMainInput(1);
         // Build the proof before the prank: BtcBuilder calls the sha256
         // precompile, which would consume a pending vm.prank.
         BitcoinTx.Proof memory proof = _bridge_prove(sweepTx, 0);
@@ -53,8 +55,10 @@ contract SweepMainUtxoIndexTest is Test, Handlers {
     /// @notice Control: with the correct index the same sweep succeeds and
     ///         the wallet's main UTXO moves to the sweep output.
     function test_sweep_acceptsCorrectMainUtxo() public {
-        (bridge_SweepPlan memory plan, BitcoinTx.Info memory sweepTx) =
-            _sweepWithMainInput(0);
+        (
+            bridge_SweepPlan memory plan,
+            BitcoinTx.Info memory sweepTx
+        ) = _sweepWithMainInput(0);
         BitcoinTx.Proof memory proof = _bridge_prove(sweepTx, 0);
         vm.prank(spvMaintainer);
         bridge.submitDepositSweepProof(sweepTx, proof, plan.main, plan.vault);
@@ -75,7 +79,9 @@ contract SweepMainUtxoIndexTest is Test, Handlers {
     /// @dev Creates a main UTXO through one real sweep, reveals one more
     ///      deposit and builds a zero-fee sweep of it plus a "main UTXO"
     ///      input whose output index is `main index + indexOffset`.
-    function _sweepWithMainInput(uint32 indexOffset)
+    function _sweepWithMainInput(
+        uint32 indexOffset
+    )
         internal
         returns (bridge_SweepPlan memory plan, BitcoinTx.Info memory sweepTx)
     {
@@ -84,7 +90,10 @@ contract SweepMainUtxoIndexTest is Test, Handlers {
         bridge_submitDepositSweepProof_zeroFee(0, 0, 0);
         bytes20 wallet = harnessWallets[0];
         (bool hasMain, BitcoinTx.UTXO memory main) = _bridge_mainUtxo(wallet);
-        assertTrue(hasMain && main.txHash != bytes32(0), "wallet has a main UTXO");
+        assertTrue(
+            hasMain && main.txHash != bytes32(0),
+            "wallet has a main UTXO"
+        );
 
         // Second deposit, then the plan for sweeping it with the main UTXO.
         bridge_revealDeposit_clamped(0, 100_000, 2);

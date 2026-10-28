@@ -1,13 +1,17 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.17;
 
-// PoC for audit findings F09, F10 and F11
-// (.solidity-auditor/runs/20260930-085204/full-report.md):
-//   F09 (lines 317-364)  "Acceptance proof strands the new anchor on a
+// Regression tests for R-08 (audit findings F09, F10 and F11). Before the
+// fix the settlement helper stranded a newly settled anchor at once when its
+// target wallet was Closing, so the three tests below fail on the unfixed
+// code ("reservation stays Active on the Closing wallet"). With the fix the
+// helper strands only on Closed and Terminated wallets. The original
+// findings (solidity/docs/audit/pr-1116-reservations.md):
+//   F09  "Acceptance proof strands the new anchor on a
 //                         Closing wallet"
-//   F10 (lines 365-409)  "Settlement strands a reservation on a Closing
+//   F10  "Settlement strands a reservation on a Closing
 //                         wallet at once"
-//   F11 (lines 410-440)  "Reanchor proof strands the new anchor when the
+//   F11  "Reanchor proof strands the new anchor when the
 //                         target wallet is Closing"
 //
 // Source lines involved (solidity/contracts/bridge):
@@ -115,36 +119,28 @@ contract F09to11ClosingWalletStrands is Test, Handlers {
         w0 = harnessWallets[0];
         w1 = _registerWalletFromKey(1);
         w2 = _registerWalletFromKey(2);
-        require(bridge.activeWalletPubKeyHash() == w2, "F09to11: w2 not active");
+        require(
+            bridge.activeWalletPubKeyHash() == w2,
+            "F09to11: w2 not active"
+        );
     }
 
     // ------------------------------------------------------------------
     // F09
     // ------------------------------------------------------------------
 
-    /// @notice A pending acceptance authorization pins wallet w0 (count 1).
-    ///         Anyone pushes w0 to Closing (SP-107 route). The wallet's
-    ///         already confirmed anchor transaction is then proven on time
-    ///         and settleAcceptance strands the brand new reservation in the
-    ///         same call. The depositor is still credited gross minus the
-    ///         initiation fee, the capacity and anchor index are released,
-    ///         reanchor and strand calls revert with "Reservation is not
-    ///         active", and w0 closes with the 49_500 sat anchor untracked.
-    function test_F09_acceptanceProofStrandsNewAnchorOnClosingWallet() public {
+    /// @notice R-08 regression (was F09). A pending acceptance authorization
+    ///         pins wallet w0 (count 1). Anyone pushes w0 to Closing (SP-107
+    ///         route). The wallet's already confirmed anchor transaction is
+    ///         then proven on time. The new reservation stays Active on the
+    ///         Closing wallet with its re-anchor right, and it pins w0 so the
+    ///         wallet cannot close with the anchor untracked.
+    function test_F09_acceptanceProofOnClosingWalletKeepsReanchorRight()
+        public
+    {
         address depositor = actors[0];
         Dep memory y = _reveal(depositor, w0, DEPOSIT_SAT, 1);
         _request(depositor, w0, y.key);
-
-        // Pre-state: authorization pending, reservation not yet created.
-        assertEq(uint256(reservationRouter.walletReservationsCount(w0)), 1);
-        assertEq(
-            uint256(reservationRouter.walletReservationsAmount(w0)),
-            DEPOSIT_SAT
-        );
-        assertEq(
-            uint256(uint8(reservationRouter.reservations(y.key).state)),
-            uint256(uint8(Reservation.ReservationState.Unknown))
-        );
 
         _forceClosingAnchorBlind(w0);
         assertEq(
@@ -152,118 +148,44 @@ contract F09to11ClosingWalletStrands is Test, Handlers {
             uint256(uint8(Wallets.WalletState.Closing)),
             "w0 Closing before the proof"
         );
-        assertEq(bridge.wallets(w0).mainUtxoHash, bytes32(0), "no main UTXO");
-        // The pending authorization still pins the wallet.
-        assertEq(uint256(reservationRouter.walletReservationsCount(w0)), 1);
 
         Snap memory before = _snap(depositor);
-
-        // The wallet's anchor tx (deposit -> w0, fee 500) is proven on time.
-        vm.expectEmit(true, true, true, true, address(bridge));
-        emit ReservationStranded(y.key, w0, depositor, ANCHOR_SAT);
         bytes32 anchorTxHash = _proveAcceptance(y, w0, ANCHOR_SAT, 1);
 
-        // The reservation was created and stranded in the same call.
-        Reservation.ReservationRequest memory r = reservationRouter
-            .reservations(y.key);
-        assertEq(
-            uint256(uint8(r.state)),
-            uint256(uint8(Reservation.ReservationState.Stranded)),
-            "reservation Stranded at once"
-        );
-        assertEq(r.owner, depositor);
-        assertEq(uint256(r.mintedAmount), ANCHOR_SAT);
-        assertEq(uint256(r.anchorAmount), ANCHOR_SAT);
-        assertTrue(r.walletPubKeyHash == w0, "custodian is the Closing wallet");
-        assertEq(r.anchorTxHash, anchorTxHash);
-        assertEq(
-            uint256(
-                uint8(reservationRouter.reservationActions(y.key, 1).state)
-            ),
-            uint256(uint8(Reservation.ActionState.Settled))
-        );
-
-        // Capacity and anchor tracking released.
-        assertEq(uint256(reservationRouter.walletReservationsCount(w0)), 0);
-        assertEq(uint256(reservationRouter.walletReservationsAmount(w0)), 0);
-        assertEq(_activeCount(), 0);
-        assertEq(_totalAmount(), 0);
-        assertEq(reservationRouter.reservationByAnchorUtxo(anchorTxHash, 0), 0);
-        assertFalse(bridge.spentMainUTXOs(_utxoKey(anchorTxHash)), "unspent");
-
-        // The depositor is still credited gross minus the initiation fee; the
-        // fee stays in the ReservationVault; the TBTCVault holds the Bank
-        // balance backing the mint (49_500 sat of BTC sitting in w0).
+        // The depositor is credited gross minus the initiation fee.
         {
             uint256 gross = uint256(ANCHOR_SAT) * SATOSHI_MULTIPLIER;
             uint256 fee = (gross * reservationVault.initiationFeeBps()) / 10000;
             assertEq(tbtc.balanceOf(depositor), before.userTbtc + gross - fee);
-            assertEq(
-                tbtc.balanceOf(address(reservationVault)),
-                before.rvTbtc + fee
-            );
-            assertEq(
-                bank.balanceOf(address(tbtcVault)),
-                before.tvBank + ANCHOR_SAT
-            );
-            assertEq(bank.balanceOf(address(reservationVault)), before.rvBank);
         }
-
-        // The owner lost the reanchor right: every request reverts, for
-        // anyone and for governance.
-        vm.prank(ANYONE);
-        vm.expectRevert(bytes(ERR_NOT_ACTIVE));
-        reservationRouter.requestReservationReanchor(y.key, w1);
-        vm.prank(governance);
-        vm.expectRevert(bytes(ERR_NOT_ACTIVE));
-        reservationRouter.requestReservationReanchor(y.key, w1);
-        vm.expectRevert(bytes(ERR_NOT_ACTIVE));
-        reservationRouter.notifyReservationStranded(y.key);
-
-        // Nothing pins w0 any more: it closes with the anchor unspent.
-        skipTime(WALLET_CLOSING_PERIOD + 1);
-        vm.prank(ANYONE);
-        bridge.notifyWalletClosingPeriodElapsed(w0);
-        assertEq(
-            uint256(uint8(bridge.wallets(w0).state)),
-            uint256(uint8(Wallets.WalletState.Closed))
-        );
-        assertEq(bridge.wallets(w0).mainUtxoHash, bytes32(0), "still no main UTXO");
-        assertFalse(bridge.spentMainUTXOs(_utxoKey(anchorTxHash)), "still unspent");
-        assertEq(reservationRouter.reservationByAnchorUtxo(anchorTxHash, 0), 0);
+        _assertActiveOnClosingWallet(y.key, w0, anchorTxHash);
+        _assertReanchorRightAndPin(y.key, w0, w1);
     }
 
     // ------------------------------------------------------------------
     // F10
     // ------------------------------------------------------------------
 
-    /// @notice Late-settlement route, no SP-107 dependency. The acceptance
-    ///         authorization times out (permissionless), which releases the
-    ///         wallet's count to 0. w0 has no main UTXO and no reservations,
-    ///         so notifyWalletCloseable sends it straight to Closing. The
-    ///         already confirmed anchor is then proven late: the settlement
-    ///         re-takes the capacity and the helper strands the reservation in
-    ///         the same call, about 91 days before the permissionless strand
-    ///         rule would allow it. The wallet then closes with the anchor
-    ///         unspent.
-    function test_F10_lateSettlementOnClosingWalletStrandsAtOnce() public {
+    /// @notice R-08 regression (was F10). Late-settlement route, no SP-107
+    ///         dependency. The acceptance authorization times out, which
+    ///         releases the wallet's count to 0, and w0 goes straight to
+    ///         Closing. The already confirmed anchor is then proven late: the
+    ///         settlement re-takes the capacity and the position stays Active
+    ///         on the Closing wallet instead of being stranded about 91 days
+    ///         before `notifyReservationStranded` would allow it.
+    function test_F10_lateSettlementOnClosingWalletKeepsReanchorRight() public {
         address depositor = actors[0];
         Dep memory y = _reveal(depositor, w0, DEPOSIT_SAT, 2);
         _request(depositor, w0, y.key);
-        uint32 timeoutAt = reservationRouter.reservationActions(y.key, 1).timeoutAt;
+        uint32 timeoutAt = reservationRouter
+            .reservationActions(y.key, 1)
+            .timeoutAt;
 
-        // Authorization window passes without a proof; anyone reports it.
         vm.warp(timeoutAt);
         vm.prank(ANYONE);
         reservationRouter.notifyReservationAcceptanceTimedOut(y.key);
-        assertEq(
-            uint256(uint8(reservationRouter.reservationActions(y.key, 1).state)),
-            uint256(uint8(Reservation.ActionState.TimedOut))
-        );
         assertEq(uint256(reservationRouter.walletReservationsCount(w0)), 0);
 
-        // The wallet has no reservations and no main UTXO: straight to
-        // Closing (the MovingFunds hop is skipped).
         BitcoinTx.UTXO memory none = BitcoinTx.UTXO(bytes32(0), 0, 0);
         vm.prank(ANYONE);
         bridge.notifyWalletCloseable(w0, none);
@@ -273,63 +195,15 @@ contract F09to11ClosingWalletStrands is Test, Handlers {
             "w0 Closing"
         );
 
-        // The anchor tx the wallet signed inside the authorization window is
-        // proven late.
-        vm.expectEmit(true, true, true, true, address(bridge));
-        emit ReservationStranded(y.key, w0, depositor, ANCHOR_SAT);
         bytes32 anchorTxHash = _proveAcceptance(y, w0, ANCHOR_SAT, 1);
-
-        Reservation.ReservationRequest memory r = reservationRouter
-            .reservations(y.key);
-        assertEq(
-            uint256(uint8(r.state)),
-            uint256(uint8(Reservation.ReservationState.Stranded)),
-            "reservation Stranded at once"
-        );
-        assertEq(uint256(r.anchorAmount), ANCHOR_SAT);
-        assertEq(r.anchorTxHash, anchorTxHash);
         assertEq(
             uint256(
                 uint8(reservationRouter.reservationActions(y.key, 1).state)
             ),
             uint256(uint8(Reservation.ActionState.Settled))
         );
-
-        // The late path re-took the capacity and the strand released it again.
-        assertEq(uint256(reservationRouter.walletReservationsCount(w0)), 0);
-        assertEq(uint256(reservationRouter.walletReservationsAmount(w0)), 0);
-        assertEq(_activeCount(), 0);
-        assertEq(_totalAmount(), 0);
-        assertEq(reservationRouter.reservationByAnchorUtxo(anchorTxHash, 0), 0);
-
-        // notifyReservationStranded would not have allowed this yet: the
-        // reservation becomes strandable on a Closing wallet only at
-        // dissolutionEligibleAt = acceptedAt + term + dissolution delay,
-        // i.e. 91 days from now.
-        assertEq(uint256(r.acceptedAt), block.timestamp);
-        assertEq(
-            uint256(r.dissolutionEligibleAt),
-            block.timestamp + RESERVATION_TERM_SECONDS + RESERVATION_DISSOLUTION_DELAY
-        );
-        assertEq(uint256(r.dissolutionEligibleAt) - block.timestamp, 91 days);
-
-        // The owner has no reanchor right any more.
-        vm.prank(ANYONE);
-        vm.expectRevert(bytes(ERR_NOT_ACTIVE));
-        reservationRouter.requestReservationReanchor(y.key, w1);
-        vm.expectRevert(bytes(ERR_NOT_ACTIVE));
-        reservationRouter.notifyReservationStranded(y.key);
-
-        // The wallet closes with the anchor unspent and untracked.
-        skipTime(WALLET_CLOSING_PERIOD + 1);
-        vm.prank(ANYONE);
-        bridge.notifyWalletClosingPeriodElapsed(w0);
-        assertEq(
-            uint256(uint8(bridge.wallets(w0).state)),
-            uint256(uint8(Wallets.WalletState.Closed))
-        );
-        assertEq(bridge.wallets(w0).mainUtxoHash, bytes32(0));
-        assertFalse(bridge.spentMainUTXOs(_utxoKey(anchorTxHash)));
+        _assertActiveOnClosingWallet(y.key, w0, anchorTxHash);
+        _assertReanchorRightAndPin(y.key, w0, w1);
     }
 
     /// @notice Contrast for F10. A reservation accepted while w0 was Live and
@@ -349,6 +223,9 @@ contract F09to11ClosingWalletStrands is Test, Handlers {
             uint256(uint8(Reservation.ReservationState.Active))
         );
 
+        // R-14: the proven 60_000 sat anchor counts in the closeable check,
+        // so the wallet can only be pushed once it is old enough.
+        skipTime(WALLET_MAX_AGE);
         _forceClosingAnchorBlind(w0);
         assertEq(
             uint256(uint8(bridge.wallets(w0).state)),
@@ -370,7 +247,12 @@ contract F09to11ClosingWalletStrands is Test, Handlers {
 
         // And the permissionless reanchor right is intact.
         vm.prank(ANYONE);
-        reservationRouter.requestReservationReanchor(x.key, w1);
+        reservationRouter.requestReservationReanchor(
+            x.key,
+            w1,
+            new uint32[](0),
+            0
+        );
         Reservation.ReservationRequest memory r = reservationRouter
             .reservations(x.key);
         assertEq(
@@ -385,64 +267,37 @@ contract F09to11ClosingWalletStrands is Test, Handlers {
     // F11
     // ------------------------------------------------------------------
 
-    /// @notice A reservation on w0 is reanchored to w1. Between the request
-    ///         and the proof, w1 (zero main UTXO, count 1 from the pending
-    ///         reanchor) is pushed to Closing by anyone (SP-107 route). The
-    ///         proof of the already confirmed reanchor tx moves the anchor to
-    ///         w1 and strands the reservation in the same call: both wallets
-    ///         end with count 0, nothing tracks the new anchor, further
-    ///         reanchors revert, and w1 closes with the 49_500 sat anchor
-    ///         untracked.
-    function test_F11_reanchorProofStrandsNewAnchorOnClosingTarget() public {
+    /// @notice R-08 regression (was F11). A reservation on w0 is re-anchored
+    ///         to w1. Between the request and the proof, w1 is pushed to
+    ///         Closing (SP-107 route). The proof moves the anchor to w1 and
+    ///         the position stays Active there with its re-anchor right.
+    function test_F11_reanchorProofOnClosingTargetKeepsReanchorRight() public {
         address depositor = actors[0];
 
-        // R: accepted on w0 while w0 is Live (anchor 49_500 sat).
         Dep memory d = _reveal(depositor, w0, DEPOSIT_SAT, 4);
         _request(depositor, w0, d.key);
         bytes32 oldAnchorTxHash = _proveAcceptance(d, w0, ANCHOR_SAT, 1);
-        assertEq(
-            uint256(uint8(reservationRouter.reservations(d.key).state)),
-            uint256(uint8(Reservation.ReservationState.Active))
-        );
-        assertEq(
-            reservationRouter.reservationByAnchorUtxo(oldAnchorTxHash, 0),
-            d.key
-        );
 
-        // w0 leaves Live (non-active, zero main UTXO, count 1): MovingFunds.
         BitcoinTx.UTXO memory none = BitcoinTx.UTXO(bytes32(0), 0, 0);
         vm.prank(ANYONE);
         bridge.notifyWalletCloseable(w0, none);
-        assertEq(
-            uint256(uint8(bridge.wallets(w0).state)),
-            uint256(uint8(Wallets.WalletState.MovingFunds))
-        );
-
-        // Permissionless reanchor request towards the Live wallet w1.
         vm.prank(ANYONE);
-        reservationRouter.requestReservationReanchor(d.key, w1);
+        reservationRouter.requestReservationReanchor(
+            d.key,
+            w1,
+            new uint32[](0),
+            0
+        );
         uint64 nonce = reservationRouter.reservations(d.key).requestNonce;
         assertEq(uint256(nonce), 2);
-        assertEq(uint256(reservationRouter.walletReservationsCount(w1)), 1);
-        assertEq(
-            uint256(reservationRouter.walletReservationsAmount(w1)),
-            ANCHOR_SAT
-        );
 
-        // Before the proof lands, w1 leaves Live and ends up Closing.
         _forceClosingAnchorBlind(w1);
         assertEq(
             uint256(uint8(bridge.wallets(w1).state)),
             uint256(uint8(Wallets.WalletState.Closing)),
             "target Closing before the proof"
         );
-        assertEq(bridge.wallets(w1).mainUtxoHash, bytes32(0));
 
-        // The wallet's reanchor tx (old anchor -> w1, fee 0) is proven.
-        Snap memory before = _snap(depositor);
-
-        vm.expectEmit(true, true, true, true, address(bridge));
-        emit ReservationStranded(d.key, w1, depositor, ANCHOR_SAT);
         bytes32 newAnchorTxHash = _proveReanchor(
             oldAnchorTxHash,
             ANCHOR_SAT,
@@ -450,82 +305,112 @@ contract F09to11ClosingWalletStrands is Test, Handlers {
             d.key,
             nonce
         );
-
-        // The anchor moved to w1 and the reservation is Stranded at once.
-        Reservation.ReservationRequest memory r = reservationRouter
-            .reservations(d.key);
         assertEq(
-            uint256(uint8(r.state)),
-            uint256(uint8(Reservation.ReservationState.Stranded)),
-            "reservation Stranded at once"
-        );
-        assertTrue(r.walletPubKeyHash == w1, "custodian is the Closing target");
-        assertEq(uint256(r.anchorAmount), ANCHOR_SAT);
-        assertEq(r.anchorTxHash, newAnchorTxHash);
-        assertEq(
-            uint256(uint8(reservationRouter.reservationActions(d.key, nonce).state)),
+            uint256(
+                uint8(reservationRouter.reservationActions(d.key, nonce).state)
+            ),
             uint256(uint8(Reservation.ActionState.Settled))
         );
-
-        // Both wallets and the global ledgers are released; neither anchor is
-        // tracked; the old anchor is recorded as honestly spent, the new one
-        // is unspent.
         assertEq(uint256(reservationRouter.walletReservationsCount(w0)), 0);
-        assertEq(uint256(reservationRouter.walletReservationsAmount(w0)), 0);
-        assertEq(uint256(reservationRouter.walletReservationsCount(w1)), 0);
-        assertEq(uint256(reservationRouter.walletReservationsAmount(w1)), 0);
-        assertEq(_activeCount(), 0);
-        assertEq(_totalAmount(), 0);
-        assertEq(reservationRouter.reservationByAnchorUtxo(oldAnchorTxHash, 0), 0);
-        assertEq(reservationRouter.reservationByAnchorUtxo(newAnchorTxHash, 0), 0);
+        assertEq(
+            reservationRouter.reservationByAnchorUtxo(oldAnchorTxHash, 0),
+            0
+        );
         assertTrue(bridge.spentMainUTXOs(_utxoKey(oldAnchorTxHash)));
-        assertFalse(bridge.spentMainUTXOs(_utxoKey(newAnchorTxHash)));
-        assertEq(bridge.wallets(w1).mainUtxoHash, bytes32(0), "not in main UTXO");
 
-        // Fee 0: no vault financing, no balance movement.
-        assertEq(tbtc.balanceOf(depositor), before.userTbtc);
-        assertEq(tbtc.balanceOf(address(reservationVault)), before.rvTbtc);
-        assertEq(bank.balanceOf(address(tbtcVault)), before.tvBank);
-        assertEq(bank.balanceOf(address(reservationVault)), before.rvBank);
+        _assertActiveOnClosingWallet(d.key, w1, newAnchorTxHash);
+        _assertReanchorRightAndPin(d.key, w1, w2);
+    }
 
-        // No further reanchor is possible.
-        vm.prank(ANYONE);
-        vm.expectRevert(bytes(ERR_NOT_ACTIVE));
-        reservationRouter.requestReservationReanchor(d.key, w2);
-        vm.expectRevert(bytes(ERR_NOT_ACTIVE));
-        reservationRouter.notifyReservationStranded(d.key);
+    /// @dev After settlement onto a Closing wallet: Active, custodied by
+    ///      `wallet`, counted on it and in the global ledgers, anchor indexed.
+    function _assertActiveOnClosingWallet(
+        uint256 key,
+        bytes20 wallet,
+        bytes32 anchorTxHash
+    ) internal {
+        Reservation.ReservationRequest memory r = reservationRouter
+            .reservations(key);
+        assertEq(
+            uint256(uint8(r.state)),
+            uint256(uint8(Reservation.ReservationState.Active)),
+            "reservation stays Active on the Closing wallet"
+        );
+        assertTrue(
+            r.walletPubKeyHash == wallet,
+            "custodian is the Closing wallet"
+        );
+        assertEq(uint256(r.anchorAmount), ANCHOR_SAT);
+        assertEq(r.anchorTxHash, anchorTxHash);
+        assertEq(uint256(reservationRouter.walletReservationsCount(wallet)), 1);
+        assertEq(
+            uint256(reservationRouter.walletReservationsAmount(wallet)),
+            ANCHOR_SAT
+        );
+        assertEq(_activeCount(), 1);
+        assertEq(_totalAmount(), ANCHOR_SAT);
+        assertEq(
+            reservationRouter.reservationByAnchorUtxo(anchorTxHash, 0),
+            key
+        );
+    }
 
-        // w1 closes with the anchor unspent and untracked.
+    /// @dev The position is not strandable before `dissolutionEligibleAt`,
+    ///      it pins the Closing wallet, and anyone can re-anchor it to the
+    ///      Live wallet `target`.
+    function _assertReanchorRightAndPin(
+        uint256 key,
+        bytes20 wallet,
+        bytes20 target
+    ) internal {
+        assertTrue(
+            block.timestamp <
+                reservationRouter.reservations(key).dissolutionEligibleAt,
+            "before dissolution eligibility"
+        );
+        vm.expectRevert(bytes(ERR_WALLET_NOT_STRANDABLE));
+        reservationRouter.notifyReservationStranded(key);
+
         skipTime(WALLET_CLOSING_PERIOD + 1);
         vm.prank(ANYONE);
-        bridge.notifyWalletClosingPeriodElapsed(w1);
-        assertEq(
-            uint256(uint8(bridge.wallets(w1).state)),
-            uint256(uint8(Wallets.WalletState.Closed))
+        vm.expectRevert(bytes(ERR_WALLET_HAS_RESERVATIONS));
+        bridge.notifyWalletClosingPeriodElapsed(wallet);
+
+        vm.prank(ANYONE);
+        reservationRouter.requestReservationReanchor(
+            key,
+            target,
+            new uint32[](0),
+            0
         );
-        assertEq(bridge.wallets(w1).mainUtxoHash, bytes32(0));
-        assertFalse(bridge.spentMainUTXOs(_utxoKey(newAnchorTxHash)));
+        assertEq(
+            uint256(uint8(reservationRouter.reservations(key).state)),
+            uint256(uint8(Reservation.ReservationState.ActionPending)),
+            "re-anchor requested from the Closing wallet"
+        );
     }
 
     // ------------------------------------------------------------------
     // Helpers
     // ------------------------------------------------------------------
 
-    /// @dev SP-107 route: a non-active Live wallet with zero main UTXO but
-    ///      reservation count > 0 is moved Live -> MovingFunds -> Closing by
-    ///      an unprivileged caller (both balance checks read only the main
-    ///      UTXO).
+    /// @dev Pushes a non-active Live wallet with a zero main UTXO to Closing
+    ///      with permissionless calls. A wallet with a proven anchor goes
+    ///      Live -> MovingFunds -> Closing (below-dust exit); since R-13 a
+    ///      wallet loaded only with pending capacity goes straight to Closing.
     function _forceClosingAnchorBlind(bytes20 wallet) internal {
         BitcoinTx.UTXO memory none = BitcoinTx.UTXO(bytes32(0), 0, 0);
         vm.prank(ANYONE);
         bridge.notifyWalletCloseable(wallet, none);
+        if (bridge.wallets(wallet).state == Wallets.WalletState.MovingFunds) {
+            vm.prank(ANYONE);
+            bridge.notifyMovingFundsBelowDust(wallet, none);
+        }
         assertEq(
             uint256(uint8(bridge.wallets(wallet).state)),
-            uint256(uint8(Wallets.WalletState.MovingFunds)),
-            "closeable routes to MovingFunds"
+            uint256(uint8(Wallets.WalletState.Closing)),
+            "wallet pushed to Closing"
         );
-        vm.prank(ANYONE);
-        bridge.notifyMovingFundsBelowDust(wallet, none);
     }
 
     function _reveal(
@@ -556,15 +441,11 @@ contract F09to11ClosingWalletStrands is Test, Handlers {
         d.key = uint256(keccak256(abi.encodePacked(d.fundingTxHash, d.outIdx)));
         vm.prank(depositor);
         bridge.revealDeposit(fundingTx, reveal);
+        _recordFunding(d.key, fundingTx, d.outIdx);
     }
 
-    function _request(
-        address depositor,
-        bytes20 wallet,
-        uint256 key
-    ) internal {
-        vm.prank(depositor);
-        reservationRouter.requestReservationAcceptance(key, wallet);
+    function _request(address depositor, bytes20 wallet, uint256 key) internal {
+        _requestAcceptanceAs(depositor, key, wallet);
     }
 
     /// @dev Proves the 1-input (deposit outpoint) 1-output (wallet) anchor
@@ -612,12 +493,7 @@ contract F09to11ClosingWalletStrands is Test, Handlers {
         newAnchorTxHash = BtcBuilder.txHash(t);
         BitcoinTx.Proof memory proof = BtcBuilder.prove(t, 1);
         vm.prank(spvMaintainer);
-        reservationRouter.submitReservationReanchorProof(
-            t,
-            proof,
-            key,
-            nonce
-        );
+        reservationRouter.submitReservationReanchorProof(t, proof, key, nonce);
     }
 
     function _snap(address depositor) internal view returns (Snap memory s) {

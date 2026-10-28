@@ -135,7 +135,12 @@ contract LateReanchorUnwindsNewerGeneration is Test, Handlers {
         // Generation N: governance rotates the anchor of the Live wallet w0
         // to w1.
         vm.prank(governance);
-        reservationRouter.requestReservationReanchor(d.key, w1);
+        reservationRouter.requestReservationReanchor(
+            d.key,
+            w1,
+            new uint32[](0),
+            0
+        );
         uint64 nonceN = reservationRouter.reservations(d.key).requestNonce;
         assertEq(uint256(nonceN), 2, "N is the second generation");
         uint32 timeoutAtN = reservationRouter
@@ -176,7 +181,12 @@ contract LateReanchorUnwindsNewerGeneration is Test, Handlers {
         // generation N+1.
         vm.warp(cooldownEnd);
         vm.prank(governance);
-        reservationRouter.requestReservationReanchor(d.key, newerTarget);
+        reservationRouter.requestReservationReanchor(
+            d.key,
+            newerTarget,
+            new uint32[](0),
+            0
+        );
         uint64 nonceNewer = reservationRouter.reservations(d.key).requestNonce;
         assertEq(uint256(nonceNewer), uint256(nonceN) + 1, "N+1 nonce");
         assertEq(
@@ -187,7 +197,9 @@ contract LateReanchorUnwindsNewerGeneration is Test, Handlers {
         assertEq(
             uint256(
                 uint8(
-                    reservationRouter.reservationActions(d.key, nonceNewer).state
+                    reservationRouter
+                        .reservationActions(d.key, nonceNewer)
+                        .state
                 )
             ),
             uint256(uint8(Reservation.ActionState.Pending)),
@@ -202,7 +214,9 @@ contract LateReanchorUnwindsNewerGeneration is Test, Handlers {
         vm.warp(block.timestamp + 1 hours);
         assertTrue(
             block.timestamp <
-                reservationRouter.reservationActions(d.key, nonceNewer).timeoutAt,
+                reservationRouter
+                    .reservationActions(d.key, nonceNewer)
+                    .timeoutAt,
             "inside N+1 window"
         );
         assertEq(
@@ -227,7 +241,9 @@ contract LateReanchorUnwindsNewerGeneration is Test, Handlers {
         assertEq(
             uint256(
                 uint8(
-                    reservationRouter.reservationActions(d.key, nonceNewer).state
+                    reservationRouter
+                        .reservationActions(d.key, nonceNewer)
+                        .state
                 )
             ),
             uint256(uint8(Reservation.ActionState.Superseded)),
@@ -304,7 +320,9 @@ contract LateReanchorUnwindsNewerGeneration is Test, Handlers {
         uint256 key,
         uint64 nonce
     ) internal view returns (bool) {
-        bytes32 topic0 = keccak256("ReservationActionSuperseded(uint256,uint64)");
+        bytes32 topic0 = keccak256(
+            "ReservationActionSuperseded(uint256,uint64)"
+        );
         for (uint256 i; i < logs.length; i++) {
             if (
                 logs[i].emitter == address(bridge) &&
@@ -347,15 +365,11 @@ contract LateReanchorUnwindsNewerGeneration is Test, Handlers {
         d.key = uint256(keccak256(abi.encodePacked(d.fundingTxHash, d.outIdx)));
         vm.prank(depositor);
         bridge.revealDeposit(fundingTx, reveal);
+        _recordFunding(d.key, fundingTx, d.outIdx);
     }
 
-    function _request(
-        address depositor,
-        bytes20 wallet,
-        uint256 key
-    ) internal {
-        vm.prank(depositor);
-        reservationRouter.requestReservationAcceptance(key, wallet);
+    function _request(address depositor, bytes20 wallet, uint256 key) internal {
+        _requestAcceptanceAs(depositor, key, wallet);
     }
 
     /// @dev Proves the 1-input (deposit outpoint) 1-output (wallet) anchor
@@ -403,12 +417,7 @@ contract LateReanchorUnwindsNewerGeneration is Test, Handlers {
         newAnchorTxHash = BtcBuilder.txHash(t);
         BitcoinTx.Proof memory proof = BtcBuilder.prove(t, 1);
         vm.prank(spvMaintainer);
-        reservationRouter.submitReservationReanchorProof(
-            t,
-            proof,
-            key,
-            nonce
-        );
+        reservationRouter.submitReservationReanchorProof(t, proof, key, nonce);
     }
 
     function _count(bytes20 wallet) internal view returns (uint256) {

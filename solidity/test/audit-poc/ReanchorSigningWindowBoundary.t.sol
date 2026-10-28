@@ -1,31 +1,27 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.17;
 
-// Regression test for the mutation that turns the `&&` at Reservation.sol:790
-// in `requestReservationReanchor` into `||` (slither-mutate LOR, targeted
-// pass of 2026-10-07). Before this file no Foundry or Hardhat test reached the
-// "Reanchor authorization has no signing window" revert, so the mutant
-// survived. It is the re-anchor twin of the acceptance boundary in
-// AcceptanceSigningWindowBoundary.t.sol (register row R-50).
+// Re-anchor signing window under the R-50 setter floor.
 //
 // Source lines involved (solidity/contracts/bridge):
 //   Reservation.sol:778-797   timeoutAt = now + reservationActionTimeout;
 //                             requires timeoutAt > REQUEST_TIMEOUT_SAFETY_MARGIN
 //                             && now + 1 < timeoutAt - REQUEST_TIMEOUT_SAFETY_MARGIN
-//   Reservation.sol:1291-1295 updateReservationParameters accepts any
-//                             reservationActionTimeout strictly above
-//                             REQUEST_TIMEOUT_SAFETY_MARGIN (2 hours)
+//   Reservation.sol (setter)  updateReservationParameters requires
+//                             reservationActionTimeout > SAFETY_MARGIN +
+//                             DEPOSIT_MIN_AGE + 1 (fix for R-50)
 //
-// With an action timeout of 7201 seconds the second clause reads
-// `now + 1 < now + 1`, which is false, so the original reverts. The first
-// clause is true for any real clock, so with `||` the mutant accepts and
-// creates an action no wallet can sign. With 7202 seconds both accept.
+// History: before the R-50 fix the setter accepted 7201 seconds, the
+// "Reanchor authorization has no signing window" revert was reachable, and
+// this file pinned the LOR mutant that turns the `&&` at :790 into `||`. With
+// the setter floor the smallest timeout leaves `now + 7202` as the signing
+// deadline, so the revert is defense in depth and that mutant is now
+// equivalent. The tests below pin what still matters: the smallest admitted
+// timeout gives a re-anchor a window, and governance skips the cooldown.
 //
-// Second mutation (same pass, MIA): `if (!privileged)` at Reservation.sol:737
-// replaced by `if (true)`, so governance is also held by the re-anchor
-// cooldown. `test_reanchor_governanceBypassesCooldown` pins it: after a
-// timed-out re-anchor the cooldown runs, and governance can still request
-// the next re-anchor at once.
+// Second mutation (MIA): `if (!privileged)` at Reservation.sol:737 replaced by
+// `if (true)`, so governance is also held by the re-anchor cooldown.
+// `test_reanchor_governanceBypassesCooldown` pins it.
 //
 // The reservation is created by the fizz handlers on the real Bridge and
 // ReservationRouter (test/fizz/Base.sol). Governance sends the re-anchor
@@ -42,44 +38,28 @@ contract ReanchorSigningWindowBoundaryTest is Test, Handlers {
         vm.stopPrank();
     }
 
-    string internal constant ERR_NO_SIGNING_WINDOW =
-        "Reanchor authorization has no signing window";
-
-    // REQUEST_TIMEOUT_SAFETY_MARGIN in WalletProposalValidatorConstants.
+    // REQUEST_TIMEOUT_SAFETY_MARGIN and DEPOSIT_MIN_AGE in
+    // WalletProposalValidatorConstants; the smallest timeout the setter admits.
     uint32 internal constant SAFETY_MARGIN = 2 hours;
+    uint32 internal constant MIN_ACTION_TIMEOUT = SAFETY_MARGIN + 2 hours + 2;
 
     function setUp() public {
         setup();
     }
 
-    /// @notice Action timeout of 7201 seconds: the signing deadline is
-    ///         `now + 1`, so no integer timestamp fits and the request
-    ///         reverts. The `||` mutant accepts here.
-    function test_reanchor_revertsWhenActionTimeoutLeavesNoSigningWindow()
-        public
-    {
+    /// @notice At the smallest admitted timeout a re-anchor request creates a
+    ///         pending action with `timeoutAt = now + timeout`.
+    function test_reanchor_smallestAdmittedTimeoutHasSigningWindow() public {
         (uint256 key, bytes20 target) = _activeReservationAndSecondWallet();
-        _setActionTimeout(SAFETY_MARGIN + 1);
+        _setActionTimeout(MIN_ACTION_TIMEOUT);
 
         vm.prank(governance);
-        vm.expectRevert(bytes(ERR_NO_SIGNING_WINDOW));
-        reservationRouter.requestReservationReanchor(key, target);
-
-        assertEq(
-            uint256(reservationRouter.reservations(key).requestNonce),
-            1,
-            "no re-anchor generation created"
+        reservationRouter.requestReservationReanchor(
+            key,
+            target,
+            new uint32[](0),
+            0
         );
-    }
-
-    /// @notice One second above the boundary (7202 seconds) the same request
-    ///         creates a pending re-anchor action.
-    function test_reanchor_succeedsOneSecondAboveTheBoundary() public {
-        (uint256 key, bytes20 target) = _activeReservationAndSecondWallet();
-        _setActionTimeout(SAFETY_MARGIN + 2);
-
-        vm.prank(governance);
-        reservationRouter.requestReservationReanchor(key, target);
 
         uint64 requestNonce = reservationRouter.reservations(key).requestNonce;
         assertEq(uint256(requestNonce), 2, "second action generation");
@@ -97,7 +77,7 @@ contract ReanchorSigningWindowBoundaryTest is Test, Handlers {
         );
         assertEq(
             uint256(action.timeoutAt),
-            block.timestamp + uint256(SAFETY_MARGIN) + 2,
+            block.timestamp + uint256(MIN_ACTION_TIMEOUT),
             "timeout is now + action timeout"
         );
     }
@@ -107,11 +87,16 @@ contract ReanchorSigningWindowBoundaryTest is Test, Handlers {
     ///         (Reservation.sol:737-742) and can request again at once.
     function test_reanchor_governanceBypassesCooldown() public {
         (uint256 key, bytes20 target) = _activeReservationAndSecondWallet();
-        _setActionTimeout(SAFETY_MARGIN + 2);
+        _setActionTimeout(MIN_ACTION_TIMEOUT);
 
         vm.prank(governance);
-        reservationRouter.requestReservationReanchor(key, target);
-        vm.warp(block.timestamp + uint256(SAFETY_MARGIN) + 3);
+        reservationRouter.requestReservationReanchor(
+            key,
+            target,
+            new uint32[](0),
+            0
+        );
+        vm.warp(block.timestamp + uint256(MIN_ACTION_TIMEOUT) + 1);
         reservationRouter.notifyReservationActionTimeout(key);
 
         Reservation.ReservationRequest memory r = reservationRouter
@@ -128,7 +113,12 @@ contract ReanchorSigningWindowBoundaryTest is Test, Handlers {
         );
 
         vm.prank(governance);
-        reservationRouter.requestReservationReanchor(key, target);
+        reservationRouter.requestReservationReanchor(
+            key,
+            target,
+            new uint32[](0),
+            0
+        );
         assertEq(
             uint256(reservationRouter.reservations(key).requestNonce),
             3,

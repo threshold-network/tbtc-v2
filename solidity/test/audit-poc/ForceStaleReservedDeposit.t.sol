@@ -55,9 +55,11 @@ contract ForceStaleReservedDepositTest is Test, Handlers {
     event ReservedDepositMarkedStale(uint256 indexed depositKey);
     event ReservationVaultUpdated(address reservationVault);
 
-    string internal constant ERR_NOT_GOVERNANCE = "Caller is not the governance";
+    string internal constant ERR_NOT_GOVERNANCE =
+        "Caller is not the governance";
     string internal constant ERR_NOT_PENDING = "Not a pending reserved deposit";
-    string internal constant ERR_PENDING_EXIST = "Pending reserved deposits exist";
+    string internal constant ERR_PENDING_EXIST =
+        "Pending reserved deposits exist";
 
     address internal depositor;
     address internal anyone;
@@ -155,7 +157,10 @@ contract ForceStaleReservedDepositTest is Test, Handlers {
         assertEq(uint256(active), 0, "no active reservations");
         assertGt(uint256(maxActive), 0, "max active reservations set");
         assertEq(_reservationParameterWords()[6], 0, "no reserved amount");
-        assertEq(uint256(_reservationParameterWords()[0]), uint256(uint160(oldVault)));
+        assertEq(
+            uint256(_reservationParameterWords()[0]),
+            uint256(uint160(oldVault))
+        );
 
         // Two pending: blocked.
         _expectVaultChangeReverts(newVault);
@@ -257,10 +262,9 @@ contract ForceStaleReservedDepositTest is Test, Handlers {
 
     /// @dev Reveals an unfunded reserved deposit through the real Bridge and
     ///      returns its key and the exact refund deadline of its script.
-    function _revealReserved(bytes20 wallet)
-        internal
-        returns (uint256 key, uint32 deadline)
-    {
+    function _revealReserved(
+        bytes20 wallet
+    ) internal returns (uint256 key, uint32 deadline) {
         bytes32 entropy = keccak256(abi.encode("force.deposit", ++nonce));
         deadline = uint32(
             block.timestamp + uint256(RESERVATION_TERM_SECONDS) + 1 days
@@ -297,7 +301,10 @@ contract ForceStaleReservedDepositTest is Test, Handlers {
     function _le32(uint32 v) internal pure returns (bytes4) {
         return
             bytes4(
-                (v << 24) | ((v & 0xff00) << 8) | ((v >> 8) & 0xff00) | (v >> 24)
+                (v << 24) |
+                    ((v & 0xff00) << 8) |
+                    ((v >> 8) & 0xff00) |
+                    (v >> 24)
             );
     }
 }

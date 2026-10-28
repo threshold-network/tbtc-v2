@@ -247,7 +247,10 @@ contract ReservedDepositSkipsRebateTest is Test, Handlers {
     function _le32(uint32 v) internal pure returns (bytes4) {
         return
             bytes4(
-                (v << 24) | ((v & 0xff00) << 8) | ((v >> 8) & 0xff00) | (v >> 24)
+                (v << 24) |
+                    ((v & 0xff00) << 8) |
+                    ((v >> 8) & 0xff00) |
+                    (v >> 24)
             );
     }
 }

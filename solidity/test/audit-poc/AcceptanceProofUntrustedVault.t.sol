@@ -145,8 +145,8 @@ contract AcceptanceProofUntrustedVault is Test, Handlers {
         _submitAcceptanceProof(fundingTx, outputIndex, key, nonce, w0);
 
         uint256 grossTbtc = uint256(ANCHOR_SAT) * SATOSHI_MULTIPLIER;
-        uint256 feeTbtc = (grossTbtc * reservationVault.initiationFeeBps()) /
-            10_000;
+        uint256 feeTbtc =
+            (grossTbtc * reservationVault.initiationFeeBps()) / 10_000;
 
         assertEq(
             bank.balanceOf(depositor),
@@ -183,7 +183,11 @@ contract AcceptanceProofUntrustedVault is Test, Handlers {
 
     /// @dev Reveals a reserved deposit of `who` for `wallet`. The funding
     ///      transaction is fabricated: nothing is proven on Bitcoin.
-    function _reveal(address who, bytes20 wallet, uint64 amount)
+    function _reveal(
+        address who,
+        bytes20 wallet,
+        uint64 amount
+    )
         internal
         returns (
             uint256 key,
@@ -196,9 +200,7 @@ contract AcceptanceProofUntrustedVault is Test, Handlers {
             fundingOutputIndex: 0,
             blindingFactor: bytes8(keccak256(abi.encode(s, "blinding"))),
             walletPubKeyHash: wallet,
-            refundPubKeyHash: bytes20(
-                keccak256(abi.encode(s, who, "refund"))
-            ),
+            refundPubKeyHash: bytes20(keccak256(abi.encode(s, who, "refund"))),
             refundLocktime: _le32(uint32(block.timestamp + 3 days)),
             vault: address(reservationVault)
         });
@@ -218,14 +220,15 @@ contract AcceptanceProofUntrustedVault is Test, Handlers {
         );
         vm.prank(who);
         bridge.revealDeposit(fundingTx, reveal);
+        _recordFunding(key, fundingTx, outputIndex);
     }
 
-    function _requestAcceptance(address who, uint256 key, bytes20 wallet)
-        internal
-        returns (uint64 nonce)
-    {
-        vm.prank(who);
-        reservationRouter.requestReservationAcceptance(key, wallet);
+    function _requestAcceptance(
+        address who,
+        uint256 key,
+        bytes20 wallet
+    ) internal returns (uint64 nonce) {
+        _requestAcceptanceAs(who, key, wallet);
         nonce = reservationRouter.reservations(key).requestNonce;
     }
 
@@ -265,7 +268,10 @@ contract AcceptanceProofUntrustedVault is Test, Handlers {
     function _le32(uint32 v) internal pure returns (bytes4) {
         return
             bytes4(
-                (v << 24) | ((v & 0xff00) << 8) | ((v >> 8) & 0xff00) | (v >> 24)
+                (v << 24) |
+                    ((v & 0xff00) << 8) |
+                    ((v >> 8) & 0xff00) |
+                    (v >> 24)
             );
     }
 }

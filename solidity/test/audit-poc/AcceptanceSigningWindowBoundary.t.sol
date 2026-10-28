@@ -1,40 +1,23 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.17;
 
-// Regression test for the mutation that comments out
-// `signingLowerBound = block.timestamp;` at Reservation.sol:567 in
-// `requestReservationAcceptance`. Before this file no Foundry test could tell
-// the mutant from the original, so it survived.
+// Regression tests for R-50: `updateReservationParameters` accepted any
+// `reservationActionTimeout` above REQUEST_TIMEOUT_SAFETY_MARGIN (2 hours).
+// `requestReservationAcceptance` (Reservation.sol:555-576) sets
+//   timeoutAt = now + reservationActionTimeout
+//   earliestSigningAt = max(revealedAt + DEPOSIT_MIN_AGE, now) + 1
+//   actionSigningDeadline = timeoutAt - REQUEST_TIMEOUT_SAFETY_MARGIN
+// and requires earliestSigningAt < actionSigningDeadline. At 7201 seconds no
+// request can sign, and up to 4 hours + 1 second a deposit revealed in the
+// request block cannot. The setter now requires a timeout above
+// SAFETY_MARGIN + DEPOSIT_MIN_AGE + 1 (14,401 seconds).
 //
-// Source lines involved (solidity/contracts/bridge):
-//   Reservation.sol:555-576   timeoutAt = now + reservationActionTimeout;
-//                             signingLowerBound = max(revealedAt + DEPOSIT_MIN_AGE, now);
-//                             earliestSigningAt = signingLowerBound + 1;
-//                             actionSigningDeadline = timeoutAt
-//                                                     - REQUEST_TIMEOUT_SAFETY_MARGIN;
-//                             requires earliestSigningAt < actionSigningDeadline,
-//                             else "Acceptance authorization has no signing window"
-//   Reservation.sol:1291-1295 updateReservationParameters accepts any
-//                             reservationActionTimeout strictly above
-//                             REQUEST_TIMEOUT_SAFETY_MARGIN (2 hours), so
-//                             7201 seconds is admissible
+// Before the fix, both `test_setter_rejects*` tests fail (the setter accepts
+// the value). After it, the in-function window checks are defense in depth:
+// no stored timeout can reach them, so the earlier mutation guards of this
+// file (lower-bound lift at :567, MIA at :565) became equivalent mutants and
+// were replaced by these tests.
 //
-// Why the boundary is the only observable difference: with an action timeout
-// of 7201 seconds the signing deadline is exactly `now + 1`. For a deposit
-// revealed more than DEPOSIT_MIN_AGE (2 hours) ago the original code lifts the
-// lower bound to `now`, so earliestSigningAt = now + 1 is not below the
-// deadline and the call reverts. Without the lift the lower bound stays at
-// `revealedAt + 2 hours`, which is in the past, so earliestSigningAt is below
-// `now + 1` and the call is wrongly accepted. With 7202 seconds both versions
-// accept.
-//
-// Second mutation (targeted pass of 2026-10-07, slither-mutate MIA): the
-// condition at Reservation.sol:565 replaced by `true`, so the lower bound is
-// always `now` and the DEPOSIT_MIN_AGE floor is lost. For a fresh deposit and
-// an action timeout of 4 hours the original needs a signing time after
-// `revealedAt + 2 hours`, which is past the deadline `now + 2 hours`, and
-// reverts; the mutant accepts. The two `freshDeposit` tests below pin it.
-
 // The deposit is revealed through the real Bridge.revealDeposit and the
 // acceptance request goes through the real Bridge fallback into
 // ReservationRouter, using the deployment built by test/fizz/Base.sol. The
@@ -55,8 +38,8 @@ contract AcceptanceSigningWindowBoundaryTest is Test, Handlers {
         vm.stopPrank();
     }
 
-    string internal constant ERR_NO_SIGNING_WINDOW =
-        "Acceptance authorization has no signing window";
+    string internal constant ERR_SETTER =
+        "Reservation action timeout leaves no signing window";
 
     // REQUEST_TIMEOUT_SAFETY_MARGIN in WalletProposalValidatorConstants.
     uint32 internal constant SAFETY_MARGIN = 2 hours;
@@ -72,40 +55,28 @@ contract AcceptanceSigningWindowBoundaryTest is Test, Handlers {
         depositor = makeAddr("window.depositor");
     }
 
-    /// @notice Action timeout of 7201 seconds and a deposit older than the
-    ///         minimum age: the signing deadline is `now + 1`, so no integer
-    ///         timestamp fits and the request reverts. The mutant without the
-    ///         lower-bound lift accepts here.
-    function test_acceptance_revertsWhenActionTimeoutLeavesNoSigningWindow()
-        public
-    {
-        _setActionTimeout(SAFETY_MARGIN + 1);
-        (uint256 key, ) = _revealReserved(wallet0);
-
-        // Older than DEPOSIT_MIN_AGE and far from the refund deadline.
-        vm.warp(block.timestamp + DEPOSIT_MIN_AGE + 1 hours);
-
-        vm.prank(depositor);
-        vm.expectRevert(bytes(ERR_NO_SIGNING_WINDOW));
-        reservationRouter.requestReservationAcceptance(key, wallet0);
-
-        assertEq(
-            uint256(reservationRouter.reservations(key).requestNonce),
-            0,
-            "no action generation created"
-        );
+    /// @notice R-50: 7201 seconds passed the old setter check and made every
+    ///         acceptance and re-anchor request revert. The setter now
+    ///         rejects it.
+    function test_setter_rejectsSafetyMarginPlusOne() public {
+        _expectSetterRevert(SAFETY_MARGIN + 1);
     }
 
-    /// @notice One second above the boundary (7202 seconds) the same old
-    ///         deposit is accepted and the action is `Pending`.
-    function test_acceptance_succeedsOneSecondAboveTheBoundary() public {
-        _setActionTimeout(SAFETY_MARGIN + 2);
+    /// @notice R-50 boundary: 4 hours + 1 second leaves a deposit revealed
+    ///         in the request block no signing second, so the setter rejects
+    ///         it.
+    function test_setter_rejectsTimeoutWithNoWindowForFreshDeposit() public {
+        _expectSetterRevert(SAFETY_MARGIN + uint32(DEPOSIT_MIN_AGE) + 1);
+    }
+
+    /// @notice The smallest accepted timeout (4 hours + 2 seconds) leaves a
+    ///         deposit revealed in the request block exactly one signing
+    ///         second, so its acceptance request succeeds.
+    function test_setter_smallestTimeoutAcceptsFreshDeposit() public {
+        _setActionTimeout(SAFETY_MARGIN + uint32(DEPOSIT_MIN_AGE) + 2);
         (uint256 key, ) = _revealReserved(wallet0);
 
-        vm.warp(block.timestamp + DEPOSIT_MIN_AGE + 1 hours);
-
-        vm.prank(depositor);
-        reservationRouter.requestReservationAcceptance(key, wallet0);
+        _requestAcceptanceAs(depositor, key, wallet0);
 
         uint64 requestNonce = reservationRouter.reservations(key).requestNonce;
         assertEq(uint256(requestNonce), 1, "first action generation");
@@ -116,51 +87,16 @@ contract AcceptanceSigningWindowBoundaryTest is Test, Handlers {
             uint256(uint8(Reservation.ActionState.Pending)),
             "action pending"
         );
-        assertEq(
-            uint256(action.timeoutAt),
-            block.timestamp + uint256(SAFETY_MARGIN) + 2,
-            "timeout is now + action timeout"
-        );
     }
 
-    /// @notice A deposit younger than the minimum age is also rejected at
-    ///         7201 seconds, so that value blocks every acceptance. Both the
-    ///         original and the mutant revert here.
-    function test_acceptance_revertsAtBoundaryForFreshDeposit() public {
-        _setActionTimeout(SAFETY_MARGIN + 1);
-        (uint256 key, ) = _revealReserved(wallet0);
-
-        vm.prank(depositor);
-        vm.expectRevert(bytes(ERR_NO_SIGNING_WINDOW));
-        reservationRouter.requestReservationAcceptance(key, wallet0);
-    }
-
-    /// @notice Fresh deposit, action timeout 4 hours: the signing deadline is
-    ///         `now + 2 hours` but the deposit is only signable after
-    ///         `revealedAt + 2 hours + 1`, so the request reverts. The MIA
-    ///         mutant at line 565 drops the minimum-age floor and accepts.
-    function test_acceptance_revertsForFreshDepositWhenWindowEndsBeforeMinAge()
-        public
-    {
-        _setActionTimeout(SAFETY_MARGIN + uint32(DEPOSIT_MIN_AGE));
-        (uint256 key, ) = _revealReserved(wallet0);
-
-        vm.prank(depositor);
-        vm.expectRevert(bytes(ERR_NO_SIGNING_WINDOW));
-        reservationRouter.requestReservationAcceptance(key, wallet0);
-    }
-
-    /// @notice Two seconds more (4 hours + 2 seconds) leave exactly one
-    ///         signing second after the minimum age, so the fresh deposit is
-    ///         accepted.
-    function test_acceptance_freshDepositAcceptedWhenWindowCoversMinAge()
-        public
-    {
+    /// @notice At the smallest accepted timeout an older deposit is also
+    ///         accepted: no admissible setting leaves it without a window.
+    function test_setter_smallestTimeoutAcceptsOldDeposit() public {
         _setActionTimeout(SAFETY_MARGIN + uint32(DEPOSIT_MIN_AGE) + 2);
         (uint256 key, ) = _revealReserved(wallet0);
+        vm.warp(block.timestamp + DEPOSIT_MIN_AGE + 1 hours);
 
-        vm.prank(depositor);
-        reservationRouter.requestReservationAcceptance(key, wallet0);
+        _requestAcceptanceAs(depositor, key, wallet0);
         assertEq(
             uint256(reservationRouter.reservations(key).requestNonce),
             1,
@@ -197,6 +133,32 @@ contract AcceptanceSigningWindowBoundaryTest is Test, Handlers {
         );
     }
 
+    /// @dev Same call as `_setActionTimeout`, expected to revert with the
+    ///      R-50 setter message and leave the stored timeout unchanged. The
+    ///      current words are read before `expectRevert`, which applies to
+    ///      the next call only.
+    function _expectSetterRevert(uint32 actionTimeout) internal {
+        uint256[10] memory w = _reservationParameterWords();
+        vm.prank(governance);
+        vm.expectRevert(bytes(ERR_SETTER));
+        reservationRouter.updateReservationParameters(
+            address(uint160(w[0])),
+            uint64(w[1]),
+            uint64(w[2]),
+            uint32(w[3]),
+            uint32(w[4]),
+            uint64(w[5]),
+            uint32(w[7]),
+            actionTimeout,
+            uint32(w[9])
+        );
+        assertEq(
+            _reservationParameterWords()[8],
+            w[8],
+            "stored timeout unchanged"
+        );
+    }
+
     /// @dev The ten static return words of `reservationParameters()`.
     function _reservationParameterWords()
         internal
@@ -215,10 +177,9 @@ contract AcceptanceSigningWindowBoundaryTest is Test, Handlers {
     /// @dev Reveals an unfunded reserved deposit through the real Bridge and
     ///      returns its key and the exact refund deadline of its script. The
     ///      deadline is 91 days out, far beyond `timeoutAt + 24h`.
-    function _revealReserved(bytes20 wallet)
-        internal
-        returns (uint256 key, uint32 deadline)
-    {
+    function _revealReserved(
+        bytes20 wallet
+    ) internal returns (uint256 key, uint32 deadline) {
         bytes32 entropy = keccak256(abi.encode("window.deposit", ++nonce));
         deadline = uint32(
             block.timestamp + uint256(RESERVATION_TERM_SECONDS) + 1 days
@@ -250,12 +211,16 @@ contract AcceptanceSigningWindowBoundaryTest is Test, Handlers {
         );
         vm.prank(depositor);
         bridge.revealDeposit(fundingTx, reveal);
+        _recordFunding(key, fundingTx, outputIndex);
     }
 
     function _le32(uint32 v) internal pure returns (bytes4) {
         return
             bytes4(
-                (v << 24) | ((v & 0xff00) << 8) | ((v >> 8) & 0xff00) | (v >> 24)
+                (v << 24) |
+                    ((v & 0xff00) << 8) |
+                    ((v >> 8) & 0xff00) |
+                    (v >> 24)
             );
     }
 }

@@ -63,7 +63,10 @@ contract ReservationTimeBoundsTest is Test, Handlers {
     ///         reverts. The mutant without the cap accepts it.
     function test_reservedReveal_rejectsLocktimeOneSecondPastCap() public {
         uint32 deadline = uint32(
-            block.timestamp + uint256(RESERVATION_TERM_SECONDS) + REFUND_MARGIN + 1
+            block.timestamp +
+                uint256(RESERVATION_TERM_SECONDS) +
+                REFUND_MARGIN +
+                1
         );
         (
             BitcoinTx.Info memory fundingTx,
@@ -138,7 +141,11 @@ contract ReservationTimeBoundsTest is Test, Handlers {
         );
         assertEq(
             uint256(
-                uint8(reservationRouter.reservationActions(key, requestNonce).state)
+                uint8(
+                    reservationRouter
+                        .reservationActions(key, requestNonce)
+                        .state
+                )
             ),
             uint256(uint8(Reservation.ActionState.Settled)),
             "settled at the window end"
@@ -170,9 +177,9 @@ contract ReservationTimeBoundsTest is Test, Handlers {
         (fundingTx, reveal, key) = _buildReserved(deadline);
         vm.prank(depositor);
         bridge.revealDeposit(fundingTx, reveal);
+        _recordFunding(key, fundingTx, reveal.fundingOutputIndex);
 
-        vm.prank(depositor);
-        reservationRouter.requestReservationAcceptance(key, wallet0);
+        _requestAcceptanceAs(depositor, key, wallet0);
         requestNonce = reservationRouter.reservations(key).requestNonce;
         Reservation.ReservationAction memory action = reservationRouter
             .reservationActions(key, requestNonce);
@@ -181,7 +188,11 @@ contract ReservationTimeBoundsTest is Test, Handlers {
         reservationRouter.notifyReservationAcceptanceTimedOut(key);
         assertEq(
             uint256(
-                uint8(reservationRouter.reservationActions(key, requestNonce).state)
+                uint8(
+                    reservationRouter
+                        .reservationActions(key, requestNonce)
+                        .state
+                )
             ),
             uint256(uint8(Reservation.ActionState.TimedOut)),
             "acceptance timed out"
@@ -195,7 +206,9 @@ contract ReservationTimeBoundsTest is Test, Handlers {
         );
     }
 
-    function _buildReserved(uint32 deadline)
+    function _buildReserved(
+        uint32 deadline
+    )
         internal
         returns (
             BitcoinTx.Info memory fundingTx,
@@ -226,7 +239,9 @@ contract ReservationTimeBoundsTest is Test, Handlers {
         );
         reveal.fundingOutputIndex = outputIndex;
         key = uint256(
-            keccak256(abi.encodePacked(BtcBuilder.txHash(fundingTx), outputIndex))
+            keccak256(
+                abi.encodePacked(BtcBuilder.txHash(fundingTx), outputIndex)
+            )
         );
     }
 
@@ -256,7 +271,10 @@ contract ReservationTimeBoundsTest is Test, Handlers {
     function _le32(uint32 v) internal pure returns (bytes4) {
         return
             bytes4(
-                (v << 24) | ((v & 0xff00) << 8) | ((v >> 8) & 0xff00) | (v >> 24)
+                (v << 24) |
+                    ((v & 0xff00) << 8) |
+                    ((v >> 8) & 0xff00) |
+                    (v >> 24)
             );
     }
 }

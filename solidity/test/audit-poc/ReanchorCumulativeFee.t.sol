@@ -274,7 +274,12 @@ contract ReanchorCumulativeFee is Test, Handlers {
         h.anchorBefore = reservationRouter.reservations(key).anchorAmount;
 
         vm.prank(governance);
-        reservationRouter.requestReservationReanchor(key, target);
+        reservationRouter.requestReservationReanchor(
+            key,
+            target,
+            new uint32[](0),
+            0
+        );
         h.nonce = reservationRouter.reservations(key).requestNonce;
 
         uint64 txMaxFee = reservationRouter
@@ -350,15 +355,11 @@ contract ReanchorCumulativeFee is Test, Handlers {
         d.key = uint256(keccak256(abi.encodePacked(d.fundingTxHash, d.outIdx)));
         vm.prank(depositor);
         bridge.revealDeposit(fundingTx, reveal);
+        _recordFunding(d.key, fundingTx, d.outIdx);
     }
 
-    function _request(
-        address depositor,
-        bytes20 wallet,
-        uint256 key
-    ) internal {
-        vm.prank(depositor);
-        reservationRouter.requestReservationAcceptance(key, wallet);
+    function _request(address depositor, bytes20 wallet, uint256 key) internal {
+        _requestAcceptanceAs(depositor, key, wallet);
     }
 
     /// @dev Proves the 1-input (deposit outpoint) 1-output (wallet) anchor
@@ -408,12 +409,7 @@ contract ReanchorCumulativeFee is Test, Handlers {
         newAnchorTxHash = BtcBuilder.txHash(t);
         BitcoinTx.Proof memory proof = BtcBuilder.prove(t, 1);
         vm.prank(spvMaintainer);
-        reservationRouter.submitReservationReanchorProof(
-            t,
-            proof,
-            key,
-            nonce
-        );
+        reservationRouter.submitReservationReanchorProof(t, proof, key, nonce);
     }
 
     function _count(bytes20 wallet) internal view returns (uint256) {

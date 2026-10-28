@@ -153,9 +153,9 @@ These two items prevent a successful upgrade if not addressed in the deployment 
 
 | ID | Title | Component | In PR diff | Stated impact | PoC / repro source |
 |---|---|---|---|---|---|
-| R-01 | Reservation capacity admitted without proof of funding | `Reservation.sol:493`, `Deposit.sol:380` | Yes | Griefing DoS / capacity exhaustion | `test/audit-poc/F01FakeDepositCapacity.t.sol` (7 tests); also found by fuzzing in campaign 10 (SP-94, `test/fizz/repro/C10LongRun.t.sol`) |
+| R-01 | Reservation capacity admitted without proof of funding | `Reservation.sol:493`, `Deposit.sol:380` | Yes | Griefing DoS / capacity exhaustion | `test/audit-poc/F01FakeDepositCapacity.t.sol` (4 tests); also found by fuzzing in campaign 10 (SP-94) |
 | R-07 | Reservation strand allowed before reanchor execution | `Reservation.sol:1091`, `ReservationRouter.sol:336` | Yes | Premature stranding | `test/audit-poc/F08StrandBeforeReanchor.t.sol` (5 tests) |
-| R-08 | Closing wallet treated as terminal by late-settlement helper | `ReservationProofs.sol:214`, `:586` | Yes | Premature stranding on a Closing wallet | `test/audit-poc/F09to11ClosingWalletStrands.t.sol` (4 tests); fuzz: SP-65 in campaign 11 (`solidity/fizz_data/triage/C11-vacuity.verdict.md`) |
+| R-08 | Closing wallet treated as terminal by late-settlement helper | `ReservationProofs.sol:214`, `:586` | Yes | Premature stranding on a Closing wallet | `test/audit-poc/F09to11ClosingWalletStrands.t.sol` (4 tests); fuzz: SP-65 in campaign 11 |
 | R-09 | Reanchor amount floor exceeds the acceptance minimum | `Reservation.sol:806`, `Reservation.sol:549` | Yes | Anchors stuck below the reanchor floor | `test/fizz/FoundryTester.sol` (`test_repro_property_activeReservationReanchorable`) |
 | R-12 | Expired positions on Live wallets have no release path | `Reservation.sol:1091`, `Reservation.sol:1040` | Yes | Capacity lockup on Live wallets | `test/fizz/FoundryTester.sol` (`test_repro_property_reservationCapacityHasReleasePath`) |
 | R-13 | Wallet-move gate counts unproven pending actions as custody | `Wallets.sol:613` | Yes | Permissionless wallet displacement | `test/audit-poc/SP106PermissionlessMovingFunds.t.sol` (13 tests) |
@@ -265,14 +265,21 @@ on the design intent. No severity is claimed here. In-PR rows first.
 
 ## 7. Test assets offered upstream
 
-The following 22 Foundry test files in `solidity/test/audit-poc/` are available for inclusion in the upstream
-repository test suite. They are the files that ran during the audit, byte for byte. Each mutation guard test
-passes on clean PR #1116 code and fails when the corresponding mutant is introduced.
+The 22 Foundry guard tests in `solidity/test/audit-poc/` ship with this branch. They are the post-fix versions of
+the audit proofs of concept: each one passes on the fixed code in this PR and fails when the corresponding mutant
+is reintroduced. Where a fix changed a signature (R-01's proof-carrying `requestReservationAcceptance`), the test
+drives the fixed interface and asserts the refusal the fix adds.
 
-Running them needs two things this branch does not carry: `lib/forge-std` (the `foundry.toml` remapping points
-at it, and the repository has no `lib/`) and the fuzz harness helpers under `solidity/test/fizz/` that several
-of the files import. `foundry.toml` collects `test-foundry` as the Foundry suite, so nothing here runs in CI
-until they are wired in deliberately.
+They import the fuzz harness helpers under `solidity/test/fizz/` that this branch carries. To run them:
+
+```sh
+cd solidity
+yarn foundry:install   # pins lib/forge-std, which foundry.toml remaps and Git ignores
+yarn test:audit-poc    # FOUNDRY_PROFILE=audit forge test -vvv
+```
+
+`foundry.toml` gives them the opt-in `audit` profile (`test = "test/audit-poc"`); the default and `ci` profiles
+keep `test-foundry` as the only suite, so CI is unchanged.
 
 | Test file | Pinned invariant / defect guard | Mutation test / origin |
 |---|---|---|

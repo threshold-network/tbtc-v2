@@ -2,8 +2,7 @@
 pragma solidity 0.8.17;
 
 // PoC for audit finding F08 "Anyone can strand an aged reservation before a
-// reanchor can run" (.solidity-auditor/runs/20260930-085204/full-report.md
-// lines 288-316).
+// reanchor can run" (solidity/docs/audit/pr-1116-reservations.md).
 //
 // Source lines involved (solidity/contracts/bridge):
 //   Reservation.sol:1091-1116  notifyReservationStranded (no caller check;
@@ -97,101 +96,59 @@ contract F08StrandBeforeReanchor is Test, Handlers {
     // Main PoC: one transaction from a Live wallet to a Stranded position
     // ------------------------------------------------------------------
 
-    /// @notice An aged reservation sits on a wallet that is still Live. An
-    ///         unprivileged account, in a single transaction, moves the
-    ///         wallet Live -> MovingFunds -> Closing and strands the
-    ///         reservation. The honest permissionless reanchor was not
-    ///         available while the wallet was Live (only governance may
-    ///         rotate a Live wallet's anchor) and after the strand every
-    ///         reanchor request, including governance's, reverts.
-    function test_F08_anyoneStrandsAgedReservationInOneTxThenReanchorReverts()
-        public
-    {
+    /// @notice R-07 regression. An aged reservation sits on a wallet that is
+    ///         still Live. The one-transaction strike (Live -> MovingFunds ->
+    ///         Closing -> Stranded) now reverts: a Closing wallet's positions
+    ///         are strandable only after its closing period. If the attacker
+    ///         stops after forcing Closing, the owner can still re-anchor.
+    function test_F08_oneTxStrikeRevertsAndReanchorRightSurvives() public {
         (uint256 key, bytes20 src, bytes20 dst) = _openReservation();
         Reservation.ReservationRequest memory r0 = reservationRouter
             .reservations(key);
-        uint256 eligibleAt = _dissolutionEligibleAt(r0);
+        vm.warp(_dissolutionEligibleAt(r0));
 
-        // Age the reservation to exactly its dissolution-eligible timestamp.
-        vm.warp(eligibleAt);
+        vm.prank(attacker);
+        F08Striker striker = new F08Striker(bridge);
+        vm.prank(attacker);
+        vm.expectRevert(bytes(ERR_WALLET_NOT_STRANDABLE));
+        striker.strike(src, key);
+
+        // The whole strike reverted: the wallet is still Live and the
+        // position Active.
+        assertEq(_ws(src), _w(Wallets.WalletState.Live), "src still Live");
         assertEq(
-            uint256(r0.acceptedAt) + 91 days,
-            eligibleAt,
-            "eligible at T0 + term + delay"
+            uint256(uint8(reservationRouter.reservations(key).state)),
+            uint256(uint8(Reservation.ReservationState.Active))
         );
 
-        // Pre-state: wallet Live, reservation Active, one slot used.
-        assertEq(_ws(src), _w(Wallets.WalletState.Live), "src Live");
-        assertEq(uint256(reservationRouter.walletReservationsCount(src)), 1);
-        assertEq(
-            uint256(reservationRouter.walletReservationsAmount(src)),
-            ANCHOR_SAT
-        );
-        (uint32 activeBefore, ) = reservationRouter.activeReservationsCount();
-        assertEq(uint256(activeBefore), 1);
-        assertEq(_totalAmount(), ANCHOR_SAT);
-        bytes32 anchorTx = r0.anchorTxHash;
-        assertEq(reservationRouter.reservationByAnchorUtxo(anchorTx, 0), key);
-
-        // While Live, a permissionless reanchor is refused and so is a strand.
-        vm.prank(honest);
-        vm.expectRevert(bytes(ERR_LIVE_NEEDS_GOV));
-        reservationRouter.requestReservationReanchor(key, dst);
+        // Forcing Closing without the strand leaves the closing period as
+        // an exclusive re-anchor window.
+        _forceClosing(src);
+        vm.prank(attacker);
         vm.expectRevert(bytes(ERR_WALLET_NOT_STRANDABLE));
         reservationRouter.notifyReservationStranded(key);
 
-        uint256 ownerBank = bank.balanceOf(r0.owner);
-        uint256 vaultBank = bank.balanceOf(address(tbtcVault));
-        uint256 rvBank = bank.balanceOf(address(reservationVault));
-
-        // The attack: a fresh, role-less account, one transaction.
-        vm.prank(attacker);
-        F08Striker striker = new F08Striker(bridge);
-        assertTrue(attacker != governance && attacker != spvMaintainer);
-
-        vm.expectEmit(true, true, true, true, address(bridge));
-        emit ReservationStranded(key, src, r0.owner, r0.anchorAmount);
-        vm.prank(attacker);
-        striker.strike(src, key);
-
-        // Wallet was pushed to Closing in the same tx.
-        Wallets.Wallet memory w = bridge.wallets(src);
-        assertEq(uint256(uint8(w.state)), _w(Wallets.WalletState.Closing));
-        assertEq(uint256(w.closingStartedAt), block.timestamp);
-
-        // Reservation is Stranded; capacity and anchor index released.
-        Reservation.ReservationRequest memory r1 = reservationRouter
-            .reservations(key);
-        assertEq(
-            uint256(uint8(r1.state)),
-            uint256(uint8(Reservation.ReservationState.Stranded)),
-            "reservation Stranded"
+        vm.warp(
+            uint256(bridge.wallets(src).closingStartedAt) +
+                WALLET_CLOSING_PERIOD -
+                1
         );
-        assertEq(uint256(reservationRouter.walletReservationsCount(src)), 0);
-        assertEq(uint256(reservationRouter.walletReservationsAmount(src)), 0);
-        (uint32 activeAfter, ) = reservationRouter.activeReservationsCount();
-        assertEq(uint256(activeAfter), 0);
-        assertEq(_totalAmount(), 0);
-        assertEq(reservationRouter.reservationByAnchorUtxo(anchorTx, 0), 0);
-        // The anchor itself is not spent and the record still shows it.
-        assertEq(uint256(r1.anchorAmount), ANCHOR_SAT);
-        assertEq(r1.owner, r0.owner);
-        assertFalse(bridge.spentMainUTXOs(_utxoKey(anchorTx)), "anchor unspent");
+        vm.prank(attacker);
+        vm.expectRevert(bytes(ERR_WALLET_NOT_STRANDABLE));
+        reservationRouter.notifyReservationStranded(key);
 
-        // No Bank balance moved: the owner keeps the minted claim, the
-        // position just loses its reservation (anchor tracking and the
-        // reanchor / in-kind rights tied to it).
-        assertEq(bank.balanceOf(r0.owner), ownerBank);
-        assertEq(bank.balanceOf(address(tbtcVault)), vaultBank);
-        assertEq(bank.balanceOf(address(reservationVault)), rvBank);
-
-        // The honest reanchor path is closed: permissionless and governance.
         vm.prank(honest);
-        vm.expectRevert(bytes(ERR_NOT_ACTIVE));
-        reservationRouter.requestReservationReanchor(key, dst);
-        vm.prank(governance);
-        vm.expectRevert(bytes(ERR_NOT_ACTIVE));
-        reservationRouter.requestReservationReanchor(key, dst);
+        reservationRouter.requestReservationReanchor(
+            key,
+            dst,
+            new uint32[](0),
+            0
+        );
+        assertEq(
+            uint256(uint8(reservationRouter.reservations(key).state)),
+            uint256(uint8(Reservation.ReservationState.ActionPending)),
+            "owner re-anchored inside the closing period"
+        );
     }
 
     // ------------------------------------------------------------------
@@ -215,7 +172,12 @@ contract F08StrandBeforeReanchor is Test, Handlers {
         assertEq(_ws(src), _w(Wallets.WalletState.Closing));
 
         vm.prank(honest);
-        reservationRouter.requestReservationReanchor(key, dst);
+        reservationRouter.requestReservationReanchor(
+            key,
+            dst,
+            new uint32[](0),
+            0
+        );
 
         Reservation.ReservationRequest memory r1 = reservationRouter
             .reservations(key);
@@ -266,19 +228,24 @@ contract F08StrandBeforeReanchor is Test, Handlers {
 
         // Reanchor is allowed in the very same second.
         vm.prank(honest);
-        reservationRouter.requestReservationReanchor(key, dst);
+        reservationRouter.requestReservationReanchor(
+            key,
+            dst,
+            new uint32[](0),
+            0
+        );
 
         vm.warp(eligibleAt);
         vm.expectRevert(bytes(ERR_NOT_ACTIVE));
         reservationRouter.notifyReservationStranded(key);
     }
 
-    /// @notice A reanchor request that times out (the wallet did not sign in
-    ///         time) returns the reservation to Active with a cooldown of one
-    ///         action timeout. Strand has no cooldown: past eligibility
-    ///         anyone strands it while the honest permissionless retry is
-    ///         still locked out by "Reanchor cooldown in effect".
-    function test_F08_strandInsideReanchorCooldownAfterTimedOutRequest()
+    /// @notice A re-anchor request that times out starts a cooldown of one
+    ///         action timeout. With the R-07 window the strand stays closed
+    ///         until the wallet's closing period ends, so it cannot land
+    ///         inside the cooldown (test/fizz/Base.sol: action timeout 1 day,
+    ///         closing period 2 days, both counted from the same second).
+    function test_F08_noStrandInsideReanchorCooldownAfterTimedOutRequest()
         public
     {
         (uint256 key, bytes20 src, bytes20 dst) = _openReservation();
@@ -286,9 +253,17 @@ contract F08StrandBeforeReanchor is Test, Handlers {
             .reservations(key);
         vm.warp(_dissolutionEligibleAt(r0));
         _forceClosing(src);
+        uint256 closingEnd =
+            uint256(bridge.wallets(src).closingStartedAt) +
+                WALLET_CLOSING_PERIOD;
 
         vm.prank(honest);
-        reservationRouter.requestReservationReanchor(key, dst);
+        reservationRouter.requestReservationReanchor(
+            key,
+            dst,
+            new uint32[](0),
+            0
+        );
         uint64 nonce = reservationRouter.reservations(key).requestNonce;
         uint32 timeoutAt = reservationRouter
             .reservationActions(key, nonce)
@@ -297,35 +272,40 @@ contract F08StrandBeforeReanchor is Test, Handlers {
         vm.warp(timeoutAt);
         vm.prank(attacker);
         reservationRouter.notifyReservationActionTimeout(key);
-
         Reservation.ReservationRequest memory r1 = reservationRouter
             .reservations(key);
-        assertEq(
-            uint256(uint8(r1.state)),
-            uint256(uint8(Reservation.ReservationState.Active))
+        assertLe(
+            uint256(r1.reanchorCooldownUntil),
+            closingEnd,
+            "cooldown ends inside the window"
         );
-        assertEq(uint256(r1.reanchorCooldownUntil), block.timestamp + 1 days);
-        assertEq(uint256(reservationRouter.walletReservationsCount(dst)), 0);
 
-        // Honest permissionless retry is locked out by the cooldown ...
+        // Inside the cooldown neither the honest retry nor a strand lands.
         vm.prank(honest);
         vm.expectRevert(bytes(ERR_COOLDOWN));
-        reservationRouter.requestReservationReanchor(key, dst);
-
-        // ... but a strand needs no cooldown and lands immediately.
-        vm.prank(attacker);
-        reservationRouter.notifyReservationStranded(key);
-        assertEq(
-            uint256(uint8(reservationRouter.reservations(key).state)),
-            uint256(uint8(Reservation.ReservationState.Stranded))
+        reservationRouter.requestReservationReanchor(
+            key,
+            dst,
+            new uint32[](0),
+            0
         );
-        assertEq(uint256(reservationRouter.walletReservationsCount(src)), 0);
+        vm.prank(attacker);
+        vm.expectRevert(bytes(ERR_WALLET_NOT_STRANDABLE));
+        reservationRouter.notifyReservationStranded(key);
 
-        // After the cooldown the retry is gone for good.
+        // At the end of the cooldown the honest retry goes through.
         vm.warp(r1.reanchorCooldownUntil);
         vm.prank(honest);
-        vm.expectRevert(bytes(ERR_NOT_ACTIVE));
-        reservationRouter.requestReservationReanchor(key, dst);
+        reservationRouter.requestReservationReanchor(
+            key,
+            dst,
+            new uint32[](0),
+            0
+        );
+        assertEq(
+            uint256(uint8(reservationRouter.reservations(key).state)),
+            uint256(uint8(Reservation.ReservationState.ActionPending))
+        );
     }
 
     // ------------------------------------------------------------------
@@ -344,9 +324,10 @@ contract F08StrandBeforeReanchor is Test, Handlers {
         vm.warp(_dissolutionEligibleAt(r0));
         _forceClosing(src);
 
-        uint256 closeAt = uint256(bridge.wallets(src).closingStartedAt) +
-            WALLET_CLOSING_PERIOD +
-            1;
+        uint256 closeAt =
+            uint256(bridge.wallets(src).closingStartedAt) +
+                WALLET_CLOSING_PERIOD +
+                1;
         vm.warp(closeAt);
 
         // Control: the reservation pins the wallet in Closing.
@@ -370,11 +351,19 @@ contract F08StrandBeforeReanchor is Test, Handlers {
         Reservation.ReservationRequest memory r1 = reservationRouter
             .reservations(key);
         assertEq(uint256(r1.anchorAmount), ANCHOR_SAT);
-        assertEq(reservationRouter.reservationByAnchorUtxo(r0.anchorTxHash, 0), 0);
+        assertEq(
+            reservationRouter.reservationByAnchorUtxo(r0.anchorTxHash, 0),
+            0
+        );
 
         vm.prank(honest);
         vm.expectRevert(bytes(ERR_NOT_ACTIVE));
-        reservationRouter.requestReservationReanchor(key, dst);
+        reservationRouter.requestReservationReanchor(
+            key,
+            dst,
+            new uint32[](0),
+            0
+        );
     }
 
     // ------------------------------------------------------------------
@@ -391,8 +380,9 @@ contract F08StrandBeforeReanchor is Test, Handlers {
         dst = _registerWalletFromKey(1);
         src = harnessWallets[0];
 
-        // amount = 11_000 + 39_000 = 50_000 sat, miner fee 0, wallet index 0.
-        reservationRouter_revealAndAcceptReservedDeposit_flow(39_000, 0, 1, 0);
+        // amount = 12_001 (R-09 floor: minAmount + 2 * txMaxFee + 1)
+        // + 37_999 = 50_000 sat, miner fee 0, wallet index 0.
+        reservationRouter_revealAndAcceptReservedDeposit_flow(37_999, 0, 1, 0);
 
         require(harnessReservationKeys.length == 1, "F08: no reservation");
         key = harnessReservationKeys[0];
@@ -416,11 +406,9 @@ contract F08StrandBeforeReanchor is Test, Handlers {
         vm.stopPrank();
     }
 
-    function _dissolutionEligibleAt(Reservation.ReservationRequest memory r)
-        internal
-        pure
-        returns (uint256)
-    {
+    function _dissolutionEligibleAt(
+        Reservation.ReservationRequest memory r
+    ) internal pure returns (uint256) {
         return uint256(r.dissolutionEligibleAt);
     }
 

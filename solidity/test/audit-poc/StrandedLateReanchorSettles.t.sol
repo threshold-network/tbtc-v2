@@ -52,10 +52,10 @@ pragma solidity 0.8.17;
 //     settlement), w1 holds exactly one position of the new anchor amount,
 //     the global active count is 1 and the global amount equals the anchor
 //     amount. No second `ReservationStranded` is emitted.
-//   - w1 Closing (test 2): the late settlement strands again with
-//     `evidenceAlreadyEmitted = true`. The reservation ends Stranded, every
-//     counter is back to 0 and no second `ReservationStranded` evidence is
-//     emitted.
+//   - w1 Closing (test 2): since the R-08 fix a Closing target is treated
+//     like a Live one (its signers still exist and the position keeps its
+//     re-anchor right), so the position settles Active on w1 with the same
+//     counters as test 1. No second `ReservationStranded` is emitted.
 //
 // Both tests PASS on the PR code and FAIL with the call removed (underflow
 // revert at the source wallet subtraction). [INFERENCE] for the mutant side,
@@ -116,7 +116,11 @@ contract StrandedLateReanchorSettles is Test, Handlers {
     function test_strandedPosition_lateReanchorProofSettlesOnLiveTarget()
         public
     {
-        (Dep memory d, bytes32 oldAnchorTxHash, uint64 nonceN) = _strandPosition();
+        (
+            Dep memory d,
+            bytes32 oldAnchorTxHash,
+            uint64 nonceN
+        ) = _strandPosition();
 
         assertEq(
             uint256(uint8(bridge.wallets(w1).state)),
@@ -155,7 +159,9 @@ contract StrandedLateReanchorSettles is Test, Handlers {
         assertEq(
             _countLogs(
                 logs,
-                keccak256("ReservationReanchored(uint256,uint64,bytes20,bytes32,uint64,uint64)")
+                keccak256(
+                    "ReservationReanchored(uint256,uint64,bytes20,bytes32,uint64,uint64)"
+                )
             ),
             1,
             "ReservationReanchored emitted once"
@@ -214,14 +220,18 @@ contract StrandedLateReanchorSettles is Test, Handlers {
     }
 
     /// @notice Target wallet w1 left Live before the proof (zero main UTXO
-    ///         and count 0, so anyone sends it straight to Closing). The late
-    ///         settlement strands the position again with the evidence flag
-    ///         set: the reservation ends Stranded on w1, every counter is 0
-    ///         and no second `ReservationStranded` is emitted.
-    function test_strandedPosition_lateReanchorProofStrandsAgainOnClosingTarget()
+    ///         and count 0, so anyone sends it straight to Closing). Since the
+    ///         R-08 fix the late settlement leaves the position Active on the
+    ///         Closing w1 with its counters restored, and no second
+    ///         `ReservationStranded` is emitted.
+    function test_strandedPosition_lateReanchorProofSettlesActiveOnClosingTarget()
         public
     {
-        (Dep memory d, bytes32 oldAnchorTxHash, uint64 nonceN) = _strandPosition();
+        (
+            Dep memory d,
+            bytes32 oldAnchorTxHash,
+            uint64 nonceN
+        ) = _strandPosition();
 
         BitcoinTx.UTXO memory none = BitcoinTx.UTXO(bytes32(0), 0, 0);
         vm.prank(ANYONE);
@@ -270,16 +280,16 @@ contract StrandedLateReanchorSettles is Test, Handlers {
             .reservations(d.key);
         assertEq(
             uint256(uint8(r.state)),
-            uint256(uint8(Reservation.ReservationState.Stranded)),
-            "Stranded again on the Closing target"
+            uint256(uint8(Reservation.ReservationState.Active)),
+            "Active on the Closing target"
         );
         assertTrue(r.walletPubKeyHash == w1, "custodian is w1");
         assertEq(r.anchorTxHash, newAnchorTxHash, "new anchor tx");
         assertEq(uint256(r.anchorAmount), ANCHOR_SAT, "anchor amount");
         assertEq(
             reservationRouter.reservationByAnchorUtxo(newAnchorTxHash, 0),
-            0,
-            "new anchor not indexed"
+            d.key,
+            "new anchor indexed"
         );
         assertTrue(
             bridge.spentMainUTXOs(_utxoKey(oldAnchorTxHash)),
@@ -288,10 +298,10 @@ contract StrandedLateReanchorSettles is Test, Handlers {
 
         assertEq(_count(w0), 0, "w0 count");
         assertEq(_amount(w0), 0, "w0 amount");
-        assertEq(_count(w1), 0, "w1 count");
-        assertEq(_amount(w1), 0, "w1 amount");
-        assertEq(_activeCount(), 0, "active reservations");
-        assertEq(_totalAmount(), 0, "global amount");
+        assertEq(_count(w1), 1, "w1 count");
+        assertEq(_amount(w1), ANCHOR_SAT, "w1 amount");
+        assertEq(_activeCount(), 1, "active reservations");
+        assertEq(_totalAmount(), ANCHOR_SAT, "global amount");
     }
 
     // ------------------------------------------------------------------
@@ -305,11 +315,7 @@ contract StrandedLateReanchorSettles is Test, Handlers {
     ///      data the late proof needs.
     function _strandPosition()
         internal
-        returns (
-            Dep memory d,
-            bytes32 oldAnchorTxHash,
-            uint64 nonceN
-        )
+        returns (Dep memory d, bytes32 oldAnchorTxHash, uint64 nonceN)
     {
         address depositor = actors[0];
 
@@ -326,7 +332,12 @@ contract StrandedLateReanchorSettles is Test, Handlers {
         // Generation N: governance rotates the anchor of the Live wallet w0
         // to w1.
         vm.prank(governance);
-        reservationRouter.requestReservationReanchor(d.key, w1);
+        reservationRouter.requestReservationReanchor(
+            d.key,
+            w1,
+            new uint32[](0),
+            0
+        );
         nonceN = reservationRouter.reservations(d.key).requestNonce;
         assertEq(uint256(nonceN), 2, "N is the second generation");
         uint32 timeoutAtN = reservationRouter
@@ -410,11 +421,10 @@ contract StrandedLateReanchorSettles is Test, Handlers {
     // ------------------------------------------------------------------
 
     /// @dev Counts bridge logs whose first topic is `topic0`.
-    function _countLogs(Vm.Log[] memory logs, bytes32 topic0)
-        internal
-        view
-        returns (uint256 n)
-    {
+    function _countLogs(
+        Vm.Log[] memory logs,
+        bytes32 topic0
+    ) internal view returns (uint256 n) {
         for (uint256 i; i < logs.length; i++) {
             if (
                 logs[i].emitter == address(bridge) &&
@@ -454,15 +464,11 @@ contract StrandedLateReanchorSettles is Test, Handlers {
         d.key = uint256(keccak256(abi.encodePacked(d.fundingTxHash, d.outIdx)));
         vm.prank(depositor);
         bridge.revealDeposit(fundingTx, reveal);
+        _recordFunding(d.key, fundingTx, d.outIdx);
     }
 
-    function _request(
-        address depositor,
-        bytes20 wallet,
-        uint256 key
-    ) internal {
-        vm.prank(depositor);
-        reservationRouter.requestReservationAcceptance(key, wallet);
+    function _request(address depositor, bytes20 wallet, uint256 key) internal {
+        _requestAcceptanceAs(depositor, key, wallet);
     }
 
     /// @dev Proves the 1-input (deposit outpoint) 1-output (wallet) anchor
@@ -510,12 +516,7 @@ contract StrandedLateReanchorSettles is Test, Handlers {
         newAnchorTxHash = BtcBuilder.txHash(t);
         BitcoinTx.Proof memory proof = BtcBuilder.prove(t, 1);
         vm.prank(spvMaintainer);
-        reservationRouter.submitReservationReanchorProof(
-            t,
-            proof,
-            key,
-            nonce
-        );
+        reservationRouter.submitReservationReanchorProof(t, proof, key, nonce);
     }
 
     function _count(bytes20 wallet) internal view returns (uint256) {

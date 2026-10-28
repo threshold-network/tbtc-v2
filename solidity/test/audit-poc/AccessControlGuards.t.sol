@@ -3,8 +3,8 @@ pragma solidity 0.8.17;
 
 // Regression tests for access-control modifiers that survived the MRM
 // (modifier removal) mutation pass of 2026-10-12: removing the modifier did
-// not make any Foundry or Hardhat test fail. Rows in
-// fizz_data/mutation/TRIAGE.md (fifth pass, part 2).
+// not make any Foundry or Hardhat test fail. Rows in the audit record
+// (solidity/docs/audit/pr-1116-reservations.md, section 7).
 //
 //   ReservationRouter.sol:257  submitReservationAcceptanceProof onlySpvMaintainer
 //   ReservationRouter.sol:366  updateReservationParameters      onlyGovernance
@@ -46,12 +46,22 @@ contract AccessControlGuardsTest is Test, Handlers {
     /// @notice Only governance may change the reservation caps; the caps
     ///         stay as they were.
     function test_updateReservationCaps_refusedForNonGovernance() public {
-        (uint64 perWallet, uint64 single, uint32 maxActive) = reservationRouter
-            .reservationCaps();
+        (
+            uint64 perWallet,
+            uint64 single,
+            uint32 maxActive,
+
+        ) = reservationRouter.reservationCaps();
         vm.prank(stranger);
         vm.expectRevert(bytes("Caller is not the governance"));
-        reservationRouter.updateReservationCaps(perWallet + 1, single, maxActive);
-        (uint64 after_, , ) = reservationRouter.reservationCaps();
+        reservationRouter.updateReservationCaps(
+            perWallet + 1,
+            single,
+            maxActive,
+            MAX_THIRD_PARTY_REANCHOR_HOLDS_PER_WALLET,
+            HANDOFF_RESERVE_WALLETS
+        );
+        (uint64 after_, , , ) = reservationRouter.reservationCaps();
         assertEq(uint256(after_), uint256(perWallet), "caps unchanged");
     }
 

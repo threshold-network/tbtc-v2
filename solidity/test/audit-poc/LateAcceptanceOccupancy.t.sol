@@ -177,12 +177,11 @@ contract LateAcceptanceOccupancyTest is Test, Handlers {
     /// @dev Requests acceptance of `key`, warps to `timeoutAt`, reports the
     ///      timeout and checks that the capacity was released. Leaves the
     ///      clock inside the late settlement window.
-    function _requestAndTimeOut(uint256 key, Counters memory baseline)
-        internal
-        returns (uint64 requestNonce)
-    {
-        vm.prank(depositor);
-        reservationRouter.requestReservationAcceptance(key, wallet0);
+    function _requestAndTimeOut(
+        uint256 key,
+        Counters memory baseline
+    ) internal returns (uint64 requestNonce) {
+        _requestAcceptanceAs(depositor, key, wallet0);
         requestNonce = reservationRouter.reservations(key).requestNonce;
         Reservation.ReservationAction memory action = reservationRouter
             .reservationActions(key, requestNonce);
@@ -204,7 +203,9 @@ contract LateAcceptanceOccupancyTest is Test, Handlers {
         assertEq(
             uint256(
                 uint8(
-                    reservationRouter.reservationActions(key, requestNonce).state
+                    reservationRouter
+                        .reservationActions(key, requestNonce)
+                        .state
                 )
             ),
             uint256(uint8(Reservation.ActionState.TimedOut)),
@@ -289,7 +290,11 @@ contract LateAcceptanceOccupancyTest is Test, Handlers {
         );
         assertEq(
             uint256(
-                uint8(reservationRouter.reservationActions(key, requestNonce).state)
+                uint8(
+                    reservationRouter
+                        .reservationActions(key, requestNonce)
+                        .state
+                )
             ),
             uint256(uint8(Reservation.ActionState.Settled)),
             "acceptance action is Settled"
@@ -302,7 +307,9 @@ contract LateAcceptanceOccupancyTest is Test, Handlers {
 
     /// @dev Reads the wallet exposure (count and amount), the global
     ///      reserved total and the global occupancy from the router getters.
-    function _counters(bytes20 wallet) internal view returns (Counters memory c) {
+    function _counters(
+        bytes20 wallet
+    ) internal view returns (Counters memory c) {
         c.walletCount = reservationRouter.walletReservationsCount(wallet);
         c.walletAmount = reservationRouter.walletReservationsAmount(wallet);
         c.reservedTotal = uint64(_reservationParameterWords()[6]);
@@ -329,7 +336,9 @@ contract LateAcceptanceOccupancyTest is Test, Handlers {
     ///      its key and funding transaction. The refund deadline is 91 days
     ///      out, beyond `timeoutAt + 24h`. The funding transaction is
     ///      fabricated: nothing is proven on Bitcoin.
-    function _revealReserved(bytes20 wallet)
+    function _revealReserved(
+        bytes20 wallet
+    )
         internal
         returns (
             uint256 key,
@@ -369,6 +378,7 @@ contract LateAcceptanceOccupancyTest is Test, Handlers {
         );
         vm.prank(depositor);
         bridge.revealDeposit(fundingTx, reveal);
+        _recordFunding(key, fundingTx, outputIndex);
     }
 
     /// @dev Builds the 1-in-1-out anchor transaction spending the deposit
@@ -399,7 +409,10 @@ contract LateAcceptanceOccupancyTest is Test, Handlers {
     function _le32(uint32 v) internal pure returns (bytes4) {
         return
             bytes4(
-                (v << 24) | ((v & 0xff00) << 8) | ((v >> 8) & 0xff00) | (v >> 24)
+                (v << 24) |
+                    ((v & 0xff00) << 8) |
+                    ((v >> 8) & 0xff00) |
+                    (v >> 24)
             );
     }
 }

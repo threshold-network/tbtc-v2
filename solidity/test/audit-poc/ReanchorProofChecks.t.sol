@@ -158,30 +158,29 @@ contract ReanchorProofChecksTest is Test, Handlers {
     ///      key, the current anchor txid and the re-anchor generation.
     function _activeAndRequest()
         internal
-        returns (
-            uint256 key,
-            bytes32 anchorTxHash,
-            uint64 nonce
-        )
+        returns (uint256 key, bytes32 anchorTxHash, uint64 nonce)
     {
         address depositor = actors[0];
         Dep memory d = _reveal(depositor, w0, DEPOSIT_SAT, 31);
-        vm.prank(depositor);
-        reservationRouter.requestReservationAcceptance(d.key, w0);
+        _requestAcceptanceAs(depositor, d.key, w0);
         anchorTxHash = _proveAcceptance(d, w0, ANCHOR_SAT, 1);
         key = d.key;
 
         vm.prank(governance);
-        reservationRouter.requestReservationReanchor(key, w1);
+        reservationRouter.requestReservationReanchor(
+            key,
+            w1,
+            new uint32[](0),
+            0
+        );
         nonce = reservationRouter.reservations(key).requestNonce;
         assertEq(uint256(nonce), 2, "re-anchor is generation 2");
     }
 
-    function _countTopic(Vm.Log[] memory logs, bytes32 topic0)
-        internal
-        view
-        returns (uint256 n)
-    {
+    function _countTopic(
+        Vm.Log[] memory logs,
+        bytes32 topic0
+    ) internal view returns (uint256 n) {
         for (uint256 i; i < logs.length; i++) {
             if (
                 logs[i].emitter == address(bridge) &&
@@ -221,6 +220,7 @@ contract ReanchorProofChecksTest is Test, Handlers {
         d.key = uint256(keccak256(abi.encodePacked(d.fundingTxHash, d.outIdx)));
         vm.prank(depositor);
         bridge.revealDeposit(fundingTx, reveal);
+        _recordFunding(d.key, fundingTx, d.outIdx);
     }
 
     /// @dev Proves the 1-input (deposit outpoint) 1-output (wallet) anchor
