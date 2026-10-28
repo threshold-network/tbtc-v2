@@ -21,6 +21,7 @@ describe("Bridge - Parameters", () => {
   ) => Promise<[Contract, Deployment]>
 
   before(async () => {
+    // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({ governance, thirdParty, bridge, bridgeGovernance, deployBridge } =
       await bridgeFixture())
   })
@@ -28,7 +29,9 @@ describe("Bridge - Parameters", () => {
   describe("updateDepositParameters", () => {
     context("when caller is the contract guvnor", () => {
       context("when all new parameter values are correct", () => {
-        const newDepositDustThreshold = constants.depositDustThreshold * 2
+        // The reservation caps equal the fixture dust threshold, and a
+        // dust threshold above them is rejected, so lower it instead.
+        const newDepositDustThreshold = constants.depositDustThreshold / 2
         const newDepositTreasuryFeeDivisor =
           constants.depositTreasuryFeeDivisor * 2
         const newDepositTxMaxFee = constants.depositTxMaxFee * 3
@@ -2032,13 +2035,13 @@ describe("Bridge - Parameters", () => {
       // satisfying the deployed-code guard; it is not exercised through
       // the fallback delegatecall in these tests.
       context("when the reservation router address is already set", () => {
-        let freshBridge: Contract
+        let freshBridge: BridgeStub
 
         before(async () => {
           await createSnapshot()
 
-          ;[freshBridge] = await deployBridge(1)
-          await freshBridge.setReservationRouter(await freshBridge.getAddress())
+          freshBridge = (await deployBridge(1))[0] as unknown as BridgeStub
+          await freshBridge.setReservationRouter(freshBridge.target)
         })
 
         after(async () => {
@@ -2054,12 +2057,12 @@ describe("Bridge - Parameters", () => {
 
       context("when the reservation router address is not set yet", () => {
         context("when the reservation router address is zero", () => {
-          let freshBridge: Contract
+          let freshBridge: BridgeStub
 
           before(async () => {
             await createSnapshot()
 
-            ;[freshBridge] = await deployBridge(1)
+            freshBridge = (await deployBridge(1))[0] as unknown as BridgeStub
           })
 
           after(async () => {
@@ -2076,12 +2079,12 @@ describe("Bridge - Parameters", () => {
         context(
           "when the reservation router address has no deployed code",
           () => {
-            let freshBridge: Contract
+            let freshBridge: BridgeStub
 
             before(async () => {
               await createSnapshot()
 
-              ;[freshBridge] = await deployBridge(1)
+              freshBridge = (await deployBridge(1))[0] as unknown as BridgeStub
             })
 
             after(async () => {
@@ -2097,16 +2100,14 @@ describe("Bridge - Parameters", () => {
         )
 
         context("when the reservation router address is non-zero", () => {
-          let freshBridge: Contract
+          let freshBridge: BridgeStub
           let tx: ContractTransactionResponse
 
           before(async () => {
             await createSnapshot()
 
-            ;[freshBridge] = await deployBridge(1)
-            tx = await freshBridge.setReservationRouter(
-              await freshBridge.getAddress()
-            )
+            freshBridge = (await deployBridge(1))[0] as unknown as BridgeStub
+            tx = await freshBridge.setReservationRouter(freshBridge.target)
           })
 
           after(async () => {
@@ -2115,7 +2116,7 @@ describe("Bridge - Parameters", () => {
 
           it("should set the reservation router address", async () => {
             expect(await freshBridge.getReservationRouter()).to.equal(
-              await freshBridge.getAddress()
+              freshBridge.target
             )
           })
 
@@ -2128,14 +2129,14 @@ describe("Bridge - Parameters", () => {
             // instance's address using the event's standalone ABI
             // fragment.
             const reservationRouterSetEvent = new ethers.Contract(
-              await freshBridge.getAddress(),
+              freshBridge.target,
               ["event ReservationRouterSet(address reservationRouter)"],
               ethers.provider
             )
 
             await expect(tx)
               .to.emit(reservationRouterSetEvent, "ReservationRouterSet")
-              .withArgs(await freshBridge.getAddress())
+              .withArgs(freshBridge.target)
           })
         })
       })

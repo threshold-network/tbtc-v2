@@ -3,7 +3,7 @@ import fs from "fs"
 import path from "path"
 import { HardhatRuntimeEnvironment } from "hardhat/types"
 import { DeployFunction } from "hardhat-deploy/types"
-import { Interface, ZeroAddress, getAddress } from "ethers"
+import { getAddress, Interface, ZeroAddress } from "ethers"
 
 // Known mainnet Timelock Controller address. Owner of the ProxyAdmin,
 // used for scheduling and executing proxy upgrades with a 24h delay. This
@@ -17,7 +17,7 @@ export const KNOWN_TIMELOCK = "0x92f2d8b72a7F6a551Be60b9aa4194248E9B4913D"
 // Timelock, and owner of BridgeGovernance -- the actual submitter of every
 // action generated below. Validated on-chain against BridgeGovernance's
 // actual owner() before any calldata is generated.
-export const KNOWN_COUNCIL_SAFE = "0x9F6e831c8f8939dc0c830c6e492e7cef4f9c2f5f"
+export const KNOWN_COUNCIL_SAFE = "0x9F6e831c8F8939DC0C830C6e492e7cEf4f9C2F5f"
 
 // EIP-1967 transparent proxy admin storage slot. Defined by the standard
 // at https://eips.ethereum.org/EIPS/eip-1967#admin-address and used to
@@ -46,6 +46,63 @@ const REVEAL_DRIFT_SECONDS = 7_200 // 2 hours
 // Margin subtracted from the reveal window so the guard only passes terms
 // with a strictly positive window.
 const REVEAL_FEASIBILITY_MARGIN_SECONDS = 3_600 // 1 hour
+
+/**
+ * Throws when the reservation parameters, combined with the Bridge's live
+ * deposit parameters, would leave no reserved deposit possible. Nothing
+ * on-chain checks this, because the two rules live in different parameter
+ * sets:
+ *  - Deposit.revealDeposit requires
+ *      now + depositRevealAheadPeriod <= refundDeadline
+ *        <= now + reservationTermSeconds + DEPOSIT_REFUND_SAFETY_MARGIN,
+ *    which is an empty window when the reveal-ahead period is longer than
+ *    the term plus the margin;
+ *  - every reveal carries at least depositDustThreshold, so a non-zero
+ *    amount cap below it rejects every reservation.
+ * Either case would activate a vault that can never hold a reservation.
+ */
+export function assertReservedDepositsFeasible(params: {
+  depositDustThreshold: bigint
+  depositRevealAheadPeriod: number
+  termSeconds: number
+  singleAmountCap: bigint
+  perWalletCap: bigint
+  maxTotalAmount: bigint
+}): void {
+  const { depositDustThreshold, depositRevealAheadPeriod, termSeconds } = params
+  if (
+    depositRevealAheadPeriod > 0 &&
+    depositRevealAheadPeriod > termSeconds + DEPOSIT_REFUND_SAFETY_MARGIN
+  ) {
+    throw new Error(
+      `The Bridge's depositRevealAheadPeriod (${depositRevealAheadPeriod}s) ` +
+        `exceeds RESERVATION_TERM_SECONDS (${termSeconds}s) plus the ` +
+        `${DEPOSIT_REFUND_SAFETY_MARGIN}s refund safety margin, so no ` +
+        "reserved deposit could ever be revealed. Raise " +
+        "RESERVATION_TERM_SECONDS to at least " +
+        `${depositRevealAheadPeriod - DEPOSIT_REFUND_SAFETY_MARGIN}s.`
+    )
+  }
+  const amountCaps: Array<[string, bigint]> = [
+    ["RESERVATION_SINGLE_AMOUNT_CAP_SATS", params.singleAmountCap],
+    ["RESERVATION_PER_WALLET_CAP_SATS", params.perWalletCap],
+    ["RESERVATION_MAX_TOTAL_AMOUNT_SATS", params.maxTotalAmount],
+  ]
+  for (const [name, cap] of amountCaps) {
+    if (cap > BigInt(0) && cap < depositDustThreshold) {
+      throw new Error(
+        `${name} (${cap}) is below the Bridge's depositDustThreshold ` +
+          `(${depositDustThreshold}): every reveal carries at least the ` +
+          "dust threshold, so no reservation could fit under this cap."
+      )
+    }
+  }
+  console.log(
+    `\nReserved-deposit feasibility OK: depositRevealAheadPeriod ` +
+      `(${depositRevealAheadPeriod}s) fits the term plus margin, and every ` +
+      `non-zero amount cap is at least depositDustThreshold (${depositDustThreshold})`
+  )
+}
 
 /** A single governance action: an ABI method name plus its call args. */
 interface ActionDefinition {
@@ -90,6 +147,8 @@ export function buildReservationActionDefinitions(params: {
   perWalletCap: bigint
   singleAmountCap: bigint
   maxActive: number
+  maxThirdPartyReanchorHolds: number
+  handoffReserveWallets: number
   minAmount: bigint
   txMaxFee: bigint
   termSeconds: number
@@ -113,12 +172,21 @@ export function buildReservationActionDefinitions(params: {
     },
     {
       method: "beginReservationCapsUpdate",
-      args: [params.perWalletCap, params.singleAmountCap, params.maxActive],
+      args: [
+        params.perWalletCap,
+        params.singleAmountCap,
+        params.maxActive,
+        params.maxThirdPartyReanchorHolds,
+        params.handoffReserveWallets,
+      ],
       label: "beginReservationCapsUpdate (stages the reservation caps update)",
       details: {
         "Max reservations amount per wallet": params.perWalletCap.toString(),
         "Max single amount": params.singleAmountCap.toString(),
         "Max active reservations": params.maxActive.toString(),
+        "Max third-party re-anchor holds per target wallet":
+          params.maxThirdPartyReanchorHolds.toString(),
+        "Hand-off reserve wallets": params.handoffReserveWallets.toString(),
         "Governance delay": "172800s (48h)",
         Note:
           "Finalize order matters: finalizeReservationCapsUpdate must execute " +
@@ -425,7 +493,9 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     "RESERVATION_SINGLE_AMOUNT_CAP_SATS"
   )
   const MAX_ACTIVE = requireEnvNumber("RESERVATION_MAX_ACTIVE")
-
+  const MAX_THIRD_PARTY_REANCHOR_HOLDS = requireEnvNumber(
+    "RESERVATION_MAX_THIRD_PARTY_REANCHOR_HOLDS"
+  )
   const RES_MIN_AMOUNT = requireEnvBigInt("RESERVATION_MIN_AMOUNT_SATS")
   const RES_TX_MAX_FEE = requireEnvBigInt("RESERVATION_TX_MAX_FEE_SATS")
   const RES_TERM_SECONDS = requireEnvNumber("RESERVATION_TERM_SECONDS")
@@ -444,6 +514,9 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const RES_RENEWAL_WINDOW = requireEnvNumber(
     "RESERVATION_RENEWAL_WINDOW_SECONDS"
   )
+  const HANDOFF_RESERVE_WALLETS = requireEnvNumber(
+    "RESERVATION_HANDOFF_RESERVE_WALLETS"
+  )
 
   // Hard-fail the launch-posture invariants that are already decided,
   // rather than warning and letting the operator copy bad calldata into
@@ -452,6 +525,13 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     throw new Error(
       "RESERVATION_MAX_PER_WALLET must be 1 (decided M1 launch value), got " +
         `${MAX_RESERVATIONS_PER_WALLET}`
+    )
+  }
+  if (HANDOFF_RESERVE_WALLETS <= 0) {
+    throw new Error(
+      `RESERVATION_HANDOFF_RESERVE_WALLETS (${HANDOFF_RESERVE_WALLETS}) must ` +
+        "be greater than zero (mirrors updateReservationCaps's 'Hand-off " +
+        "reserve must be greater than zero' require)"
     )
   }
   if (RES_TERM_SECONDS < MIN_RESERVATION_TERM) {
@@ -605,6 +685,18 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     }${revealAheadPeriod > 0 ? `, min feasible term ${minFeasibleTerm}s` : ""}`
   )
 
+  // The reveal-window guard above is stricter than the term check inside
+  // `assertReservedDepositsFeasible`, so it runs first and names the minimum
+  // term; this call then covers the amount caps against the dust threshold.
+  assertReservedDepositsFeasible({
+    depositDustThreshold: BigInt(depositParams[0]),
+    depositRevealAheadPeriod: Number(depositParams[3]),
+    termSeconds: RES_TERM_SECONDS,
+    singleAmountCap: SINGLE_AMOUNT_CAP,
+    perWalletCap: PER_WALLET_CAP,
+    maxTotalAmount: RES_MAX_TOTAL_AMOUNT,
+  })
+
   // --- Re-verify live-wallet slot capacity immediately before generating
   // the finalize/setVaultStatus calldata. Up to 48h can pass between the
   // begin calls above being submitted and their finalize counterparts
@@ -656,6 +748,8 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     perWalletCap: PER_WALLET_CAP,
     singleAmountCap: SINGLE_AMOUNT_CAP,
     maxActive: MAX_ACTIVE,
+    maxThirdPartyReanchorHolds: MAX_THIRD_PARTY_REANCHOR_HOLDS,
+    handoffReserveWallets: HANDOFF_RESERVE_WALLETS,
     minAmount: RES_MIN_AMOUNT,
     txMaxFee: RES_TX_MAX_FEE,
     termSeconds: RES_TERM_SECONDS,

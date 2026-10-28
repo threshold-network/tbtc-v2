@@ -24,6 +24,7 @@
  * m2-only function (does not exist in m1 - no such method in ReservationVault.sol).
  * The re-anchor binding logic it exercises is already covered by the first case.
  */
+/* eslint-disable @typescript-eslint/no-unused-expressions */
 
 // Adversarial settlement tests for the action source-anchor binding:
 // the re-anchor's source-anchor snapshot correctly rejects proofs against
@@ -56,10 +57,10 @@ const { lastBlockTime, increaseTime } = helpers.time
 
 const ZERO_BYTES32 = ethers.ZeroHash
 
-const RESERVATION_TERM = 31536000n // 365 days
-const RESERVATION_GRACE = 2592000n // 30 days
-const RESERVATION_MIN_AMOUNT = 10000n
-const RESERVATION_TX_MAX_FEE = 2000n
+const RESERVATION_TERM = 31536000 // 365 days
+const RESERVATION_GRACE = 2592000 // 30 days
+const RESERVATION_MIN_AMOUNT = 10000
+const RESERVATION_TX_MAX_FEE = 2000
 // `deploy/97_set_reservation_parameters.ts` already runs as part of
 // `deployments.fixture()` and sets real caps (reservationMaxSingleAmount
 // 100,000, maxActiveReservations 100 - see agent-docs/inventory/
@@ -68,10 +69,10 @@ const RESERVATION_TX_MAX_FEE = 2000n
 // relational check (`reservationMaxTotalAmount <= maxActiveReservations *
 // reservationMaxSingleAmount`) is live from that deploy step onward, so
 // this must fit under 100 * 100,000 = 10,000,000 - found 2026-08-26.
-const RESERVATION_MAX_TOTAL = 10000000n
-const MAX_RESERVATIONS_PER_WALLET = 10n
+const RESERVATION_MAX_TOTAL = BigInt("10000000")
+const MAX_RESERVATIONS_PER_WALLET = 10
 const RESERVATION_ACTION_TIMEOUT = 172800 // 48 hours
-const RESERVATION_RENEWAL_WINDOW = 2592000n // 30 days
+const RESERVATION_RENEWAL_WINDOW = 2592000 // 30 days
 
 const SATOSHI_MULTIPLIER = 10n ** 10n
 
@@ -123,12 +124,13 @@ describe("Bridge - Reservation source-anchor binding", () => {
   const refundPubKeyHash = "0x28e081f285138ccbe389c1eb8985716230129f89"
   let refundLocktime: string
 
-  const depositAmount = 3000000n
+  const depositAmount = BigInt(3000000)
   const anchorFee = 1500n
   const anchorAmount = depositAmount - anchorFee
   const grossTbtc = anchorAmount * SATOSHI_MULTIPLIER
 
   before(async () => {
+    // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({
       deployer,
       governance,
@@ -155,7 +157,7 @@ describe("Bridge - Reservation source-anchor binding", () => {
     // `Bridge.fallback()`, exactly like the production caller path.
     reservationRouter = await ethers.getContractAt(
       "ReservationRouter",
-      await bridge.getAddress()
+      bridge.target
     )
     reservationVault = await helpers.contracts.getContract("ReservationVault")
     bridgeGovernanceSigner = await impersonateContract(
@@ -165,7 +167,7 @@ describe("Bridge - Reservation source-anchor binding", () => {
 
     await bridge
       .connect(bridgeGovernanceSigner)
-      .setVaultStatus(await reservationVault.getAddress(), true)
+      .setVaultStatus(reservationVault.target, true)
     // `deploy/97_set_reservation_parameters.ts` already set
     // `reservationMaxSingleAmount` to 100,000 as part of the fixture, but
     // this fixture's anchor is 2,998,500 sat - well over that single-
@@ -174,11 +176,17 @@ describe("Bridge - Reservation source-anchor binding", () => {
     // reservation - found 2026-08-26.
     await reservationRouter
       .connect(bridgeGovernanceSigner)
-      .updateReservationCaps(RESERVATION_MAX_TOTAL, RESERVATION_MAX_TOTAL, 10n) // 10 = 1 wallet * MAX_RESERVATIONS_PER_WALLET, satisfying the Item-3 sizing relation with this fixture's single default Live wallet
+      .updateReservationCaps(
+        RESERVATION_MAX_TOTAL,
+        RESERVATION_MAX_TOTAL,
+        10,
+        1,
+        1
+      ) // 10 = 2 wallets * MAX_RESERVATIONS_PER_WALLET, satisfying the Item-3 sizing relation with this fixture's two Live wallets; 1 = hand-off reserve, leaving one remaining Live wallet with 10 positions
     await reservationRouter
       .connect(bridgeGovernanceSigner)
       .updateReservationParameters(
-        await reservationVault.getAddress(),
+        reservationVault.target,
         RESERVATION_MIN_AMOUNT,
         RESERVATION_TX_MAX_FEE,
         RESERVATION_TERM,
@@ -196,11 +204,12 @@ describe("Bridge - Reservation source-anchor binding", () => {
     await bridge.setDepositTxMaxFee(2000)
     await bridge.setDepositRevealAheadPeriod(0)
     await liveWallet(walletPubKeyHash)
+    // A second Live wallet so the hand-off reserve gate (one Live wallet
+    // held back) still leaves a remaining Live wallet with capacity.
+    await liveWallet(secondWalletPubKeyHash)
 
     const tbtcOwner = await impersonateContract(await tbtc.owner())
-    await tbtc
-      .connect(tbtcOwner)
-      .transferOwnership(await tbtcVault.getAddress())
+    await tbtc.connect(tbtcOwner).transferOwnership(tbtcVault.target)
   })
 
   async function impersonateContract(
@@ -231,7 +240,7 @@ describe("Bridge - Reservation source-anchor binding", () => {
   // ---- Bitcoin fixture crafting (regtest-style difficulty) ----
 
   const REGTEST_BITS_LE = "ffff7f20"
-  const REGTEST_TARGET = 0x7fffffn * 2n ** BigInt(8 * (0x20 - 3))
+  const REGTEST_TARGET = BigInt(0x7fffff) * 2n ** BigInt(8 * (0x20 - 3))
 
   const reverseHex = (hex: string): string =>
     hex.replace(/^0x/, "").match(/../g)!.reverse().join("")
@@ -358,7 +367,7 @@ describe("Bridge - Reservation source-anchor binding", () => {
       walletPubKeyHash: custodian,
       refundPubKeyHash,
       refundLocktime,
-      vault: await reservationVault.getAddress(),
+      vault: reservationVault.target,
     })
 
     const reservationKey = BigInt(
@@ -417,26 +426,31 @@ describe("Bridge - Reservation source-anchor binding", () => {
       const thirdWalletPubKeyHash = ethers.hexlify(ethers.randomBytes(20))
       await liveWallet(secondWalletPubKeyHash)
       await liveWallet(thirdWalletPubKeyHash)
-      const wallet = await bridge.wallets(walletPubKeyHash)
+      const custodianWallet = await bridge.wallets(walletPubKeyHash)
       await bridge.setWallet(walletPubKeyHash, {
-        ecdsaWalletID: wallet.ecdsaWalletID,
-        mainUtxoHash: wallet.mainUtxoHash,
-        pendingRedemptionsValue: wallet.pendingRedemptionsValue,
-        createdAt: wallet.createdAt,
+        ecdsaWalletID: custodianWallet.ecdsaWalletID,
+        mainUtxoHash: custodianWallet.mainUtxoHash,
+        pendingRedemptionsValue: custodianWallet.pendingRedemptionsValue,
+        createdAt: custodianWallet.createdAt,
         movingFundsRequestedAt: await lastBlockTime(),
-        closingStartedAt: wallet.closingStartedAt,
+        closingStartedAt: custodianWallet.closingStartedAt,
         pendingMovedFundsSweepRequestsCount:
-          wallet.pendingMovedFundsSweepRequestsCount,
+          custodianWallet.pendingMovedFundsSweepRequestsCount,
         state: walletState.MovingFunds,
         movingFundsTargetWalletsCommitmentHash:
-          wallet.movingFundsTargetWalletsCommitmentHash,
+          custodianWallet.movingFundsTargetWalletsCommitmentHash,
       })
 
       // Generation 2 authorizes A -> B and times out while its already-
       // confirmed transaction awaits an SPV proof.
       await reservationRouter
         .connect(thirdParty)
-        .requestReservationReanchor(reservationKey, secondWalletPubKeyHash)
+        .requestReservationReanchor(
+          reservationKey,
+          secondWalletPubKeyHash,
+          [],
+          0
+        )
       const firstReanchorTx = buildTx(
         [{ txHash: anchorTx.txHash, index: 0 }],
         [
@@ -446,7 +460,7 @@ describe("Bridge - Reservation source-anchor binding", () => {
           },
         ]
       )
-      await increaseTime(Number(RESERVATION_ACTION_TIMEOUT) + 1)
+      await increaseTime(RESERVATION_ACTION_TIMEOUT + 1)
       await reservationRouter
         .connect(thirdParty)
         .notifyReservationActionTimeout(reservationKey)
@@ -456,13 +470,18 @@ describe("Bridge - Reservation source-anchor binding", () => {
       // this test actually characterizes (source-anchor binding across a
       // stale generation's replay); without this the next request reverts
       // with "Reanchor cooldown in effect" before reaching that scenario.
-      await increaseTime(Number(RESERVATION_ACTION_TIMEOUT) + 1)
+      await increaseTime(RESERVATION_ACTION_TIMEOUT + 1)
 
       // Generation 3 authorizes the same source A -> C and also times out.
       await reservationRouter
         .connect(thirdParty)
-        .requestReservationReanchor(reservationKey, thirdWalletPubKeyHash)
-      await increaseTime(Number(RESERVATION_ACTION_TIMEOUT) + 1)
+        .requestReservationReanchor(
+          reservationKey,
+          thirdWalletPubKeyHash,
+          [],
+          0
+        )
+      await increaseTime(RESERVATION_ACTION_TIMEOUT + 1)
       await reservationRouter
         .connect(thirdParty)
         .notifyReservationActionTimeout(reservationKey)
@@ -499,7 +518,7 @@ describe("Bridge - Reservation source-anchor binding", () => {
           secondWalletPubKeyHash,
           firstReanchorTx.txHash,
           anchorAmount - 500n,
-          500n
+          500
         )
 
       // A freshly crafted B -> C transaction has generation 3's shape but
@@ -548,5 +567,76 @@ describe("Bridge - Reservation source-anchor binding", () => {
     //   // DROPPED: depends on `redeemReservation` on ReservationVault, which
     //   // is m2-only (does not exist in m1).
     // })
+  })
+  // The router's read-only surface must reflect the on-chain state it is
+  // delegate-called against: the pending third-party hold counter and the
+  // anchor-outpoint index are the two mappings the router exposes, and the
+  // mutations above are the ones that populate them.
+  describe("router getters", () => {
+    beforeEach(async () => {
+      await createSnapshot()
+    })
+
+    afterEach(async () => {
+      await restoreSnapshot()
+    })
+
+    it("reads the pending third-party re-anchor hold back from the router", async () => {
+      const { reservationKey } = await makeAcceptedReservation()
+      const custodianWallet = await bridge.wallets(walletPubKeyHash)
+      await bridge.setWallet(walletPubKeyHash, {
+        ecdsaWalletID: custodianWallet.ecdsaWalletID,
+        mainUtxoHash: custodianWallet.mainUtxoHash,
+        pendingRedemptionsValue: custodianWallet.pendingRedemptionsValue,
+        createdAt: custodianWallet.createdAt,
+        movingFundsRequestedAt: await lastBlockTime(),
+        closingStartedAt: custodianWallet.closingStartedAt,
+        pendingMovedFundsSweepRequestsCount:
+          custodianWallet.pendingMovedFundsSweepRequestsCount,
+        state: walletState.MovingFunds,
+        movingFundsTargetWalletsCommitmentHash:
+          custodianWallet.movingFundsTargetWalletsCommitmentHash,
+      })
+
+      // A third-party (non-privileged) request: the position owner is
+      // `thirdParty`, `governance` is neither the owner nor the SPV
+      // maintainer, and no member proof is presented, so the request counts
+      // the target's pending hold against the governance cap.
+      await reservationRouter
+        .connect(governance)
+        .requestReservationReanchor(
+          reservationKey,
+          secondWalletPubKeyHash,
+          [],
+          0
+        )
+
+      expect(
+        await reservationRouter.pendingThirdPartyReanchorHolds(
+          secondWalletPubKeyHash
+        )
+      ).to.equal(1)
+    })
+
+    it("reads the proven anchor's reservation key back from the router", async () => {
+      const { anchorTx, reservationKey } = await makeAcceptedReservation()
+
+      // The settled acceptance registers the anchor outpoint under exactly
+      // its (hash, index-0) key.
+      expect(
+        await reservationRouter.reservationByAnchorUtxo(anchorTx.txHash, 0)
+      ).to.equal(reservationKey)
+      // No other output index of the same transaction, and no foreign
+      // transaction, is tracked.
+      expect(
+        await reservationRouter.reservationByAnchorUtxo(anchorTx.txHash, 1)
+      ).to.equal(0n)
+      expect(
+        await reservationRouter.reservationByAnchorUtxo(
+          ethers.hexlify(ethers.randomBytes(32)),
+          0
+        )
+      ).to.equal(0n)
+    })
   })
 })

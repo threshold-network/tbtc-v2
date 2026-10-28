@@ -97,8 +97,8 @@ export async function getReservationAbiSnapshot(): Promise<ReservationAbiSnapsho
   // Selectors and event topics must be EVM-canonical: the EVM expands a
   // struct (tuple) parameter to its parenthesized component types when
   // hashing a signature, so hashing the literal JSON `tuple` placeholder
-  // would yield a wrong value. Build each fragment through ethers and let
-  // it canonicalize.
+  // would yield a wrong value. Build ethers Function/Event fragments and
+  // read their `.selector` / `.topicHash` so ethers canonicalizes.
 
   // Collect functions: all from IReservationBridge and the two validator entry points
   const bridgeFunctions = bridgeAbi

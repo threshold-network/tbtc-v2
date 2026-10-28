@@ -1,12 +1,12 @@
 import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
 
+import type { TestReservation } from "../../typechain"
 import type { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import type {
   Bridge,
   BridgeGovernance,
   ReservationRouter,
-  TestReservation,
 } from "../../typechain"
 import { constants } from "../fixtures"
 import bridgeFixture from "../fixtures/bridge"
@@ -45,7 +45,7 @@ async function deployTestReservation(): Promise<TestReservation> {
 
   const TestReservationFactory = await ethers.getContractFactory(
     "TestReservation",
-    { libraries: { Reservation: await reservation.getAddress() } }
+    { libraries: { Reservation: reservation.target } }
   )
 
   return TestReservationFactory.deploy()
@@ -76,6 +76,7 @@ describe("Reservation - amount cap versus slot capacity", () => {
   const reservationMaxSingleAmount = 1_000_000
   const slotCapacity = maxActiveReservations * reservationMaxSingleAmount
   const maxReservationsAmountPerWallet = 10_000_000
+  const maxThirdPartyReanchorHoldsPerWallet = 1
 
   let testReservation: TestReservation
 
@@ -88,7 +89,9 @@ describe("Reservation - amount cap versus slot capacity", () => {
       await testReservation.updateReservationCaps(
         maxReservationsAmountPerWallet,
         reservationMaxSingleAmount,
-        maxActiveReservations
+        maxActiveReservations,
+        maxThirdPartyReanchorHoldsPerWallet,
+        1
       )
     })
 
@@ -147,7 +150,9 @@ describe("Reservation - amount cap versus slot capacity", () => {
       await testReservation.updateReservationCaps(
         maxReservationsAmountPerWallet,
         reservationMaxSingleAmount,
-        maxActiveReservations
+        maxActiveReservations,
+        maxThirdPartyReanchorHoldsPerWallet,
+        1
       )
       await setTotalAmount(testReservation, slotCapacity)
     })
@@ -157,7 +162,9 @@ describe("Reservation - amount cap versus slot capacity", () => {
         testReservation.updateReservationCaps(
           maxReservationsAmountPerWallet,
           reservationMaxSingleAmount,
-          maxActiveReservations - 1
+          maxActiveReservations - 1,
+          maxThirdPartyReanchorHoldsPerWallet,
+          1
         )
       ).to.be.revertedWith(CAPACITY_REVERT)
     })
@@ -167,7 +174,9 @@ describe("Reservation - amount cap versus slot capacity", () => {
         testReservation.updateReservationCaps(
           maxReservationsAmountPerWallet,
           reservationMaxSingleAmount / 2,
-          maxActiveReservations
+          maxActiveReservations,
+          maxThirdPartyReanchorHoldsPerWallet,
+          1
         )
       ).to.be.revertedWith(CAPACITY_REVERT)
     })
@@ -177,15 +186,21 @@ describe("Reservation - amount cap versus slot capacity", () => {
       const a = 1_000_000
       const b = 100_000
       const c = 5
-      await expect(testReservation.updateReservationCaps(a, b, c))
+      await expect(testReservation.updateReservationCaps(a, b, c, 1, 1))
         .to.emit(testReservation, "ReservationCapsUpdated")
-        .withArgs(a, b, c)
+        .withArgs(a, b, c, 1, 1)
     })
 
     it("reverts when maxActiveReservations is set to zero", async () => {
       await expect(
-        testReservation.updateReservationCaps(0, 0, 0)
+        testReservation.updateReservationCaps(0, 0, 0, 0, 0)
       ).to.be.revertedWith("Active reservations cap must be greater than zero")
+    })
+
+    it("reverts when the hand-off reserve is set to zero", async () => {
+      await expect(
+        testReservation.updateReservationCaps(10_000_000, 1_000_000, 5, 1, 0)
+      ).to.be.revertedWith("Hand-off reserve must be greater than zero")
     })
 
     it("returns all three caps via reservationCaps() after updateReservationCaps (round-trip)", async () => {
@@ -193,7 +208,7 @@ describe("Reservation - amount cap versus slot capacity", () => {
       const b = 1_000_000
       const c = 5
 
-      await testReservation.updateReservationCaps(a, b, c)
+      await testReservation.updateReservationCaps(a, b, c, 1, 1)
 
       const caps = await testReservation.reservationCaps()
       expect(caps.maxReservationsAmountPerWallet).to.equal(a)
@@ -211,7 +226,9 @@ describe("Reservation - amount cap versus slot capacity", () => {
       await testReservation.updateReservationCaps(
         maxReservationsAmountPerWallet,
         0,
-        maxActiveReservations
+        maxActiveReservations,
+        maxThirdPartyReanchorHoldsPerWallet,
+        1
       )
 
       await setTotalAmount(testReservation, slotCapacity * 1000)
@@ -270,7 +287,9 @@ describe("Reservation - amount cap versus slot capacity", () => {
         testReservation.updateReservationCaps(
           maxReservationsAmountPerWallet,
           reservationMaxSingleAmount,
-          maxActiveReservations
+          maxActiveReservations,
+          maxThirdPartyReanchorHoldsPerWallet,
+          1
         )
       ).to.be.revertedWith(CAPACITY_REVERT)
     })
@@ -287,7 +306,9 @@ describe("Reservation - amount cap versus slot capacity", () => {
       await testReservation.updateReservationCaps(
         maxReservationsAmountPerWallet,
         reservationMaxSingleAmount,
-        maxActiveReservations
+        maxActiveReservations,
+        maxThirdPartyReanchorHoldsPerWallet,
+        1
       )
 
       await setTotalAmount(testReservation, slotCapacity)
@@ -335,10 +356,15 @@ describe("Reservation - governance ceremony argument forwarding", () => {
     // Chosen so the product stays above the `reservationMaxTotalAmount`
     // already set by the deploy-time governance ceremony
     // (`97_set_reservation_parameters.ts`), so finalizing does not trip
-    // `Reservation.validateReservationCapsInvariant`.
-    const newMaxReservationsAmountPerWallet = 2_000_000
-    const newReservationMaxSingleAmount = 100_000
+    // `Reservation.validateReservationCapsInvariant`, and every cap is at
+    // least the Bridge's 1,000,000-sat dust threshold, which the Bridge
+    // requires while a vault is configured. All values differ, so a field
+    // written to the wrong slot fails the assertions.
+    const newMaxReservationsAmountPerWallet = 2_500_000
+    const newReservationMaxSingleAmount = 1_500_000
     const newMaxActiveReservations = 200
+    const newMaxThirdPartyReanchorHoldsPerWallet = 3
+    const newHandoffReserveWallets = 1
 
     before(async () => {
       await bridgeGovernance
@@ -346,7 +372,9 @@ describe("Reservation - governance ceremony argument forwarding", () => {
         .beginReservationCapsUpdate(
           newMaxReservationsAmountPerWallet,
           newReservationMaxSingleAmount,
-          newMaxActiveReservations
+          newMaxActiveReservations,
+          newMaxThirdPartyReanchorHoldsPerWallet,
+          newHandoffReserveWallets
         )
 
       await helpers.time.increaseTime(constants.governanceDelay)
@@ -368,6 +396,44 @@ describe("Reservation - governance ceremony argument forwarding", () => {
       const { maxActive } = await reservationRouter.activeReservationsCount()
       expect(maxActive, "maxActiveReservations").to.equal(
         newMaxActiveReservations
+      )
+      expect(
+        caps.maxThirdPartyReanchorHoldsPerWallet,
+        "maxThirdPartyReanchorHoldsPerWallet"
+      ).to.equal(newMaxThirdPartyReanchorHoldsPerWallet)
+      expect(
+        await reservationRouter.reservationHandoffReserveWallets(),
+        "handoffReserveWallets"
+      ).to.equal(newHandoffReserveWallets)
+    })
+    it("reads every reservation cap and the hand-off reserve back from the router", async () => {
+      const caps = await reservationRouter.reservationCaps()
+      expect(
+        caps.maxReservationsAmountPerWallet,
+        "maxReservationsAmountPerWallet"
+      ).to.equal(newMaxReservationsAmountPerWallet)
+      expect(
+        caps.reservationMaxSingleAmount,
+        "reservationMaxSingleAmount"
+      ).to.equal(newReservationMaxSingleAmount)
+      expect(caps.maxActiveReservations, "maxActiveReservations").to.equal(
+        newMaxActiveReservations
+      )
+      expect(
+        caps.maxThirdPartyReanchorHoldsPerWallet,
+        "maxThirdPartyReanchorHoldsPerWallet"
+      ).to.equal(newMaxThirdPartyReanchorHoldsPerWallet)
+      expect(
+        await reservationRouter.reservationHandoffReserveWallets(),
+        "handoffReserveWallets"
+      ).to.equal(newHandoffReserveWallets)
+    })
+
+    it("reports the router address the Bridge delegates to", async () => {
+      const routerContract =
+        await helpers.contracts.getContract("ReservationRouter")
+      expect(await reservationRouter.reservationRouter()).to.equal(
+        routerContract.target
       )
     })
   })

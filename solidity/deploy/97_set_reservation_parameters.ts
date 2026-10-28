@@ -1,5 +1,15 @@
 import type { HardhatRuntimeEnvironment } from "hardhat/types"
 import type { DeployFunction } from "hardhat-deploy/types"
+import { assertReservedDepositsFeasible } from "./98_generate_reservation_mainnet_calldata"
+
+// Local/test values; see the divergence notes at each call below. The
+// single-amount cap equals the Bridge's initial 1,000,000-sat dust threshold
+// (Bridge.initialize): the Bridge rejects any non-zero amount cap below the
+// dust threshold while a vault is configured, because no reveal could fit.
+const PER_WALLET_CAP = BigInt("1000000")
+const SINGLE_AMOUNT_CAP = BigInt("1000000")
+const TERM_SECONDS = 7776000 // 90 days = MIN_RESERVATION_TERM
+const MAX_TOTAL_AMOUNT = BigInt("10000000")
 
 /**
  * 97_set_reservation_parameters.ts
@@ -83,10 +93,24 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
       "governanceDelays",
       0
     )
-    // Normalize the decoded value before converting to a timestamp offset.
-    await helpers.time.increaseTime(
-      Number(ethers.toBigInt(governanceDelay.toString())) + 1
-    )
+    await helpers.time.increaseTime(governanceDelay.toNumber() + 1)
+  }
+
+  // These test values were sized for local chains. On a live network the
+  // Bridge's deposit parameters may make them unusable (a reveal-ahead
+  // period longer than the 90-day term plus 24h, or a dust threshold above
+  // the caps), and activating with them would give a vault that can never
+  // hold a reservation. Refuse instead; use the network's runbook values.
+  if (!isLocalNetwork) {
+    const depositParameters = await read("Bridge", "depositParameters")
+    assertReservedDepositsFeasible({
+      depositDustThreshold: BigInt(depositParameters[0].toString()),
+      depositRevealAheadPeriod: Number(depositParameters[3].toString()),
+      termSeconds: TERM_SECONDS,
+      singleAmountCap: SINGLE_AMOUNT_CAP,
+      perWalletCap: PER_WALLET_CAP,
+      maxTotalAmount: MAX_TOTAL_AMOUNT,
+    })
   }
 
   // ----- Step 1: begin/finalize updateReservationCaps --------------------
@@ -107,9 +131,14 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
     // more throughput for exercising the reservation flow in tests and are
     // deliberately NOT meant to mirror the mainnet configuration.
     // values per agent-docs/inventory/reservation-parameters.md
-    ethers.toBigInt("1000000"), // maxReservationsAmountPerWallet
-    ethers.toBigInt("100000"), // reservationMaxSingleAmount
-    ethers.toBigInt("100") // maxActiveReservations
+    PER_WALLET_CAP, // maxReservationsAmountPerWallet
+    SINGLE_AMOUNT_CAP, // reservationMaxSingleAmount
+    BigInt("100"), // maxActiveReservations
+    BigInt("1"), // maxThirdPartyReanchorHoldsPerWallet
+    // One Live wallet is held back from acceptance capacity by the
+    // hand-off reserve gate, so a wallet retiring always leaves room for
+    // its open positions on the remaining Live wallets.
+    BigInt("1") // handoffReserveWallets
   )
   if (isLocalNetwork) {
     await passGovernanceDelay()
@@ -131,23 +160,23 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
   // `reservationVault` (the first arg) is set here — no separate
   // `setReservationVault` setter exists. Total must fit under the
   // `maxActiveReservations * reservationMaxSingleAmount` product set in
-  // step 1 (100 * 100000 = 10_000_000).
+  // step 1 (100 * 1_000_000 = 100_000_000, above 10_000_000).
   deployments.log("[2/3] beginReservationParametersUpdate")
   await execute(
     "BridgeGovernance",
     { from: governance, log: true, waitConfirmations: 1 },
     "beginReservationParametersUpdate",
     ReservationVault.address, // reservationVault
-    ethers.toBigInt("10000"), // reservationMinAmount
-    ethers.toBigInt("1000"), // reservationTxMaxFee
-    ethers.toBigInt("7776000"), // reservationTermSeconds (90 days = MIN_RESERVATION_TERM)
-    ethers.toBigInt("86400"), // reservationDissolutionDelay (1 day)
-    ethers.toBigInt("10000000"), // reservationMaxTotalAmount
+    BigInt("10000"), // reservationMinAmount
+    BigInt("1000"), // reservationTxMaxFee
+    BigInt(TERM_SECONDS), // reservationTermSeconds (90 days = MIN_RESERVATION_TERM)
+    BigInt("86400"), // reservationDissolutionDelay (1 day)
+    MAX_TOTAL_AMOUNT, // reservationMaxTotalAmount
     // NOTE: 5, not the mainnet-required 1 (see the divergence note above
     // Step 1) -- deliberately larger for local/test throughput.
-    ethers.toBigInt("5"), // maxReservationsPerWallet
-    ethers.toBigInt("86400"), // reservationActionTimeout
-    ethers.toBigInt("86400") // reservationRenewalWindowSeconds
+    BigInt("5"), // maxReservationsPerWallet
+    BigInt("86400"), // reservationActionTimeout
+    BigInt("86400") // reservationRenewalWindowSeconds
   )
   if (isLocalNetwork) {
     await passGovernanceDelay()

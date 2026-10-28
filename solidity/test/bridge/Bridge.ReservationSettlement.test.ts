@@ -52,6 +52,7 @@
  * the four levers that item enumerated, so item 7 still needs revisiting
  * against this new floor, not closed by it.
  */
+/* eslint-disable @typescript-eslint/no-unused-expressions */
 
 // Adversarial settlement tests for the two-phase reservation state machine:
 // the late-proof settlement matrix, the action source-anchor binding, the
@@ -61,6 +62,7 @@
 
 import { ethers, helpers } from "hardhat"
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
+import { Contract } from "ethers"
 import { expect } from "chai"
 import type {
   Bank,
@@ -96,7 +98,7 @@ const RESERVATION_TX_MAX_FEE = 2000
 // relational check (`reservationMaxTotalAmount <= maxActiveReservations *
 // reservationMaxSingleAmount`) is live from that deploy step onward, so
 // this must fit under 100 * 100,000 = 10,000,000 - found 2026-08-26.
-const RESERVATION_MAX_TOTAL = 10000000n
+const RESERVATION_MAX_TOTAL = BigInt("10000000")
 const MAX_RESERVATIONS_PER_WALLET = 10
 const RESERVATION_ACTION_TIMEOUT = 172800 // 48 hours
 const RESERVATION_RENEWAL_WINDOW = 2592000 // 30 days
@@ -151,12 +153,13 @@ describe("Bridge - Reservation settlement", () => {
   const refundPubKeyHash = "0x28e081f285138ccbe389c1eb8985716230129f89"
   let refundLocktime: string
 
-  const depositAmount = 3000000n
-  const anchorFee = 1500
-  const anchorAmount = depositAmount - BigInt(anchorFee)
+  const depositAmount = BigInt(3000000)
+  const anchorFee = 1500n
+  const anchorAmount = depositAmount - anchorFee
   const grossTbtc = anchorAmount * SATOSHI_MULTIPLIER
 
   before(async () => {
+    // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({
       deployer,
       governance,
@@ -202,7 +205,13 @@ describe("Bridge - Reservation settlement", () => {
     // reservation - found 2026-08-26.
     await reservationRouter
       .connect(bridgeGovernanceSigner)
-      .updateReservationCaps(RESERVATION_MAX_TOTAL, RESERVATION_MAX_TOTAL, 10) // 10 = 1 wallet * MAX_RESERVATIONS_PER_WALLET, satisfying the Item-3 sizing relation with this fixture's single default Live wallet
+      .updateReservationCaps(
+        RESERVATION_MAX_TOTAL,
+        RESERVATION_MAX_TOTAL,
+        10,
+        1,
+        1
+      ) // 10 = 2 wallets * MAX_RESERVATIONS_PER_WALLET, satisfying the Item-3 sizing relation with this fixture's two Live wallets; 1 = hand-off reserve, leaving one remaining Live wallet with 10 positions
     await reservationRouter
       .connect(bridgeGovernanceSigner)
       .updateReservationParameters(
@@ -224,6 +233,9 @@ describe("Bridge - Reservation settlement", () => {
     await bridge.setDepositTxMaxFee(2000)
     await bridge.setDepositRevealAheadPeriod(0)
     await liveWallet(walletPubKeyHash)
+    // A second Live wallet so the hand-off reserve gate (one Live wallet
+    // held back) still leaves a remaining Live wallet with capacity.
+    await liveWallet(secondWalletPubKeyHash)
 
     const tbtcOwner = await impersonateContract(await tbtc.owner())
     await tbtc.connect(tbtcOwner).transferOwnership(tbtcVault.target)
@@ -257,7 +269,7 @@ describe("Bridge - Reservation settlement", () => {
   // ---- Bitcoin fixture crafting (regtest-style difficulty) ----
 
   const REGTEST_BITS_LE = "ffff7f20"
-  const REGTEST_TARGET = 0x7fffffn * 2n ** BigInt(8 * (0x20 - 3))
+  const REGTEST_TARGET = BigInt(0x7fffff) * 2n ** BigInt(8 * (0x20 - 3))
 
   const reverseHex = (hex: string): string =>
     hex.replace(/^0x/, "").match(/../g)!.reverse().join("")
@@ -478,7 +490,7 @@ describe("Bridge - Reservation settlement", () => {
     ) {
       await reservationRouter
         .connect(bridgeGovernanceSigner)
-        .requestReservationReanchor(reservationKey, target)
+        .requestReservationReanchor(reservationKey, target, [], 0)
 
       const hopTx = buildTx(
         [{ txHash: sourceTx.txHash, index: 0 }],
@@ -574,7 +586,7 @@ describe("Bridge - Reservation settlement", () => {
       await expect(
         reservationRouter
           .connect(bridgeGovernanceSigner)
-          .requestReservationReanchor(reservationKey, target)
+          .requestReservationReanchor(reservationKey, target, [], 0)
       ).to.be.revertedWith(
         "Reanchor would fall below the minimum reservation amount"
       )
@@ -602,7 +614,12 @@ describe("Bridge - Reservation settlement", () => {
       await expect(
         reservationRouter
           .connect(thirdParty)
-          .requestReservationReanchor(reservationKey, secondWalletPubKeyHash)
+          .requestReservationReanchor(
+            reservationKey,
+            secondWalletPubKeyHash,
+            [],
+            0
+          )
       ).to.be.revertedWith("Only governance can rotate a Live wallet's anchor")
     })
   })

@@ -141,11 +141,12 @@ lint-policy fixes.
 Solhint 6 uses the same explicit rule policy previously supplied by the
 `solhint-config-keep` git dependency, with this repository's constructor
 visibility override. The obsolete `event-name-camelcase` rule is renamed to
-`event-name-capwords`. The migration has zero errors and 62 warnings, capped in
+`event-name-capwords`. The migration has zero errors and 63 warnings, capped in
 both Solhint commands. Solhint 3 reported 48 warnings against the same source;
 the newer rule implementations and corrected event-name rule account for the
-increase. The baseline is 51 ordering, five function-name, three event-name,
-two state-count and one payable-fallback warning. These warnings remain
+increase. The baseline is 52 ordering, five function-name, three event-name,
+two state-count and one payable-fallback warning (this line carries one extra
+`ordering` warning in `BridgeState.sol`). These warnings remain
 visible and should be removed with focused follow-ups. CLI update checks are
 disabled so lint does not depend on an external version check.
 

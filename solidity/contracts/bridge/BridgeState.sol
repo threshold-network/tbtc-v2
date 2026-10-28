@@ -25,7 +25,7 @@ import "./Reservation.sol";
 import "./Fraud.sol";
 import "./Wallets.sol";
 import "./MovingFunds.sol";
-
+import "./WalletProposalValidatorConstants.sol";
 import "../bank/Bank.sol";
 
 library BridgeState {
@@ -35,12 +35,14 @@ library BridgeState {
     ///         action flow and may be cleared after acceptance or staleness.
     struct PendingReservedDeposit {
         // Immutable reveal-time reservation classification: set when a
-        // deposit is revealed to the reservation vault and never cleared.
-        // `notifyStaleReservedDeposit` wipes the three fields below but
-        // deliberately leaves this bit set, so the record stays recognizable
-        // as reservation-routed for the whole life of the deposit. The
-        // stale/acceptable partition is carried by `walletPubKeyHash`, not
-        // by this flag.
+        // deposit is revealed to the reservation vault. `notifyStaleReservedDeposit`
+        // wipes the three fields below but deliberately leaves this bit
+        // set, so the record stays recognizable as reservation-routed for
+        // the whole life of the deposit. `releaseReservedDepositToPool`
+        // (depositor-only release to the pool) clears all four fields
+        // including this one: an ordinary sweep that follows the release
+        // must not see the deposit as reserved. The stale/acceptable
+        // partition is carried by `walletPubKeyHash`, not by this flag.
         bool isReserved;
         // Wallet committed by the deposit script and therefore the only
         // wallet that can be authorized to anchor the deposit.
@@ -482,6 +484,37 @@ library BridgeState {
         // must keep accepting late proofs of their confirmed Bitcoin
         // transactions.
         mapping(uint256 => Reservation.ReservationAction) reservationActions;
+        // Governance-time cap on the number of concurrently *pending*
+        // third-party re-anchor holds that a single target wallet may
+        // custody, measured over pending re-anchor action generations whose
+        // capacity was reserved by a non-privileged (third-party) caller of
+        // `Reservation.requestReservationReanchor`. A third-party request
+        // reverts with "Target third-party re-anchor holds exceeded" once
+        // the target's `pendingThirdPartyReanchorHolds` reaches this cap;
+        // privileged requests (the reservation owner, an SPV maintainer, or
+        // a proven member of the source wallet) never count and are never
+        // blocked by the cap. `0` means third parties may not hold re-anchor
+        // capacity at all (privileged callers only).
+        uint32 maxThirdPartyReanchorHoldsPerWallet;
+        // Number of Live wallets held back from acceptance capacity by the
+        // hand-off reserve gate in `Reservation.reserveAcceptanceCapacity`:
+        // after every acceptance, any `handoffReserveWallets` Live wallets
+        // may retire together and all open positions still fit on the
+        // remaining Live wallets within `maxReservationsPerWallet`. Must be
+        // at least one, so a retiring wallet's reservation can always move;
+        // enforced by `Reservation.updateReservationCaps`. Packed into the
+        // free bytes of the same slot as `maxThirdPartyReanchorHoldsPerWallet`
+        // (both are 4 bytes; slot 39 has 24 free bytes), leaving no slot
+        // shift and no new `__gap` spend.
+        uint32 handoffReserveWallets;
+        // Per-target-wallet count of pending third-party re-anchor holds:
+        // one slot each, incremented when a non-privileged
+        // `requestReservationReanchor` reserves a target wallet's capacity
+        // and decremented exactly once on every path that ends that pending
+        // generation (on-time/late re-anchor settlement, supersede-unwind of
+        // the pending generation, or `notifyReservationActionTimeout`).
+        // Privileged generations never touch it.
+        mapping(bytes20 => uint32) pendingThirdPartyReanchorHolds;
         // Count and amount of the reservations whose proven anchor UTXO
         // currently sits at the wallet (Active or ActionPending positions
         // custodied there). Unlike `walletReservationInfo`, it excludes the
@@ -501,13 +534,17 @@ library BridgeState {
         // `walletPendingDissolution`, `reservationRetryCreditActionNonce`,
         // `reservationMaxBackingFractionBps`, `walletReservationKeys`, and
         // `walletReservationKeyIndex`
-        // as unused/dead, freeing 6 slots via re-packing, then adding
-        // `walletAnchoredInfo`). The remaining 38
-        // slots are shared budget for all future Bridge upgrades, not
+        // as unused/dead, freeing 6 slots via re-packing). This PR appended
+        // `maxThirdPartyReanchorHoldsPerWallet`,
+        // `pendingThirdPartyReanchorHolds` and `walletAnchoredInfo` into the
+        // gap (three slots), leaving 36 slots as the shared budget for all
+        // future Bridge upgrades, not
         // reserved for reservations specifically - a later unrelated PR
-        // should not assume it can spend the rest.
+        // should not assume it can spend the rest. `handoffReserveWallets`
+        // is packed into the free bytes of `maxThirdPartyReanchorHoldsPerWallet`'s
+        // slot and spends none of that budget.
         // slither-disable-next-line unused-state
-        uint256[38] __gap;
+        uint256[36] __gap;
     }
 
     event DepositParametersUpdated(
@@ -619,6 +656,23 @@ library BridgeState {
             "Deposit transaction max fee must be greater than zero"
         );
 
+        // Gate on the configured vault: while reservations are disabled
+        // the stored caps are zero and the check would be a no-op anyway.
+        // A reserved reveal carries at least the dust threshold and its
+        // refund locktime stays within the custody term plus the validator
+        // margin, so a period or threshold that breaks that window makes
+        // every reserved deposit impossible.
+        if (self.reservationVault != address(0)) {
+            assertReservedDepositsFeasible(
+                _depositDustThreshold,
+                _depositRevealAheadPeriod,
+                self.reservationTermSeconds,
+                self.reservationMaxSingleAmount,
+                self.maxReservationsAmountPerWallet,
+                self.reservationMaxTotalAmount
+            );
+        }
+
         self.depositDustThreshold = _depositDustThreshold;
         self.depositTreasuryFeeDivisor = _depositTreasuryFeeDivisor;
         self.depositTxMaxFee = _depositTxMaxFee;
@@ -629,6 +683,53 @@ library BridgeState {
             _depositTreasuryFeeDivisor,
             _depositTxMaxFee,
             _depositRevealAheadPeriod
+        );
+    }
+
+    /// @notice Asserts that one reserved deposit can still be revealed
+    ///         under the given deposit dust threshold, reveal-ahead period,
+    ///         reservation term and amount caps.
+    /// @dev Pure form of the off-chain `assertReservedDepositsFeasible`
+    ///      deploy check (deploy script 98). A reserved reveal carries an
+    ///      amount of at least the dust threshold and a refund locktime
+    ///      within the custody term plus the deposit refund safety margin,
+    ///      so a non-zero cap below the dust threshold can never be
+    ///      reached and a reveal-ahead period longer than the term plus the
+    ///      margin pushes every reserved refund past the last moment a
+    ///      wallet validator signs. `updateDepositParameters` passes its
+    ///      new values against the stored reservation parameters; the
+    ///      reservation setters pass their new values against the stored
+    ///      deposit parameters.
+    function assertReservedDepositsFeasible(
+        uint64 depositDustThreshold,
+        uint32 depositRevealAheadPeriod,
+        uint32 reservationTermSeconds,
+        uint64 reservationMaxSingleAmount,
+        uint64 maxReservationsAmountPerWallet,
+        uint64 reservationMaxTotalAmount
+    ) internal pure {
+        require(
+            depositRevealAheadPeriod == 0 ||
+                depositRevealAheadPeriod <=
+                    reservationTermSeconds +
+                        WalletProposalValidatorConstants
+                            .DEPOSIT_REFUND_SAFETY_MARGIN,
+            "Reveal ahead period leaves no reserved deposit possible"
+        );
+        require(
+            reservationMaxSingleAmount == 0 ||
+                reservationMaxSingleAmount >= depositDustThreshold,
+            "Single-reservation cap below dust threshold"
+        );
+        require(
+            maxReservationsAmountPerWallet == 0 ||
+                maxReservationsAmountPerWallet >= depositDustThreshold,
+            "Per-wallet reservation cap below dust threshold"
+        );
+        require(
+            reservationMaxTotalAmount == 0 ||
+                reservationMaxTotalAmount >= depositDustThreshold,
+            "Total reservation cap below dust threshold"
         );
     }
 

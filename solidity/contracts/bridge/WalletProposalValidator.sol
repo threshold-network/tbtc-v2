@@ -1088,11 +1088,18 @@ contract WalletProposalValidator {
     ///        have a Pending Reanchor action, keyed by the given request
     ///        nonce, targeting the given target wallet, that has not timed
     ///        out,
-    ///      - The target wallet must be in the Live state, differ from the
-    ///        source wallet, and have spare reservation-count and
-    ///        reserved-amount capacity,
+    ///      - The target wallet must be in the Live state and differ from
+    ///        the source wallet,
     ///      - The proposed fee must be positive and within the authorized
     ///        action's snapshotted max fee.
+    ///
+    ///      The target wallet's reservation-count and reserved-amount
+    ///      capacity are enforced once, at request time
+    ///      (`Reservation.requestReservationReanchor`), and privileged
+    ///      requests from a retiring source are deliberately allowed to
+    ///      exceed them; re-checking either here at signing time would
+    ///      conflict with that deliberate allowance, so neither is
+    ///      repeated.
     ///
     ///      The re-anchor cooldown and the minimum post-reanchor anchor
     ///      amount are enforced once, at request time
@@ -1154,37 +1161,6 @@ contract WalletProposalValidator {
             bridge.wallets(proposal.targetWalletPubKeyHash).state ==
                 Wallets.WalletState.Live,
             "Target wallet must be in Live state"
-        );
-
-        (
-            ,
-            ,
-            ,
-            ,
-            ,
-            ,
-            ,
-            uint32 maxReservationsPerWallet,
-            ,
-
-        ) = IReservationBridge(address(bridge)).reservationParameters();
-        require(
-            IReservationBridge(address(bridge)).walletReservationsCount(
-                proposal.targetWalletPubKeyHash
-            ) <= maxReservationsPerWallet,
-            "Wallet reservations cap exceeded"
-        );
-
-        (uint64 maxReservationsAmountPerWallet, , ) = IReservationBridge(
-            address(bridge)
-        ).reservationCaps();
-        require(
-            maxReservationsAmountPerWallet == 0 ||
-                IReservationBridge(address(bridge)).walletReservationsAmount(
-                    proposal.targetWalletPubKeyHash
-                ) <=
-                    maxReservationsAmountPerWallet,
-            "Wallet reserved amount cap exceeded"
         );
 
         require(

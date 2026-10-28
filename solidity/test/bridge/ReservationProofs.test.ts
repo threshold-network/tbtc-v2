@@ -12,8 +12,9 @@ import {
 import { SingleP2SHDeposit } from "../data/deposit-sweep"
 import { MovedFundsSweepWithoutMainUtxo as movedFundsSweepData } from "../data/moving-funds"
 import { createMock } from "../helpers/mock"
-import { requireValue } from "../../helpers/require-value"
 import type { Mock } from "../helpers/mock"
+
+const { lastBlockTime } = helpers.time
 
 describe("ReservationProofs", () => {
   let relay: Mock<IRelay>
@@ -47,7 +48,8 @@ describe("ReservationProofs", () => {
   }
 
   function uint64ToLittleEndianHex(val: BigNumberish): string {
-    const hex = BigInt(val).toString(16).padStart(16, "0")
+    const bn = BigInt(val)
+    const hex = bn.toString(16).padStart(16, "0")
     return Buffer.from(hex, "hex").reverse().toString("hex")
   }
 
@@ -103,6 +105,7 @@ describe("ReservationProofs", () => {
       retryCreditSourceNonce: 0,
       termSeconds,
       dissolutionDelay,
+      thirdPartyHold: false,
       ...overrides,
     }
   }
@@ -403,6 +406,67 @@ describe("ReservationProofs", () => {
       expect(action.state).to.equal(3) // TimedOut
       expect(late).to.be.true
     })
+
+    describe("late acceptance window (timeoutAt + termSeconds)", () => {
+      // A timed-out acceptance can still settle late, but only until
+      // timeoutAt + termSeconds; after that its confirmed anchor cannot be
+      // credited. The bound is inclusive to the second, and it does not apply
+      // to a timed-out re-anchor, whose late settlement is unbounded by design.
+      let bound: number
+
+      beforeEach(async () => {
+        bound = (await lastBlockTime()) + 1000
+      })
+
+      async function setTimedOutAction(actionType: number) {
+        await testReservationProofs.setReservationAction(
+          sampleReservationKey,
+          requestNonce,
+          buildReservationAction({
+            actionType,
+            state: 3, // TimedOut
+            timeoutAt: bound - termSeconds,
+          })
+        )
+      }
+
+      it("should still load a late acceptance at the last second of the window", async () => {
+        await setTimedOutAction(1) // Acceptance
+        await ethers.provider.send("evm_mine", [bound])
+
+        const [, late] = await testReservationProofs.loadSettleableAction(
+          sampleReservationKey,
+          requestNonce,
+          1
+        )
+        expect(late).to.be.true
+      })
+
+      it("should reject a late acceptance one second after the window closes", async () => {
+        await setTimedOutAction(1) // Acceptance
+        await ethers.provider.send("evm_mine", [bound + 1])
+
+        await expect(
+          testReservationProofs.loadSettleableAction(
+            sampleReservationKey,
+            requestNonce,
+            1
+          )
+        ).to.be.revertedWith("Late acceptance settlement window expired")
+      })
+
+      it("should not apply the window to a late re-anchor", async () => {
+        await setTimedOutAction(3) // Reanchor
+        await ethers.provider.send("evm_mine", [bound + 1])
+
+        const [, late] = await testReservationProofs.loadSettleableAction(
+          sampleReservationKey,
+          requestNonce,
+          3
+        )
+        expect(late).to.be.true
+      })
+    })
   })
   describe("4. Pending-reserved and existence guards", () => {
     const requestNonce = 1
@@ -556,7 +620,7 @@ describe("ReservationProofs", () => {
         requestNonce,
         sampleAnchorTxHash
       )
-      const receipt = requireValue(await tx.wait(), "Transaction receipt")
+      const receipt = (await tx.wait())!
 
       // 1. Action state becomes Settled (2)
       const action = await testReservationProofs.getReservationAction(
@@ -576,10 +640,9 @@ describe("ReservationProofs", () => {
       expect(reservation.anchorTxHash).to.equal(sampleAnchorTxHash)
       expect(reservation.anchorTxOutputIndex).to.equal(0)
 
-      const currentBlock = requireValue(
-        await ethers.provider.getBlock(receipt.blockNumber),
-        "Block"
-      )
+      const currentBlock = (await ethers.provider.getBlock(
+        receipt.blockNumber
+      ))!
       const expectedExpiresAt = currentBlock.timestamp + termSeconds
       const expectedDissolutionAt = expectedExpiresAt + dissolutionDelay
       expect(reservation.expiresAt).to.equal(expectedExpiresAt)

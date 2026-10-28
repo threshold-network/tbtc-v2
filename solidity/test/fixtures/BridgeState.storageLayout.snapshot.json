@@ -546,18 +546,39 @@
       "numberOfBytes": "32"
     },
     {
-      "label": "walletAnchoredInfo",
+      "label": "maxThirdPartyReanchorHoldsPerWallet",
       "slot": "39",
+      "offset": 0,
+      "type": "uint32",
+      "numberOfBytes": "4"
+    },
+    {
+      "label": "handoffReserveWallets",
+      "slot": "39",
+      "offset": 4,
+      "type": "uint32",
+      "numberOfBytes": "4"
+    },
+    {
+      "label": "pendingThirdPartyReanchorHolds",
+      "slot": "40",
+      "offset": 0,
+      "type": "mapping(bytes20 => uint32)",
+      "numberOfBytes": "32"
+    },
+    {
+      "label": "walletAnchoredInfo",
+      "slot": "41",
       "offset": 0,
       "type": "mapping(bytes20 => struct BridgeState.WalletReservationInfo)",
       "numberOfBytes": "32"
     },
     {
       "label": "__gap",
-      "slot": "40",
+      "slot": "42",
       "offset": 0,
-      "type": "uint256[38]",
-      "numberOfBytes": "1216"
+      "type": "uint256[36]",
+      "numberOfBytes": "1152"
     }
   ],
   "structMembers": {
@@ -831,6 +852,13 @@
         "offset": 8,
         "type": "uint64",
         "numberOfBytes": "8"
+      },
+      {
+        "label": "thirdPartyHold",
+        "slot": "5",
+        "offset": 16,
+        "type": "bool",
+        "numberOfBytes": "1"
       }
     ],
     "WalletReservationInfo": [

@@ -1,9 +1,10 @@
+/* eslint-disable @typescript-eslint/no-unused-expressions */
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { expect } from "chai"
 import hre, { ethers } from "hardhat"
-import { Interface, ZeroAddress } from "ethers"
+import { Interface, getAddress } from "ethers"
 import fs from "fs"
 import path from "path"
 import func, {
@@ -22,12 +23,19 @@ async function expectRejection(
   promise: Promise<unknown>,
   pattern: RegExp
 ): Promise<void> {
+  let rejection: unknown
   try {
     await promise
-    expect.fail(`expected rejection matching ${pattern}`)
   } catch (error) {
-    expect((error as Error).message).to.match(pattern)
+    rejection = error
   }
+  // Fail outside the try block: an assertion thrown inside it would be
+  // caught above and matched against `pattern`, and its own message
+  // contains the pattern text, so a promise that never rejects would pass.
+  if (rejection === undefined) {
+    expect.fail(`expected rejection matching ${pattern}`)
+  }
+  expect((rejection as Error).message).to.match(pattern)
 }
 
 describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
@@ -49,7 +57,7 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
   before(async () => {
     bridgeGovernanceArtifact =
       await hre.artifacts.readArtifact("BridgeGovernance")
-    bridgeGovInterface = new Interface(bridgeGovernanceArtifact.abi)
+    bridgeGovInterface = new ethers.Interface(bridgeGovernanceArtifact.abi)
   })
 
   // A complete set of env vars that satisfies every validation the script
@@ -60,6 +68,8 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
     RESERVATION_PER_WALLET_CAP_SATS: "1000000",
     RESERVATION_SINGLE_AMOUNT_CAP_SATS: "100000",
     RESERVATION_MAX_ACTIVE: "5",
+    RESERVATION_MAX_THIRD_PARTY_REANCHOR_HOLDS: "1",
+    RESERVATION_HANDOFF_RESERVE_WALLETS: "1",
     RESERVATION_MIN_AMOUNT_SATS: "10000",
     RESERVATION_TX_MAX_FEE_SATS: "1000",
     RESERVATION_TERM_SECONDS: "7776000", // 90 days = MIN_RESERVATION_TERM
@@ -107,18 +117,24 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
     routerOnChainCode?: string
     proxyAdminOwner?: string
     bridgeGovernanceOwner?: string
+    depositDustThreshold?: bigint
   }): { mockHre: any } {
     const liveWalletsCount = overrides?.liveWalletsCount ?? 10
-    const depositRevealAheadPeriod = overrides?.depositRevealAheadPeriod ?? 0
     const liveWalletsCountAtFinalize =
       overrides?.liveWalletsCountAtFinalize ?? liveWalletsCount
     const reservationRouterOnChain =
-      overrides?.reservationRouterOnChain ?? ZeroAddress
+      overrides?.reservationRouterOnChain ?? ethers.ZeroAddress
     const routerOnChainCode =
       overrides?.routerOnChainCode ?? ROUTER_DEPLOYED_BYTECODE
     const proxyAdminOwner = overrides?.proxyAdminOwner ?? KNOWN_TIMELOCK
     const bridgeGovernanceOwner =
       overrides?.bridgeGovernanceOwner ?? KNOWN_COUNCIL_SAFE
+    // Defaults keep VALID_ENV feasible: dust at the single-amount cap and a
+    // reveal-ahead period inside the 90-day term plus the 24h margin.
+    const depositDustThreshold =
+      overrides?.depositDustThreshold ?? BigInt(100000)
+    const depositRevealAheadPeriod =
+      overrides?.depositRevealAheadPeriod ?? 7776000
 
     const addressMap: Record<string, string> = {
       Bridge: BRIDGE_ADDRESS,
@@ -174,12 +190,22 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
               : liveWalletsCountAtFinalize
           }
           if (name === "Bridge" && method === "depositParameters") {
-            return {
-              depositDustThreshold: 0,
-              depositTreasuryFeeDivisor: 0,
-              depositTxMaxFee: 0,
-              depositRevealAheadPeriod,
-            }
+            // Index access (array form) and named access are both read by
+            // the deploy script's feasibility guards.
+            return Object.assign(
+              [
+                depositDustThreshold,
+                BigInt(500),
+                BigInt(100000),
+                depositRevealAheadPeriod,
+              ],
+              {
+                depositDustThreshold,
+                depositTreasuryFeeDivisor: BigInt(500),
+                depositTxMaxFee: BigInt(100000),
+                depositRevealAheadPeriod,
+              }
+            )
           }
           if (name === "Bridge" && method === "getReservationRouter") {
             return reservationRouterOnChain
@@ -244,6 +270,8 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
       perWalletCap: BigInt(1_000_000),
       singleAmountCap: BigInt(100_000),
       maxActive: 5,
+      maxThirdPartyReanchorHolds: 1,
+      handoffReserveWallets: 1,
       minAmount: BigInt(10_000),
       txMaxFee: BigInt(1_000),
       termSeconds: 7_776_000,
@@ -278,6 +306,8 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
         params.perWalletCap,
         params.singleAmountCap,
         params.maxActive,
+        params.maxThirdPartyReanchorHolds,
+        params.handoffReserveWallets,
       ])
     })
 
@@ -462,6 +492,41 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
       const { mockHre } = createMockHre()
       await expectRejection(func(mockHre), /ACTION_TIMEOUT_SECONDS/)
     })
+
+    it("should throw when RESERVATION_HANDOFF_RESERVE_WALLETS is zero", async () => {
+      process.env.RESERVATION_HANDOFF_RESERVE_WALLETS = "0"
+      const { mockHre } = createMockHre()
+      await expectRejection(func(mockHre), /HANDOFF_RESERVE_WALLETS/)
+    })
+  })
+
+  // A reserved reveal is only possible when the deposit refund window the
+  // Bridge demands (reveal-ahead period) fits inside the one a reservation
+  // allows (term plus the 24h refund safety margin), and when a dust-sized
+  // deposit fits under every amount cap. Neither rule is checked on-chain.
+  describe("reserved-deposit feasibility against the live deposit parameters", () => {
+    it("should throw when the reveal-ahead period exceeds the term plus the refund safety margin", async () => {
+      // Live mainnet value: 150 days, against VALID_ENV's 90-day term.
+      const { mockHre } = createMockHre({ depositRevealAheadPeriod: 12960000 })
+      await expectRejection(func(mockHre), /depositRevealAheadPeriod/)
+    })
+
+    it("should accept the longest reveal-ahead period whose reveal window is still positive", async () => {
+      // term 7,776,000s; reveal-ahead + 2h drift - 24h margin + 1h feasibility
+      // margin == term gives 7,776,000 + 75,600.
+      const { mockHre } = createMockHre({
+        depositRevealAheadPeriod: 7776000 + 75600,
+      })
+      await func(mockHre)
+    })
+
+    it("should throw when the dust threshold exceeds a non-zero amount cap", async () => {
+      // Live mainnet value: 1,000,000 sats, against VALID_ENV's 100,000 cap.
+      const { mockHre } = createMockHre({
+        depositDustThreshold: BigInt(1000000),
+      })
+      await expectRejection(func(mockHre), /depositDustThreshold/)
+    })
   })
 
   describe("live-wallet slot capacity (finding: not re-verified before finalize)", () => {
@@ -485,16 +550,18 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
 
     it("should not reference the nonexistent 'Occupancy cap exceeds live wallet slot capacity' revert string", async () => {
       const { mockHre } = createMockHre({ liveWalletsCount: 2 })
+      let rejection: unknown
       try {
         await func(mockHre)
-        expect.fail("expected func to throw")
       } catch (error) {
-        const { message } = error as Error
-        expect(message).to.not.include(
-          "Occupancy cap exceeds live wallet slot capacity"
-        )
-        expect(message).to.include("Wallet reservations cap exceeded")
+        rejection = error
       }
+      expect(rejection, "func should throw").to.be.instanceOf(Error)
+      const { message } = rejection as Error
+      expect(message).to.not.include(
+        "Occupancy cap exceeds live wallet slot capacity"
+      )
+      expect(message).to.include("Wallet reservations cap exceeded")
     })
   })
 
@@ -631,6 +698,16 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
       expect(summary.existingContracts.ProxyAdmin).to.equal(PROXY_ADMIN_ADDRESS)
       expect(summary.existingContracts.Timelock).to.equal(KNOWN_TIMELOCK)
       expect(summary.existingContracts.CouncilSafe).to.equal(KNOWN_COUNCIL_SAFE)
+    })
+
+    // The summary feeds Safe transaction builders and other ethers v6
+    // tooling, which reject a mixed-case address whose EIP-55 checksum is
+    // wrong. Every address in it must already be in checksum form.
+    it("should write EIP-55 checksummed governance addresses", () => {
+      for (const name of ["Timelock", "CouncilSafe"]) {
+        const address = summary.existingContracts[name]
+        expect(address, name).to.equal(getAddress(address.toLowerCase()))
+      }
     })
   })
 })

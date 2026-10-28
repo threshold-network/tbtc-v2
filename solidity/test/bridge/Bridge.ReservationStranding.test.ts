@@ -63,12 +63,14 @@
  * idempotence; the internal branch is a defensive guard against a future
  * code path that calls `strandReservation` directly.
  */
+/* eslint-disable @typescript-eslint/no-unused-expressions */
 
 // Stranding tests for `notifyReservationStranded` and
 // `notifyStaleReservedDeposit`.
 
 import { ethers, helpers } from "hardhat"
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
+import { Contract } from "ethers"
 import { expect } from "chai"
 import type {
   Bank,
@@ -105,7 +107,7 @@ const RESERVATION_TX_MAX_FEE = 2000
 // (`reservationMaxTotalAmount <= maxActiveReservations *
 // reservationMaxSingleAmount`) is live from that deploy step onward, so
 // RESERVATION_MAX_TOTAL must fit under the caps set below.
-const RESERVATION_MAX_TOTAL = 10000000n
+const RESERVATION_MAX_TOTAL = BigInt("10000000")
 const MAX_RESERVATIONS_PER_WALLET = 10
 const RESERVATION_ACTION_TIMEOUT = 172800 // 48 hours
 const RESERVATION_RENEWAL_WINDOW = 2592000 // 30 days
@@ -160,12 +162,13 @@ describe("Bridge - Reservation stranding", () => {
   const refundPubKeyHash = "0x28e081f285138ccbe389c1eb8985716230129f89"
   let refundLocktime: string
 
-  const depositAmount = 3000000n
-  const anchorFee = 1500
-  const anchorAmount = depositAmount - BigInt(anchorFee)
+  const depositAmount = BigInt(3000000)
+  const anchorFee = 1500n
+  const anchorAmount = depositAmount - anchorFee
   const grossTbtc = anchorAmount * SATOSHI_MULTIPLIER
 
   before(async () => {
+    // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({
       deployer,
       governance,
@@ -211,7 +214,13 @@ describe("Bridge - Reservation stranding", () => {
     // reservation.
     await reservationRouter
       .connect(bridgeGovernanceSigner)
-      .updateReservationCaps(RESERVATION_MAX_TOTAL, RESERVATION_MAX_TOTAL, 10) // 10 = 1 wallet * MAX_RESERVATIONS_PER_WALLET, satisfying the Item-3 sizing relation (roadmap.md section 6 item 2) with this fixture's single default Live wallet
+      .updateReservationCaps(
+        RESERVATION_MAX_TOTAL,
+        RESERVATION_MAX_TOTAL,
+        10,
+        1,
+        1
+      ) // 10 = 2 wallets * MAX_RESERVATIONS_PER_WALLET, satisfying the Item-3 sizing relation with this fixture's two Live wallets; 1 = hand-off reserve, leaving one remaining Live wallet with 10 positions
     await reservationRouter
       .connect(bridgeGovernanceSigner)
       .updateReservationParameters(
@@ -233,6 +242,9 @@ describe("Bridge - Reservation stranding", () => {
     await bridge.setDepositTxMaxFee(2000)
     await bridge.setDepositRevealAheadPeriod(0)
     await liveWallet(walletPubKeyHash)
+    // A second Live wallet so the hand-off reserve gate (one Live wallet
+    // held back) still leaves a remaining Live wallet with capacity.
+    await liveWallet(secondWalletPubKeyHash)
 
     const tbtcOwner = await impersonateContract(await tbtc.owner())
     await tbtc.connect(tbtcOwner).transferOwnership(tbtcVault.target)
@@ -302,7 +314,7 @@ describe("Bridge - Reservation stranding", () => {
   // ---- Bitcoin fixture crafting (regtest-style difficulty) ----
 
   const REGTEST_BITS_LE = "ffff7f20"
-  const REGTEST_TARGET = 0x7fffffn * 2n ** BigInt(8 * (0x20 - 3))
+  const REGTEST_TARGET = BigInt(0x7fffff) * 2n ** BigInt(8 * (0x20 - 3))
 
   const reverseHex = (hex: string): string =>
     hex.replace(/^0x/, "").match(/../g)!.reverse().join("")
@@ -601,7 +613,7 @@ describe("Bridge - Reservation stranding", () => {
 
       // Real MovingFunds -> Terminated transition.
       const { movingFundsTimeout } = await bridge.movingFundsParameters()
-      await increaseTime(Number(movingFundsTimeout + 1n))
+      await increaseTime(Number(movingFundsTimeout) + 1)
       await bridge.notifyMovingFundsTimeout(custodian, [])
       expect((await bridge.wallets(custodian)).state).to.equal(
         walletState.Terminated
@@ -733,7 +745,7 @@ describe("Bridge - Reservation stranding", () => {
       // fixture setup. Going forward by (refundLocktime - now + 1)
       // lands us past the deposit's refund deadline.
       const targetTime = (await lastBlockTime()) + 89 * 24 * 60 * 60 + 2
-      await increaseTime(targetTime - (await lastBlockTime()))
+      await increaseTime(Number(targetTime) - (await lastBlockTime()))
 
       await expect(reservationRouter.notifyStaleReservedDeposit(depositKey))
         .to.emit(reservationRouter, "ReservedDepositMarkedStale")
@@ -785,7 +797,7 @@ describe("Bridge - Reservation stranding", () => {
       // is the simplest deterministic time travel that lands us past
       // both the reveal-ahead period AND the deposit's refund deadline.
       const targetTime = (await lastBlockTime()) + 89 * 24 * 60 * 60 + 2
-      await increaseTime(targetTime - (await lastBlockTime()))
+      await increaseTime(Number(targetTime) - (await lastBlockTime()))
 
       await expect(reservationRouter.notifyStaleReservedDeposit(depositKey))
         .to.emit(reservationRouter, "ReservedDepositMarkedStale")
@@ -814,7 +826,7 @@ describe("Bridge - Reservation stranding", () => {
       // `refundDeadlineValidated` tests above) so this test isolates the
       // acceptance-authorization-pending rejection specifically.
       const targetTime = (await lastBlockTime()) + 89 * 24 * 60 * 60 + 2
-      await increaseTime(targetTime - (await lastBlockTime()))
+      await increaseTime(Number(targetTime) - (await lastBlockTime()))
 
       await expect(
         reservationRouter.notifyStaleReservedDeposit(depositKey)

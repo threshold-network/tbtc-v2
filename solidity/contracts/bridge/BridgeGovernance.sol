@@ -1885,15 +1885,26 @@ contract BridgeGovernance is Ownable {
     /// @param _newMaxReservationsAmountPerWallet New max reservations amount per wallet.
     /// @param _newReservationMaxSingleAmount New reservation max single amount.
     /// @param _newMaxActiveReservations New max active reservations.
+    /// @param _newMaxThirdPartyReanchorHoldsPerWallet New per-target cap on
+    ///        the number of concurrently pending third-party re-anchor
+    ///        holds; zero means third parties may not hold re-anchor
+    ///        capacity at all (privileged callers only).
+    /// @param _newHandoffReserveWallets New number of Live wallets held
+    ///        back from acceptance capacity by the hand-off reserve gate;
+    ///        must be at least one.
     function beginReservationCapsUpdate(
         uint64 _newMaxReservationsAmountPerWallet,
         uint64 _newReservationMaxSingleAmount,
-        uint32 _newMaxActiveReservations
+        uint32 _newMaxActiveReservations,
+        uint32 _newMaxThirdPartyReanchorHoldsPerWallet,
+        uint32 _newHandoffReserveWallets
     ) external onlyOwner {
         reservationCapsData.beginReservationCapsUpdate(
             _newMaxReservationsAmountPerWallet,
             _newReservationMaxSingleAmount,
-            _newMaxActiveReservations
+            _newMaxActiveReservations,
+            _newMaxThirdPartyReanchorHoldsPerWallet,
+            _newHandoffReserveWallets
         );
     }
 
@@ -1909,7 +1920,9 @@ contract BridgeGovernance is Ownable {
         IReservationBridge(address(bridge)).updateReservationCaps(
             staged.newMaxReservationsAmountPerWallet,
             staged.newReservationMaxSingleAmount,
-            staged.newMaxActiveReservations
+            staged.newMaxActiveReservations,
+            staged.newMaxThirdPartyReanchorHoldsPerWallet,
+            staged.newHandoffReserveWallets
         );
     }
 

@@ -340,6 +340,16 @@ library Reservation {
         // last in the struct to keep the storage layout upgrade
         // append-only.
         uint64 minAmount;
+        // True when this pending re-anchor generation was requested by a
+        // non-privileged (third-party) caller and therefore counted against
+        // the target wallet's `pendingThirdPartyReanchorHolds`. False for
+        // privileged requests (owner, SPV maintainer, source-wallet member)
+        // and every non-re-anchor generation. Carried on the action record
+        // so every path that ends the pending generation (settlement,
+        // supersede-unwind, action timeout) decrements the target counter
+        // exactly once. Appended to the end of the struct so the storage
+        // layout upgrade stays append-only.
+        bool thirdPartyHold;
     }
 
     event ReservationAcceptanceRequested(
@@ -392,11 +402,30 @@ library Reservation {
     event ReservationCapsUpdated(
         uint64 maxReservationsAmountPerWallet,
         uint64 reservationMaxSingleAmount,
-        uint32 maxActiveReservations
+        uint32 maxActiveReservations,
+        uint32 maxThirdPartyReanchorHoldsPerWallet,
+        uint32 handoffReserveWallets
     );
 
     event ReservationRetryCreditMinted(uint256 indexed reservationKey);
     event ReservedDepositMarkedStale(uint256 indexed depositKey);
+
+    /// @notice Emitted when the deposit's depositor releases a revealed
+    ///         reserved deposit that never received an acceptance request
+    ///         back to the ordinary deposit pool, so an ordinary sweep can
+    ///         pick it up and credit the chosen vault. The full
+    ///         `pendingReservedDeposit` record is deleted and the deposit is
+    ///         re-routed to `vault` (or to the zero address).
+    /// @param depositKey The deposit key of the released reserved deposit.
+    /// @param depositor The deposit's depositor; equal to
+    ///        `msg.sender` of the call.
+    /// @param vault The target vault for the released deposit, or the zero
+    ///        address for a plain pool sweep.
+    event ReservedDepositReleasedToPool(
+        uint256 indexed depositKey,
+        address indexed depositor,
+        address vault
+    );
     // Emitted whenever the global active-reservation count changes, letting
     // indexers track occupancy against maxActiveReservations from logs alone.
     // Declared here and in `ReservationProofs` (same signature, same topic0)
@@ -709,6 +738,14 @@ library Reservation {
     /// @param privileged True when the call is made by the governance
     ///        (checked by the calling contract), which may rotate anchors
     ///        away from Live wallets.
+    /// @param walletMembersIDs Identifiers of the source wallet signing
+    ///        group members. Empty for privileged (owner, SPV maintainer,
+    ///        or governance-discriminated) calls and for third-party
+    ///        callers; a non-empty proof that fails validation reverts
+    ///        rather than degrading to a third-party request.
+    /// @param walletMemberIndex Position of the caller in the source wallet
+    ///        signing group members list, used to validate
+    ///        `walletMembersIDs` against the source wallet's registry.
     /// @dev Requirements:
     ///      - The reservation must be Active,
     ///      - The source wallet must be in the MovingFunds or Closing state
@@ -719,10 +756,16 @@ library Reservation {
     ///      - At least one integer timestamp must remain between now and the
     ///        action-timeout safety margin, so every created action has a
     ///        proposal the `WalletProposalValidator` can sign,
-    ///      - The target wallet's reservation-count capacity must allow the
-    ///        move; the capacity is reserved by this call and released if
-    ///        the authorization times out,
-    ///      - The target wallet's amount capacity must allow the move.
+    ///      - For a non-privileged caller, the target wallet's pending
+    ///        third-party re-anchor hold count must be below the cap,
+    ///      - The target wallet's reservation-count and amount capacity
+    ///        must allow the move for third-party requests and for
+    ///        governance rotations off a Live source; the capacity is
+    ///        reserved by this call and released if the authorization
+    ///        times out. A privileged request from a MovingFunds/Closing
+    ///        source (the hand-off path) skips both caps: a retirement
+    ///        must stay possible even when the target's slots are
+    ///        saturated.
     /// @dev Re-anchor is intentionally unbounded in time in milestone 1,
     ///      with no dissolution path available yet. Milestone 2 must
     ///      decide whether to reintroduce a time-based eligibility gate on
@@ -731,7 +774,9 @@ library Reservation {
         BridgeState.Storage storage self,
         uint256 reservationKey,
         bytes20 targetWalletPubKeyHash,
-        bool privileged
+        bool privileged,
+        uint32[] calldata walletMembersIDs,
+        uint256 walletMemberIndex
     ) external {
         ReservationRequest storage reservation = self.reservations[
             reservationKey
@@ -748,6 +793,33 @@ library Reservation {
             );
         }
         /* solhint-enable not-rely-on-time */
+
+        // Privilege: the governance-discriminated call, the reservation
+        // owner, an SPV maintainer, or a proven member of the source wallet
+        // are privileged and exempt from the third-party hold cap. A caller
+        // passing a non-empty member proof that fails validation reverts
+        // rather than silently degrading to a third-party request, even
+        // when that caller would otherwise be recognized as privileged.
+        // The member result is scoped to the block so the privilege
+        // computation below stays under the stack depth limit.
+        if (walletMembersIDs.length > 0) {
+            bool isSourceMember = self.ecdsaWalletRegistry.isWalletMember(
+                self
+                    .registeredWallets[reservation.walletPubKeyHash]
+                    .ecdsaWalletID,
+                walletMembersIDs,
+                msg.sender,
+                walletMemberIndex
+            );
+            if (!isSourceMember) {
+                revert("Caller is not a member of the source wallet");
+            }
+        }
+        bool isPrivileged =
+            privileged ||
+                reservation.owner == msg.sender ||
+                self.isSpvMaintainer[msg.sender] ||
+                walletMembersIDs.length > 0;
 
         {
             Wallets.WalletState sourceState = self
@@ -779,7 +851,6 @@ library Reservation {
 
         uint64 anchorAmount = reservation.anchorAmount;
         uint64 txMaxFee = self.reservationTxMaxFee;
-        uint64 minAmount = self.reservationMinAmount;
 
         uint32 timeoutAt =
             /* solhint-disable-next-line not-rely-on-time */
@@ -810,31 +881,77 @@ library Reservation {
         // (initial anchor - minAmount). Restored per adjudication reversing
         // review finding [6] (which had dropped the `minAmount` term; its
         // rationale did not account for the cumulative exposure).
-        require(
-            anchorAmount > txMaxFee + minAmount,
-            "Reanchor would fall below the minimum reservation amount"
-        );
+        // The acceptance floor `minAmount + 2 * txMaxFee` makes every new
+        // position clear this floor for its first hop.
+        {
+            uint64 minAmount = self.reservationMinAmount;
+            require(
+                anchorAmount > txMaxFee + minAmount,
+                "Reanchor would fall below the minimum reservation amount"
+            );
+        }
+
+        // Third-party holds are capped per target wallet: a non-privileged
+        // caller may only reserve the target's capacity while its pending
+        // third-party hold count is below the governance cap. Privileged
+        // requests (owner, maintainer, source-wallet member, or
+        // governance-discriminated) are exempt and never count. `0` means
+        // third parties may not hold re-anchor capacity at all.
+        if (!isPrivileged) {
+            uint32 targetHolds = self.pendingThirdPartyReanchorHolds[
+                targetWalletPubKeyHash
+            ];
+            require(
+                targetHolds < self.maxThirdPartyReanchorHoldsPerWallet,
+                "Target third-party re-anchor holds exceeded"
+            );
+            self.pendingThirdPartyReanchorHolds[targetWalletPubKeyHash] =
+                targetHolds + 1;
+        }
 
         // Reserve the target wallet's count and amount capacity; the
         // source wallet's are released at settlement (or kept on timeout).
-        uint32 targetCount =
-            self.walletReservationInfo[targetWalletPubKeyHash].count + 1;
-        require(
-            targetCount <= self.maxReservationsPerWallet,
-            "Wallet reservations cap exceeded"
-        );
-        self.walletReservationInfo[targetWalletPubKeyHash].count = targetCount;
-
-        uint64 targetAmount =
-            self.walletReservationInfo[targetWalletPubKeyHash].amount +
-                anchorAmount;
-        require(
-            self.maxReservationsAmountPerWallet == 0 ||
-                targetAmount <= self.maxReservationsAmountPerWallet,
-            "Wallet reserved amount cap exceeded"
-        );
-        self.walletReservationInfo[targetWalletPubKeyHash].amount =
-            targetAmount;
+        // A privileged request from a retiring source — governance, the
+        // reservation owner, an SPV maintainer, or a proven source-wallet
+        // member — skips the target's per-wallet caps: the hand-off must
+        // stay possible even when the target's own slots are saturated,
+        // otherwise an anchored source wallet could never retire. Third-
+        // party requests and governance rotations off a Live source keep
+        // both caps. The counts and amounts are added on every path.
+        {
+            Wallets.WalletState sourceState = self
+                .registeredWallets[reservation.walletPubKeyHash]
+                .state;
+            bool skipTargetCaps =
+                isPrivileged && sourceState != Wallets.WalletState.Live;
+            {
+                uint32 targetCount =
+                    self.walletReservationInfo[targetWalletPubKeyHash].count +
+                        1;
+                if (!skipTargetCaps) {
+                    require(
+                        targetCount <= self.maxReservationsPerWallet,
+                        "Wallet reservations cap exceeded"
+                    );
+                }
+                self.walletReservationInfo[targetWalletPubKeyHash].count =
+                    targetCount;
+            }
+            {
+                uint64 targetAmount =
+                    self.walletReservationInfo[targetWalletPubKeyHash].amount +
+                        anchorAmount;
+                if (!skipTargetCaps) {
+                    require(
+                        self.maxReservationsAmountPerWallet == 0 ||
+                            targetAmount <= self.maxReservationsAmountPerWallet,
+                        "Wallet reserved amount cap exceeded"
+                    );
+                }
+                self.walletReservationInfo[targetWalletPubKeyHash].amount =
+                    targetAmount;
+            }
+        }
 
         reservation.state = ReservationState.ActionPending;
         uint64 requestNonce = ++reservation.requestNonce;
@@ -853,6 +970,7 @@ library Reservation {
         action.targetWalletPubKeyHash = targetWalletPubKeyHash;
         action.amount = anchorAmount;
         action.sourceAnchorUtxoHash = anchorUtxoHash(reservation);
+        action.thirdPartyHold = !isPrivileged;
 
         emit ReservationReanchorRequested(
             reservationKey,
@@ -904,6 +1022,11 @@ library Reservation {
             action.targetWalletPubKeyHash,
             action.amount
         );
+        releaseThirdPartyReanchorHold(
+            self,
+            action.targetWalletPubKeyHash,
+            action.thirdPartyHold
+        );
 
         reservation.state = ReservationState.Active;
 
@@ -922,6 +1045,11 @@ library Reservation {
     ///         acceptance generation, enforcing every cap and emitting the
     ///         occupancy signal. Mirrors `releaseAcceptanceCapacity`; the
     ///         settlement releases the miner-fee delta.
+    /// @dev Additionally enforces the hand-off reserve gate: after this
+    ///      acceptance, any `handoffReserveWallets` Live wallets may retire
+    ///      together and every open position still fits on the remaining
+    ///      Live wallets within the per-wallet count cap. A gate breach
+    ///      reverts with "Hand-off reserve exceeded".
     function reserveAcceptanceCapacity(
         BridgeState.Storage storage self,
         bytes20 walletPubKeyHash,
@@ -932,6 +1060,24 @@ library Reservation {
             "Active reservations cap exceeded"
         );
         self.activeReservationsCount += 1;
+
+        // Hand-off reserve gate: keep enough Live wallets free to retire
+        // together so that, whatever `handoffReserveWallets` reserves, all
+        // open positions still fit on the remaining Live wallets within
+        // the per-wallet count cap. A breach turns a future retirement
+        // cliff into a revert now, at acceptance time.
+        uint32 liveWalletsCount = self.liveWalletsCount;
+        uint32 handoffReserveWallets = self.handoffReserveWallets;
+        uint256 activeAfterThis = self.activeReservationsCount;
+        uint256 remaining =
+            liveWalletsCount > handoffReserveWallets
+                ? liveWalletsCount - handoffReserveWallets
+                : 0;
+        require(
+            activeAfterThis <= remaining * self.maxReservationsPerWallet,
+            "Hand-off reserve exceeded"
+        );
+
         emit ReservationOccupancyChanged(self.activeReservationsCount);
 
         uint64 newTotal = self.reservationTotalAmount + amount;
@@ -983,6 +1129,29 @@ library Reservation {
     ) internal {
         self.walletReservationInfo[targetWalletPubKeyHash].count -= 1;
         self.walletReservationInfo[targetWalletPubKeyHash].amount -= amount;
+    }
+
+    /// @notice Releases one third-party re-anchor hold from a target
+    ///         wallet's pending-hold count, when the generation that
+    ///         reserved it ends. Called exactly once per generation, on the
+    ///         path that terminates the pending re-anchor (on-time
+    ///         settlement, supersede-unwind, or action timeout), and only
+    ///         when that generation actually counted (`counted` true).
+    ///         Privileged generations carry `counted == false` and never
+    ///         touch the counter, so a repeated release cannot underflow.
+    function releaseThirdPartyReanchorHold(
+        BridgeState.Storage storage self,
+        bytes20 targetWalletPubKeyHash,
+        bool counted
+    ) internal {
+        if (counted) {
+            uint32 holds = self.pendingThirdPartyReanchorHolds[
+                targetWalletPubKeyHash
+            ];
+            require(holds > 0, "No third-party re-anchor hold to release");
+            self.pendingThirdPartyReanchorHolds[targetWalletPubKeyHash] =
+                holds - 1;
+        }
     }
 
     /// @notice Records a proven anchor arriving at a wallet (acceptance or
@@ -1254,7 +1423,124 @@ library Reservation {
         emit ReservedDepositMarkedStale(depositKey);
     }
 
-    /// @notice Validates the Decision-1 relational invariant between the
+    /// @notice Lets the depositor hand a revealed reserved deposit that
+    ///         never received an acceptance request back to the ordinary
+    ///         deposit pool: the reserved mark is cleared, the deposit is
+    ///         re-routed to the chosen vault (or to the zero address), and
+    ///         an ordinary sweep can settle it.
+    /// @dev Reverts unless:
+    ///      - the deposit is revealed and not swept,
+    ///      - the caller is the deposit's own depositor,
+    ///      - the deposit is currently a pending reserved deposit
+    ///        (`isReserved` and a non-zero designated wallet, so a
+    ///        stale-marked entry is rejected),
+    ///      - no acceptance or re-anchor request was ever made for the
+    ///        deposit (the position's `requestNonce` is still zero): once
+    ///        the wallet may have signed an anchor for an acceptance
+    ///        generation, a late proof of that anchor must still settle,
+    ///        and a pool sweep of the already-spent input is impossible,
+    ///      - the deposit's snapshotted refund deadline still leaves the
+    ///        24-hour `DEPOSIT_REFUND_SAFETY_MARGIN` open in the future, so
+    ///        an ordinary sweep can be proposed and validated now (this is
+    ///        the same margin the `WalletProposalValidator` enforces on
+    ///        sweep proposal validation),
+    ///      - the target is the zero address, or a trusted vault that is
+    ///        not the reservation vault itself. A pooled sweep into the
+    ///        reservation vault would let
+    ///        `ReservationVault.receiveBalanceIncrease` mint TBTC for any
+    ///        credit it receives, so the re-route is refused.
+    ///      Effects: deletes the `pendingReservedDeposit` record (so
+    ///      `isReservedDeposit` and `reservedDepositWallet` both read zero,
+    ///      and ordinary sweeps / the stale and acceptance notification
+    ///      paths all reject the deposit), decrements
+    ///      `pendingReservedDeposits`, and writes the new vault on
+    ///      `deposits[key].vault`. The `deposit.treasuryFee` recorded at
+    ///      reveal (the rebate was skipped for reserved deposits) is now
+    ///      charged by an ordinary sweep; no rebate is added or applied
+    ///      here.
+    /// @param depositKey The deposit key of the reserved deposit to release.
+    /// @param vault The vault to re-route the deposit to, or the zero
+    ///        address for a plain pool sweep. MUST NOT be the reservation
+    ///        vault.
+    function releaseReservedDepositToPool(
+        BridgeState.Storage storage self,
+        uint256 depositKey,
+        address vault
+    ) external {
+        Deposit.DepositRequest storage deposit = self.deposits[depositKey];
+        require(deposit.revealedAt != 0, "Deposit not revealed");
+        require(deposit.sweptAt == 0, "Deposit already swept");
+        require(
+            msg.sender == deposit.depositor,
+            "Caller is not the deposit's depositor"
+        );
+
+        BridgeState.PendingReservedDeposit storage pendingDeposit = self
+            .pendingReservedDeposit[depositKey];
+        require(
+            pendingDeposit.isReserved,
+            "Deposit was not revealed as reserved"
+        );
+        require(
+            pendingDeposit.walletPubKeyHash != bytes20(0),
+            "Not a pending reserved deposit"
+        );
+
+        // The `requestNonce` of the reservation position is the monotonic
+        // acceptance/re-anchor generation counter, starting at zero and
+        // incremented on every action request. A non-zero value means an
+        // acceptance was requested at some point - and the wallet may have
+        // signed the anchor for that generation, which a late proof can
+        // still settle, while a pool sweep of an already-spent input is
+        // impossible. Refuse the release.
+        require(
+            self.reservations[depositKey].requestNonce == 0,
+            "Acceptance was already requested"
+        );
+
+        // The validator requires `block.timestamp < refundDeadline - MARGIN`
+        // for an ordinary sweep proposal to validate. The same margin is
+        // enforced here at release time so the deposit can be picked up by
+        // a normal sweep now. `pendingDeposit.refundDeadline` is the exact
+        // deadline captured at reveal; the refund safety margin comes from
+        // `WalletProposalValidatorConstants.DEPOSIT_REFUND_SAFETY_MARGIN`
+        // (24 hours), the same value the validator uses.
+        require(
+            pendingDeposit.refundDeadline >
+                WalletProposalValidatorConstants.DEPOSIT_REFUND_SAFETY_MARGIN &&
+                /* solhint-disable-next-line not-rely-on-time */
+                block.timestamp <
+                    uint256(pendingDeposit.refundDeadline) -
+                        WalletProposalValidatorConstants
+                            .DEPOSIT_REFUND_SAFETY_MARGIN,
+            "Deposit refund safety margin is not preserved"
+        );
+
+        require(
+            vault == address(0) ||
+                (self.isVaultTrusted[vault] && vault != self.reservationVault),
+            "Vault must be the zero address or a trusted vault other than the reservation vault"
+        );
+
+        // Reset every field of the `pendingReservedDeposit` record. The
+        // record is stored as a mapping value: Solidity 0.8 forbids `delete`
+        // on a struct storage pointer, so the individual fields are cleared
+        // explicitly. `isReserved` becomes false, `walletPubKeyHash` zero
+        // (so `isReservedDeposit` and `reservedDepositWallet` both read
+        // false/zero), and the refund-deadline fields are zeroed as well.
+        pendingDeposit.isReserved = false;
+        pendingDeposit.walletPubKeyHash = bytes20(0);
+        pendingDeposit.refundDeadline = 0;
+        pendingDeposit.refundDeadlineValidated = false;
+        self.pendingReservedDeposits -= 1;
+        deposit.vault = vault;
+
+        emit ReservedDepositReleasedToPool(
+            depositKey,
+            deposit.depositor,
+            vault
+        );
+    }
     ///         total amount cap and slot capacity.
     /// @dev Requires that `reservationMaxTotalAmount` does not exceed the
     ///      worst-case slot capacity `maxActiveReservations * reservationMaxSingleAmount`.
@@ -1366,6 +1652,22 @@ library Reservation {
             emit ReservationVaultUpdated(reservationVault);
         }
 
+        // While reservations are configured, a parameter write that breaks
+        // the reserved-deposit feasibility rule against the current deposit
+        // parameters would leave no deposit that can ever be revealed as
+        // reserved, so gate on the vault: enabling it (zero-to-nonzero) is
+        // checked too, and disabling it (nonzero-to-zero) is exempt.
+        if (reservationVault != address(0)) {
+            BridgeState.assertReservedDepositsFeasible(
+                self.depositDustThreshold,
+                self.depositRevealAheadPeriod,
+                reservationTermSeconds,
+                self.reservationMaxSingleAmount,
+                self.maxReservationsAmountPerWallet,
+                reservationMaxTotalAmount
+            );
+        }
+
         // Decision 1 (option 2): the total amount cap may not exceed
         // worst-case slot capacity. `maxActiveReservations` bounds the
         // number of open positions and `reservationMaxSingleAmount` bounds
@@ -1403,14 +1705,18 @@ library Reservation {
         );
     }
 
-    /// @notice Updates the amount-denominated reservation caps and the
-    ///         global open-position occupancy cap. Amount caps are checked
-    ///         and reserved at request/authorization time, never at proof
-    ///         time; a zero amount-cap value disables that amount cap.
-    ///         `maxActiveReservations` must be greater than zero — it is
-    ///         the milestone 1 launch gate.
+    /// @notice Updates the amount-denominated reservation caps, the
+    ///         global open-position occupancy cap, and the hand-off
+    ///         reserve. Amount caps are checked and reserved at
+    ///         request/authorization time, never at proof time; a zero
+    ///         amount-cap value disables that amount cap. `maxActiveReservations`
+    ///         must be greater than zero — it is the milestone 1 launch
+    ///         gate. `handoffReserveWallets` must be at least one: every
+    ///         Live wallet may retire, so the reserve gate must always
+    ///         hold back at least one wallet.
     /// @dev Requirements:
     ///      - `maxActiveReservations` must be greater than zero,
+    ///      - `handoffReserveWallets` must be greater than zero,
     ///      - Stored `reservationMaxTotalAmount` must not exceed the slot
     ///        capacity `maxActiveReservations * reservationMaxSingleAmount`
     ///        (skipped when either operand is zero/disabled).
@@ -1427,11 +1733,17 @@ library Reservation {
         BridgeState.Storage storage self,
         uint64 maxReservationsAmountPerWallet,
         uint64 reservationMaxSingleAmount,
-        uint32 maxActiveReservations
+        uint32 maxActiveReservations,
+        uint32 maxThirdPartyReanchorHoldsPerWallet,
+        uint32 handoffReserveWallets
     ) external {
         require(
             maxActiveReservations > 0,
             "Active reservations cap must be greater than zero"
+        );
+        require(
+            handoffReserveWallets > 0,
+            "Hand-off reserve must be greater than zero"
         );
 
         // Decision 1 (option 2): mirror of the invariant enforced in
@@ -1444,14 +1756,36 @@ library Reservation {
             reservationMaxSingleAmount,
             maxActiveReservations
         );
+        // As in `updateReservationParameters`, while reservations are
+        // configured no amount cap may drop below the deposit dust
+        // threshold against the current deposit parameters: the caps are
+        // the only values this setter owns.
+        if (self.reservationVault != address(0)) {
+            BridgeState.assertReservedDepositsFeasible(
+                self.depositDustThreshold,
+                self.depositRevealAheadPeriod,
+                self.reservationTermSeconds,
+                reservationMaxSingleAmount,
+                maxReservationsAmountPerWallet,
+                self.reservationMaxTotalAmount
+            );
+        }
         self.maxReservationsAmountPerWallet = maxReservationsAmountPerWallet;
         self.reservationMaxSingleAmount = reservationMaxSingleAmount;
         self.maxActiveReservations = maxActiveReservations;
+        // Zero means third parties may not hold re-anchor capacity at all;
+        // privileged callers (owner, maintainer, source-wallet member) are
+        // unaffected.
+        self.maxThirdPartyReanchorHoldsPerWallet =
+            maxThirdPartyReanchorHoldsPerWallet;
+        self.handoffReserveWallets = handoffReserveWallets;
 
         emit ReservationCapsUpdated(
             maxReservationsAmountPerWallet,
             reservationMaxSingleAmount,
-            maxActiveReservations
+            maxActiveReservations,
+            maxThirdPartyReanchorHoldsPerWallet,
+            handoffReserveWallets
         );
     }
 }

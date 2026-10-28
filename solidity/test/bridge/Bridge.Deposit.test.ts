@@ -1184,18 +1184,20 @@ describe("Bridge - Deposit", () => {
 
         // Reveal a deposit with the reservation vault
         const revealWithReservationVault = { ...reveal }
-        revealWithReservationVault.vault = await reservationVault.getAddress()
+        revealWithReservationVault.vault = reservationVault.target
 
         tx = await bridge
           .connect(depositor)
           .revealDeposit(P2SHFundingTx, revealWithReservationVault)
 
-        depositKey = ethers.solidityPackedKeccak256(
-          ["bytes32", "uint32"],
-          [
-            "0x17350f81cdb61cd8d7014ad1507d4af8d032b75812cf88d2c636c1c022991af2",
-            reveal.fundingOutputIndex,
-          ]
+        depositKey = ethers.keccak256(
+          ethers.solidityPacked(
+            ["bytes32", "uint32"],
+            [
+              "0x17350f81cdb61cd8d7014ad1507d4af8d032b75812cf88d2c636c1c022991af2",
+              reveal.fundingOutputIndex,
+            ]
+          )
         )
       })
 
@@ -1222,12 +1224,14 @@ describe("Bridge - Deposit", () => {
             .connect(depositor)
             .revealDeposit(P2SHFundingTx, reveal)
 
-          depositKey = ethers.solidityPackedKeccak256(
-            ["bytes32", "uint32"],
-            [
-              "0x17350f81cdb61cd8d7014ad1507d4af8d032b75812cf88d2c636c1c022991af2",
-              reveal.fundingOutputIndex,
-            ]
+          depositKey = ethers.keccak256(
+            ethers.solidityPacked(
+              ["bytes32", "uint32"],
+              [
+                "0x17350f81cdb61cd8d7014ad1507d4af8d032b75812cf88d2c636c1c022991af2",
+                reveal.fundingOutputIndex,
+              ]
+            )
           )
         })
 
@@ -1255,12 +1259,14 @@ describe("Bridge - Deposit", () => {
           .connect(depositor)
           .revealDeposit(P2SHFundingTx, nonRoutedReveal)
 
-        depositKey = ethers.solidityPackedKeccak256(
-          ["bytes32", "uint32"],
-          [
-            "0x17350f81cdb61cd8d7014ad1507d4af8d032b75812cf88d2c636c1c022991af2",
-            reveal.fundingOutputIndex,
-          ]
+        depositKey = ethers.keccak256(
+          ethers.solidityPacked(
+            ["bytes32", "uint32"],
+            [
+              "0x17350f81cdb61cd8d7014ad1507d4af8d032b75812cf88d2c636c1c022991af2",
+              reveal.fundingOutputIndex,
+            ]
+          )
         )
       })
 

@@ -77,6 +77,7 @@ describe("ReservationVault", () => {
   let vault: ReservationVault
 
   before(async () => {
+    // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({ bridge, account1, account2, bank, tbtc, tbtcVault, vault } =
       await loadFixture(fixture))
   })
@@ -84,13 +85,12 @@ describe("ReservationVault", () => {
   /** Impersonates the Bank so `onlyBank`-gated functions can be called
    *  directly, bypassing Bank's own array-length check. */
   async function impersonateBank(): Promise<HardhatEthersSigner> {
-    const bankAddress = await bank.getAddress()
-    await ethers.provider.send("hardhat_impersonateAccount", [bankAddress])
+    await ethers.provider.send("hardhat_impersonateAccount", [bank.target])
     await ethers.provider.send("hardhat_setBalance", [
-      bankAddress,
+      bank.target,
       "0x56BC75E2D63100000", // 100 ETH
     ])
-    return ethers.getSigner(bankAddress)
+    return ethers.getSigner(bank.target as string)
   }
 
   describe("constructor", () => {
@@ -488,9 +488,7 @@ describe("ReservationVault", () => {
 
         await vault.connect(account1).repayInKindFeeDebt(repayAmount)
 
-        expect(await vault.inKindFeeDebtSat()).to.equal(
-          BigInt(debtSat) - BigInt(repayAmount)
-        )
+        expect(await vault.inKindFeeDebtSat()).to.equal(debtSat - repayAmount)
         expect(
           balanceBefore - (await tbtc.balanceOf(account1.address))
         ).to.equal(satsToTbtc(repayAmount))
@@ -712,6 +710,50 @@ describe("ReservationVault", () => {
         await expect(tx)
           .to.emit(vault, "FeesSwept")
           .withArgs(account1.address, satsToTbtc(extraSat))
+      })
+    })
+
+    context("when the vault balance covers only part of the debt", () => {
+      // The repaid part must not divide the debt evenly: then a full
+      // repayment and a partial one leave different remainders.
+      const debtSat = 500_000
+      const availableFeeSat = 200_000
+
+      before(async () => {
+        await createSnapshot()
+
+        await vault.connect(bridge.wallet).financeInKindFee(debtSat)
+
+        const initiationFeeBps = await vault.initiationFeeBps()
+        const depositSat = Math.ceil(
+          (availableFeeSat * 10000) / Number(initiationFeeBps)
+        )
+        await bank
+          .connect(bridge.wallet)
+          .increaseBalanceAndCall(
+            vault.target,
+            [account2.address],
+            [depositSat]
+          )
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should reduce the debt by exactly the repaid amount", async () => {
+        const repaidSat = (await tbtc.balanceOf(vault.target)) / satsToTbtc(1)
+        expect(repaidSat).to.be.greaterThan(0n)
+        expect(repaidSat).to.be.lessThan(BigInt(debtSat))
+
+        const tx = await vault.sweepFees(account1.address)
+
+        expect(await vault.inKindFeeDebtSat()).to.equal(
+          BigInt(debtSat) - repaidSat
+        )
+        await expect(tx)
+          .to.emit(vault, "InKindFeeDebtRepaid")
+          .withArgs(vault.target, repaidSat)
       })
     })
 

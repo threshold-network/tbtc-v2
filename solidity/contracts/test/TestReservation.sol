@@ -45,7 +45,9 @@ contract TestReservation {
     event ReservationCapsUpdated(
         uint64 maxReservationsAmountPerWallet,
         uint64 reservationMaxSingleAmount,
-        uint32 maxActiveReservations
+        uint32 maxActiveReservations,
+        uint32 maxThirdPartyReanchorHoldsPerWallet,
+        uint32 handoffReserveWallets
     );
     event ReservationOccupancyChanged(uint32 activeReservationsCount);
     event WalletMovingFunds(
@@ -115,6 +117,9 @@ contract TestReservation {
 
     function setMaxActiveReservations(uint32 count) external {
         state.maxActiveReservations = count;
+    }
+    function setHandoffReserveWallets(uint32 count) external {
+        state.handoffReserveWallets = count;
     }
 
     function setReservationTotalAmount(uint64 amount) external {
@@ -369,19 +374,23 @@ contract TestReservation {
         return state.pendingReservedDeposits;
     }
 
-    /// @notice Returns the three fields the slot-capacity invariant relates.
+    /// @notice Returns the fields the slot-capacity invariant relates and
+    ///         the per-target third-party re-anchor hold cap.
     function caps()
         external
         view
         returns (
             uint64 reservationMaxTotalAmount,
             uint64 reservationMaxSingleAmount,
-            uint32 maxActiveReservations
+            uint32 maxActiveReservations,
+            uint32 maxThirdPartyReanchorHoldsPerWallet
         )
     {
         reservationMaxTotalAmount = state.reservationMaxTotalAmount;
         reservationMaxSingleAmount = state.reservationMaxSingleAmount;
         maxActiveReservations = state.maxActiveReservations;
+        maxThirdPartyReanchorHoldsPerWallet = state
+            .maxThirdPartyReanchorHoldsPerWallet;
     }
 
     function getReservationByAnchorUtxo(
@@ -608,14 +617,51 @@ contract TestReservation {
     function updateReservationCaps(
         uint64 maxReservationsAmountPerWallet,
         uint64 reservationMaxSingleAmount,
-        uint32 maxActiveReservations
+        uint32 maxActiveReservations,
+        uint32 maxThirdPartyReanchorHoldsPerWallet,
+        uint32 handoffReserveWallets
     ) external {
         Reservation.updateReservationCaps(
             state,
             maxReservationsAmountPerWallet,
             reservationMaxSingleAmount,
-            maxActiveReservations
+            maxActiveReservations,
+            maxThirdPartyReanchorHoldsPerWallet,
+            handoffReserveWallets
         );
+    }
+
+    function updateDepositParameters(
+        uint64 depositDustThreshold,
+        uint64 depositTreasuryFeeDivisor,
+        uint64 depositTxMaxFee,
+        uint32 depositRevealAheadPeriod
+    ) external {
+        BridgeState.updateDepositParameters(
+            state,
+            depositDustThreshold,
+            depositTreasuryFeeDivisor,
+            depositTxMaxFee,
+            depositRevealAheadPeriod
+        );
+    }
+
+    function depositParameters()
+        external
+        view
+        returns (uint64 depositDustThreshold, uint32 depositRevealAheadPeriod)
+    {
+        depositDustThreshold = state.depositDustThreshold;
+        depositRevealAheadPeriod = state.depositRevealAheadPeriod;
+    }
+
+    function reservationVaultAndTerm()
+        external
+        view
+        returns (address reservationVault, uint32 reservationTermSeconds)
+    {
+        reservationVault = state.reservationVault;
+        reservationTermSeconds = state.reservationTermSeconds;
     }
 
     function seedPendingReservedDeposit(
@@ -776,12 +822,15 @@ contract TestReservation {
         returns (
             uint64 maxReservationsAmountPerWallet,
             uint64 reservationMaxSingleAmount,
-            uint32 maxActiveReservations
+            uint32 maxActiveReservations,
+            uint32 maxThirdPartyReanchorHoldsPerWallet
         )
     {
         maxReservationsAmountPerWallet = state.maxReservationsAmountPerWallet;
         reservationMaxSingleAmount = state.reservationMaxSingleAmount;
         maxActiveReservations = state.maxActiveReservations;
+        maxThirdPartyReanchorHoldsPerWallet = state
+            .maxThirdPartyReanchorHoldsPerWallet;
     }
 
     function reservationsByAnchorUtxo(

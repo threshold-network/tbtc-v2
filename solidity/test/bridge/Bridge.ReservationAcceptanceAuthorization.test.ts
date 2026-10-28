@@ -24,6 +24,7 @@
  *     contract, no deploy script, not compiled. Porting it is new scope
  *     beyond a test port; dropped rather than faked. Found 2026-08-26.)
  */
+/* eslint-disable @typescript-eslint/no-unused-expressions */
 
 // Adversarial settlement tests for the two-phase reservation state machine:
 // the capacity-reserved-before-signing guarantee and the acceptance
@@ -31,6 +32,7 @@
 
 import { ethers, helpers } from "hardhat"
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
+import { Contract } from "ethers"
 import { expect } from "chai"
 import type {
   Bank,
@@ -66,7 +68,7 @@ const RESERVATION_TX_MAX_FEE = 2000
 // relational check (`reservationMaxTotalAmount <= maxActiveReservations *
 // reservationMaxSingleAmount`) is live from that deploy step onward, so
 // this must fit under 100 * 100,000 = 10,000,000 - found 2026-08-26.
-const RESERVATION_MAX_TOTAL = 10000000n
+const RESERVATION_MAX_TOTAL = BigInt("10000000")
 const MAX_RESERVATIONS_PER_WALLET = 10
 const RESERVATION_ACTION_TIMEOUT = 172800 // 48 hours
 const RESERVATION_RENEWAL_WINDOW = 2592000 // 30 days
@@ -121,12 +123,13 @@ const blindingFactor = "0xf9f0c90d00039523"
 const refundPubKeyHash = "0x28e081f285138ccbe389c1eb8985716230129f89"
 let refundLocktime: string
 
-const depositAmount = 3000000n
+const depositAmount = BigInt(3000000)
 const anchorFee = 1500n
 const anchorAmount = depositAmount - anchorFee
 const grossTbtc = anchorAmount * SATOSHI_MULTIPLIER
 
 before(async () => {
+  // eslint-disable-next-line @typescript-eslint/no-extra-semi
   ;({
     deployer,
     governance,
@@ -170,7 +173,13 @@ before(async () => {
   // reservation - found 2026-08-26.
   await reservationRouter
     .connect(bridgeGovernanceSigner)
-    .updateReservationCaps(RESERVATION_MAX_TOTAL, RESERVATION_MAX_TOTAL, 10) // 10 = 1 wallet * MAX_RESERVATIONS_PER_WALLET, satisfying the Item-3 sizing relation with this fixture's single default Live wallet
+    .updateReservationCaps(
+      RESERVATION_MAX_TOTAL,
+      RESERVATION_MAX_TOTAL,
+      10,
+      1,
+      1
+    ) // 10 = 2 wallets * MAX_RESERVATIONS_PER_WALLET, satisfying the Item-3 sizing relation with this fixture's two Live wallets; 1 = hand-off reserve, leaving one remaining Live wallet with 10 positions
   await reservationRouter
     .connect(bridgeGovernanceSigner)
     .updateReservationParameters(
@@ -192,6 +201,9 @@ before(async () => {
   await bridge.setDepositTxMaxFee(2000)
   await bridge.setDepositRevealAheadPeriod(0)
   await liveWallet(walletPubKeyHash)
+  // A second Live wallet so the hand-off reserve gate (one Live wallet
+  // held back) still leaves a remaining Live wallet with capacity.
+  await liveWallet(secondWalletPubKeyHash)
 
   const tbtcOwner = await impersonateContract(await tbtc.owner())
   await tbtc.connect(tbtcOwner).transferOwnership(tbtcVault.target)
@@ -244,12 +256,22 @@ async function establishReservationPreconditions() {
     "0x8AC7230489E80000",
   ])
   await liveWallet(walletPubKeyHash)
+  // Re-register both Live wallets: an intervening suite may have left the
+  // second wallet in a non-Live state, which would tighten the hand-off
+  // reserve gate below its configured capacity.
+  await liveWallet(secondWalletPubKeyHash)
   await bridge
     .connect(bridgeGovernanceSigner)
     .setVaultStatus(reservationVault.target, true)
   await reservationRouter
     .connect(bridgeGovernanceSigner)
-    .updateReservationCaps(RESERVATION_MAX_TOTAL, RESERVATION_MAX_TOTAL, 10) // 10 = 1 wallet * MAX_RESERVATIONS_PER_WALLET, satisfying the Item-3 sizing relation with this fixture's single default Live wallet
+    .updateReservationCaps(
+      RESERVATION_MAX_TOTAL,
+      RESERVATION_MAX_TOTAL,
+      10,
+      1,
+      1
+    ) // 10 = 2 wallets * MAX_RESERVATIONS_PER_WALLET; 1 = hand-off reserve, leaving one remaining Live wallet with 10 positions
   const currentTotal = (await reservationRouter.reservationParameters())
     .reservationTotalAmount
   await reservationRouter
@@ -290,7 +312,7 @@ async function establishReservationPreconditions() {
 // ---- Bitcoin fixture crafting (regtest-style difficulty) ----
 
 const REGTEST_BITS_LE = "ffff7f20"
-const REGTEST_TARGET = 0x7fffffn * 2n ** BigInt(8 * (0x20 - 3))
+const REGTEST_TARGET = BigInt(0x7fffff) * 2n ** BigInt(8 * (0x20 - 3))
 
 const reverseHex = (hex: string): string =>
   hex.replace(/^0x/, "").match(/../g)!.reverse().join("")
@@ -800,5 +822,124 @@ describe("acceptance request needs the funding transaction's proof", () => {
       )
 
     expect(await reservedTotal()).to.equal(totalBefore + depositAmount)
+  })
+  it("keys the request on the exact funding output index, not on output 0", async () => {
+    // A funding transaction with two outputs: an unrelated change output at
+    // index 0 and the reserved deposit at index 1. The router derives the
+    // reservation key from `keccak256(fundingTxHash, fundingOutputIndex)`, so
+    // only the index the deposit was revealed under can find it.
+    const fundingTx = buildTx(
+      [
+        {
+          txHash: ethers.hexlify(ethers.randomBytes(32)),
+          index: 0,
+        },
+      ],
+      [
+        {
+          valueSat: 50_000,
+          script: p2wpkhScript(ethers.hexlify(ethers.randomBytes(20))),
+        },
+        {
+          valueSat: depositAmount,
+          script: p2wshScript(
+            buildDepositScript(
+              thirdParty.address,
+              blindingFactor,
+              walletPubKeyHash,
+              refundPubKeyHash,
+              refundLocktime
+            )
+          ),
+        },
+      ]
+    )
+
+    await bridge.connect(thirdParty).revealDeposit(fundingTx.info, {
+      fundingOutputIndex: 1,
+      blindingFactor,
+      walletPubKeyHash,
+      refundPubKeyHash,
+      refundLocktime,
+      vault: reservationVault.target,
+    })
+
+    const totalBefore = await reservedTotal()
+    const countBefore =
+      await reservationRouter.walletReservationsCount(walletPubKeyHash)
+
+    await reservationRouter
+      .connect(thirdParty)
+      .requestReservationAcceptance(
+        fundingTx.info,
+        proofFor(fundingTx.txHash),
+        1,
+        walletPubKeyHash
+      )
+
+    expect(await reservedTotal()).to.equal(totalBefore + depositAmount)
+    expect(
+      await reservationRouter.walletReservationsCount(walletPubKeyHash)
+    ).to.equal(countBefore + 1n)
+
+    // The co-output index carries no revealed deposit, so a request under it
+    // must be refused instead of silently resolving to the same position.
+    const siblingFundingTx = buildTx(
+      [
+        {
+          txHash: ethers.hexlify(ethers.randomBytes(32)),
+          index: 0,
+        },
+      ],
+      [
+        {
+          valueSat: depositAmount,
+          script: p2wshScript(
+            buildDepositScript(
+              thirdParty.address,
+              blindingFactor,
+              walletPubKeyHash,
+              refundPubKeyHash,
+              refundLocktime
+            )
+          ),
+        },
+        {
+          valueSat: depositAmount,
+          script: p2wshScript(
+            buildDepositScript(
+              thirdParty.address,
+              blindingFactor,
+              walletPubKeyHash,
+              refundPubKeyHash,
+              refundLocktime
+            )
+          ),
+        },
+      ]
+    )
+    await bridge.connect(thirdParty).revealDeposit(siblingFundingTx.info, {
+      fundingOutputIndex: 1,
+      blindingFactor,
+      walletPubKeyHash,
+      refundPubKeyHash,
+      refundLocktime,
+      vault: reservationVault.target,
+    })
+
+    await expect(
+      reservationRouter
+        .connect(thirdParty)
+        .requestReservationAcceptance(
+          siblingFundingTx.info,
+          proofFor(siblingFundingTx.txHash),
+          0,
+          walletPubKeyHash
+        )
+    ).to.be.revertedWith("Deposit not revealed")
+
+    expect(
+      await reservationRouter.walletReservationsCount(walletPubKeyHash)
+    ).to.equal(countBefore + 1n)
   })
 })

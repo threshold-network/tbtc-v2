@@ -1,7 +1,7 @@
 import { SystemEventType } from "./system-event"
 
 import type { BigNumber } from "ethers"
-import type { TBTCToken } from "@keep-network/tbtc-v2.ts"
+import type { TBTCToken } from "@keep-network/tbtc-v2.ts/core"
 import type { Monitor as SystemEventMonitor, SystemEvent } from "./system-event"
 
 // The block span the supply change is checked for. It is 12 hours expressed
@@ -12,18 +12,27 @@ const totalSupplyChangeThreshold = 10 // 10%
 
 const HighTotalSupplyChange = (
   difference: BigNumber,
-  change: BigNumber,
+  change: BigNumber | undefined,
   threshold: number,
   referenceBlock: number,
   currentBlock: number
 ): SystemEvent => ({
   title: "High TBTC token total supply change",
   type: SystemEventType.Critical,
-  data: {
-    change: `${difference.gte(0) ? "+" : "-"}${change.toString()}%`,
-    threshold: `${threshold}%`,
-    referenceBlock: referenceBlock.toString(),
-  },
+  data:
+    change === undefined
+      ? {
+          change: "undefined (zero reference supply)",
+          threshold: "not applicable (zero reference supply)",
+          referenceBlock: referenceBlock.toString(),
+          referenceSupply: "0",
+          supplyDifferenceBaseUnits: difference.toString(),
+        }
+      : {
+          change: `${difference.gte(0) ? "+" : "-"}${change.toString()}%`,
+          threshold: `${threshold}%`,
+          referenceBlock: referenceBlock.toString(),
+        },
   block: currentBlock,
 })
 
@@ -92,13 +101,15 @@ export class SupplyMonitor implements SystemEventMonitor {
     const difference = currentSupply.sub(referenceSupply)
     // There is a precision loss here, but it is acceptable as long as the
     // threshold is at least 1%.
-    const change = difference.abs().mul(100).div(referenceSupply)
+    const change = referenceSupply.isZero()
+      ? undefined
+      : difference.abs().mul(100).div(referenceSupply)
 
     const systemEvents: SystemEvent[] = []
 
     // Check >= to catch cases when the change was bigger than threshold by
     // the decimal part but was rounded down to an integer.
-    if (change.gte(threshold)) {
+    if (change === undefined ? !difference.isZero() : change.gte(threshold)) {
       systemEvents.push(
         HighTotalSupplyChange(
           difference,

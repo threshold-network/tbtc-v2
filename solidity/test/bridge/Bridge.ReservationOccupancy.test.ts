@@ -1,6 +1,7 @@
 import { ethers } from "hardhat"
 import { expect } from "chai"
 import type { TestReservation } from "../../typechain"
+import type { Signer } from "ethers"
 import { walletState } from "../fixtures"
 
 async function deployTestReservation(): Promise<TestReservation> {
@@ -13,7 +14,7 @@ async function deployTestReservation(): Promise<TestReservation> {
   const TestReservationFactory = await ethers.getContractFactory(
     "TestReservation",
     {
-      libraries: { Reservation: await reservation.getAddress() },
+      libraries: { Reservation: reservation.target },
     }
   )
 
@@ -38,6 +39,11 @@ describe("Reservation - occupancy tracking", () => {
     await testReservation.setMaxActiveReservations(1)
     await testReservation.setReservationVault(vault)
     await testReservation.setWalletState(walletPubKeyHash, walletState.Live)
+    // The hand-off reserve gate holds back one Live wallet; give it two
+    // (one reserved, one carrying positions) so this success acceptance
+    // reaches the occupancy counter it probes rather than the gate.
+    await testReservation.setLiveWalletsCount(2)
+    await testReservation.setHandoffReserveWallets(1)
     await testReservation.setDeposit(
       reservationKey,
       depositor.address,
@@ -432,4 +438,125 @@ describe("Reservation - occupancy tracking", () => {
   // Covered by solidity/test/bridge/ReservationProofs.test.ts ("settleAcceptance > should strand during full late settleAcceptance against Closed wallet")
 
   // Covered by solidity/test/bridge/ReservationProofs.test.ts ("unwindPendingAction")
+})
+
+describe("Reservation - hand-off reserve gate at acceptance", () => {
+  let testReservation: TestReservation
+  let depositor: Signer
+
+  const walletA = `0x${"a1".repeat(20)}`
+  const walletB = `0x${"a2".repeat(20)}`
+  const walletC = `0x${"a3".repeat(20)}`
+  const vault = `0x${"3".repeat(40)}`
+
+  beforeEach(async () => {
+    testReservation = await deployTestReservation()
+    ;[depositor] = await ethers.getSigners()
+  })
+
+  async function enableGate(
+    maxReservationsPerWallet: number,
+    liveWalletsCount: number,
+    handoffReserveWallets: number
+  ) {
+    await testReservation.setGovernanceParameters(
+      100,
+      100,
+      10000,
+      maxReservationsPerWallet
+    )
+    await testReservation.setMaxActiveReservations(1000)
+    await testReservation.setReservationVault(vault)
+    await testReservation.setLiveWalletsCount(liveWalletsCount)
+    await testReservation.setHandoffReserveWallets(handoffReserveWallets)
+  }
+
+  let nextKey = 1
+  async function seedAcceptableDeposit(pkh: string) {
+    const key = 500 + nextKey++
+    const now = (await ethers.provider.getBlock("latest"))!.timestamp
+    await testReservation.setDeposit(
+      key,
+      depositor.address,
+      1000,
+      now - 3 * 60 * 60,
+      vault
+    )
+    await testReservation.seedPendingReservedDeposit(
+      key,
+      true,
+      pkh,
+      now + 200000
+    )
+    return key
+  }
+
+  it("reverts when an acceptance would push the count past (L - R) * N, even with maxActiveReservations free", async () => {
+    // L = 2, N = 10, R = 1, so the gate allows 1 * 10 = 10 open positions.
+    await testReservation.setWalletState(walletA, walletState.Live)
+    await testReservation.setWalletState(walletB, walletState.Live)
+    await enableGate(10, 2, 1)
+
+    for (let i = 0; i < 10; i++) {
+      const key = await seedAcceptableDeposit(walletA)
+      await testReservation
+        .connect(depositor)
+        .requestReservationAcceptance(key, walletA)
+    }
+    expect(await testReservation.activeReservationsCount()).to.equal(10)
+
+    // The 11th exceeds the gate's (L - R) * N = 10 even though the
+    // maxActiveReservations cap of 1000 still has room.
+    const key = await seedAcceptableDeposit(walletB)
+    await expect(
+      testReservation
+        .connect(depositor)
+        .requestReservationAcceptance(key, walletB)
+    ).to.be.revertedWith("Hand-off reserve exceeded")
+  })
+
+  it("tightens when a Live wallet leaves Live (liveWalletsCount falls)", async () => {
+    // L = 3, N = 10, R = 1: the gate allows 2 * 10 = 20 open positions.
+    await testReservation.setWalletState(walletA, walletState.Live)
+    await testReservation.setWalletState(walletB, walletState.Live)
+    await testReservation.setWalletState(walletC, walletState.Live)
+    await enableGate(10, 3, 1)
+
+    for (let i = 0; i < 10; i++) {
+      const key = await seedAcceptableDeposit(walletA)
+      await testReservation
+        .connect(depositor)
+        .requestReservationAcceptance(key, walletA)
+    }
+    for (let i = 0; i < 10; i++) {
+      const key = await seedAcceptableDeposit(walletB)
+      await testReservation
+        .connect(depositor)
+        .requestReservationAcceptance(key, walletB)
+    }
+    expect(await testReservation.activeReservationsCount()).to.equal(20)
+
+    // One of the three Live wallets retires: remaining = 1 * 10 = 10,
+    // below the 20 open positions, so the next acceptance reverts.
+    await testReservation.setWalletState(walletA, walletState.MovingFunds)
+    await testReservation.setLiveWalletsCount(2)
+    const key = await seedAcceptableDeposit(walletC)
+    await expect(
+      testReservation
+        .connect(depositor)
+        .requestReservationAcceptance(key, walletC)
+    ).to.be.revertedWith("Hand-off reserve exceeded")
+  })
+
+  it("blocks every acceptance while liveWalletsCount is at or below the reserve", async () => {
+    await testReservation.setWalletState(walletA, walletState.Live)
+    await enableGate(10, 1, 1)
+
+    const key = await seedAcceptableDeposit(walletA)
+    await expect(
+      testReservation
+        .connect(depositor)
+        .requestReservationAcceptance(key, walletA)
+    ).to.be.revertedWith("Hand-off reserve exceeded")
+  })
 })

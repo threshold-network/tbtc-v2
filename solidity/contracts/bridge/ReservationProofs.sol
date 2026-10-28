@@ -350,7 +350,7 @@ library ReservationProofs {
     ///        funds on the authorized wallet's public key hash,
     ///      - The Bitcoin miner fee must not exceed the authorization's
     ///        snapshotted fee bound. Together with the request-time check
-    ///        `depositAmount >= minAmount + txMaxFee` this guarantees the
+    ///        `depositAmount > minAmount + 2 * txMaxFee` this guarantees the
     ///        anchor value satisfies the reservation minimum without any
     ///        proof-time dependency on live parameters.
     function submitReservationAcceptanceProof(
@@ -465,7 +465,7 @@ library ReservationProofs {
         );
         // Defense-in-depth: `action.amount - anchorAmount <= action.txMaxFee`
         // together with the request-time check
-        // `depositAmount >= reservationMinAmount + txMaxFee` already implies
+        // `depositAmount > reservationMinAmount + 2 * txMaxFee` already implies
         // this, but that guarantee is indirect through two other
         // invariants; make the anchor minimum a direct revert guard so a
         // future caller or test harness mismatch that writes a smaller
@@ -746,6 +746,19 @@ library ReservationProofs {
 
         action.state = Reservation.ActionState.Settled;
 
+        // Release the third-party hold reserved at request time for this
+        // generation now that it is settled and no longer pending. Late
+        // settlements already released the hold at the generation's timeout
+        // (the capacity was re-taken above, not the hold), so only the
+        // on-time path releases here.
+        if (!late) {
+            Reservation.releaseThirdPartyReanchorHold(
+                self,
+                action.targetWalletPubKeyHash,
+                action.thirdPartyHold
+            );
+        }
+
         // slither-disable-next-line reentrancy-events
         emit ReservationReanchored(
             reservationKey,
@@ -862,6 +875,11 @@ library ReservationProofs {
                 self,
                 pendingAction.targetWalletPubKeyHash,
                 pendingAction.amount
+            );
+            Reservation.releaseThirdPartyReanchorHold(
+                self,
+                pendingAction.targetWalletPubKeyHash,
+                pendingAction.thirdPartyHold
             );
         } else if (
             pendingAction.actionType == Reservation.ActionType.Acceptance

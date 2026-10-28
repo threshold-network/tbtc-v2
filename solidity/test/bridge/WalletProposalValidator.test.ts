@@ -8,27 +8,22 @@ import type {
   IRedemptionWatchtower,
   WalletProposalValidator,
 } from "../../typechain"
+import type {
+  ReservationActionStruct,
+  ReservationRequestStruct,
+} from "../../typechain/IReservationBridge"
+import type {
+  ReservationReanchorProposalStruct,
+  ReservationAnchorProposalStruct,
+} from "../../typechain/WalletProposalValidator"
 import { walletState, movedFundsSweepRequestState } from "../fixtures"
 import { NO_MAIN_UTXO } from "../data/deposit-sweep"
 import { createMock } from "../helpers/mock"
 import type { Mock } from "../helpers/mock"
-import * as ReservationTypes from "../../typechain/contracts/bridge/IReservationBridge"
-import * as WalletProposalValidatorTypes from "../../typechain/contracts/bridge/WalletProposalValidator"
 
 const { lastBlockTime, increaseTime } = helpers.time
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 const { ZeroAddress: AddressZero, ZeroHash: HashZero } = ethers
-
-// typechain v6 nests the struct types inside a per-contract namespace, which
-// the `typechain` barrel re-exports only as a bare type.
-type ReservationActionStruct =
-  ReservationTypes.Reservation.ReservationActionStruct
-type ReservationRequestStruct =
-  ReservationTypes.Reservation.ReservationRequestStruct
-type ReservationReanchorProposalStruct =
-  WalletProposalValidatorTypes.WalletProposalValidator.ReservationReanchorProposalStruct
-type ReservationAnchorProposalStruct =
-  WalletProposalValidatorTypes.WalletProposalValidator.ReservationAnchorProposalStruct
 
 const day = 86400
 const depositLocktime = 30 * day
@@ -3013,7 +3008,7 @@ describe("WalletProposalValidator", () => {
       movingFundsTargetWalletsCommitmentHash: HashZero,
     })
 
-    let deposit: ReturnType<typeof createTestDeposit>
+    let deposit
 
     const buildProposal = (
       overrides: Partial<ReservationAnchorProposalStruct> = {}
@@ -3588,11 +3583,11 @@ describe("WalletProposalValidator", () => {
       before(async () => {
         await createSnapshot()
 
-        const safetyMarginViolatedAt = BigInt(await lastBlockTime())
+        const safetyMarginViolatedAt = await lastBlockTime()
         const depositRefundableAt =
           safetyMarginViolatedAt +
-          BigInt(await walletProposalValidator.DEPOSIT_REFUND_SAFETY_MARGIN())
-        const depositRevealedAt = depositRefundableAt - BigInt(depositLocktime)
+          Number(await walletProposalValidator.DEPOSIT_REFUND_SAFETY_MARGIN())
+        const depositRevealedAt = depositRefundableAt - depositLocktime
 
         deposit = createTestDeposit(
           walletPubKeyHash,
@@ -4319,6 +4314,80 @@ describe("WalletProposalValidator", () => {
         expect(result).to.be.true
       })
     })
+
+    context(
+      "when the target exceeds the per-wallet caps (the request already reserved that capacity)",
+      () => {
+        before(async () => {
+          await createSnapshot()
+
+          const now = await lastBlockTime()
+
+          await reservationBridge.reservationActions.returns(
+            buildReservationAction({
+              timeoutAt: now + day,
+              txMaxFee: reservationTxMaxFee,
+            })
+          )
+          await reservationBridge.reservations.returns(
+            buildReservationRequest()
+          )
+          // The target's reserved position is one past its per-wallet count
+          // cap and over its reserved-amount cap; the on-chain request has
+          // already reserved that capacity, so the proposal must still
+          // validate.
+          await reservationBridge.reservationParameters.returns([
+            AddressZero,
+            reservationMinAmount,
+            reservationTxMaxFee,
+            0,
+            0,
+            0,
+            0,
+            1, // maxReservationsPerWallet
+            0,
+            0,
+          ])
+          await reservationBridge.reservationCaps.returns([
+            100, // maxReservationsAmountPerWallet
+            0,
+            0,
+            0,
+          ])
+          await reservationBridge.walletReservationsCount
+            .whenCalledWith(targetWalletPubKeyHash)
+            .returns(2)
+          await reservationBridge.walletReservationsAmount
+            .whenCalledWith(targetWalletPubKeyHash)
+            .returns(200)
+          await bridge.wallets
+            .whenCalledWith(targetWalletPubKeyHash)
+            .returns(buildWallet(walletState.Live))
+        })
+
+        after(async () => {
+          await reservationBridge.reservationActions.reset()
+          await reservationBridge.reservations.reset()
+          await reservationBridge.reservationParameters.reset()
+          await reservationBridge.reservationCaps.reset()
+          await reservationBridge.walletReservationsCount.reset()
+          await reservationBridge.walletReservationsAmount.reset()
+          await bridge.wallets.reset()
+
+          await restoreSnapshot()
+        })
+
+        it("should pass validation", async () => {
+          const result =
+            await walletProposalValidator.validateReservationReanchorProposal(
+              buildProposal()
+            )
+
+          // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+          expect(result).to.be.true
+        })
+      }
+    )
   })
 })
 
@@ -4335,7 +4404,7 @@ const createTestDeposit = (
   walletPubKeyHash: string,
   vault: string,
   witness = true,
-  revealedAt?: number | bigint,
+  revealedAt?: number,
   extraData?: string
 ) => {
   let resolvedRevealedAt = revealedAt
@@ -4350,10 +4419,10 @@ const createTestDeposit = (
     resolvedRevealedAt = depositRevealDefaultAnchorTime - day
   }
 
-  const refundableAt = BigInt(resolvedRevealedAt) + BigInt(depositLocktime)
+  const refundableAt = resolvedRevealedAt + depositLocktime
 
   const refundLocktime = `0x${Buffer.from(
-    ethers.toBeHex(refundableAt).substring(2),
+    ethers.toBeHex(BigInt(refundableAt)).substring(2),
     "hex"
   )
     .reverse()

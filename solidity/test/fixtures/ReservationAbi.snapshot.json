@@ -43,6 +43,18 @@
       "outputs": ["uint64"]
     },
     {
+      "name": "pendingThirdPartyReanchorHolds",
+      "selector": "0x18576b18",
+      "inputs": ["bytes20"],
+      "outputs": ["uint32"]
+    },
+    {
+      "name": "releaseReservedDepositToPool",
+      "selector": "0x49fdfb19",
+      "inputs": ["uint256", "address"],
+      "outputs": []
+    },
+    {
       "name": "requestReservationAcceptance",
       "selector": "0x19821f16",
       "inputs": ["tuple", "tuple", "uint32", "bytes20"],
@@ -50,8 +62,8 @@
     },
     {
       "name": "requestReservationReanchor",
-      "selector": "0xf934beb5",
-      "inputs": ["uint256", "bytes20"],
+      "selector": "0x3bf5b58f",
+      "inputs": ["uint256", "bytes20", "uint32[]", "uint256"],
       "outputs": []
     },
     {
@@ -70,7 +82,13 @@
       "name": "reservationCaps",
       "selector": "0x63dfb29c",
       "inputs": [],
-      "outputs": ["uint64", "uint64", "uint32"]
+      "outputs": ["uint64", "uint64", "uint32", "uint32"]
+    },
+    {
+      "name": "reservationHandoffReserveWallets",
+      "selector": "0xcf098fc5",
+      "inputs": [],
+      "outputs": ["uint32"]
     },
     {
       "name": "reservationParameters",
@@ -127,8 +145,8 @@
     },
     {
       "name": "updateReservationCaps",
-      "selector": "0x8308c2ca",
-      "inputs": ["uint64", "uint64", "uint32"],
+      "selector": "0x78d76eda",
+      "inputs": ["uint64", "uint64", "uint32", "uint32", "uint32"],
       "outputs": []
     },
     {
@@ -203,8 +221,8 @@
     },
     {
       "name": "ReservationCapsUpdated",
-      "topic0": "0x846df5edb182147898ee0a522f03f78718544ce16b0f06e64fe2f593b1fb160d",
-      "inputs": ["uint64", "uint64", "uint32"]
+      "topic0": "0x964ef9bd68fafce7168d52b1d95f0da86e3be014f9843a793b021652e4e28daa",
+      "inputs": ["uint64", "uint64", "uint32", "uint32", "uint32"]
     },
     {
       "name": "ReservationLateSettled",
@@ -264,6 +282,11 @@
       "name": "ReservedDepositMarkedStale",
       "topic0": "0xf4a10f7395c3a5e8165714c665ddb7f2e320f8bc2a21d9f8722f48f8d1d71eab",
       "inputs": ["uint256"]
+    },
+    {
+      "name": "ReservedDepositReleasedToPool",
+      "topic0": "0x78476656031064a25d6ce0c0ecaa81585836369a97ded013658cd7fd20c74291",
+      "inputs": ["uint256", "address", "address"]
     }
   ],
   "structs": {
@@ -405,6 +428,10 @@
       {
         "name": "minAmount",
         "type": "uint64"
+      },
+      {
+        "name": "thirdPartyHold",
+        "type": "bool"
       }
     ],
     "ReservationAnchorProposal": [
