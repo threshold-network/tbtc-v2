@@ -50,6 +50,7 @@ the public IDs are the ones in this report.
 ## 1. Summary and scope
 
 ### 1.1 Scope of audit activities
+
 The audit evaluated the reservation upgrade and the surrounding tBTC v2 contracts:
 
 - **Loop scan**: a 5-pass automated auditor scan, supplemented by deduplication, rerun verification and
@@ -82,6 +83,7 @@ The audit evaluated the reservation upgrade and the surrounding tBTC v2 contract
   layout checks, and ABI diffs (`solidity/scripts/call-target-check.ts`).
 
 ### 1.2 Evidence-level legend
+
 - **[Confirmed via PoC]**: an executable Foundry or Hardhat test in `test/audit-poc/` or subproject
   directories demonstrates the root cause and impact.
 - **[Confirmed via fuzz replay]**: a deterministic test replays a Medusa or Echidna counterexample.
@@ -114,6 +116,7 @@ These two items prevent a successful upgrade if not addressed in the deployment 
 ```
 
 ### R-48: Bridge upgrade requires the RebateStaking upgrade first
+
 - **Location**: `Redemption.sol:270-286` (used at `:595-598`), `scripts/fork-rehearsal/rebate.ts`.
 - **Root cause**: the upgraded Bridge (`Redemption.isRebateAuthorizedForRedemption`) calls
   `RebateStaking.isRebateAuthorized` (selector `0x96253dad`) during `TBTCVault.unmintAndRedeem` when the
@@ -133,6 +136,7 @@ These two items prevent a successful upgrade if not addressed in the deployment 
   successful redemption after the RebateStaking upgrade); governance checks 1-2 on each Safe.
 
 ### R-49: A reservation term shorter than the deposit reveal-ahead period reverts all reserved reveals
+
 - **Location**: `Deposit.sol:219-251` (`_revealDeposit`), `deploy/98_generate_reservation_mainnet_calldata.ts:444-484`.
 - **Root cause**: `Deposit._revealDeposit` requires `refundLocktime >= revealTime + depositRevealAheadPeriod`
   (live mainnet value is 12,960,000 s = 150 days). For reserved deposits, it also requires
@@ -143,48 +147,48 @@ These two items prevent a successful upgrade if not addressed in the deployment 
 - **Resolution**:
   1. the launch reservation term must be configured to at least 150 days (13,132,800 s / 152 days was
      verified on the fork);
-  2. a validation guard was added in `deploy/98_generate_reservation_mainnet_calldata.ts` (commit
-     `2dca0610`), reading `Bridge.depositParameters()` on-chain and throwing if `term + 24h <= aheadPeriod`.
+  2. a validation guard was added in `deploy/98_generate_reservation_mainnet_calldata.ts`, reading
+     `Bridge.depositParameters()` on-chain and throwing if `term + 24h <= aheadPeriod`.
 - **Evidence and check IDs**: fork rehearsal check V3 (fails on a 90-day term), V3a (confirms the on-chain
   revert), V3b (raises the term to 13,132,800 s), V3c to V5 (confirms successful reveal, reservation tagging
   and acceptance); Hardhat deploy tests 35 passing (`test/deploy/98_...test.ts`).
 
 ## 3. Confirmed findings
 
-| ID | Title | Component | In PR diff | Stated impact | PoC / repro source |
-|---|---|---|---|---|---|
-| R-01 | Reservation capacity admitted without proof of funding | `Reservation.sol:493`, `Deposit.sol:380` | Yes | Griefing DoS / capacity exhaustion | `test/audit-poc/F01FakeDepositCapacity.t.sol` (4 tests); also found by fuzzing in campaign 10 (SP-94) |
-| R-07 | Reservation strand allowed before reanchor execution | `Reservation.sol:1091`, `ReservationRouter.sol:336` | Yes | Premature stranding | `test/audit-poc/F08StrandBeforeReanchor.t.sol` (5 tests) |
-| R-08 | Closing wallet treated as terminal by late-settlement helper | `ReservationProofs.sol:214`, `:586` | Yes | Premature stranding on a Closing wallet | `test/audit-poc/F09to11ClosingWalletStrands.t.sol` (4 tests); fuzz: SP-65 in campaign 11 |
-| R-09 | Reanchor amount floor exceeds the acceptance minimum | `Reservation.sol:806`, `Reservation.sol:549` | Yes | Anchors stuck below the reanchor floor | `test/fizz/FoundryTester.sol` (`test_repro_property_activeReservationReanchorable`) |
-| R-12 | Expired positions on Live wallets have no release path | `Reservation.sol:1091`, `Reservation.sol:1040` | Yes | Capacity lockup on Live wallets | `test/fizz/FoundryTester.sol` (`test_repro_property_reservationCapacityHasReleasePath`) |
-| R-13 | Wallet-move gate counts unproven pending actions as custody | `Wallets.sol:613` | Yes | Permissionless wallet displacement | `test/audit-poc/SP106PermissionlessMovingFunds.t.sol` (13 tests) |
-| R-14 | Wallet balance helper ignores reservation anchors | `Wallets.sol:722`, `MovingFunds.sol:610` | Yes (custody new) | Forced wallet closure / anchor griefing | `test/fizz/repro/C5Known.t.sol` (`test_repro_sp107_belowDustExitIgnoresAnchors`) |
+| ID   | Title                                                        | Component                                           | In PR diff        | Stated impact                           | PoC / repro source                                                                                    |
+| ---- | ------------------------------------------------------------ | --------------------------------------------------- | ----------------- | --------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| R-01 | Reservation capacity admitted without proof of funding       | `Reservation.sol:493`, `Deposit.sol:380`            | Yes               | Griefing DoS / capacity exhaustion      | `test/audit-poc/F01FakeDepositCapacity.t.sol` (4 tests); also found by fuzzing in campaign 10 (SP-94) |
+| R-07 | Reservation strand allowed before reanchor execution         | `Reservation.sol:1091`, `ReservationRouter.sol:336` | Yes               | Premature stranding                     | `test/audit-poc/F08StrandBeforeReanchor.t.sol` (5 tests)                                              |
+| R-08 | Closing wallet treated as terminal by late-settlement helper | `ReservationProofs.sol:214`, `:586`                 | Yes               | Premature stranding on a Closing wallet | `test/audit-poc/F09to11ClosingWalletStrands.t.sol` (4 tests); fuzz: SP-65 in campaign 11              |
+| R-09 | Reanchor amount floor exceeds the acceptance minimum         | `Reservation.sol:806`, `Reservation.sol:549`        | Yes               | Anchors stuck below the reanchor floor  | `test/fizz/FoundryTester.sol` (`test_repro_property_activeReservationReanchorable`)                   |
+| R-12 | Expired positions on Live wallets have no release path       | `Reservation.sol:1091`, `Reservation.sol:1040`      | Yes               | Capacity lockup on Live wallets         | `test/fizz/FoundryTester.sol` (`test_repro_property_reservationCapacityHasReleasePath`)               |
+| R-13 | Wallet-move gate counts unproven pending actions as custody  | `Wallets.sol:613`                                   | Yes               | Permissionless wallet displacement      | `test/audit-poc/SP106PermissionlessMovingFunds.t.sol` (13 tests)                                      |
+| R-14 | Wallet balance helper ignores reservation anchors            | `Wallets.sol:722`, `MovingFunds.sol:610`            | Yes (custody new) | Forced wallet closure / anchor griefing | `test/fizz/repro/C5Known.t.sol` (`test_repro_sp107_belowDustExitIgnoresAnchors`)                      |
 
 ### Grouped detail: reservation capacity and stranding mechanics
 
 - **R-01**: `revealDeposit` registers deposit keys without verifying funding UTXO validity. An attacker
   revealing fake deposits can call `requestReservationAcceptance` across all Live wallets to exhaust
   `reservationMaxTotalAmount` and per-wallet caps at zero capital cost.
-  - *Fix*: gate acceptance requests with an SPV proof (implemented) or a fee bond (not taken).
+  - _Fix_: gate acceptance requests with an SPV proof (implemented) or a fee bond (not taken).
 - **R-07**: when an active reservation reaches `dissolutionEligibleAt`, anyone can call
   `notifyWalletCloseable`, `notifyMovingFundsBelowDust` and `notifyReservationStranded` within a single
   transaction. This strands the reservation and locks out the depositor's reanchor right.
-  - *Fix*: enforce an exclusive reanchor window before permitting public stranding.
+  - _Fix_: enforce an exclusive reanchor window before permitting public stranding.
 - **R-08**: `ReservationProofs.strandLateSettlementIfTargetWalletClosed` treats `Closing` wallets as
   terminal. Settling a valid late SPV proof onto a wallet in `Closing` state immediately strands the anchor.
-  - *Fix*: allow positions on `Closing` wallets to remain active, or grant a reanchor window.
+  - _Fix_: allow positions on `Closing` wallets to remain active, or grant a reanchor window.
 - **R-09**: acceptance allows deposits down to `minAmount + txMaxFee`, but reanchoring strictly requires
   `anchorAmount > minAmount + txMaxFee`. Anchors in `[minAmount, minAmount + txMaxFee]` cannot be moved.
-  - *Fix*: adjust the deposit minimum to `> minAmount + 2 * txMaxFee` (see section 4).
+  - _Fix_: adjust the deposit minimum to `> minAmount + 2 * txMaxFee` (see section 4).
 - **R-12**: `notifyReservationStranded` requires the source wallet to not be `Live`. An expired position on
   a `Live` wallet cannot be stranded or closed because `closeReservation` has no external caller.
-  - *Fix*: provide a caller or explicit expiry cleanup for Live-wallet reservations.
+  - _Fix_: provide a caller or explicit expiry cleanup for Live-wallet reservations.
 - **R-13 and R-14**: `Wallets.getWalletBtcBalance` checks only the main UTXO. A wallet with zero main UTXO
   but custodying active reservation anchors can be permissionlessly transitioned from `Live` ->
   `MovingFunds` -> `Closing`. Conversely, pending unproven requests count as active custody in
   `Wallets.moveFunds`.
-  - *Fix*: incorporate `walletReservationInfo[w].amount` into the balance checks and ignore unproven
+  - _Fix_: incorporate `walletReservationInfo[w].amount` into the balance checks and ignore unproven
     actions (implemented as the `walletAnchoredInfo` ledger).
 
 ## 4. Proposed bound fixes
@@ -210,6 +214,7 @@ The RebateStaking setter bounds that the audit also proposed are reported privat
 this PR.
 
 ### 4.1 SP-85: reservation reanchor floor gap
+
 - **Issue**: `requestReservationAcceptance` admits deposits where `deposit.amount >= minAmount + txMaxFee`.
   After deducting `minerFee <= txMaxFee`, the anchor amount can equal `minAmount + txMaxFee`. Because
   `requestReservationReanchor` strictly enforces `anchorAmount > minAmount + txMaxFee`, that anchor cannot be
@@ -226,6 +231,7 @@ this PR.
 - **Recommendation**: adopt Fix B (`deposit.amount > minAmount + 2 * txMaxFee` in `Reservation.sol:549-552`).
 
 ### 4.2 R-50: action timeout minimum signing window
+
 - **Issue**: `Reservation.updateReservationParameters` (Reservation.sol:1291-1295) only requires
   `reservationActionTimeout > REQUEST_TIMEOUT_SAFETY_MARGIN` (7,200 s). At 7,201 s the signing deadline
   `timeoutAt - 2h` is `now + 1`, and the earliest signing time is at least `now + 1`
@@ -246,22 +252,22 @@ this PR.
 The register rates these rows "needs human review": the behaviour is proven, but whether it is a bug depends
 on the design intent. No severity is claimed here. In-PR rows first.
 
-| Row | Fuzz ID | Proven behaviour (repro) | Question |
-|---|---|---|---|
-| R-14 | SP-107 | `Wallets.getWalletBtcBalance` reads only the main UTXO, so a Live wallet that holds anchors but no main UTXO can be pushed to MovingFunds and then Closing by anyone (`test/fizz/repro/C5Known.t.sol` `test_repro_sp107_belowDustExitIgnoresAnchors`; `test_repro_property_closeabilityCountsAnchors`) | Should the closeability and below-dust exits count reservation anchors? |
-| R-13 | SP-106 | `Wallets.moveFunds` counts unproven pending acceptance requests as custody, so a third party can send an empty wallet to MovingFunds instead of Closing (`test/audit-poc/SP106PermissionlessMovingFunds.t.sol`, 13 tests) | Should only proven anchors count as custody? |
-| R-12 | SP-95 | A position past `dissolutionEligibleAt` on a wallet that stays Live has no release path for its capacity in milestone 1 (`test_repro_property_reservationCapacityHasReleasePath`, `test_repro_sp95_reanchorLandsEligiblePositionOnLiveWallet`) | Is this capacity meant to stay held until milestone 2 dissolution? |
-| R-09 | SP-85 | An anchor at the acceptance floor cannot take a re-anchor hop because of the strict floor at Reservation.sol:806 (`test_repro_property_activeReservationReanchorable`; Halmos `ReservationFloor`) | Fix B (raise the deposit minimum, section 4.1) or a relaxed re-anchor floor? |
-| R-21 | GL-24 | When the deferred reimbursement call fails, `AbstractL1BTCDepositor.finalizeDeposit` re-stores the reimbursement in `gasReimbursements[depositKey]` (`test_repro_GL24_poolSwappedToNonPoolContract`, `test_mech_GL24_*`) | Is there a payout path for a re-stored reimbursement, or should the failure be surfaced differently? |
+| Row  | Fuzz ID | Proven behaviour (repro)                                                                                                                                                                                                                                                                               | Question                                                                                             |
+| ---- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
+| R-14 | SP-107  | `Wallets.getWalletBtcBalance` reads only the main UTXO, so a Live wallet that holds anchors but no main UTXO can be pushed to MovingFunds and then Closing by anyone (`test/fizz/repro/C5Known.t.sol` `test_repro_sp107_belowDustExitIgnoresAnchors`; `test_repro_property_closeabilityCountsAnchors`) | Should the closeability and below-dust exits count reservation anchors?                              |
+| R-13 | SP-106  | `Wallets.moveFunds` counts unproven pending acceptance requests as custody, so a third party can send an empty wallet to MovingFunds instead of Closing (`test/audit-poc/SP106PermissionlessMovingFunds.t.sol`, 13 tests)                                                                              | Should only proven anchors count as custody?                                                         |
+| R-12 | SP-95   | A position past `dissolutionEligibleAt` on a wallet that stays Live has no release path for its capacity in milestone 1 (`test_repro_property_reservationCapacityHasReleasePath`, `test_repro_sp95_reanchorLandsEligiblePositionOnLiveWallet`)                                                         | Is this capacity meant to stay held until milestone 2 dissolution?                                   |
+| R-09 | SP-85   | An anchor at the acceptance floor cannot take a re-anchor hop because of the strict floor at Reservation.sol:806 (`test_repro_property_activeReservationReanchorable`; Halmos `ReservationFloor`)                                                                                                      | Fix B (raise the deposit minimum, section 4.1) or a relaxed re-anchor floor?                         |
+| R-21 | GL-24   | When the deferred reimbursement call fails, `AbstractL1BTCDepositor.finalizeDeposit` re-stores the reimbursement in `gasReimbursements[depositKey]` (`test_repro_GL24_poolSwappedToNonPoolContract`, `test_mech_GL24_*`)                                                                               | Is there a payout path for a re-stored reimbursement, or should the failure be surfaced differently? |
 
 ## 6. Real-low and informational rows
 
-| ID | Component | Title / behaviour | Status | In PR diff | Repro / reference |
-|---|---|---|---|---|---|
-| R-21 | `AbstractL1BTCDepositor.sol:509` | Failed deferred reimbursement re-stored with no payout path | Real-Low; open, no fix in this PR | Yes | S2 GL-24; `test_repro_GL24_poolSwappedToNonPoolContract` |
-| R-50 | `Reservation.sol:1291-1295` | Action timeout setter admits a value with no signing window | Informational | Yes | Mutation M-10, M-108, M-112; `AcceptanceSigningWindowBoundary.t.sol`, `ReanchorSigningWindowBoundary.t.sol`; fix in section 4.2 |
-| R-51 | `Reservation.sol:1040-1065` | `closeReservation` has no caller in milestone 1 (dead code) | Informational | Yes | Mutation M-38 to M-41, M-109; no call site in `contracts/` |
-| R-54 | `Reservation.sol:806-809` | The re-anchor floor uses the current minimum, so after governance lowers `reservationMinAmount` an existing position can re-anchor below the minimum it was accepted under | Design question | Yes | Campaign 10, `test_repro_sp62_anchorBelowSnapshottedMinimum`. Question: is that intended? |
+| ID   | Component                        | Title / behaviour                                                                                                                                                          | Status                            | In PR diff | Repro / reference                                                                                                               |
+| ---- | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| R-21 | `AbstractL1BTCDepositor.sol:509` | Failed deferred reimbursement re-stored with no payout path                                                                                                                | Real-Low; open, no fix in this PR | Yes        | S2 GL-24; `test_repro_GL24_poolSwappedToNonPoolContract`                                                                        |
+| R-50 | `Reservation.sol:1291-1295`      | Action timeout setter admits a value with no signing window                                                                                                                | Informational                     | Yes        | Mutation M-10, M-108, M-112; `AcceptanceSigningWindowBoundary.t.sol`, `ReanchorSigningWindowBoundary.t.sol`; fix in section 4.2 |
+| R-51 | `Reservation.sol:1040-1065`      | `closeReservation` has no caller in milestone 1 (dead code)                                                                                                                | Informational                     | Yes        | Mutation M-38 to M-41, M-109; no call site in `contracts/`                                                                      |
+| R-54 | `Reservation.sol:806-809`        | The re-anchor floor uses the current minimum, so after governance lowers `reservationMinAmount` an existing position can re-anchor below the minimum it was accepted under | Design question                   | Yes        | Campaign 10, `test_repro_sp62_anchorBelowSnapshottedMinimum`. Question: is that intended?                                       |
 
 ## 7. Test assets offered upstream
 
@@ -274,37 +280,41 @@ They import the fuzz harness helpers under `solidity/test/fizz/` that this branc
 
 ```sh
 cd solidity
-yarn foundry:install   # pins lib/forge-std, which foundry.toml remaps and Git ignores
-yarn test:audit-poc    # FOUNDRY_PROFILE=audit forge test -vvv
+yarn foundry:install # pins lib/forge-std, which foundry.toml remaps and Git ignores
+yarn test:audit-poc  # FOUNDRY_PROFILE=audit forge test -vvv
 ```
 
 `foundry.toml` gives them the opt-in `audit` profile (`test = "test/audit-poc"`); the default and `ci` profiles
 keep `test-foundry` as the only suite, so CI is unchanged.
 
-| Test file | Pinned invariant / defect guard | Mutation test / origin |
-|---|---|---|
-| `F01FakeDepositCapacity.t.sol` | Pins fake deposit capacity exhaustion, wallet count caps, and rotational denial of service | Finding F01 (R-01) |
-| `F08StrandBeforeReanchor.t.sol` | Pins 1-tx wallet closure and stranding of aged reservations before reanchor execution | Finding F08 (R-07) |
-| `F09to11ClosingWalletStrands.t.sol` | Pins immediate stranding of new and late-settled anchors when the target wallet enters `Closing` | Findings F09, F10, F11 (R-08) |
-| `SP106PermissionlessMovingFunds.t.sol` | Pins permissionless routing of zero-BTC wallets into `MovingFunds` via fake deposit requests | Finding SP-106 (R-13) |
-| `NotifyStaleReservedDepositRouter.t.sol` | Pins `ReservationRouter.notifyStaleReservedDeposit` call forwarding to Bridge | Mutant M-1 |
-| `AcceptanceSigningWindowBoundary.t.sol` | Pins lower-bound action timeout signing window and `DEPOSIT_MIN_AGE` floor | Mutants M-10, M-112, M-113 (R-50) |
-| `ReanchorSigningWindowBoundary.t.sol` | Pins reanchor signing window boundary and governance cooldown bypass | Mutants M-108, M-115 |
-| `ReservationParameterBounds.t.sol` | Pins term bounds (`[90, 730]` days) and renewal window bounds (`(0, term)`) in the setter | Mutants M-110, M-111 |
-| `ReservedDepositSkipsRebate.t.sol` | Ensures reserved deposit reveals bypass rebate staking budget consumption | Mutant M-47 |
-| `AcceptanceTimeoutOnce.t.sol` | Prevents double capacity release on repeated acceptance timeout notifications | Mutant M-48 |
-| `ForceStaleReservedDeposit.t.sol` | Pins `pendingReservedDeposits` counter decrement, vault update event, and governance auth | Mutants M-71, M-75, M-76 |
-| `AcceptanceProofUntrustedVault.t.sol` | Pins direct Bank balance crediting when the reservation vault is untrusted at settlement | Mutant M-79 |
-| `LateReanchorUnwindsNewerGeneration.t.sol` | Ensures late settlement of older reanchor generations unwinds newer pending actions | Mutant M-84 |
-| `LateAcceptanceOccupancy.t.sol` | Pins occupancy event emission and late settlement when the newer generation also timed out | Mutants M-95, M-155 |
-| `StrandedLateReanchorSettles.t.sol` | Pins counter restoration during late settlement of stranded positions | Mutant M-97 |
-| `ReanchorProofChecks.t.sol` | Pins outpoint tx hash matching at index 0 and suppresses late events on on-time proofs | Mutants M-123, M-135 |
-| `ReanchorCumulativeFee.t.sol` | Pins multi-hop cumulative miner fee tracking and vault fee financing | Mutant M-106 |
-| `ReservationTimeBounds.t.sol` | Pins the reserved refund-locktime cap at reveal and the late acceptance settlement window | Mutants M-185, M-197 |
-| `SweepMainUtxoIndex.t.sol` | Pins that a sweep input with the main UTXO's txid but another output index is rejected | Mutant M-188 |
-| `ReservationProofsAccounting.t.sol` | Pins the pending-reserved-deposit counter, the re-anchor fee bound (one satoshi over, and a 50% fee) and the old wallet's count and amount after a re-anchor | Mutants M-200, M-204, M-205, M-207, M-208 |
-| `RequireBoundaryGuards.t.sol` | Pins nine `require` boundaries: re-anchor cooldown end, re-anchor floor, per-wallet amount cap, minimum anchor at acceptance, and five reservation parameter setter bounds | Mutants M-212, M-214, M-216, M-221 to M-225, M-230 |
-| `AccessControlGuards.t.sol` | Pins the role checks on the acceptance proof (SPV maintainer), both reservation setters (governance) and the vault's `receiveBalanceIncrease` (Bank) | Mutants M-232 to M-235 |
+Paths this record names from the audit workspace — `test/fizz/repro/`, `test/fizz/FoundryTester.sol`, `fizz_data/`,
+`test/fizz-periphery/`, `test/halmos/` and `scripts/fork-rehearsal/` — are not published with this branch: the fuzz
+campaigns, their counterexamples and the Halmos and fork harnesses stay with the audit records.
+
+| Test file                                  | Pinned invariant / defect guard                                                                                                                                            | Mutation test / origin                             |
+| ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| `F01FakeDepositCapacity.t.sol`             | Pins fake deposit capacity exhaustion, wallet count caps, and rotational denial of service                                                                                 | Finding F01 (R-01)                                 |
+| `F08StrandBeforeReanchor.t.sol`            | Pins 1-tx wallet closure and stranding of aged reservations before reanchor execution                                                                                      | Finding F08 (R-07)                                 |
+| `F09to11ClosingWalletStrands.t.sol`        | Pins immediate stranding of new and late-settled anchors when the target wallet enters `Closing`                                                                           | Findings F09, F10, F11 (R-08)                      |
+| `SP106PermissionlessMovingFunds.t.sol`     | Pins permissionless routing of zero-BTC wallets into `MovingFunds` via fake deposit requests                                                                               | Finding SP-106 (R-13)                              |
+| `NotifyStaleReservedDepositRouter.t.sol`   | Pins `ReservationRouter.notifyStaleReservedDeposit` call forwarding to Bridge                                                                                              | Mutant M-1                                         |
+| `AcceptanceSigningWindowBoundary.t.sol`    | Pins lower-bound action timeout signing window and `DEPOSIT_MIN_AGE` floor                                                                                                 | Mutants M-10, M-112, M-113 (R-50)                  |
+| `ReanchorSigningWindowBoundary.t.sol`      | Pins reanchor signing window boundary and governance cooldown bypass                                                                                                       | Mutants M-108, M-115                               |
+| `ReservationParameterBounds.t.sol`         | Pins term bounds (`[90, 730]` days) and renewal window bounds (`(0, term)`) in the setter                                                                                  | Mutants M-110, M-111                               |
+| `ReservedDepositSkipsRebate.t.sol`         | Ensures reserved deposit reveals bypass rebate staking budget consumption                                                                                                  | Mutant M-47                                        |
+| `AcceptanceTimeoutOnce.t.sol`              | Prevents double capacity release on repeated acceptance timeout notifications                                                                                              | Mutant M-48                                        |
+| `ForceStaleReservedDeposit.t.sol`          | Pins `pendingReservedDeposits` counter decrement, vault update event, and governance auth                                                                                  | Mutants M-71, M-75, M-76                           |
+| `AcceptanceProofUntrustedVault.t.sol`      | Pins direct Bank balance crediting when the reservation vault is untrusted at settlement                                                                                   | Mutant M-79                                        |
+| `LateReanchorUnwindsNewerGeneration.t.sol` | Ensures late settlement of older reanchor generations unwinds newer pending actions                                                                                        | Mutant M-84                                        |
+| `LateAcceptanceOccupancy.t.sol`            | Pins occupancy event emission and late settlement when the newer generation also timed out                                                                                 | Mutants M-95, M-155                                |
+| `StrandedLateReanchorSettles.t.sol`        | Pins counter restoration during late settlement of stranded positions                                                                                                      | Mutant M-97                                        |
+| `ReanchorProofChecks.t.sol`                | Pins outpoint tx hash matching at index 0 and suppresses late events on on-time proofs                                                                                     | Mutants M-123, M-135                               |
+| `ReanchorCumulativeFee.t.sol`              | Pins multi-hop cumulative miner fee tracking and vault fee financing                                                                                                       | Mutant M-106                                       |
+| `ReservationTimeBounds.t.sol`              | Pins the reserved refund-locktime cap at reveal and the late acceptance settlement window                                                                                  | Mutants M-185, M-197                               |
+| `SweepMainUtxoIndex.t.sol`                 | Pins that a sweep input with the main UTXO's txid but another output index is rejected                                                                                     | Mutant M-188                                       |
+| `ReservationProofsAccounting.t.sol`        | Pins the pending-reserved-deposit counter, the re-anchor fee bound (one satoshi over, and a 50% fee) and the old wallet's count and amount after a re-anchor               | Mutants M-200, M-204, M-205, M-207, M-208          |
+| `RequireBoundaryGuards.t.sol`              | Pins nine `require` boundaries: re-anchor cooldown end, re-anchor floor, per-wallet amount cap, minimum anchor at acceptance, and five reservation parameter setter bounds | Mutants M-212, M-214, M-216, M-221 to M-225, M-230 |
+| `AccessControlGuards.t.sol`                | Pins the role checks on the acceptance proof (SPV maintainer), both reservation setters (governance) and the vault's `receiveBalanceIncrease` (Bank)                       | Mutants M-232 to M-235                             |
 
 ## 8. Limits
 

@@ -39,5 +39,5 @@ Evidence: `C12Repro.t.sol` fails without the cap (898,458,452 gas) and passes wi
 
 ## References
 
-- Verdict: `solidity/fizz_data/triage/C12-fix-branch.verdict.md`
-- Commits: `e48bf256`, `179df4e1`, `84d68b19`, `4e14fabc`
+- Verdict: kept with the campaign records, not published
+- Commits: four, one per fuzzing configuration

@@ -3,7 +3,6 @@ pragma solidity >=0.6.2 <0.9.0;
 
 import {Actor} from "./Actor.sol";
 import {Clamp} from "./utils/Clamp.sol";
-import {DecimalPrinter} from "./utils/DecimalPrinter.sol";
 import {Deployer} from "./utils/Deployer.sol";
 import {vm} from "./utils/Hevm.sol";
 import {Logger} from "./utils/Logger.sol";
@@ -31,8 +30,6 @@ import {SystemTestRelay} from "../../contracts/test/SystemTestRelay.sol";
 
 /// @notice Base contract with state variables and setup functions
 abstract contract Base is StringUtils, Clamp, Deployer, Math {
-    using DecimalPrinter for uint256;
-
     string[] internal ACTOR_LABELS = ["Alice", "Bob", "Charlie"];
     uint256 internal constant BLOCK_INTERVAL = 12 seconds;
     uint256 internal constant INITIAL_ETH_BALANCE = 1_000 ether;
@@ -261,9 +258,9 @@ abstract contract Base is StringUtils, Clamp, Deployer, Math {
         uint256 bankBurnedSat;
         uint256 btcCustodySat;
         int256 absorbedFeeSat;
-        // GL-33: per-wallet Bitcoin fee the wallet paid beyond what it charged requests.
+        // Per-wallet Bitcoin fee the wallet paid beyond what it charged requests.
         mapping(bytes20 => uint256) walletFeeSlackSat;
-        // SP-43: forceStakeTransfer copies the history to the new staker; rebatePerToken changes re-base the bound.
+        // forceStakeTransfer copies the history to the new staker; rebatePerToken changes re-base the bound.
         mapping(address => bool) rebateHistoryMoved;
         uint256 rebatePerTokenChangedAt;
         uint256 minerFeeSat;
@@ -330,7 +327,7 @@ abstract contract Base is StringUtils, Clamp, Deployer, Math {
         bool watchtowerDisabledSeen;
         bool vaultTrustRevoked;
         bool capsLoweredBelowOccupancy;
-        // Vacuity F1: settled moved-funds sweeps (proof or timeout), the
+        // Settled moved-funds sweeps (proof or timeout), the
         // `optimize_movedFundsSweepDepth` objective.
         uint256 sweepsSettled;
         HonestOutpoint[] honestOutpoints;

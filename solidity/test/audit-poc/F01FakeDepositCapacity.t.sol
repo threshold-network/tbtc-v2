@@ -6,10 +6,9 @@ pragma solidity 0.8.17;
 // proof, so an attacker with only gas could reveal fabricated reserved
 // deposits and call `requestReservationAcceptance` on each, filling a Live
 // wallet's slots, its amount cap and the global cap, and keep them full by
-// repeating after every timeout. The original PoC (7 tests showing the
-// exhaustion) is `test/audit-poc/F01FakeDepositCapacity.t.sol` at commit
-// a7b52629 on the audit branch; it cannot be replayed here because the fixed
-// router has a different ABI.
+// repeating after every timeout. The pre-fix proof of concept (7 tests showing
+// the exhaustion) is not published: it drives the router interface this fix
+// replaced and cannot compile against it.
 //
 // Fix: `ReservationRouter.requestReservationAcceptance` takes the funding
 // transaction, its SPV proof and the output index, validates the proof with

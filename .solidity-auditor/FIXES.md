@@ -3,34 +3,34 @@
 These are the fix commits that ship with this PR, one per finding. Each one changes protocol
 behaviour, so each needs the authors' review. Findings and evidence: `solidity/docs/audit/pr-1116-reservations.md`.
 
-| Finding | Commit | Change in one line |
-|---|---|---|
-| R-50 | `84d1cee5` | The parameter setter rejects action timeouts of 14,401 s or less. |
-| R-09 | `793e1f80` | Acceptance requires `amount > minAmount + 2 * txMaxFee`. |
-| R-08 | `0993d289` | Settlement onto a Closing wallet no longer strands the position. |
-| R-07 | `ed487a0c` | Stranding on a Closing wallet also waits out the wallet's closing period. |
-| R-12 | `62e67203` | Anyone can strand an expired position on a Live wallet. |
-| R-13, R-14 | `fe8d71ae` | Wallet exits count proven anchors (`walletAnchoredInfo`), not pending capacity. |
-| R-01 | `3b7038d6` | An acceptance request must prove the deposit's funding transaction. |
+| Finding | Change in one line |
+|---|---|
+| R-50 | The parameter setter rejects action timeouts of 14,401 s or less. |
+| R-09 | Acceptance requires `amount > minAmount + 2 * txMaxFee`. |
+| R-08 | Settlement onto a Closing wallet no longer strands the position. |
+| R-07 | Stranding on a Closing wallet also waits out the wallet's closing period. |
+| R-12 | Anyone can strand an expired position on a Live wallet. |
+| R-13, R-14 | Wallet exits count proven anchors (`walletAnchoredInfo`), not pending capacity. |
+| R-01 | An acceptance request must prove the deposit's funding transaction. |
 
 ## Verification
 
 - Before/after: for every finding except R-01, the regression tests were run
   on the fixed contract (pass) and with the touched contract files swapped
   back to the audited version (the named tests fail). R-01 changes the router
-  ABI, so its tests cannot compile against the old router; the original PoC
-  (7 tests showing the capacity exhaustion) is
-  `test/audit-poc/F01FakeDepositCapacity.t.sol`.
-- Foundry, `test/{fizz,fizz-periphery,audit-poc}/**` at `1a3b3a2c`
-  (`bun scripts/audit-gate.ts`, branch rebased on the audit branch at
-  `26707a8e`): GATE PASS, 46 suites, 259 tests, 0 failed. The branch carries
+  ABI, so the original PoC (7 tests showing the capacity exhaustion) cannot
+  compile against the fixed router and is not published; its guard,
+  `test/audit-poc/F01FakeDepositCapacity.t.sol`, ships instead.
+- Foundry, `test/{fizz,fizz-periphery,audit-poc}/**` on the fix line
+  (`bun scripts/audit-gate.ts`, the fix branch rebased on the audit branch):
+  GATE PASS, 46 suites, 259 tests, 0 failed. The branch carries
   the audit branch's guard tests (`RequireBoundaryGuards`, `AccessControlGuards`)
   and the campaign-11 SP-65 replays, moved to the fixed behavior (see "Other
   test changes").
 - Storage layout: `scripts/update-storage-layout-snapshot.ts` regenerated the
   snapshot and its upgrade-safety check against the deployed TIP-109 Bridge
   layout passed.
-- Hardhat at `c2d552fd`: `test/bridge/*.test.ts`, `test/vault/*.test.ts` and
+- Hardhat: `test/bridge/*.test.ts`, `test/vault/*.test.ts` and
   `test/deploy/98_*.test.ts` (40 files): 2160 passing, 0 failing. The
   reservation subset alone: 270 passing. See "Other test changes" for the
   Hardhat tests that changed.
@@ -170,7 +170,7 @@ behaviour, so each needs the authors' review. Findings and evidence: `solidity/d
 - C10 SP-62 replay (R-54) removed: R-09 and R-50 changed the handler clamps,
   so its shrunk seeds no longer reach the state. R-54 is not changed by these
   fixes and stays open; the audit branch keeps the replay.
-- Rebase (`1a3b3a2c`): `RequireBoundaryGuards` moved to the R-01 call, and the fix
+- Rebase: `RequireBoundaryGuards` moved to the R-01 call, and the fix
   changed its three guards. The old exact-minimum acceptance guard is
   now "smallest admitted anchor accepted" (`min + txMaxFee + 1`). The R-50
   setter guard pins the new 4 h + 1 s bound. The exact re-anchor floor stays
@@ -183,7 +183,7 @@ behaviour, so each needs the authors' review. Findings and evidence: `solidity/d
   flipped: the late settlement onto a Closing wallet now succeeds and leaves
   the position Active on that wallet, and the test checks that state so a
   drifted replay cannot pass.
-- Hardhat (`c2d552fd`): 20 reservation tests failed after the fixes.
+- Hardhat: 20 reservation tests failed after the fixes.
   - 17 seed an Active (proven) position with test setters and then strand or
     re-anchor it; they underflowed the new `walletAnchoredInfo` ledger. They
     now seed it: a new `setWalletAnchoredCounters` on `TestReservation` and
