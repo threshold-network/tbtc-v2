@@ -2044,4 +2044,311 @@ describe("ReservationProofs", () => {
       expect(deposit.sweptAt).to.not.equal(0) // sweep is still recorded
     })
   })
+
+  describe("13. Settlement binding guards", () => {
+    const anchorReservationKey = ethers.solidityPackedKeccak256(
+      ["bytes32", "uint32"],
+      [
+        SingleP2SHDeposit.deposits[0].fundingTx.hash,
+        SingleP2SHDeposit.deposits[0].reveal.fundingOutputIndex,
+      ]
+    )
+    // The `MovedFundsSweepWithoutMainUtxo` sweep proves a 1-input-1-output
+    // transaction: it spends `movedFundsSweepRequest` (txHash, 0) holding
+    // 18,500 sat and pays `movedFundsSweepData.wallet` 16,500 sat, so the
+    // proven miner fee is 2,000 sat.
+    const oldAnchorTxHash = movedFundsSweepData.movedFundsSweepRequest.txHash
+    const oldAnchorUtxoKey = ethers.solidityPackedKeccak256(
+      ["bytes32", "uint32"],
+      [oldAnchorTxHash, 0]
+    )
+    const oldWalletPubKeyHash = `0x${"aa".repeat(20)}`
+    // The wallet `sweepTx` actually pays; the re-anchor may only pay this
+    // one.
+    const paidWalletPubKeyHash = movedFundsSweepData.wallet.pubKeyHash
+    const unauthorizedWalletPubKeyHash = `0x${"22".repeat(20)}`
+    const reanchorNonce = 2
+    const reanchorAmount = 18500
+    const newAnchorAmount = 16500
+    const minerFee = reanchorAmount - newAnchorAmount
+
+    // Seeds a position whose current generation is a pending (on-time)
+    // re-anchor of `reanchorAmount` from `oldWalletPubKeyHash` to
+    // `paidWalletPubKeyHash`.
+    async function seedPendingReanchor(overrides: {
+      targetWalletPubKeyHash?: string
+      actionTxMaxFee?: number
+      thirdPartyHold?: boolean
+      reservationAnchorTxHash?: string
+      reservationRequestNonce?: number
+    }) {
+      const targetWalletPubKeyHash =
+        overrides.targetWalletPubKeyHash ?? paidWalletPubKeyHash
+      const anchorTxHash = overrides.reservationAnchorTxHash ?? oldAnchorTxHash
+
+      await testReservationProofs.initializeProducerStub(
+        anchorReservationKey,
+        oldWalletPubKeyHash,
+        200000,
+        depositor.address,
+        reanchorAmount,
+        mockReservationVault.target
+      )
+      await testReservationProofs.setActiveReservationsCount(1)
+      await testReservationProofs.setReservationTotalAmount(reanchorAmount)
+      await testReservationProofs.setWalletReservationsCount(
+        oldWalletPubKeyHash,
+        1
+      )
+      await testReservationProofs.setWalletReservationsAmount(
+        oldWalletPubKeyHash,
+        reanchorAmount
+      )
+      await testReservationProofs.setWalletAnchoredCounters(
+        oldWalletPubKeyHash,
+        1,
+        reanchorAmount
+      )
+      await testReservationProofs.setReservationByAnchorUtxo(
+        oldAnchorUtxoKey,
+        anchorReservationKey
+      )
+
+      await testReservationProofs.setWalletState(targetWalletPubKeyHash, 1) // Live
+      await testReservationProofs.setReservationAction(
+        anchorReservationKey,
+        reanchorNonce,
+        buildReservationAction({
+          targetWalletPubKeyHash,
+          actionType: 3, // Reanchor
+          state: 1, // Pending
+          amount: reanchorAmount,
+          txMaxFee: overrides.actionTxMaxFee ?? 5000,
+          sourceAnchorUtxoHash: ethers.solidityPackedKeccak256(
+            ["bytes32", "uint32"],
+            [anchorTxHash, 0]
+          ),
+          thirdPartyHold: overrides.thirdPartyHold ?? false,
+        })
+      )
+
+      // The target wallet's capacity, booked at request time.
+      await testReservationProofs.setWalletReservationsCount(
+        targetWalletPubKeyHash,
+        1
+      )
+      await testReservationProofs.setWalletReservationsAmount(
+        targetWalletPubKeyHash,
+        reanchorAmount
+      )
+
+      await testReservationProofs.setReservation(
+        anchorReservationKey,
+        buildReservationRequest({
+          owner: depositor.address,
+          state: 2, // ActionPending
+          requestNonce: overrides.reservationRequestNonce ?? reanchorNonce,
+          walletPubKeyHash: oldWalletPubKeyHash,
+          anchorAmount: reanchorAmount,
+          anchorTxHash,
+          anchorTxOutputIndex: 0,
+        })
+      )
+
+      await relay.getCurrentEpochDifficulty.returns(
+        movedFundsSweepData.chainDifficulty
+      )
+      await relay.getPrevEpochDifficulty.returns(
+        movedFundsSweepData.chainDifficulty
+      )
+    }
+
+    function submitReanchorProof() {
+      return testReservationProofs.submitReservationProof(
+        2, // ProofType.Reanchor
+        movedFundsSweepData.sweepTx,
+        movedFundsSweepData.sweepProof,
+        movedFundsSweepData.mainUtxo,
+        anchorReservationKey,
+        reanchorNonce
+      )
+    }
+
+    it("should settle a well-formed re-anchor (guard for the cases below)", async () => {
+      await seedPendingReanchor({})
+
+      await expect(submitReanchorProof()).to.emit(
+        testReservationProofs,
+        "ReservationReanchored"
+      )
+    })
+
+    it("should revert if the re-anchor output pays a wallet other than the authorized target", async () => {
+      // The generation authorizes `unauthorizedWalletPubKeyHash` but the
+      // proven transaction pays `paidWalletPubKeyHash`. Without the
+      // binding the anchor would migrate to a wallet the position was
+      // never granted.
+      await seedPendingReanchor({
+        targetWalletPubKeyHash: unauthorizedWalletPubKeyHash,
+      })
+
+      await expect(submitReanchorProof()).to.be.revertedWith(
+        "Output must pay the authorized target wallet"
+      )
+    })
+
+    it("should revert if the re-anchor miner fee exceeds the snapshotted txMaxFee", async () => {
+      // The proven fee is 2,000 sat; the generation snaps 1,999 sat.
+      await seedPendingReanchor({ actionTxMaxFee: minerFee - 1 })
+
+      await expect(submitReanchorProof()).to.be.revertedWith(
+        "Transaction fee is too high"
+      )
+    })
+
+    it("should revert if the re-anchored amount sits at the dust floor", async () => {
+      // The dust floor is the snapshotted fee bound and is strict, so a
+      // re-anchor paying exactly `txMaxFee` is refused while the fee guard
+      // still passes (2,000 <= 16,500).
+      await seedPendingReanchor({ actionTxMaxFee: newAnchorAmount })
+
+      await expect(submitReanchorProof()).to.be.revertedWith(
+        "Re-anchor amount below the dust floor"
+      )
+    })
+
+    it("should revert if the re-anchor transaction does not spend the reservation anchor", async () => {
+      // The position's anchor and the generation's recorded source both
+      // name `0xcc..cc` while the proven transaction spends
+      // `oldAnchorTxHash`: the two agree with each other, so only the
+      // anchor-lineage check against the transaction itself can reject it.
+      const staleAnchorTxHash = `0x${"cc".repeat(32)}`
+      await seedPendingReanchor({ reservationAnchorTxHash: staleAnchorTxHash })
+
+      await expect(submitReanchorProof()).to.be.revertedWith(
+        "Transaction input must point to the reservation anchor"
+      )
+    })
+
+    it("should revert when settling a counted third-party hold that was never recorded", async () => {
+      // A generation flagged as a third-party hold settles by releasing
+      // its hold. Nothing seeds one here, so the release must refuse
+      // instead of underflowing the per-target counter.
+      await seedPendingReanchor({ thirdPartyHold: true })
+
+      expect(
+        await testReservationProofs.getWalletReservationsCount(
+          paidWalletPubKeyHash
+        )
+      ).to.equal(1)
+
+      await expect(submitReanchorProof()).to.be.revertedWith(
+        "No third-party re-anchor hold to release"
+      )
+    })
+
+    it("should revert an on-time re-anchor proof for a superseded generation", async () => {
+      // The position moved on to generation 3 while generation 2 is still
+      // Pending: proving it on time would rewrite the position from a
+      // stale authorization.
+      await seedPendingReanchor({ reservationRequestNonce: reanchorNonce + 1 })
+
+      await expect(submitReanchorProof()).to.be.revertedWith(
+        "Not the current generation"
+      )
+    })
+
+    describe("acceptance settlement", () => {
+      // Value of the `SingleP2SHDeposit` sweep's single output; the
+      // acceptance action snapshots it exactly so the miner-fee guard is
+      // not what these cases exercise.
+      const anchorAmount = 18500
+
+      beforeEach(async () => {
+        await testReservationProofs.setWalletState(
+          SingleP2SHDeposit.deposits[0].reveal.walletPubKeyHash,
+          1 // Live
+        )
+        await testReservationProofs.initializeProducerStub(
+          anchorReservationKey,
+          SingleP2SHDeposit.deposits[0].reveal.walletPubKeyHash,
+          2000000000,
+          depositor.address,
+          anchorAmount,
+          mockReservationVault.target
+        )
+        await testReservationProofs.setReservation(
+          anchorReservationKey,
+          buildReservationRequest({
+            owner: depositor.address,
+            state: 0, // Unknown
+            requestNonce: 1,
+          })
+        )
+        await testReservationProofs.setReservationAction(
+          anchorReservationKey,
+          1,
+          buildReservationAction({
+            targetWalletPubKeyHash:
+              SingleP2SHDeposit.deposits[0].reveal.walletPubKeyHash,
+            amount: anchorAmount,
+            txMaxFee: 0,
+          })
+        )
+        await relay.getCurrentEpochDifficulty.returns(
+          SingleP2SHDeposit.chainDifficulty
+        )
+        await relay.getPrevEpochDifficulty.returns(
+          SingleP2SHDeposit.chainDifficulty
+        )
+      })
+
+      it("should revert an on-time acceptance proof for a superseded generation", async () => {
+        await testReservationProofs.setReservation(
+          anchorReservationKey,
+          buildReservationRequest({
+            owner: depositor.address,
+            state: 0, // Unknown
+            requestNonce: 2,
+          })
+        )
+
+        await expect(
+          testReservationProofs.submitReservationProof(
+            0, // ProofType.Acceptance
+            SingleP2SHDeposit.sweepTx,
+            SingleP2SHDeposit.sweepProof,
+            SingleP2SHDeposit.mainUtxo,
+            anchorReservationKey,
+            1
+          )
+        ).to.be.revertedWith("Not the current generation")
+      })
+
+      it("should revert when the accepted anchor falls below the reservation minimum", async () => {
+        await testReservationProofs.setReservationAction(
+          anchorReservationKey,
+          1,
+          buildReservationAction({
+            targetWalletPubKeyHash:
+              SingleP2SHDeposit.deposits[0].reveal.walletPubKeyHash,
+            amount: anchorAmount,
+            minAmount: anchorAmount + 1,
+            txMaxFee: 0,
+          })
+        )
+
+        await expect(
+          testReservationProofs.submitReservationProof(
+            0, // ProofType.Acceptance
+            SingleP2SHDeposit.sweepTx,
+            SingleP2SHDeposit.sweepProof,
+            SingleP2SHDeposit.mainUtxo,
+            anchorReservationKey,
+            1
+          )
+        ).to.be.revertedWith("Anchor below reservation minimum")
+      })
+    })
+  })
 })
