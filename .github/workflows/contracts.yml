@@ -577,6 +577,29 @@ jobs:
           slither --compile-force-framework hardhat \
             --hardhat-artifacts-directory build .
 
+      # `dead-code` and `timestamp` are still excluded in slither.config.json:
+      # on this codebase they match every intentional time lock and one helper
+      # (37 findings on dev, 36 of them `timestamp`), which is not triaged
+      # work a red check would help with. Run them here instead so the
+      # findings stay visible without gating anything; `--detect` lists the
+      # detectors to run and takes precedence over `detectors_to_exclude`.
+      - name: Report dead-code and timestamp findings
+        if: always()
+        continue-on-error: true
+        run: |
+          slither --compile-force-framework hardhat \
+            --hardhat-artifacts-directory build \
+            --detect dead-code,timestamp \
+            --json slither-dead-code-timestamp.json .
+
+      - name: Upload dead-code and timestamp report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: slither-dead-code-timestamp
+          path: solidity/slither-dead-code-timestamp.json
+          if-no-files-found: ignore
+
   # Closes the fail-open hole: if contracts-detect-changes itself fails
   # (e.g. its paths-filter step dies on a permissions error), every gated
   # sibling silently skips and the required check contexts all read
