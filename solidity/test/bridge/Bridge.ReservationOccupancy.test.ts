@@ -1,8 +1,9 @@
 import { ethers } from "hardhat"
 import { expect } from "chai"
+import type { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import type { TestReservation } from "../../typechain"
-import type { Signer } from "ethers"
 import { walletState } from "../fixtures"
+import { latestBlockTime } from "../helpers/contract-test-helpers"
 
 async function deployTestReservation(): Promise<TestReservation> {
   const ReservationProofs = await ethers.getContractFactory("ReservationProofs")
@@ -33,7 +34,7 @@ describe("Reservation - occupancy tracking", () => {
     const reservationKey = 101
     const walletPubKeyHash = `0x${"2".repeat(40)}`
     const vault = `0x${"3".repeat(40)}`
-    const now = (await ethers.provider.getBlock("latest"))!.timestamp
+    const now = await latestBlockTime()
 
     await testReservation.setGovernanceParameters(100, 100, 10000, 1)
     await testReservation.setMaxActiveReservations(1)
@@ -74,7 +75,7 @@ describe("Reservation - occupancy tracking", () => {
   it("notifyReservationAcceptanceTimedOut decrements activeReservationsCount and emits ReservationOccupancyChanged", async () => {
     const reservationKey = 102
     const walletPubKeyHash = `0x${"2".repeat(40)}`
-    const now = (await ethers.provider.getBlock("latest"))!.timestamp
+    const now = await latestBlockTime()
 
     await testReservation.setActiveReservationsCount(1)
     await testReservation.setWalletReservationsCount(walletPubKeyHash, 1)
@@ -193,7 +194,7 @@ describe("Reservation - occupancy tracking", () => {
     await testReservation.setWalletState(walletPubKeyHash, walletState.Closing)
 
     const reservationKey = 1
-    const now = (await ethers.provider.getBlock("latest"))!.timestamp
+    const now = await latestBlockTime()
     await testReservation.setReservation(reservationKey, {
       owner: ethers.ZeroAddress,
       mintedAmount: 100,
@@ -229,7 +230,7 @@ describe("Reservation - occupancy tracking", () => {
     await testReservation.setWalletState(walletPubKeyHash, walletState.Closing)
 
     // Closing just started: the closing period runs far into the future.
-    const now = (await ethers.provider.getBlock("latest"))!.timestamp
+    const now = await latestBlockTime()
     await testReservation.setWalletClosingStartedAt(walletPubKeyHash, now)
     await testReservation.setWalletClosingPeriod(1_000_000)
 
@@ -270,7 +271,7 @@ describe("Reservation - occupancy tracking", () => {
     await testReservation.setWalletState(walletPubKeyHash, walletState.Closing)
 
     // The closing period ended long ago and dissolution is eligible.
-    const now = (await ethers.provider.getBlock("latest"))!.timestamp
+    const now = await latestBlockTime()
     await testReservation.setWalletClosingStartedAt(
       walletPubKeyHash,
       now - 5000
@@ -319,7 +320,7 @@ describe("Reservation - occupancy tracking", () => {
     await testReservation.setReservationTotalAmount(100)
     await testReservation.setWalletState(walletPubKeyHash, walletState.Closing)
 
-    const now = (await ethers.provider.getBlock("latest"))!.timestamp
+    const now = await latestBlockTime()
     const closingEnd = now + 100
     await testReservation.setWalletClosingStartedAt(
       walletPubKeyHash,
@@ -383,7 +384,7 @@ describe("Reservation - occupancy tracking", () => {
   }
 
   it("notifyReservationStranded reverts on a Live wallet before dissolution eligibility", async () => {
-    const now = (await ethers.provider.getBlock("latest"))!.timestamp
+    const now = await latestBlockTime()
     const { reservationKey } = await activeOnLiveWallet(now + 86400)
 
     await expect(
@@ -394,7 +395,7 @@ describe("Reservation - occupancy tracking", () => {
   })
 
   it("notifyReservationStranded releases an expired position on a Live wallet", async () => {
-    const now = (await ethers.provider.getBlock("latest"))!.timestamp
+    const now = await latestBlockTime()
     const { walletPubKeyHash, reservationKey } = await activeOnLiveWallet(now)
 
     await testReservation.notifyReservationStranded(reservationKey)
@@ -442,7 +443,7 @@ describe("Reservation - occupancy tracking", () => {
 
 describe("Reservation - hand-off reserve gate at acceptance", () => {
   let testReservation: TestReservation
-  let depositor: Signer
+  let depositor: HardhatEthersSigner
 
   const walletA = `0x${"a1".repeat(20)}`
   const walletB = `0x${"a2".repeat(20)}`
@@ -473,8 +474,9 @@ describe("Reservation - hand-off reserve gate at acceptance", () => {
 
   let nextKey = 1
   async function seedAcceptableDeposit(pkh: string) {
-    const key = 500 + nextKey++
-    const now = (await ethers.provider.getBlock("latest"))!.timestamp
+    const key = 500 + nextKey
+    nextKey += 1
+    const now = await latestBlockTime()
     await testReservation.setDeposit(
       key,
       depositor.address,
@@ -491,18 +493,27 @@ describe("Reservation - hand-off reserve gate at acceptance", () => {
     return key
   }
 
+  // Each iteration seeds a deposit and submits an acceptance transaction, so
+  // the awaits inside the loop are deliberate: the contract must observe the
+  // count grow one acceptance at a time.
+  /* eslint-disable no-await-in-loop */
+  async function seedAndAccept(count: number, pkh: string): Promise<void> {
+    for (let i = 0; i < count; i += 1) {
+      const key = await seedAcceptableDeposit(pkh)
+      await testReservation
+        .connect(depositor)
+        .requestReservationAcceptance(key, pkh)
+    }
+  }
+  /* eslint-enable no-await-in-loop */
+
   it("reverts when an acceptance would push the count past (L - R) * N, even with maxActiveReservations free", async () => {
     // L = 2, N = 10, R = 1, so the gate allows 1 * 10 = 10 open positions.
     await testReservation.setWalletState(walletA, walletState.Live)
     await testReservation.setWalletState(walletB, walletState.Live)
     await enableGate(10, 2, 1)
 
-    for (let i = 0; i < 10; i++) {
-      const key = await seedAcceptableDeposit(walletA)
-      await testReservation
-        .connect(depositor)
-        .requestReservationAcceptance(key, walletA)
-    }
+    await seedAndAccept(10, walletA)
     expect(await testReservation.activeReservationsCount()).to.equal(10)
 
     // The 11th exceeds the gate's (L - R) * N = 10 even though the
@@ -522,18 +533,8 @@ describe("Reservation - hand-off reserve gate at acceptance", () => {
     await testReservation.setWalletState(walletC, walletState.Live)
     await enableGate(10, 3, 1)
 
-    for (let i = 0; i < 10; i++) {
-      const key = await seedAcceptableDeposit(walletA)
-      await testReservation
-        .connect(depositor)
-        .requestReservationAcceptance(key, walletA)
-    }
-    for (let i = 0; i < 10; i++) {
-      const key = await seedAcceptableDeposit(walletB)
-      await testReservation
-        .connect(depositor)
-        .requestReservationAcceptance(key, walletB)
-    }
+    await seedAndAccept(10, walletA)
+    await seedAndAccept(10, walletB)
     expect(await testReservation.activeReservationsCount()).to.equal(20)
 
     // One of the three Live wallets retires: remaining = 1 * 10 = 10,

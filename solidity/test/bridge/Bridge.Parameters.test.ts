@@ -21,7 +21,6 @@ describe("Bridge - Parameters", () => {
   ) => Promise<[Contract, Deployment]>
 
   before(async () => {
-    // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({ governance, thirdParty, bridge, bridgeGovernance, deployBridge } =
       await bridgeFixture())
   })

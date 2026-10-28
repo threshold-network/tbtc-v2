@@ -16,7 +16,6 @@ import type {
   IRelay,
   RedemptionWatchtower,
   RebateStaking,
-  IERC20,
   TestERC20,
 } from "../../typechain"
 import { createMock } from "../helpers/mock"

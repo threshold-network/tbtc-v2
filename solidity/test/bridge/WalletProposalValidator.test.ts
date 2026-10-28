@@ -8,18 +8,21 @@ import type {
   IRedemptionWatchtower,
   WalletProposalValidator,
 } from "../../typechain"
-import type {
-  ReservationActionStruct,
-  ReservationRequestStruct,
-} from "../../typechain/IReservationBridge"
-import type {
-  ReservationReanchorProposalStruct,
-  ReservationAnchorProposalStruct,
-} from "../../typechain/WalletProposalValidator"
+import type { Reservation } from "../../typechain/contracts/bridge/IReservationBridge"
+import type { WalletProposalValidator as WalletProposalValidatorTypes } from "../../typechain/contracts/bridge/WalletProposalValidator"
 import { walletState, movedFundsSweepRequestState } from "../fixtures"
 import { NO_MAIN_UTXO } from "../data/deposit-sweep"
 import { createMock } from "../helpers/mock"
 import type { Mock } from "../helpers/mock"
+
+// TypeChain nests struct types under the contract namespace, so name the
+// four structs these suites build at the import site.
+type ReservationActionStruct = Reservation.ReservationActionStruct
+type ReservationRequestStruct = Reservation.ReservationRequestStruct
+type ReservationReanchorProposalStruct =
+  WalletProposalValidatorTypes.ReservationReanchorProposalStruct
+type ReservationAnchorProposalStruct =
+  WalletProposalValidatorTypes.ReservationAnchorProposalStruct
 
 const { lastBlockTime, increaseTime } = helpers.time
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
@@ -2993,6 +2996,7 @@ describe("WalletProposalValidator", () => {
       isPartial: false,
       termSeconds: 0,
       dissolutionDelay: 0,
+      thirdPartyHold: false,
       ...overrides,
     })
 
@@ -3008,7 +3012,7 @@ describe("WalletProposalValidator", () => {
       movingFundsTargetWalletsCommitmentHash: HashZero,
     })
 
-    let deposit
+    let deposit: TestDeposit
 
     const buildProposal = (
       overrides: Partial<ReservationAnchorProposalStruct> = {}
@@ -4023,6 +4027,7 @@ describe("WalletProposalValidator", () => {
       isPartial: false,
       termSeconds: 0,
       dissolutionDelay: 0,
+      thirdPartyHold: false,
       ...overrides,
     })
 
@@ -4383,7 +4388,6 @@ describe("WalletProposalValidator", () => {
               buildProposal()
             )
 
-          // eslint-disable-next-line @typescript-eslint/no-unused-expressions
           expect(result).to.be.true
         })
       }
@@ -4399,6 +4403,9 @@ const depositKey = (
     ["bytes32", "uint32"],
     [fundingTxHash, fundingOutputIndex]
   )
+
+/** Deposit record produced by `createTestDeposit` below. */
+type TestDeposit = ReturnType<typeof createTestDeposit>
 
 const createTestDeposit = (
   walletPubKeyHash: string,

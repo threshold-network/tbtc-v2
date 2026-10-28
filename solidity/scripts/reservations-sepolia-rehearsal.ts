@@ -65,10 +65,22 @@
  *   fork + network "hardhat":  in-memory hardhat fork with chain 31337
  *   any other network:         rejected
  */
+
+/*
+ * The phases below are ordered on-chain steps: every step reads state the
+ * previous transaction left behind, so the loops walk the steps one at a
+ * time (no array iteration, no parallel awaits) and the run state is threaded
+ * through the helpers by mutation.
+ */
+/* eslint-disable no-restricted-syntax -- ordered on-chain steps, not array work */
+/* eslint-disable no-await-in-loop -- each step waits for the previous transaction */
+/* eslint-disable no-param-reassign -- `state` is the run's mutable record */
+
 import fs from "fs"
 import path from "path"
 import { ethers, artifacts, network } from "hardhat"
 import {
+  Block,
   Contract,
   ContractFactory,
   Signer,
@@ -79,11 +91,8 @@ import {
 
 import { assertReservedDepositsFeasible } from "../deploy/98_generate_reservation_mainnet_calldata"
 import {
-  SEPOLIA_CHAIN_ID,
   REHEARSAL_CHAIN_ID,
-  prepareArtifactFilename,
   selectPrepareArtifact,
-  bindingPreflight,
   bindingMismatch,
   chainPreflight,
   writePrepareArtifact,
@@ -246,21 +255,22 @@ interface RunState {
   snapshotAfter?: Record<string, string>
 }
 
+const STEP_MARKS: Record<Step["status"], string> = {
+  PASS: "PASS",
+  FAIL: "FAIL (!)",
+  SKIP: "SKIP",
+}
+
 function record(state: RunState, step: Step): void {
   state.steps.push(step)
-  const mark =
-    step.status === "PASS"
-      ? "PASS"
-      : step.status === "FAIL"
-        ? "FAIL (!)"
-        : "SKIP"
-  console.log(
-    `  [${mark}] ${step.name}` +
-      (step.txHash
-        ? ` tx=${step.txHash.slice(0, 18)}… gas=${step.gasUsed}`
-        : "") +
-      (step.error ? `\n          ${String(step.error).slice(0, 400)}` : "")
-  )
+  const mark = STEP_MARKS[step.status]
+  const txNote = step.txHash
+    ? ` tx=${step.txHash.slice(0, 18)}… gas=${step.gasUsed}`
+    : ""
+  const errorNote = step.error
+    ? `\n          ${String(step.error).slice(0, 400)}`
+    : ""
+  console.log(`  [${mark}] ${step.name}${txNote}${errorNote}`)
 }
 
 /**
@@ -305,26 +315,30 @@ async function deployLinked(
   for (const libs of Object.values(artifact.linkReferences)) {
     for (const [libName, refs] of Object.entries(libs)) {
       const addr = libAddresses[libName]
-      if (!addr) continue
-      const hexAddr = addr.toLowerCase().replace(/^0x/, "")
-      for (const ref of refs) {
-        const s = ref.start * 2
-        const e = s + ref.length * 2
-        linkedContent =
-          linkedContent.slice(0, s) + hexAddr + linkedContent.slice(e)
+      if (addr) {
+        const hexAddr = addr.toLowerCase().replace(/^0x/, "")
+        for (const ref of refs) {
+          const s = ref.start * 2
+          const e = s + ref.length * 2
+          linkedContent =
+            linkedContent.slice(0, s) + hexAddr + linkedContent.slice(e)
+        }
       }
     }
   }
-  const linked = "0x" + linkedContent
+  const linked = `0x${linkedContent}`
   const factory = new ContractFactory(artifact.abi, linked, signer)
   const contract = await factory.deploy(...(args as []))
   await contract.waitForDeployment()
   const pending = await contract.deploymentTransaction()
-  if (pending === undefined) {
-    throw new Error(`No deployment receipt for ${artifactName}`)
+  if (pending === null) {
+    throw new Error(`No deployment transaction for ${artifactName}`)
   }
   const receipt = await pending.wait()
-  return { contract, receipt }
+  if (receipt === null) {
+    throw new Error(`No deployment receipt for ${artifactName}`)
+  }
+  return { contract: contract as unknown as Contract, receipt }
 }
 
 async function advanceTime(seconds: number): Promise<void> {
@@ -367,8 +381,18 @@ async function snapshotBridge(
   return out
 }
 
+/**
+ * `getBlock` is nullable in ethers v6; every caller here treats a missing
+ * block as a hard failure rather than reading a default.
+ */
+async function blockAt(tag: number | "latest"): Promise<Block> {
+  const block = await ethers.provider.getBlock(tag)
+  if (block === null) throw new Error(`No block for ${String(tag)}`)
+  return block
+}
+
 async function mineToBlock(blockNumber: number): Promise<void> {
-  let current = (await ethers.provider.getBlock("latest")).number
+  let current = (await blockAt("latest")).number
   while (current < blockNumber) {
     await network.provider.send("evm_mine", [])
     current += 1
@@ -398,8 +422,8 @@ function artifactFile(state: RunState): string {
 function bindingComplete(state: RunState): boolean {
   if (!state.live) {
     if (state.bridge !== "" && !isAddressOrAbsent(state.bridge)) return false
-  } else {
-    if (state.chainId === 0 || state.bridge === "") return false
+  } else if (state.chainId === 0 || state.bridge === "") {
+    return false
   }
   for (const key of [
     "bridge",
@@ -413,7 +437,8 @@ function bindingComplete(state: RunState): boolean {
     "deployer",
   ]) {
     const v = (state as unknown as Record<string, unknown>)[key]
-    if (v !== null && v !== undefined && v !== "" && !isAddressOrAbsent(v)) return false
+    if (v !== null && v !== undefined && v !== "" && !isAddressOrAbsent(v))
+      return false
   }
   return true
 }
@@ -440,7 +465,13 @@ function saveArtifact(state: RunState): void {
   }
   fs.mkdirSync(artifactDir(), { recursive: true })
   const failures = state.steps.filter((s) => s.status === "FAIL")
-  const artifact = {
+  const summary = {
+    total: state.steps.length,
+    pass: state.steps.filter((s) => s.status === "PASS").length,
+    fail: failures.length,
+    skip: state.steps.filter((s) => s.status === "SKIP").length,
+  }
+  const artifact: ParsedPrepareArtifact = {
     mode: state.live ? "live" : "fork",
     network: state.networkName,
     phase: state.phase || "full",
@@ -464,18 +495,9 @@ function saveArtifact(state: RunState): void {
       proxyAdmin: state.proxyAdmin || null,
       deployer: state.deployer,
     },
-    summary: {
-      total: state.steps.length,
-      pass: state.steps.filter((s) => s.status === "PASS").length,
-      fail: failures.length,
-      skip: state.steps.filter((s) => s.status === "SKIP").length,
-    },
     steps: state.steps,
   }
-  writePrepareArtifact(artifactFile(state), artifact, {
-    summary: artifact.summary,
-    steps: artifact.steps,
-  })
+  writePrepareArtifact(artifactFile(state), artifact, { summary })
 }
 
 function finish(state: RunState): void {
@@ -532,16 +554,16 @@ async function waitDelay(
     await advanceTime(seconds)
     return
   }
-  const begin = (await ethers.provider.getBlock(beginBlock)).timestamp
+  const begin = (await blockAt(beginBlock)).timestamp
   for (;;) {
-    const now = (await ethers.provider.getBlock("latest")).timestamp
+    const now = (await blockAt("latest")).timestamp
     if (now >= begin + seconds) return
     console.log(
       `    waiting for governance delay: chain time ${now}/${begin + seconds}`
     )
-    const { promise, resolve } = Promise.withResolvers<void>()
-    setTimeout(resolve, 5000)
-    await promise
+    await new Promise<void>((resolve) => {
+      setTimeout(() => resolve(), 5000)
+    })
   }
 }
 
@@ -555,7 +577,7 @@ async function slotAddress(state: RunState, slot: string | number) {
 }
 
 async function routerView(state: RunState, name: string): Promise<eth.Result> {
-  const abi = (await artifacts.readArtifact(ROUTER_ARTIFACT)).abi
+  const { abi } = await artifacts.readArtifact(ROUTER_ARTIFACT)
   const iface = new eth.Interface(abi)
   const data = iface.encodeFunctionData(name, [])
   const res = await ethers.provider.call({ to: state.bridge, data })
@@ -672,8 +694,8 @@ async function readState(
         implementation: impl,
         proxyAdmin: state.proxyAdmin,
         governanceDelay: delay.toString(),
-        liveWalletsCount: state.snapshotBefore["liveWalletsCount"],
-        depositParameters: state.snapshotBefore["depositParameters"],
+        liveWalletsCount: state.snapshotBefore.liveWalletsCount,
+        depositParameters: state.snapshotBefore.depositParameters,
       },
     })
     return true
@@ -768,7 +790,8 @@ async function prepare(
     } else {
       const libs: Record<string, string> = {}
       for (const { name, artifact } of LIBS) {
-        libs[name] = (await deployLinked(artifact, signer, {})).contract.target
+        const { contract } = await deployLinked(artifact, signer, {})
+        libs[name] = await contract.getAddress()
       }
       state.libs = libs
       done(state, {
@@ -795,7 +818,7 @@ async function prepare(
         return
       }
       const d = await deployLinked(artifact, signer, libs, args)
-      state[key] = d.contract.target
+      state[key] = await d.contract.getAddress()
       done(state, {
         name,
         status: "PASS",
@@ -867,14 +890,15 @@ async function prepare(
       )
       skip(state, "04-state-preservation", "checked in the run that upgraded")
     } else {
-      const proxyAdmin = await ethers.getContractAt(
+      const proxyAdmin = (await ethers.getContractAt(
         ["function upgrade(address, address)"],
         state.proxyAdmin
-      )
+      )) as Contract
+      const connectedProxyAdmin = proxyAdmin.connect(signer) as Contract
       await sendStep(
         state,
         "03-proxy-upgrade",
-        () => proxyAdmin.connect(signer).upgrade(state.bridge, state.newImpl),
+        () => connectedProxyAdmin.upgrade(state.bridge, state.newImpl),
         { newImpl: state.newImpl }
       )
       const before = state.snapshotBefore!
@@ -956,7 +980,7 @@ async function prepare(
     }
 
     const [dust, , , revealAhead] = String(
-      state.snapshotBefore?.["depositParameters"]
+      state.snapshotBefore?.depositParameters
     ).split(",")
     assertReservedDepositsFeasible({
       depositDustThreshold: BigInt(dust),
@@ -1089,7 +1113,7 @@ async function activate(state: RunState, signer: Signer): Promise<boolean> {
     if ((await vault.feeReserveTarget()) !== BigInt(V.feeReserveTarget))
       bad.push("fee reserve target != 0")
     const [dust, , , revealAhead] = String(
-      state.snapshotBefore?.["depositParameters"]
+      state.snapshotBefore?.depositParameters
     ).split(",")
     try {
       assertReservedDepositsFeasible({
@@ -1103,7 +1127,7 @@ async function activate(state: RunState, signer: Signer): Promise<boolean> {
     } catch (e) {
       bad.push(`feasibility: ${String(e).slice(0, 120)}`)
     }
-    const current = (await ethers.provider.getBlock("latest")).number
+    const current = (await blockAt("latest")).number
     if (state.live && current < state.activationBlock) {
       bad.push(
         `current block ${current} is below activation block ${state.activationBlock}`
@@ -1154,7 +1178,9 @@ async function activate(state: RunState, signer: Signer): Promise<boolean> {
     const params = await routerView(state, "reservationParameters")
     const reserve = await routerView(state, "reservationHandoffReserveWallets")
     if (Number(reserve[0]) !== V.handoffReserveWallets)
-      throw new Error(`hand-off reserve ${reserve[0]} != ${V.handoffReserveWallets}`)
+      throw new Error(
+        `hand-off reserve ${reserve[0]} != ${V.handoffReserveWallets}`
+      )
     if (!(await bridge.isVaultTrusted(state.vault)))
       throw new Error("vault not trusted")
     if (params[6] !== 0n)
@@ -1177,7 +1203,7 @@ async function activate(state: RunState, signer: Signer): Promise<boolean> {
     )
     const data = iface.encodeFunctionData("requestReservationReanchor", [
       1234567890123456789n,
-      state.snapshotBefore?.["knownPk"] ?? "0x" + "0".repeat(40),
+      state.snapshotBefore?.knownPk ?? `0x${"0".repeat(40)}`,
       [],
       0,
     ])
@@ -1221,7 +1247,7 @@ async function main(): Promise<void> {
       `On network "${network.name}" set PHASE=prepare, or PHASE=activate ACTIVATION_BLOCK=<B>`
     )
   }
-  const startBlock = (await ethers.provider.getBlock("latest")).number
+  const startBlock = (await blockAt("latest")).number
   if (!live && startBlock !== FORKING_BLOCK) {
     throw new Error(
       `Fork block is ${startBlock}, expected pinned ${FORKING_BLOCK} — re-run with FORKING_BLOCK=${FORKING_BLOCK}`
@@ -1263,7 +1289,11 @@ async function main(): Promise<void> {
   state.chainId = Number(providerNet.chainId)
   const chainProblem = chainPreflight(network.name, state.chainId, live)
   if (chainProblem !== null) {
-    record(state, { name: "00-chain-preflight", status: "FAIL", error: chainProblem })
+    record(state, {
+      name: "00-chain-preflight",
+      status: "FAIL",
+      error: chainProblem,
+    })
     return finish(state)
   }
 
@@ -1278,7 +1308,9 @@ async function main(): Promise<void> {
     bridge: "",
   }
   const requireComplete = phase === "activate"
-  const selection = selectPrepareArtifact(artifactDir(), baseCtx, { requireComplete })
+  const selection = selectPrepareArtifact(artifactDir(), baseCtx, {
+    requireComplete,
+  })
   if (selection.kind === "rejected") {
     record(state, {
       name: "00-load-prepare-artifact",
@@ -1352,7 +1384,8 @@ async function main(): Promise<void> {
   if (signer === null) return finish(state)
 
   if (phase !== "activate") {
-    if (!(await prepare(state, signer, prevArtifact?.addresses ?? {}))) return finish(state)
+    if (!(await prepare(state, signer, prevArtifact?.addresses ?? {})))
+      return finish(state)
     if (phase === "prepare") {
       printAddresses(state)
       return finish(state)
@@ -1366,12 +1399,12 @@ async function main(): Promise<void> {
     )
   }
   await activate(state, signer)
-  finish(state)
+  return finish(state)
 }
 
 // Under `hardhat run` on a node-22 native-ESM TS loader the module's
 // default export is never auto-invoked, so drive `main()` at top level.
-void main().catch((error: unknown) => {
+main().catch((error: unknown) => {
   console.error("Reservations Sepolia script FAILED:", error)
   process.exitCode = 1
 })

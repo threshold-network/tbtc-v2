@@ -14,11 +14,11 @@ async function selectorsByContract(
   const iface = new ethers.Interface(artifact.abi)
 
   const bySelector = new Map<string, string>()
-  for (const fragment of iface.fragments) {
+  iface.fragments.forEach((fragment) => {
     if (ethers.FunctionFragment.isFunction(fragment)) {
       bySelector.set(fragment.selector, fragment.format("sighash"))
     }
-  }
+  })
   return bySelector
 }
 

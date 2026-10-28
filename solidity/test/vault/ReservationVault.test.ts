@@ -77,7 +77,6 @@ describe("ReservationVault", () => {
   let vault: ReservationVault
 
   before(async () => {
-    // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({ bridge, account1, account2, bank, tbtc, tbtcVault, vault } =
       await loadFixture(fixture))
   })

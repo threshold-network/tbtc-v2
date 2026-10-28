@@ -88,7 +88,7 @@ export function assertReservedDepositsFeasible(params: {
     ["RESERVATION_PER_WALLET_CAP_SATS", params.perWalletCap],
     ["RESERVATION_MAX_TOTAL_AMOUNT_SATS", params.maxTotalAmount],
   ]
-  for (const [name, cap] of amountCaps) {
+  amountCaps.forEach(([name, cap]) => {
     if (cap > BigInt(0) && cap < depositDustThreshold) {
       throw new Error(
         `${name} (${cap}) is below the Bridge's depositDustThreshold ` +
@@ -96,7 +96,7 @@ export function assertReservedDepositsFeasible(params: {
           "dust threshold, so no reservation could fit under this cap."
       )
     }
-  }
+  })
   console.log(
     `\nReserved-deposit feasibility OK: depositRevealAheadPeriod ` +
       `(${depositRevealAheadPeriod}s) fits the term plus margin, and every ` +

@@ -24,7 +24,6 @@
  * m2-only function (does not exist in m1 - no such method in ReservationVault.sol).
  * The re-anchor binding logic it exercises is already covered by the first case.
  */
-/* eslint-disable @typescript-eslint/no-unused-expressions */
 
 // Adversarial settlement tests for the action source-anchor binding:
 // the re-anchor's source-anchor snapshot correctly rejects proofs against
@@ -130,7 +129,6 @@ describe("Bridge - Reservation source-anchor binding", () => {
   const grossTbtc = anchorAmount * SATOSHI_MULTIPLIER
 
   before(async () => {
-    // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({
       deployer,
       governance,
@@ -243,7 +241,7 @@ describe("Bridge - Reservation source-anchor binding", () => {
   const REGTEST_TARGET = BigInt(0x7fffff) * 2n ** BigInt(8 * (0x20 - 3))
 
   const reverseHex = (hex: string): string =>
-    hex.replace(/^0x/, "").match(/../g)!.reverse().join("")
+    (hex.replace(/^0x/, "").match(/../g) ?? []).reverse().join("")
 
   const hash256 = (hexData: string): string =>
     ethers.sha256(ethers.sha256(hexData))

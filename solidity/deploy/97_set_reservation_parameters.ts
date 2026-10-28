@@ -68,12 +68,11 @@ const MAX_TOTAL_AMOUNT = BigInt("10000000")
  * reviewed for production use.
  */
 const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
-  const { deployments, ethers, getNamedAccounts, helpers, network } = hre
+  const { deployments, getNamedAccounts, helpers, network } = hre
   const { execute, get, read } = deployments
   const { governance } = await getNamedAccounts()
 
   const ReservationVault = await get("ReservationVault")
-  const BridgeGovernance = await get("BridgeGovernance")
 
   // `BridgeGovernance` is deployed with a 48-hour delay on every network
   // except Sepolia, so a begin/finalize pair cannot complete in one run

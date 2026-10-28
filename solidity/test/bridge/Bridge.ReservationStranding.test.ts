@@ -63,7 +63,6 @@
  * idempotence; the internal branch is a defensive guard against a future
  * code path that calls `strandReservation` directly.
  */
-/* eslint-disable @typescript-eslint/no-unused-expressions */
 
 // Stranding tests for `notifyReservationStranded` and
 // `notifyStaleReservedDeposit`.
@@ -168,7 +167,6 @@ describe("Bridge - Reservation stranding", () => {
   const grossTbtc = anchorAmount * SATOSHI_MULTIPLIER
 
   before(async () => {
-    // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({
       deployer,
       governance,
@@ -317,7 +315,7 @@ describe("Bridge - Reservation stranding", () => {
   const REGTEST_TARGET = BigInt(0x7fffff) * 2n ** BigInt(8 * (0x20 - 3))
 
   const reverseHex = (hex: string): string =>
-    hex.replace(/^0x/, "").match(/../g)!.reverse().join("")
+    (hex.replace(/^0x/, "").match(/../g) ?? []).reverse().join("")
 
   const hash256 = (hexData: string): string =>
     ethers.sha256(ethers.sha256(hexData))

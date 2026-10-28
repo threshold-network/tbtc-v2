@@ -50,6 +50,18 @@ const RESERVATION_RENEWAL_WINDOW = 2592000 // 30 days
 const DEPOSIT_AMOUNT = 80000
 const SWEEP_FEE = 2000
 
+/**
+ * `ethers.Contract.connect()` is typed as returning `BaseContract`, which
+ * drops the ABI fragment's methods; re-apply the fragment type so the
+ * release entry point stays visible at the call sites.
+ */
+type ReleaseAbiBridge = Contract & {
+  releaseReservedDepositToPool(
+    depositKey: bigint,
+    vault: string
+  ): Promise<ContractTransactionResponse>
+}
+
 describe("Bridge - Reservation release to pool", () => {
   let governance: HardhatEthersSigner
   let spvMaintainer: HardhatEthersSigner
@@ -62,13 +74,13 @@ describe("Bridge - Reservation release to pool", () => {
   let reservationRouter: ReservationRouter
   let reservationVault: ReservationVault
   let bridgeGovernanceSigner: HardhatEthersSigner
-  let releaseAbiBridge: Contract & {
-    releaseReservedDepositToPool(
-      depositKey: bigint,
-      vault: string
-    ): Promise<ContractTransactionResponse>
-  }
+  let releaseAbiBridge: ReleaseAbiBridge
   let refundLocktime: string
+
+  // `connect()` is typed as returning `BaseContract`; re-apply the
+  // fragment type so the release entry point stays visible.
+  const releaseAs = (signer: HardhatEthersSigner): ReleaseAbiBridge =>
+    releaseAbiBridge.connect(signer) as ReleaseAbiBridge
 
   const walletPubKeyHash = "0x8db50eb52063ea9d98b3eac91489a90f738986f6"
   const blindingFactor = "0xf9f0c90d00039523"
@@ -80,7 +92,6 @@ describe("Bridge - Reservation release to pool", () => {
   ]
 
   before(async () => {
-    // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({ deployer, governance, spvMaintainer, thirdParty, bank, relay, bridge } =
       await bridgeFixture())
 
@@ -169,7 +180,7 @@ describe("Bridge - Reservation release to pool", () => {
   const REGTEST_TARGET = BigInt(0x7fffff) * 2n ** BigInt(8 * (0x20 - 3))
 
   const reverseHex = (hex: string): string =>
-    hex.replace(/^0x/, "").match(/../g)!.reverse().join("")
+    (hex.replace(/^0x/, "").match(/../g) ?? []).reverse().join("")
 
   const hash256 = (hexData: string): string =>
     ethers.sha256(ethers.sha256(hexData))
@@ -355,9 +366,10 @@ describe("Bridge - Reservation release to pool", () => {
       expect(await reservationRouter.pendingReservedDeposits()).to.equal(1n)
 
       await expect(
-        releaseAbiBridge
-          .connect(thirdParty)
-          .releaseReservedDepositToPool(depositKey, vault.address)
+        releaseAs(thirdParty).releaseReservedDepositToPool(
+          depositKey,
+          vault.address
+        )
       )
         .to.emit(releaseAbiBridge, "ReservedDepositReleasedToPool")
         .withArgs(depositKey, thirdParty.address, vault.address)
@@ -393,18 +405,20 @@ describe("Bridge - Reservation release to pool", () => {
 
       // The swept deposit can no longer be released.
       await expect(
-        releaseAbiBridge
-          .connect(thirdParty)
-          .releaseReservedDepositToPool(depositKey, vault.address)
+        releaseAs(thirdParty).releaseReservedDepositToPool(
+          depositKey,
+          vault.address
+        )
       ).to.be.revertedWith("Deposit already swept")
     })
 
     it("releases to the zero address and an ordinary sweep credits the depositor Bank balance", async () => {
       const { fundingTx, depositKey } = await revealReservedDeposit()
 
-      await releaseAbiBridge
-        .connect(thirdParty)
-        .releaseReservedDepositToPool(depositKey, ethers.ZeroAddress)
+      await releaseAs(thirdParty).releaseReservedDepositToPool(
+        depositKey,
+        ethers.ZeroAddress
+      )
       expect(await bridge.isReservedDeposit(depositKey)).to.be.false
       expect((await bridge.deposits(depositKey)).vault).to.equal(
         ethers.ZeroAddress
@@ -452,9 +466,10 @@ describe("Bridge - Reservation release to pool", () => {
       )
 
       // The release drops the counter to zero and unblocks the re-point.
-      await releaseAbiBridge
-        .connect(thirdParty)
-        .releaseReservedDepositToPool(depositKey, ethers.ZeroAddress)
+      await releaseAs(thirdParty).releaseReservedDepositToPool(
+        depositKey,
+        ethers.ZeroAddress
+      )
       expect(await reservationRouter.pendingReservedDeposits()).to.equal(0n)
 
       await expect(updateParams(newVault.address))
@@ -471,9 +486,10 @@ describe("Bridge - Reservation release to pool", () => {
       const { depositKey } = await revealReservedDeposit()
       // `thirdParty` is the revealer/depositor here; the deployer is not.
       await expect(
-        releaseAbiBridge
-          .connect(deployer)
-          .releaseReservedDepositToPool(depositKey, ethers.ZeroAddress)
+        releaseAs(deployer).releaseReservedDepositToPool(
+          depositKey,
+          ethers.ZeroAddress
+        )
       ).to.be.revertedWith("Caller is not the deposit's depositor")
     })
 
@@ -487,9 +503,10 @@ describe("Bridge - Reservation release to pool", () => {
 
       const ordinary = await revealNonReservedDeposit(ordinaryVault.address)
       await expect(
-        releaseAbiBridge
-          .connect(thirdParty)
-          .releaseReservedDepositToPool(ordinary.depositKey, ethers.ZeroAddress)
+        releaseAs(thirdParty).releaseReservedDepositToPool(
+          ordinary.depositKey,
+          ethers.ZeroAddress
+        )
       ).to.be.revertedWith("Deposit was not revealed as reserved")
     })
 
@@ -506,9 +523,10 @@ describe("Bridge - Reservation release to pool", () => {
         )
 
       await expect(
-        releaseAbiBridge
-          .connect(thirdParty)
-          .releaseReservedDepositToPool(depositKey, ethers.ZeroAddress)
+        releaseAs(thirdParty).releaseReservedDepositToPool(
+          depositKey,
+          ethers.ZeroAddress
+        )
       ).to.be.revertedWith("Acceptance was already requested")
     })
 
@@ -528,18 +546,20 @@ describe("Bridge - Reservation release to pool", () => {
       await reservationRouter.notifyReservationAcceptanceTimedOut(depositKey)
 
       await expect(
-        releaseAbiBridge
-          .connect(thirdParty)
-          .releaseReservedDepositToPool(depositKey, ethers.ZeroAddress)
+        releaseAs(thirdParty).releaseReservedDepositToPool(
+          depositKey,
+          ethers.ZeroAddress
+        )
       ).to.be.revertedWith("Acceptance was already requested")
     })
 
     it("reverts when the release vault is the reservation vault", async () => {
       const { depositKey } = await revealReservedDeposit()
       await expect(
-        releaseAbiBridge
-          .connect(thirdParty)
-          .releaseReservedDepositToPool(depositKey, reservationVault.target)
+        releaseAs(thirdParty).releaseReservedDepositToPool(
+          depositKey,
+          await reservationVault.getAddress()
+        )
       ).to.be.revertedWith(
         "Vault must be the zero address or a trusted vault other than the reservation vault"
       )
@@ -549,9 +569,10 @@ describe("Bridge - Reservation release to pool", () => {
       const { depositKey } = await revealReservedDeposit()
       // An untrusted, non-zero vault address.
       await expect(
-        releaseAbiBridge
-          .connect(thirdParty)
-          .releaseReservedDepositToPool(depositKey, deployer.address)
+        releaseAs(thirdParty).releaseReservedDepositToPool(
+          depositKey,
+          deployer.address
+        )
       ).to.be.revertedWith(
         "Vault must be the zero address or a trusted vault other than the reservation vault"
       )
@@ -565,9 +586,10 @@ describe("Bridge - Reservation release to pool", () => {
         .forceStaleReservedDeposit(depositKey)
 
       await expect(
-        releaseAbiBridge
-          .connect(thirdParty)
-          .releaseReservedDepositToPool(depositKey, ethers.ZeroAddress)
+        releaseAs(thirdParty).releaseReservedDepositToPool(
+          depositKey,
+          ethers.ZeroAddress
+        )
       ).to.be.revertedWith("Not a pending reserved deposit")
     })
 
@@ -576,27 +598,28 @@ describe("Bridge - Reservation release to pool", () => {
       // validator safety margin: a sweep proposal can no longer be
       // validated, so the deposit must not be released to the pool.
       const shortLocktime = `0x${toLE((await lastBlockTime()) + 23 * 3600, 4)}`
-      const { fundingTx, depositKey } = await revealReservedDeposit(
+      const { depositKey } = await revealReservedDeposit(
         walletPubKeyHash,
         shortLocktime
       )
-      void fundingTx
 
       // Cross the 24-hour margin without reaching the deadline itself.
       await increaseTime(1 * 3600)
 
       await expect(
-        releaseAbiBridge
-          .connect(thirdParty)
-          .releaseReservedDepositToPool(depositKey, ethers.ZeroAddress)
+        releaseAs(thirdParty).releaseReservedDepositToPool(
+          depositKey,
+          ethers.ZeroAddress
+        )
       ).to.be.revertedWith("Deposit refund safety margin is not preserved")
     })
 
     it("cannot be swept with the vault parameter set to the reservation vault after a release", async () => {
       const { fundingTx, depositKey } = await revealReservedDeposit()
-      await releaseAbiBridge
-        .connect(thirdParty)
-        .releaseReservedDepositToPool(depositKey, ethers.ZeroAddress)
+      await releaseAs(thirdParty).releaseReservedDepositToPool(
+        depositKey,
+        ethers.ZeroAddress
+      )
 
       const { info, proof } = sweepOf(fundingTx)
       await expect(
@@ -613,9 +636,10 @@ describe("Bridge - Reservation release to pool", () => {
 
     it("leaves no acceptance request or stale notification possible after a release", async () => {
       const { depositKey, fundingTx } = await revealReservedDeposit()
-      await releaseAbiBridge
-        .connect(thirdParty)
-        .releaseReservedDepositToPool(depositKey, ethers.ZeroAddress)
+      await releaseAs(thirdParty).releaseReservedDepositToPool(
+        depositKey,
+        ethers.ZeroAddress
+      )
 
       await expect(
         reservationRouter

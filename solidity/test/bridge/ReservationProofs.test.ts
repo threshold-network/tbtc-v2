@@ -12,6 +12,7 @@ import {
 import { SingleP2SHDeposit } from "../data/deposit-sweep"
 import { MovedFundsSweepWithoutMainUtxo as movedFundsSweepData } from "../data/moving-funds"
 import { createMock } from "../helpers/mock"
+import { requireValue } from "../../helpers/require-value"
 import type { Mock } from "../helpers/mock"
 
 const { lastBlockTime } = helpers.time
@@ -620,7 +621,7 @@ describe("ReservationProofs", () => {
         requestNonce,
         sampleAnchorTxHash
       )
-      const receipt = (await tx.wait())!
+      const receipt = requireValue(await tx.wait(), "Transaction receipt")
 
       // 1. Action state becomes Settled (2)
       const action = await testReservationProofs.getReservationAction(
@@ -640,9 +641,10 @@ describe("ReservationProofs", () => {
       expect(reservation.anchorTxHash).to.equal(sampleAnchorTxHash)
       expect(reservation.anchorTxOutputIndex).to.equal(0)
 
-      const currentBlock = (await ethers.provider.getBlock(
-        receipt.blockNumber
-      ))!
+      const currentBlock = requireValue(
+        await ethers.provider.getBlock(receipt.blockNumber),
+        "Block"
+      )
       const expectedExpiresAt = currentBlock.timestamp + termSeconds
       const expectedDissolutionAt = expectedExpiresAt + dissolutionDelay
       expect(reservation.expiresAt).to.equal(expectedExpiresAt)

@@ -50,7 +50,12 @@ const ALL_ADDRESS_KEYS = [
 ] as const
 
 /** The four deployment outputs a phase-activate artifact must carry. */
-export const DEPLOYED_ADDRESS_KEYS = ["newImpl", "router", "vault", "newGov"] as const
+export const DEPLOYED_ADDRESS_KEYS = [
+  "newImpl",
+  "router",
+  "vault",
+  "newGov",
+] as const
 
 export type AddressKey = (typeof ALL_ADDRESS_KEYS)[number]
 
@@ -117,7 +122,10 @@ export interface SelectOptions {
  * fields that must be set by the time they are written: the all-zero
  * address is never a deployed contract.
  */
-export function isAddressOrAbsent(value: unknown, rejectZeros = false): boolean {
+export function isAddressOrAbsent(
+  value: unknown,
+  rejectZeros = false
+): boolean {
   if (value === null || value === undefined) return true
   if (typeof value !== "string" || !ADDRESS_RE.test(value)) return false
   if (rejectZeros && value.toLowerCase() === ZERO_ADDRESS) return false
@@ -135,10 +143,15 @@ function addressesValid(
 ): raw is Record<AddressKey, string | null> {
   if (typeof raw !== "object" || raw === null) return false
   const record = raw as Record<string, unknown>
-  return ALL_ADDRESS_KEYS.every((k) => isAddressOrAbsent(record[k], rejectZeros))
+  return ALL_ADDRESS_KEYS.every((k) =>
+    isAddressOrAbsent(record[k], rejectZeros)
+  )
 }
 
-function bindingValid(raw: unknown, mode: "live" | "fork"): raw is ArtifactBinding {
+function bindingValid(
+  raw: unknown,
+  mode: "live" | "fork"
+): raw is ArtifactBinding {
   if (typeof raw !== "object" || raw === null) return false
   const record = raw as Record<string, unknown>
   const chainOk =
@@ -152,11 +165,7 @@ function bindingValid(raw: unknown, mode: "live" | "fork"): raw is ArtifactBindi
       Number.isInteger(record.forkBlock) &&
       record.forkBlock > 0) ||
     record.forkBlock === null
-  return (
-    chainOk &&
-    forkBlockOk &&
-    isAddressOrAbsent(record.bridge)
-  )
+  return chainOk && forkBlockOk && isAddressOrAbsent(record.bridge)
 }
 
 /**
@@ -179,13 +188,16 @@ export function parsePrepareArtifact(
   if (typeof json !== "object" || json === null || Array.isArray(json))
     return { ok: false, reason: "top-level value is not an object" }
   const o = json as Record<string, unknown>
-  const fail = (reason: string) => ({ ok: false, reason })
+  const fail = (reason: string): { ok: false; reason: string } => ({
+    ok: false,
+    reason,
+  })
   if (o.schemaVersion !== PREPARE_ARTIFACT_SCHEMA_VERSION)
     return fail(
       `schemaVersion must be ${PREPARE_ARTIFACT_SCHEMA_VERSION}, got ` +
         `${String(o.schemaVersion)} (old artifact without binding metadata)`
     )
-  const mode = o.mode
+  const { mode } = o
   if (mode !== "live" && mode !== "fork")
     return fail(`mode must be "live" or "fork", got ${String(mode)}`)
   if (!bindingValid(o.binding, mode))
@@ -196,12 +208,16 @@ export function parsePrepareArtifact(
   if (!addressesValid(o.addresses, rejectZeros))
     return fail("addresses object is missing or holds a malformed address")
   if (
-    !(typeof o.startBlock === "number" &&
+    !(
+      typeof o.startBlock === "number" &&
       Number.isInteger(o.startBlock) &&
-      o.startBlock >= 0) ||
-    !(typeof o.activationBlock === "number" &&
+      o.startBlock >= 0
+    ) ||
+    !(
+      typeof o.activationBlock === "number" &&
       Number.isInteger(o.activationBlock) &&
-      o.activationBlock >= 0)
+      o.activationBlock >= 0
+    )
   )
     return fail("startBlock/activationBlock are not integers")
   if (o.forkBlock !== null && typeof o.forkBlock !== "number")
@@ -266,7 +282,8 @@ export function selectPrepareArtifact(
 ): SelectionResult {
   const files = prepareArtifactFiles(dir, ctx)
   const candidates: Candidate[] = []
-  for (const f of files) {
+  for (let i = 0; i < files.length; i += 1) {
+    const f = files[i]
     const full = path.join(dir, f)
     let state: CandidateState
     let reason = ""
@@ -299,7 +316,13 @@ export function selectPrepareArtifact(
           `longer accepted); no deployment will be attempted.`,
       }
     }
-    candidates.push({ file: f, mtimeMs: fs.statSync(full).mtimeMs, state, artifact, reason })
+    candidates.push({
+      file: f,
+      mtimeMs: fs.statSync(full).mtimeMs,
+      state,
+      artifact,
+      reason,
+    })
   }
   const byNewest = (a: Candidate, b: Candidate) => b.mtimeMs - a.mtimeMs
   if (opts.requireComplete) {
@@ -334,16 +357,20 @@ export function bindingMismatch(
   if (a.mode !== (ctx.live ? "live" : "fork"))
     return `artifact mode is ${a.mode}, this run is ${ctx.live ? "live" : "fork"}`
   if (ctx.live) {
-    if (ctx.chainId === null)
-      return "provider chain id has not been read yet"
+    if (ctx.chainId === null) return "provider chain id has not been read yet"
     if (a.binding.chainId !== ctx.chainId)
-      return `binding chainId ${String(a.binding.chainId)} does not match ` +
+      return (
+        `binding chainId ${String(a.binding.chainId)} does not match ` +
         `provider chain ${ctx.chainId}`
+      )
     if (a.binding.forkBlock !== null)
       return "binding.forkBlock is set on a live artifact"
     if (a.binding.bridge === null)
       return "binding.bridge is missing on a live artifact"
-    if (ctx.bridge !== "" && a.binding.bridge.toLowerCase() !== ctx.bridge.toLowerCase())
+    if (
+      ctx.bridge !== "" &&
+      a.binding.bridge.toLowerCase() !== ctx.bridge.toLowerCase()
+    )
       return `binding bridge ${a.binding.bridge} != deployed Bridge ${ctx.bridge}`
     if (a.network !== ctx.networkName)
       return `artifact network "${a.network}" != execution network "${ctx.networkName}"`
@@ -375,34 +402,46 @@ export function chainPreflight(
   if (!live) {
     if (networkName === "hardhat") {
       if (chainId !== REHEARSAL_CHAIN_ID)
-        return `hardhat fork chain id ${chainId} is not ${REHEARSAL_CHAIN_ID}; ` +
+        return (
+          `hardhat fork chain id ${chainId} is not ${REHEARSAL_CHAIN_ID}; ` +
           `refusing to send any transaction`
+        )
       return null
     }
     if (networkName === "rehearsal") {
       if (chainId !== REHEARSAL_CHAIN_ID)
-        return `rehearsal node chain id ${chainId} is not ${REHEARSAL_CHAIN_ID}; ` +
+        return (
+          `rehearsal node chain id ${chainId} is not ${REHEARSAL_CHAIN_ID}; ` +
           `refusing to send any transaction`
+        )
       return null
     }
-    return `network "${networkName}" is not a supported execution network ` +
+    return (
+      `network "${networkName}" is not a supported execution network ` +
       `(expected "hardhat" fork, or "rehearsal"); refusing to send any transaction`
+    )
   }
   // Live: permitted networks are sepolia (11155111) and rehearsal (31337).
   if (networkName === "sepolia") {
     if (chainId !== SEPOLIA_CHAIN_ID)
-      return `provider chain id ${chainId} is not Sepolia (${SEPOLIA_CHAIN_ID}); ` +
+      return (
+        `provider chain id ${chainId} is not Sepolia (${SEPOLIA_CHAIN_ID}); ` +
         `refusing to send any transaction`
+      )
     return null
   }
   if (networkName === "rehearsal") {
     if (chainId !== REHEARSAL_CHAIN_ID)
-      return `provider chain id ${chainId} is not ${REHEARSAL_CHAIN_ID}; ` +
+      return (
+        `provider chain id ${chainId} is not ${REHEARSAL_CHAIN_ID}; ` +
         `refusing to send any transaction`
+      )
     return null
   }
-  return `network "${networkName}" is not a supported live network ` +
+  return (
+    `network "${networkName}" is not a supported live network ` +
     `("sepolia" or "rehearsal"); refusing to send any transaction`
+  )
 }
 
 /**
@@ -472,11 +511,12 @@ export function bindingPreflight(
   if (a.mode !== (ctx.live ? "live" : "fork"))
     return `artifact mode is ${a.mode}, this run is ${ctx.live ? "live" : "fork"}`
   if (ctx.live) {
-    if (ctx.chainId === null)
-      return "provider chain id has not been read yet"
+    if (ctx.chainId === null) return "provider chain id has not been read yet"
     if (a.binding.chainId !== ctx.chainId)
-      return `binding chainId ${String(a.binding.chainId)} does not match ` +
+      return (
+        `binding chainId ${String(a.binding.chainId)} does not match ` +
         `provider chain ${ctx.chainId}`
+      )
     if (a.network !== ctx.networkName)
       return `artifact network "${a.network}" != execution network "${ctx.networkName}"`
     return null
@@ -510,6 +550,6 @@ export function writePrepareArtifact(
   } catch {
     // ignore
   }
-  fs.writeFileSync(tmp, text + "\n")
+  fs.writeFileSync(tmp, `${text}\n`)
   fs.renameSync(tmp, target)
 }

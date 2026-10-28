@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unused-expressions */
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -704,10 +703,10 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
     // tooling, which reject a mixed-case address whose EIP-55 checksum is
     // wrong. Every address in it must already be in checksum form.
     it("should write EIP-55 checksummed governance addresses", () => {
-      for (const name of ["Timelock", "CouncilSafe"]) {
+      ;["Timelock", "CouncilSafe"].forEach((name) => {
         const address = summary.existingContracts[name]
         expect(address, name).to.equal(getAddress(address.toLowerCase()))
-      }
+      })
     })
   })
 })

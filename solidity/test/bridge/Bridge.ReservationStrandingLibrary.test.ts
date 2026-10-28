@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unused-expressions */
 /* eslint-disable no-bitwise -- the storage helpers below set and clear bit ranges of a 256-bit word */
 /* eslint-disable @typescript-eslint/no-non-null-assertion -- ethers v6 returns nullable blocks, receipts and parsed logs that these tests have just produced */
 
@@ -13,7 +12,7 @@ import {
   Log,
   solidityPackedKeccak256,
 } from "ethers"
-import loadFixture from "../helpers/fixture"
+import { loadFixture } from "../helpers/fixture"
 
 import type { Mock } from "../helpers/mock"
 import type {

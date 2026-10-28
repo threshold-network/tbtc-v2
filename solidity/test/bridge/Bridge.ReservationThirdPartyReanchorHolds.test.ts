@@ -1,9 +1,7 @@
-/* eslint-disable @typescript-eslint/no-unused-expressions */
-
-import { ethers } from "hardhat"
+import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
-import loadFixture from "../helpers/fixture"
-import createMock from "../helpers/mock"
+import { loadFixture } from "../helpers/fixture"
+import { createMock } from "../helpers/mock"
 
 import type {
   ReservationStrandingExecutor,
@@ -63,10 +61,7 @@ async function deployCapsGovernanceExecutor(): Promise<ReservationCapsGovernance
   return cap
 }
 
-async function lastBlockTime(): Promise<number> {
-  const block = await ethers.provider.getBlock("latest")
-  return Number(block!.timestamp)
-}
+const { lastBlockTime } = helpers.time
 
 describe("Bridge - reservation third-party re-anchor holds (per-target cap)", () => {
   let executor: ReservationStrandingExecutor
@@ -120,7 +115,7 @@ describe("Bridge - reservation third-party re-anchor holds (per-target cap)", ()
 
   // A distinct Active reservation (on a distinct source wallet) re-anchoring
   // to the SAME target wallet, for the cap-stacking / re-request scenarios.
-  async function seedSecondReanchorable(key: string, target: `0x${string}`) {
+  async function seedSecondReanchorable(key: string) {
     await executor.seedWallet(
       secondSourceWallet,
       ZERO_BYTES32,
@@ -135,7 +130,6 @@ describe("Bridge - reservation third-party re-anchor holds (per-target cap)", ()
       0,
       1 // Active
     )
-    void target
   }
 
   // A third-party request fills the cap against `targetWallet`.
@@ -160,7 +154,7 @@ describe("Bridge - reservation third-party re-anchor holds (per-target cap)", ()
 
       // A second third-party reservation re-anchoring to the same target is
       // blocked at the cap.
-      await seedSecondReanchorable(`0x${"ab".repeat(32)}`, targetWallet)
+      await seedSecondReanchorable(`0x${"ab".repeat(32)}`)
       await expect(
         executor.requestReservationReanchor(
           `0x${"ab".repeat(32)}`,
@@ -327,7 +321,7 @@ describe("Bridge - reservation third-party re-anchor holds (per-target cap)", ()
       ).to.equal(1)
       // A distinct reservation that can re-anchor to the same target, used
       // for the "a third party can request again" assertion.
-      await seedSecondReanchorable(`0x${"bb".repeat(32)}`, targetWallet)
+      await seedSecondReanchorable(`0x${"bb".repeat(32)}`)
     }
 
     it("drops on action timeout", async () => {
@@ -420,7 +414,7 @@ describe("Bridge - reservation third-party re-anchor holds (per-target cap)", ()
 
       // A distinct third-party reservation against the same (now-full) target
       // is blocked while the hold is pending.
-      await seedSecondReanchorable(`0x${"bb".repeat(32)}`, targetPk)
+      await seedSecondReanchorable(`0x${"bb".repeat(32)}`)
       await expect(
         executor.requestReservationReanchor(
           `0x${"bb".repeat(32)}`,
@@ -1008,7 +1002,7 @@ describe("Bridge - reservation third-party re-anchor holds (per-target cap)", ()
     async function seedMemberRequest() {
       const registry = await createMock<IWalletRegistry>("IWalletRegistry")
       await executor.setEcdsaWalletRegistry(registry.address)
-      await seedSecondReanchorable(memberKey, targetWallet)
+      await seedSecondReanchorable(memberKey)
       await executor.seedWallet(
         secondSourceWallet,
         sourceEcdsaId,

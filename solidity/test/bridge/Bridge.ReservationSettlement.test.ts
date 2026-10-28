@@ -52,7 +52,6 @@
  * the four levers that item enumerated, so item 7 still needs revisiting
  * against this new floor, not closed by it.
  */
-/* eslint-disable @typescript-eslint/no-unused-expressions */
 
 // Adversarial settlement tests for the two-phase reservation state machine:
 // the late-proof settlement matrix, the action source-anchor binding, the
@@ -159,7 +158,6 @@ describe("Bridge - Reservation settlement", () => {
   const grossTbtc = anchorAmount * SATOSHI_MULTIPLIER
 
   before(async () => {
-    // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({
       deployer,
       governance,
@@ -272,7 +270,7 @@ describe("Bridge - Reservation settlement", () => {
   const REGTEST_TARGET = BigInt(0x7fffff) * 2n ** BigInt(8 * (0x20 - 3))
 
   const reverseHex = (hex: string): string =>
-    hex.replace(/^0x/, "").match(/../g)!.reverse().join("")
+    (hex.replace(/^0x/, "").match(/../g) ?? []).reverse().join("")
 
   const hash256 = (hexData: string): string =>
     ethers.sha256(ethers.sha256(hexData))

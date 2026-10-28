@@ -1,12 +1,12 @@
 import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
 
-import type { TestReservation } from "../../typechain"
 import type { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import type {
   Bridge,
   BridgeGovernance,
   ReservationRouter,
+  TestReservation,
 } from "../../typechain"
 import { constants } from "../fixtures"
 import bridgeFixture from "../fixtures/bridge"

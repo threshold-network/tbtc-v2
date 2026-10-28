@@ -4,6 +4,8 @@ import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import { TestReservation, IWalletRegistry } from "../../typechain"
 import { walletState } from "../fixtures"
 import { createMock } from "../helpers/mock"
+import { requireValue } from "../../helpers/require-value"
+import { latestBlockTime } from "../helpers/contract-test-helpers"
 import type { Mock } from "../helpers/mock"
 
 const { lastBlockTime, increaseTime } = helpers.time
@@ -1743,8 +1745,11 @@ describe("Reservation", () => {
 
       const tx =
         await testReservation.notifyReservationActionTimeout(reservationKey)
-      const receipt = (await tx.wait())!
-      const block = (await ethers.provider.getBlock(receipt.blockNumber))!
+      const receipt = requireValue(await tx.wait(), "Transaction receipt")
+      const block = requireValue(
+        await ethers.provider.getBlock(receipt.blockNumber),
+        "Block"
+      )
 
       // 1. Action state transitions to TimedOut
       expect(
@@ -1934,7 +1939,7 @@ describe("Reservation", () => {
     const vault = `0x${"33".repeat(20)}`
 
     it("should request reservation acceptance successfully", async () => {
-      const now = (await ethers.provider.getBlock("latest"))!.timestamp
+      const now = await latestBlockTime()
 
       // Preconditions: governance params (maxReservationsPerWallet and
       // maxActiveReservations set to comfortably large values, matching

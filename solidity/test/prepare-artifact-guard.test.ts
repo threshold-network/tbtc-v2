@@ -31,12 +31,14 @@ const A_GOV = "0xfb5C050a969921b882b9EB151a8862Bf56D5cBE0"
 const A_PROXY_ADMIN = "0x0E9bD483CC8Fb649636e0cd7a60BC48b6C040103"
 const A_DEPLOYER = "0xb9B8a92677fcad86dc8d36fe947184283B03b3C8"
 
-function liveArtifact(overrides: {
-  addresses?: Record<AddressKey, string | null>
-  chainId?: number
-  bridge?: string | null
-  network?: string
-} = {}): ParsedPrepareArtifact {
+function liveArtifact(
+  overrides: {
+    addresses?: Partial<Record<AddressKey, string | null>>
+    chainId?: number
+    bridge?: string | null
+    network?: string
+  } = {}
+): ParsedPrepareArtifact {
   return {
     schemaVersion: PREPARE_ARTIFACT_SCHEMA_VERSION,
     mode: "live",
@@ -83,14 +85,13 @@ function writeSet(
   files: Record<string, string | ParsedPrepareArtifact>,
   mtimesMs?: Record<string, number>
 ): void {
-  for (const [name, content] of Object.entries(files)) {
+  Object.entries(files).forEach(([name, content]) => {
     const p = path.join(dir, name)
-    const body =
-      typeof content === "string" ? content : JSON.stringify(content)
-    fs.writeFileSync(p, body + "\n")
+    const body = typeof content === "string" ? content : JSON.stringify(content)
+    fs.writeFileSync(p, `${body}\n`)
     const m = mtimesMs?.[name]
     if (m) fs.utimesSync(p, new Date(m), new Date(m + 1000))
-  }
+  })
 }
 
 describe("prepare-artifact-guard", () => {
@@ -104,7 +105,7 @@ describe("prepare-artifact-guard", () => {
     it("accepts a null or a checksum-compatible 0x address", () => {
       expect(isAddressOrAbsent(null)).to.be.true
       expect(isAddressOrAbsent(A_BRIDGE)).to.be.true
-      expect(isAddressOrAbsent("0x" + "ab".repeat(20))).to.be.true
+      expect(isAddressOrAbsent(`0x${"ab".repeat(20)}`)).to.be.true
     })
 
     it("rejects truncated, non-hex and missing addresses", () => {
@@ -173,9 +174,7 @@ describe("prepare-artifact-guard", () => {
         )
       )
       expect(parsePrepareArtifact(JSON.stringify(stripped)).ok).to.be.false
-      const wrongChainType = JSON.stringify(
-        liveArtifact({ chainId: 0 })
-      )
+      const wrongChainType = JSON.stringify(liveArtifact({ chainId: 0 }))
       const parsed = parsePrepareArtifact(wrongChainType)
       expect(parsed.ok).to.be.false
       if (!parsed.ok) expect(parsed.reason).to.match(/binding/i)
@@ -226,7 +225,9 @@ describe("prepare-artifact-guard", () => {
     it("resumes a valid complete artifact from an interrupted run", () => {
       // Complete artifact: all deployed addresses set, interrupted mid-steps
       const complete = liveArtifact()
-      writeSet(dir, { "reservations-sepolia-rehearsal-sepolia-100.json": complete })
+      writeSet(dir, {
+        "reservations-sepolia-rehearsal-sepolia-100.json": complete,
+      })
       const selected = selectPrepareArtifact(dir, liveCtx, {
         requireComplete: false,
       })
@@ -238,14 +239,11 @@ describe("prepare-artifact-guard", () => {
     })
 
     it("rejects when a malformed live file is present instead of redeploying", () => {
-      writeSet(
-        dir,
-        {
-          "reservations-sepolia-rehearsal-sepolia-100.json":
-            '{"schemaVersion":2,"binding":{bad',
-          "reservations-sepolia-rehearsal-sepolia-200.json": liveArtifact(),
-        }
-      )
+      writeSet(dir, {
+        "reservations-sepolia-rehearsal-sepolia-100.json":
+          '{"schemaVersion":2,"binding":{bad',
+        "reservations-sepolia-rehearsal-sepolia-200.json": liveArtifact(),
+      })
       const result = selectPrepareArtifact(dir, liveCtx, {
         requireComplete: false,
       })
@@ -260,13 +258,10 @@ describe("prepare-artifact-guard", () => {
       const legacy = JSON.stringify({
         addresses: liveArtifact().addresses,
       })
-      writeSet(
-        dir,
-        {
-          "reservations-sepolia-rehearsal-sepolia-100.json": legacy,
-          "reservations-sepolia-rehearsal-sepolia-200.json": liveArtifact(),
-        }
-      )
+      writeSet(dir, {
+        "reservations-sepolia-rehearsal-sepolia-100.json": legacy,
+        "reservations-sepolia-rehearsal-sepolia-200.json": liveArtifact(),
+      })
       const result = selectPrepareArtifact(dir, liveCtx, {
         requireComplete: false,
       })
@@ -290,10 +285,9 @@ describe("prepare-artifact-guard", () => {
           oldImpl: null,
         },
       })
-      writeSet(
-        dir,
-        { "reservations-sepolia-rehearsal-sepolia-100.json": empty }
-      )
+      writeSet(dir, {
+        "reservations-sepolia-rehearsal-sepolia-100.json": empty,
+      })
       expect(
         selectPrepareArtifact(dir, liveCtx, {
           requireComplete: true,
@@ -312,7 +306,9 @@ describe("prepare-artifact-guard", () => {
         forkBlock: 11883858,
         bridge: "",
       }
-      writeSet(dir, { "reservations-sepolia-rehearsal-11883858.json": forkArtifact() })
+      writeSet(dir, {
+        "reservations-sepolia-rehearsal-11883858.json": forkArtifact(),
+      })
       const forkResult = selectPrepareArtifact(dir, forkCtx, {
         requireComplete: true,
       })
@@ -348,16 +344,16 @@ describe("prepare-artifact-guard", () => {
     })
 
     it("rejects the wrong chain id", () => {
-      expect(
-        bindingMismatch(liveArtifact({ chainId: 1 }), liveCtx)
-      ).to.match(/chainId 1 does not match/)
+      expect(bindingMismatch(liveArtifact({ chainId: 1 }), liveCtx)).to.match(
+        /chainId 1 does not match/
+      )
     })
 
     it("rejects a different Bridge proxy", () => {
       const other = "0x3210acE07d86B508742D511478e517716B675940"
-      expect(bindingMismatch(liveArtifact({ bridge: other }), liveCtx)).to.match(
-        /binding bridge/
-      )
+      expect(
+        bindingMismatch(liveArtifact({ bridge: other }), liveCtx)
+      ).to.match(/binding bridge/)
     })
 
     it("rejects the rehearsal-node artifact on the Sepolia key network", () => {
@@ -495,7 +491,9 @@ describe("prepare-artifact-guard", () => {
         "rehearsal",
         11884979
       )
-      expect(name).to.equal("reservations-sepolia-rehearsal-sepolia-11884979.json")
+      expect(name).to.equal(
+        "reservations-sepolia-rehearsal-sepolia-11884979.json"
+      )
     })
 
     it("builds a fork filename from the pinned block", () => {
