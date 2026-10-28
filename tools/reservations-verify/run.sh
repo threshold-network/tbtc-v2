@@ -3,12 +3,12 @@
 #
 # usage: run.sh --tbtc <tbtc-v2 worktree> [--keepcore <keep-core worktree>]
 #               [--fork-ref <git ref holding the fork scripts>]
-#               [--old-pr <ref> --new-pr <ref> [--audited <ref>]] [--steps a,b,c]
+#               [--old-head <ref> --new-head <ref> [--reference <ref>]] [--steps a,b,c]
 #
 # steps (default: all that the given arguments allow):
-#   reconcile  after the public PR head moved: check that its contract and deploy
+#   reconcile  after the PR head moved: check that its contract and deploy
 #              changes are present in the head under test (see reconcile.sh;
-#              needs --old-pr and --new-pr; --audited adds a contract comparison)
+#              needs --old-head and --new-head; --reference adds a contract comparison)
 #   killset    compile and run the reservation kill set
 #   full       run the full Hardhat suite
 #   survivors  re-apply the mutants listed in survivors.txt against the kill set
@@ -23,15 +23,15 @@
 # the environment is printed; URLs are stripped from every log excerpt.
 set -u
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-tbtc=""; kc=""; fork_ref=""; steps=""; old_pr=""; new_pr=""; audited=""
+tbtc=""; kc=""; fork_ref=""; steps=""; old_head=""; new_head=""; reference=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --tbtc) tbtc="$2"; shift 2 ;;
     --keepcore) kc="$2"; shift 2 ;;
     --fork-ref) fork_ref="$2"; shift 2 ;;
-    --old-pr) old_pr="$2"; shift 2 ;;
-    --new-pr) new_pr="$2"; shift 2 ;;
-    --audited) audited="$2"; shift 2 ;;
+    --old-head) old_head="$2"; shift 2 ;;
+    --new-head) new_head="$2"; shift 2 ;;
+    --reference) reference="$2"; shift 2 ;;
     --steps) steps="$2"; shift 2 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
@@ -39,7 +39,7 @@ done
 [ -d "$tbtc/solidity" ] || { echo "--tbtc must point at a tbtc-v2 worktree" >&2; exit 2; }
 if [ -z "$steps" ]; then
   steps="killset,full,survivors,sdk"
-  [ -n "$old_pr" ] && [ -n "$new_pr" ] && steps="reconcile,$steps"
+  [ -n "$old_head" ] && [ -n "$new_head" ] && steps="reconcile,$steps"
   [ -n "$fork_ref" ] && [ -n "${FORKING_URL:-}" ] && steps="$steps,fork"
   [ -n "$kc" ] && steps="$steps,drift"
 fi
@@ -68,8 +68,8 @@ mocha_verdict() { # log min -> PASS only with no failures and at least <min> pas
 min_killset="${MIN_KILLSET:-200}"; min_full="${MIN_FULL:-3000}"; min_sdk="${MIN_SDK:-500}"
 
 if has reconcile; then
-  [ -n "$old_pr" ] && [ -n "$new_pr" ] || { echo "reconcile step needs --old-pr and --new-pr" >&2; exit 2; }
-  bash "$here/reconcile.sh" "$tbtc" "$old_pr" "$new_pr" "$audited" "$OUT/reconcile" >"$OUT/reconcile.log" 2>&1
+  [ -n "$old_head" ] && [ -n "$new_head" ] || { echo "reconcile step needs --old-head and --new-head" >&2; exit 2; }
+  bash "$here/reconcile.sh" "$tbtc" "$old_head" "$new_head" "$reference" "$OUT/reconcile" >"$OUT/reconcile.log" 2>&1
   rrc=$?
   record "reconcile" "$([ "$rrc" = 0 ] && echo PASS || echo FAIL)" "$(grep -E '^  (formatting|real change|not clean)|^contracts at' "$OUT/reconcile.log" | tr -s ' ' | tr '\n' ';') exit $rrc"
 fi

@@ -1,22 +1,22 @@
 #!/usr/bin/env bash
-# After the public PR head moved: are its changes to solidity/contracts and solidity/deploy
+# After the PR head moved: are its changes to solidity/contracts and solidity/deploy
 # present in the head under test, once formatting is ignored?
 #
-# usage: reconcile.sh <tbtc-v2 worktree> <old-pr-ref> <new-pr-ref> [<audited-ref>] [<out dir>]
+# usage: reconcile.sh <tbtc-v2 worktree> <old-head> <new-head> [<reference-ref>] [<out dir>]
 #
-# Every file in those two directories is exported at four refs (the old and new PR head,
-# the worktree's HEAD, and the audited ref when given) and run through the Prettier of the
+# Every file in those two directories is exported at four refs (the old and the new PR head,
+# the worktree's HEAD, and the reference ref when given) and run through the Prettier of the
 # worktree, using the configuration of the new PR head, so that formatting cannot hide or
-# fake a difference. Then, for each file the PR changed between <old-pr-ref> and <new-pr-ref>:
+# fake a difference. Then, for each file the PR changed between <old-head> and <new-head>:
 #   - identical after normalizing           -> formatting only
-#   - three-way merge (base old PR, ours the head under test, theirs new PR) leaves the
+#   - three-way merge (base old head, ours the head under test, theirs new head) leaves the
 #     head's file unchanged                 -> change already present
 #   - anything else                         -> listed as not clean
 # A not-clean contract file (*.sol) makes the script exit 1; a not-clean deploy script is
-# listed for a human to read. With <audited-ref>, the normalized contracts at that ref and at
+# listed for a human to read. With <reference-ref>, the normalized contracts at that ref and at
 # the head under test are compared, every differing file is listed and the script exits 1.
 set -u
-tbtc="$1"; old="$2"; new="$3"; audited="${4:-}"; out="${5:-/dev/shm/reservations-reconcile-$(date +%Y%m%d-%H%M%S)}"
+tbtc="$1"; old="$2"; new="$3"; reference="${4:-}"; out="${5:-/dev/shm/reservations-reconcile-$(date +%Y%m%d-%H%M%S)}"
 sol="$tbtc/solidity"
 [ -x "$sol/node_modules/.bin/prettier" ] || { echo "prettier not found in $sol/node_modules" >&2; exit 2; }
 git -C "$tbtc" rev-parse --verify -q "$old^{commit}" >/dev/null && git -C "$tbtc" rev-parse --verify -q "$new^{commit}" >/dev/null \
@@ -35,7 +35,7 @@ export_ref() { # label ref
     || { echo "prettier failed on $2; see $out/$1.prettier.log" >&2; exit 2; }
 }
 export_ref old "$old"; export_ref new "$new"; export_ref line "$line_sha"
-[ -n "$audited" ] && export_ref audited "$audited"
+[ -n "$reference" ] && export_ref reference "$reference"
 
 changed=$(git -C "$tbtc" diff --name-only "$old" "$new" -- solidity/contracts solidity/deploy | sed 's#^solidity/##')
 total=0; fmt=0; present=0; notclean=0; notclean_sol=0; : >"$out/not-clean.txt"
@@ -66,10 +66,10 @@ echo "  real change, already present in $(echo "$line_sha" | cut -c1-9): $presen
 echo "  not clean: $notclean (contracts: $notclean_sol)"
 [ -s "$out/not-clean.txt" ] && sed 's/^/    /' "$out/not-clean.txt"
 aud_diff=0
-if [ -n "$audited" ]; then
-  aud_diff=$(diff -rq "$out/audited/solidity/contracts" "$out/line/solidity/contracts" | wc -l | tr -d ' ')
-  echo "contracts at $audited against the head under test, both normalized: $aud_diff differing files"
-  [ "$aud_diff" != 0 ] && diff -rq "$out/audited/solidity/contracts" "$out/line/solidity/contracts" | sed -E "s#$out/##g; s/^/    /"
+if [ -n "$reference" ]; then
+  aud_diff=$(diff -rq "$out/reference/solidity/contracts" "$out/line/solidity/contracts" | wc -l | tr -d ' ')
+  echo "contracts at $reference against the head under test, both normalized: $aud_diff differing files"
+  [ "$aud_diff" != 0 ] && diff -rq "$out/reference/solidity/contracts" "$out/line/solidity/contracts" | sed -E "s#$out/##g; s/^/    /"
 fi
 echo "details: $out"
 [ "$notclean_sol" = 0 ] && [ "$aud_diff" = 0 ] || exit 1
