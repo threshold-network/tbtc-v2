@@ -454,7 +454,8 @@ describe("Bridge - Reservation router read surface", () => {
     it("preserves router identity and anchor lookup after a rejected router replacement", async () => {
       const reportedRouter = await reservationRouter.reservationRouter()
       const { anchorTx, reservationKey } = await makeAcceptedReservation()
-      const replacement = await helpers.contracts.getContract("ReservationVault")
+      const replacement =
+        await helpers.contracts.getContract("ReservationVault")
 
       await expect(
         bridge
