@@ -694,7 +694,12 @@ describe("Bridge - Reservation settlement", () => {
       const { anchorTx, reservationKey } = requested[0]
       await reservationRouter
         .connect(bridgeGovernanceSigner)
-        .requestReservationReanchor(reservationKey, secondWalletPubKeyHash)
+        .requestReservationReanchor(
+          reservationKey,
+          secondWalletPubKeyHash,
+          [],
+          0
+        )
       const hopTx = buildTx(
         [{ txHash: anchorTx.txHash, index: 0 }],
         [
@@ -732,7 +737,12 @@ describe("Bridge - Reservation settlement", () => {
       await liveWallet(secondWalletPubKeyHash)
       await reservationRouter
         .connect(bridgeGovernanceSigner)
-        .requestReservationReanchor(reservationKey, secondWalletPubKeyHash)
+        .requestReservationReanchor(
+          reservationKey,
+          secondWalletPubKeyHash,
+          [],
+          0
+        )
 
       await increaseTime(RESERVATION_ACTION_TIMEOUT + 1)
       await reservationRouter.notifyReservationActionTimeout(reservationKey)

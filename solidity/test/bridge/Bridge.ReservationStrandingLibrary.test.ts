@@ -1856,7 +1856,13 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       })
 
       await expect(
-        executor.requestReservationReanchor(reservationKey, targetWallet, false)
+        executor.requestReservationReanchor(
+          reservationKey,
+          targetWallet,
+          false,
+          [],
+          0
+        )
       ).to.not.be.reverted
     })
   })
