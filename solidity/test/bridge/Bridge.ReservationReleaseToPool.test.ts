@@ -510,6 +510,26 @@ describe("Bridge - Reservation release to pool", () => {
       ).to.be.revertedWith("Deposit was not revealed as reserved")
     })
 
+    it("reverts for a deposit that was never revealed", async () => {
+      // No `Bridge.revealDeposit` ever ran for this key, so the deposit
+      // record is empty. The release must refuse before the depositor
+      // check, since an unrevealed deposit has no depositor to authorize
+      // and nothing to re-route.
+      const unrevealedDepositKey = BigInt(
+        ethers.solidityPackedKeccak256(
+          ["bytes32", "uint32"],
+          [`0x${"5e".repeat(32)}`, 0]
+        )
+      )
+
+      await expect(
+        releaseAs(thirdParty).releaseReservedDepositToPool(
+          unrevealedDepositKey,
+          ethers.ZeroAddress
+        )
+      ).to.be.revertedWith("Deposit not revealed")
+    })
+
     it("reverts after a pending acceptance request", async () => {
       const { depositKey, fundingTx } = await revealReservedDeposit()
 
