@@ -16,47 +16,89 @@
 # listed for a human to read. With <reference-ref>, the normalized contracts at that ref and at
 # the head under test are compared, every differing file is listed and the script exits 1.
 set -u
-tbtc="$1"; old="$2"; new="$3"; reference="${4:-}"; out="${5:-/dev/shm/reservations-reconcile-$(date +%Y%m%d-%H%M%S)}"
+tbtc="$1"
+old="$2"
+new="$3"
+reference="${4:-}"
+out="${5:-/dev/shm/reservations-reconcile-$(date +%Y%m%d-%H%M%S)}"
 sol="$tbtc/solidity"
-[ -x "$sol/node_modules/.bin/prettier" ] || { echo "prettier not found in $sol/node_modules" >&2; exit 2; }
-git -C "$tbtc" rev-parse --verify -q "$old^{commit}" >/dev/null && git -C "$tbtc" rev-parse --verify -q "$new^{commit}" >/dev/null \
-  || { echo "unknown ref" >&2; exit 2; }
-if [ -n "$(ls -A "$out" 2>/dev/null)" ]; then echo "output directory $out is not empty; pass a fresh one" >&2; exit 2; fi
+[ -x "$sol/node_modules/.bin/prettier" ] || {
+  echo "prettier not found in $sol/node_modules" >&2
+  exit 2
+}
+git -C "$tbtc" rev-parse --verify -q "$old^{commit}" > /dev/null && git -C "$tbtc" rev-parse --verify -q "$new^{commit}" > /dev/null \
+  || {
+    echo "unknown ref" >&2
+    exit 2
+  }
+if [ -n "$(ls -A "$out" 2> /dev/null)" ]; then
+  echo "output directory $out is not empty; pass a fresh one" >&2
+  exit 2
+fi
 mkdir -p "$out"
 line_sha=$(git -C "$tbtc" rev-parse HEAD)
 
 export_ref() { # label ref
   mkdir -p "$out/$1"
   git -C "$tbtc" archive "$2" solidity/contracts solidity/deploy | tar -x -C "$out/$1"
-  git -C "$tbtc" show "$new:solidity/.prettierrc.js" >"$out/$1/solidity/.prettierrc.js"
-  git -C "$tbtc" show "$new:solidity/.prettierignore" >"$out/$1/solidity/.prettierignore" 2>/dev/null || true
+  git -C "$tbtc" show "$new:solidity/.prettierrc.js" > "$out/$1/solidity/.prettierrc.js"
+  git -C "$tbtc" show "$new:solidity/.prettierignore" > "$out/$1/solidity/.prettierignore" 2> /dev/null || true
   ln -s "$sol/node_modules" "$out/$1/solidity/node_modules"
-  (cd "$out/$1/solidity" && ./node_modules/.bin/prettier --write "contracts/**/*.sol" "deploy/**/*.ts" >"$out/$1.prettier.log" 2>&1) \
-    || { echo "prettier failed on $2; see $out/$1.prettier.log" >&2; exit 2; }
+  (cd "$out/$1/solidity" && ./node_modules/.bin/prettier --write "contracts/**/*.sol" "deploy/**/*.ts" > "$out/$1.prettier.log" 2>&1) \
+    || {
+      echo "prettier failed on $2; see $out/$1.prettier.log" >&2
+      exit 2
+    }
 }
-export_ref old "$old"; export_ref new "$new"; export_ref line "$line_sha"
+export_ref old "$old"
+export_ref new "$new"
+export_ref line "$line_sha"
 [ -n "$reference" ] && export_ref reference "$reference"
 
 changed=$(git -C "$tbtc" diff --name-only "$old" "$new" -- solidity/contracts solidity/deploy | sed 's#^solidity/##')
-total=0; fmt=0; present=0; notclean=0; notclean_sol=0; : >"$out/not-clean.txt"
+total=0
+fmt=0
+present=0
+notclean=0
+notclean_sol=0
+: > "$out/not-clean.txt"
 for g in $changed; do
-  total=$((total+1))
-  o="$out/old/solidity/$g"; n="$out/new/solidity/$g"; l="$out/line/solidity/$g"
+  total=$((total + 1))
+  o="$out/old/solidity/$g"
+  n="$out/new/solidity/$g"
+  l="$out/line/solidity/$g"
   if [ ! -f "$n" ]; then # deleted on the PR side
-    if [ -f "$l" ]; then echo "$g: deleted by the PR, still in the head under test" >>"$out/not-clean.txt"; notclean=$((notclean+1)); case "$g" in *.sol) notclean_sol=$((notclean_sol+1)) ;; esac
-    else present=$((present+1)); fi
+    if [ -f "$l" ]; then
+      echo "$g: deleted by the PR, still in the head under test" >> "$out/not-clean.txt"
+      notclean=$((notclean + 1))
+      case "$g" in *.sol) notclean_sol=$((notclean_sol + 1)) ;; esac
+    else present=$((present + 1)); fi
     continue
   fi
-  if [ -f "$o" ] && cmp -s "$o" "$n"; then fmt=$((fmt+1)); continue; fi
-  if [ ! -f "$l" ]; then echo "$g: added by the PR, missing in the head under test" >>"$out/not-clean.txt"; notclean=$((notclean+1)); case "$g" in *.sol) notclean_sol=$((notclean_sol+1)) ;; esac; continue; fi
+  if [ -f "$o" ] && cmp -s "$o" "$n"; then
+    fmt=$((fmt + 1))
+    continue
+  fi
+  if [ ! -f "$l" ]; then
+    echo "$g: added by the PR, missing in the head under test" >> "$out/not-clean.txt"
+    notclean=$((notclean + 1))
+    case "$g" in *.sol) notclean_sol=$((notclean_sol + 1)) ;; esac
+    continue
+  fi
   if [ ! -f "$o" ]; then # new file on the PR side: present only when identical
-    if cmp -s "$l" "$n"; then present=$((present+1)); else echo "$g: added by the PR, differs in the head under test" >>"$out/not-clean.txt"; notclean=$((notclean+1)); case "$g" in *.sol) notclean_sol=$((notclean_sol+1)) ;; esac; fi
+    if cmp -s "$l" "$n"; then present=$((present + 1)); else
+      echo "$g: added by the PR, differs in the head under test" >> "$out/not-clean.txt"
+      notclean=$((notclean + 1))
+      case "$g" in *.sol) notclean_sol=$((notclean_sol + 1)) ;; esac
+    fi
     continue
   fi
-  if git merge-file -p "$l" "$o" "$n" >"$out/merged.tmp" 2>/dev/null && cmp -s "$out/merged.tmp" "$l"; then
-    present=$((present+1))
+  if git merge-file -p "$l" "$o" "$n" > "$out/merged.tmp" 2> /dev/null && cmp -s "$out/merged.tmp" "$l"; then
+    present=$((present + 1))
   else
-    echo "$g: PR change is not in the head under test (or conflicts with it)" >>"$out/not-clean.txt"; notclean=$((notclean+1)); case "$g" in *.sol) notclean_sol=$((notclean_sol+1)) ;; esac
+    echo "$g: PR change is not in the head under test (or conflicts with it)" >> "$out/not-clean.txt"
+    notclean=$((notclean + 1))
+    case "$g" in *.sol) notclean_sol=$((notclean_sol + 1)) ;; esac
   fi
 done
 

@@ -3,7 +3,7 @@
 Runs the targeted checks on one tbtc-v2 head and prints one pass/fail table.
 Use it each time the public PR head moves or the integrated line changes.
 
-```sh
+```text
 tools/reservations-verify/run.sh \
   --tbtc /path/to/tbtc-v2-worktree \
   [--keepcore /path/to/keep-core-worktree] \
@@ -12,15 +12,15 @@ tools/reservations-verify/run.sh \
   [--steps reconcile,killset,full,survivors,sdk,fork,drift]
 ```
 
-| Step | What it runs | Typical cost |
-|---|---|---|
-| `reconcile` | normalizes `solidity/contracts` and `solidity/deploy` with the repository Prettier at the old and new PR head and at the head under test, then checks that every real change of the PR is already in the head under test (`reconcile.sh`); with `--reference` it also compares the contracts at that ref with the head under test. Exits 1 for a missing contract change or a contract difference | about 2 min |
-| `killset` | compile, then the 262 reservation tests in `killset.txt` plus the survivor tests | about 2 min |
-| `full` | the full Hardhat suite | about 6 min |
-| `survivors` | re-applies the nine mutants in `survivors.txt` (one source string each, see `mutate.cjs`), runs the three test files that must kill them, restores the source and checks its hash | about 10 min |
-| `sdk` | generates typechain bindings, runs the SDK suite | about 1 min |
-| `fork` | mainnet-fork lifecycle, SDK and hand-off scripts (needs `FORKING_URL` in the environment and `--fork-ref`) | about 2 min |
-| `drift` | keep-core `verify-vendored-fallback` against artifacts compiled from this head (needs `--keepcore`) | seconds |
+| Step        | What it runs                                                                                                                                                                                                                                                                                                                                                                                      | Typical cost |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------ |
+| `reconcile` | normalizes `solidity/contracts` and `solidity/deploy` with the repository Prettier at the old and new PR head and at the head under test, then checks that every real change of the PR is already in the head under test (`reconcile.sh`); with `--reference` it also compares the contracts at that ref with the head under test. Exits 1 for a missing contract change or a contract difference | about 2 min  |
+| `killset`   | compile, then the 262 reservation tests in `killset.txt` plus the survivor tests                                                                                                                                                                                                                                                                                                                  | about 2 min  |
+| `full`      | the full Hardhat suite                                                                                                                                                                                                                                                                                                                                                                            | about 6 min  |
+| `survivors` | re-applies the nine mutants in `survivors.txt` (one source string each, see `mutate.cjs`), runs the three test files that must kill them, restores the source and checks its hash                                                                                                                                                                                                                 | about 10 min |
+| `sdk`       | generates typechain bindings, runs the SDK suite                                                                                                                                                                                                                                                                                                                                                  | about 1 min  |
+| `fork`      | mainnet-fork lifecycle, SDK and hand-off scripts (needs `FORKING_URL` in the environment and `--fork-ref`)                                                                                                                                                                                                                                                                                        | about 2 min  |
+| `drift`     | keep-core `verify-vendored-fallback` against artifacts compiled from this head (needs `--keepcore`)                                                                                                                                                                                                                                                                                               | seconds      |
 
 Without `--steps` it runs every step the arguments allow.
 
