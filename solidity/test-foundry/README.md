@@ -61,18 +61,18 @@ accounting. `ReservationHandler` performs random sequences of these actions:
 
 After every call, the suite checks these properties:
 
-| Property          | Rule                                                                                         |
-| ----------------- | -------------------------------------------------------------------------------------------- |
-| Active count      | `activeReservationsCount` equals open positions plus pending acceptances.                    |
-| Total amount      | `reservationTotalAmount` equals open anchor amounts plus pending acceptance amounts.         |
-| Wallet counters   | Each wallet's count and amount equal its open positions plus pending actions that target it. |
-| Third-party holds | Each wallet's hold count equals the pending third-party re-anchors that target it.           |
-| Pending deposits  | `pendingReservedDeposits` equals the deposits that still carry a pending marker.             |
-| Anchor index      | Every open position is found from its current anchor outpoint.                               |
-| Final actions     | A Settled or Superseded generation never changes again.                                      |
-| Caps              | A successful request never leaves a counter above its cap.                                   |
+| Property          | Rule                                                                                                             |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Active count      | `activeReservationsCount` equals open positions plus pending acceptances.                                        |
+| Total amount      | `reservationTotalAmount` equals open anchor amounts plus pending acceptance amounts.                             |
+| Wallet counters   | Each wallet's count and amount equal its open positions plus pending actions that target it.                     |
+| Third-party holds | Each wallet's hold count equals the pending third-party re-anchors that target it.                               |
+| Pending deposits  | `pendingReservedDeposits` equals the deposits that still carry a pending marker.                                 |
+| Anchor index      | Every open position is found from its current anchor outpoint.                                                   |
+| Final actions     | A Settled or Superseded generation never changes again.                                                          |
+| Caps              | A successful request never leaves a counter above its cap.                                                       |
 | Reserve gate      | A successful acceptance request leaves at most `(Live wallets - reserve) * per-wallet count cap` open positions. |
-| Credits           | Bank credits equal settled anchor values, and financed fees equal re-anchor miner fees.      |
+| Credits           | Bank credits equal settled anchor values, and financed fees equal re-anchor miner fees.                          |
 
 The handler drives the real `Reservation` and `ReservationProofs` code
 through `ReservationInvariantHarness`. The harness makes two simplifications:

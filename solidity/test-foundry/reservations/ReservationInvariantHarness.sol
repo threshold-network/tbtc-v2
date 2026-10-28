@@ -84,7 +84,9 @@ contract ReservationInvariantHarness is ReservationHarnessState {
         wallet.state = newState;
     }
 
-    function isWalletLive(bytes20 walletPubKeyHash) external view returns (bool) {
+    function isWalletLive(
+        bytes20 walletPubKeyHash
+    ) external view returns (bool) {
         return
             state.registeredWallets[walletPubKeyHash].state ==
             Wallets.WalletState.Live;

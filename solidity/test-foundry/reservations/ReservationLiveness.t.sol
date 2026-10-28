@@ -146,13 +146,12 @@ contract ReservationLivenessTest is Test {
         handler.advanceWallet(0, false);
         uint256 key = handler.keyAt(0);
         bytes20 target = handler.walletAt(1);
-        bytes memory call =
-            abi.encodeWithSelector(
-                ReservationInvariantHarness.requestReservationReanchor.selector,
-                key,
-                target,
-                false
-            );
+        bytes memory call = abi.encodeWithSelector(
+            ReservationInvariantHarness.requestReservationReanchor.selector,
+            key,
+            target,
+            false
+        );
         vm.mockCallRevert(
             address(harness),
             0,
@@ -197,7 +196,11 @@ contract ReservationLivenessTest is Test {
         assertEq(handler.handOffsChecked(), 0);
         handler.tryHandOff(0, 1);
         assertEq(handler.successes("tryHandOff"), 0, "inside the cooldown");
-        assertEq(handler.handOffAttempts(), 0, "cooldown skip is not an attempt");
+        assertEq(
+            handler.handOffAttempts(),
+            0,
+            "cooldown skip is not an attempt"
+        );
         assertEq(handler.handOffsChecked(), 0);
         assertFalse(handler.handOffRefused());
         assertTrue(handler.property_everyRetiringPositionHasAnExit());

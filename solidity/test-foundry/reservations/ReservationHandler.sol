@@ -164,8 +164,11 @@ contract ReservationHandler is ReservationProperties {
         // when the target's own slots are full (Reservation.sol, hand-off
         // capacity). Every other request keeps them. Computed before the
         // prank, which applies to the next call only.
-        bool exemptHandoff = mode != 1 &&
-            !harness.isWalletLive(harness.reservation(key).walletPubKeyHash);
+        bool exemptHandoff =
+            mode != 1 &&
+                !harness.isWalletLive(
+                    harness.reservation(key).walletPubKeyHash
+                );
 
         if (mode == 1) {
             vm.prank(THIRD_PARTY);
@@ -322,8 +325,7 @@ contract ReservationHandler is ReservationProperties {
     }
 
     function checkReserveGateAfterAcceptance() internal {
-        (uint32 live, uint32 reserve, uint32 perWallet) = harness
-            .reserveGate();
+        (uint32 live, uint32 reserve, uint32 perWallet) = harness.reserveGate();
         (uint32 active, , ) = harness.totals();
         uint256 remaining = live > reserve ? live - reserve : 0;
         if (uint256(active) > remaining * perWallet) {
