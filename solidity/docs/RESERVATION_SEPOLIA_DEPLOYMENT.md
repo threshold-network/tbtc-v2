@@ -20,22 +20,22 @@ once its Sepolia build is live.
 
 Every value below was read with `cast` against `SEPOLIA_RPC_URL`:
 
-| Fact | Value |
-|---|---|
-| Chain ID | `11155111` |
-| Bridge (proxy) | `0x2220acE07d86B508742D511478e517716B675940` |
-| Bridge implementation | `0xc9CEec54a8b25D7051B702322675ee3014bA4685` |
-| Bridge ProxyAdmin | `0x0E9bD483CC8Fb649636e0cd7a60BC48b6C040103` |
-| ProxyAdmin owner | `0xb9B8a92677fcad86dc8d36fe947184283B03b3C8` (the Sepolia deployer EOA — **not** the Timelock) |
-| BridgeGovernance | `0x61700ebaCCfd9FB0100C35DDd38e4cC3e9057c5A` |
-| BridgeGovernance owner | `0xb9B8a92677fcad86dc8d36fe947184283B03b3C8` |
-| `governanceDelays[0]` on the live BridgeGovernance | `60` seconds (`governanceDelays[1]` = 0) |
-| Timelock | `0x92bBB99ae3BBBcE9fC75cAC14ac28e89e3EeF50c`, OZ `TimelockController`, `getMinDelay()` = 86400 |
-| Timelock PROPOSER/EXECUTOR role holder | `0xb9B8a92677fcad86dc8d36fe947184283B03b3C8` (the deployer EOA; the mainnet-style Council Safe has no role on Sepolia) |
-| Bank | `0xa75F2b01dF21469f32e6f5651049C67984038D4e` (code on-chain) |
-| TBTCVault | `0xf0C653c5818EBA421F935Bc0b2282dE806A7988e` (code on-chain) |
-| LightRelay | `0x978bC82B68f7E0cAf3e655a6389fd72cA05DE338` (code on-chain) |
-| TBTC token | `0xA7f6952d1cD478F4D8331F247A91BEf9c6482271` |
+| Fact                                               | Value                                                                                                                  |
+| -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Chain ID                                           | `11155111`                                                                                                             |
+| Bridge (proxy)                                     | `0x2220acE07d86B508742D511478e517716B675940`                                                                           |
+| Bridge implementation                              | `0xc9CEec54a8b25D7051B702322675ee3014bA4685`                                                                           |
+| Bridge ProxyAdmin                                  | `0x0E9bD483CC8Fb649636e0cd7a60BC48b6C040103`                                                                           |
+| ProxyAdmin owner                                   | `0xb9B8a92677fcad86dc8d36fe947184283B03b3C8` (the Sepolia deployer EOA — **not** the Timelock)                         |
+| BridgeGovernance                                   | `0x61700ebaCCfd9FB0100C35DDd38e4cC3e9057c5A`                                                                           |
+| BridgeGovernance owner                             | `0xb9B8a92677fcad86dc8d36fe947184283B03b3C8`                                                                           |
+| `governanceDelays[0]` on the live BridgeGovernance | `60` seconds (`governanceDelays[1]` = 0)                                                                               |
+| Timelock                                           | `0x92bBB99ae3BBBcE9fC75cAC14ac28e89e3EeF50c`, OZ `TimelockController`, `getMinDelay()` = 86400                         |
+| Timelock PROPOSER/EXECUTOR role holder             | `0xb9B8a92677fcad86dc8d36fe947184283B03b3C8` (the deployer EOA; the mainnet-style Council Safe has no role on Sepolia) |
+| Bank                                               | `0xa75F2b01dF21469f32e6f5651049C67984038D4e` (code on-chain)                                                           |
+| TBTCVault                                          | `0xf0C653c5818EBA421F935Bc0b2282dE806A7988e` (code on-chain)                                                           |
+| LightRelay                                         | `0x978bC82B68f7E0cAf3e655a6389fd72cA05DE338` (code on-chain)                                                           |
+| TBTC token                                         | `0xA7f6952d1cD478F4D8331F247A91BEf9c6482271`                                                                           |
 
 Bridge proxy slots (OpenZeppelin v4 EIP-1967 constants, as exported by
 `deploy/85_deploy_tip109_governance_upgrade.ts`):
@@ -102,7 +102,7 @@ All commands below run from the `solidity/` directory of this branch. The
 ```sh
 cd solidity
 export CHAIN_API_URL="$SEPOLIA_RPC_URL"
-export ACCOUNTS_PRIVATE_KEYS="$SEPOLIA_PRIVATE_KEY"   # first key = all sepolia named accounts
+export ACCOUNTS_PRIVATE_KEYS="$SEPOLIA_PRIVATE_KEY" # first key = all sepolia named accounts
 export GAS_PRICE_GWEI=2
 yarn install --immutable
 ```
@@ -116,22 +116,22 @@ read-only.
    mainnet fork (`reservations-fork-dryrun` branch):
 
    ```sh
-   cd ../tbtc-v2-fork/solidity   # worktree on branch reservations-fork-dryrun
+   cd ../tbtc-v2-fork/solidity # worktree on branch reservations-fork-dryrun
    FORKING_URL="$FORKING_URL" FORKING_BLOCK=26154824 \
-   RESERVATION_PER_WALLET_CAP_SATS=2000000 \
-   RESERVATION_SINGLE_AMOUNT_CAP_SATS=2000000 \
-   RESERVATION_MAX_ACTIVE=5 \
-   RESERVATION_MAX_THIRD_PARTY_REANCHOR_HOLDS=1 \
-   RESERVATION_HANDOFF_RESERVE_WALLETS=1 \
-   RESERVATION_MIN_AMOUNT_SATS=10000 \
-   RESERVATION_TX_MAX_FEE_SATS=1000 \
-   RESERVATION_TERM_SECONDS=12960000 \
-   RESERVATION_DISSOLUTION_DELAY_SECONDS=86400 \
-   RESERVATION_MAX_TOTAL_AMOUNT_SATS=10000000 \
-   RESERVATION_MAX_PER_WALLET=1 \
-   RESERVATION_ACTION_TIMEOUT_SECONDS=86400 \
-   RESERVATION_RENEWAL_WINDOW_SECONDS=86400 \
-   npx hardhat run --network hardhat scripts/reservations-fork-dryrun.ts
+     RESERVATION_PER_WALLET_CAP_SATS=2000000 \
+     RESERVATION_SINGLE_AMOUNT_CAP_SATS=2000000 \
+     RESERVATION_MAX_ACTIVE=5 \
+     RESERVATION_MAX_THIRD_PARTY_REANCHOR_HOLDS=1 \
+     RESERVATION_HANDOFF_RESERVE_WALLETS=1 \
+     RESERVATION_MIN_AMOUNT_SATS=10000 \
+     RESERVATION_TX_MAX_FEE_SATS=1000 \
+     RESERVATION_TERM_SECONDS=12960000 \
+     RESERVATION_DISSOLUTION_DELAY_SECONDS=86400 \
+     RESERVATION_MAX_TOTAL_AMOUNT_SATS=10000000 \
+     RESERVATION_MAX_PER_WALLET=1 \
+     RESERVATION_ACTION_TIMEOUT_SECONDS=86400 \
+     RESERVATION_RENEWAL_WINDOW_SECONDS=86400 \
+     npx hardhat run --network hardhat scripts/reservations-fork-dryrun.ts
    ```
 
    Expected: all 22 steps PASS, exit code 0. These are the fork's mainnet
@@ -144,7 +144,7 @@ read-only.
      (otherwise the refund-deadline window is empty);
    - `RESERVATION_HANDOFF_RESERVE_WALLETS > 0`. Each new acceptance must
      fit within `(liveWalletsCount - handoffReserveWallets) *
-     maxReservationsPerWallet`, as well as `maxActiveReservations`.
+maxReservationsPerWallet`, as well as `maxActiveReservations`.
      The reserve is admission headroom, not a permanently empty wallet.
      Privileged hand-offs from `MovingFunds` or `Closing` can exceed
      the target's count and amount caps; third-party requests cannot;
@@ -195,6 +195,7 @@ read-only.
    cast call $BRIDGE 'liveWalletsCount()(uint32)' --rpc-url $SEPOLIA_RPC_URL
    cast call $BRIDGE 'governance()(address)' --rpc-url $SEPOLIA_RPC_URL
    ```
+
 5. **Block height.** Note the current block (`cast block-number`); it is
    the reference for choosing the activation block B in step 8.
 6. **No in-flight governance.** Check that the live BridgeGovernance has no
@@ -211,8 +212,8 @@ read-only.
 
    ```sh
    cd solidity
-   FORKING_URL="$SEPOLIA_RPC_URL" FORKING_BLOCK=<latest Sepolia block - 20> \
-     npx hardhat run --network hardhat scripts/reservations-sepolia-rehearsal.ts
+   FORKING_URL="$SEPOLIA_RPC_URL" FORKING_BLOCK= < latest Sepolia block - \
+     hardhat run --network hardhat scripts/reservations-sepolia-rehearsal.ts 20> npx
    ```
 
    Expected: every on-chain step PASSes (the off-chain npm publish and
@@ -239,7 +240,7 @@ From `solidity/`, as the holder of the deployer key
 
 ```sh
 export CHAIN_API_URL="$SEPOLIA_RPC_URL"
-export ACCOUNTS_PRIVATE_KEYS="$SEPOLIA_PRIVATE_KEY"   # first key = the deployer EOA
+export ACCOUNTS_PRIVATE_KEYS="$SEPOLIA_PRIVATE_KEY" # first key = the deployer EOA
 export GAS_PRICE_GWEI=2
 
 # steps 1-6 and 10; stops and prints the addresses keep-core needs
@@ -249,7 +250,7 @@ PHASE=prepare npx hardhat run --network sepolia scripts/reservations-sepolia-reh
 # addresses and a FUTURE block B, build and release, confirm every operator
 
 # steps 11-12; only once the chain is at or past B
-PHASE=activate ACTIVATION_BLOCK=<B> npx hardhat run --network sepolia scripts/reservations-sepolia-rehearsal.ts
+PHASE=activate ACTIVATION_BLOCK= < B > npx hardhat run --network sepolia scripts/reservations-sepolia-rehearsal.ts
 ```
 
 What the script does on a live network:
@@ -257,7 +258,7 @@ What the script does on a live network:
 - **Chain preflight (rejects before any signer or transaction).** On
   `--network sepolia` the script requires provider chain id `11155111`
   and aborts with an actionable message otherwise. On `--network
-  rehearsal` (local fork node) the script requires provider chain id
+rehearsal` (local fork node) the script requires provider chain id
   `31337`. Any other live network name is rejected. Fork mode
   (`--network hardhat`) requires chain id `31337`.
 - The signer is the first configured account. If it is not the deployer EOA,
@@ -278,7 +279,7 @@ What the script does on a live network:
   artifact now carries a `binding` block that pins it to the provider
   chain id and the exact Bridge proxy address it was produced against
   (fork artifacts carry `chainId: null, bridge: null, forkBlock:
-  <pinned>`). On load the script (a) parses the schema, (b) rejects
+<pinned>`). On load the script (a) parses the schema, (b) rejects
   malformed or mismatched live artifacts with an actionable error
   naming the file (no silent redeploy), and (c) verifies the binding
   against the current provider and deployed Bridge before any send.
@@ -292,8 +293,8 @@ What the script does on a live network:
   unchanged under `dryrun-artifacts/history/`, where the loader does not
   look.
 - Artifacts: `dryrun-artifacts/reservations-sepolia-rehearsal-sepolia-<start
-  block>.json` (prepare) and `reservations-sepolia-activation-sepolia-<start
-  block>.json` (activate), rewritten after every step. Commit the deployment
+block>.json` (prepare) and `reservations-sepolia-activation-sepolia-<start
+block>.json` (activate), rewritten after every step. Commit the deployment
   records for step 4 from the addresses it prints.
 
 Rehearsing the live path without the key (rehearsal-only): start a local fork
@@ -301,7 +302,7 @@ node, unlock the deployer on it with one-off RPC calls, and mine blocks from
 outside so the real-time waits and block B pass:
 
 ```sh
-npx hardhat node --no-deploy --fork "$SEPOLIA_RPC_URL" --fork-block-number <latest - 20> --port 8547 &
+npx hardhat node --no-deploy --fork "$SEPOLIA_RPC_URL" --fork-block-number - 8547 < latest 20> --port &
 curl -s -X POST -H 'Content-Type: application/json' http://127.0.0.1:8547 \
   -d '{"jsonrpc":"2.0","id":1,"method":"hardhat_impersonateAccount","params":["0xb9B8a92677fcad86dc8d36fe947184283B03b3C8"]}'
 curl -s -X POST -H 'Content-Type: application/json' http://127.0.0.1:8547 \
@@ -321,7 +322,7 @@ PID when done.
 
 ```sh
 yarn build
-yarn test:foundry        # optional; the hardhat suite is the CI gate
+yarn test:foundry # optional; the hardhat suite is the CI gate
 ```
 
 The new Bridge implementation links six external libraries, exactly the set
@@ -407,8 +408,18 @@ async function main() {
 
   // 1. Fresh linked libraries for the NEW implementation (same set as 06).
   const libs: Record<string, string> = {}
-  for (const name of ["Deposit", "DepositSweep", "Redemption", "Wallets", "Fraud", "MovingFunds"]) {
-    const deployed = await deployments.deploy(name, { ...opts, skipIfAlreadyDeployed: false })
+  for (const name of [
+    "Deposit",
+    "DepositSweep",
+    "Redemption",
+    "Wallets",
+    "Fraud",
+    "MovingFunds",
+  ]) {
+    const deployed = await deployments.deploy(name, {
+      ...opts,
+      skipIfAlreadyDeployed: false,
+    })
     libs[name] = deployed.address
   }
 
@@ -421,17 +432,29 @@ async function main() {
 
   // 3. Reservation subsystem artifacts (06a pattern, minus setReservationRouter —
   //    the router is wired by governance in step 5, not by the deploy pipeline).
-  const ReservationProofs = await deployments.deploy("ReservationProofs", { ...opts, skipIfAlreadyDeployed: false })
-  const Reservation = await deployments.deploy("Reservation", { ...opts, skipIfAlreadyDeployed: false })
+  const ReservationProofs = await deployments.deploy("ReservationProofs", {
+    ...opts,
+    skipIfAlreadyDeployed: false,
+  })
+  const Reservation = await deployments.deploy("Reservation", {
+    ...opts,
+    skipIfAlreadyDeployed: false,
+  })
   const router = await deployments.deploy("ReservationRouter", {
     ...opts,
-    libraries: { Reservation: Reservation.address, ReservationProofs: ReservationProofs.address },
+    libraries: {
+      Reservation: Reservation.address,
+      ReservationProofs: ReservationProofs.address,
+    },
     skipIfAlreadyDeployed: false,
   })
 
   // 4. New BridgeGovernance (09_deploy_bridge_governance.ts pattern): a fresh
   //    plain contract, 60s delay on Sepolia, owner = deployer until step 5a'.
-  const bgParams = await deployments.deploy("BridgeGovernanceParameters", { ...opts, skipIfAlreadyDeployed: false })
+  const bgParams = await deployments.deploy("BridgeGovernanceParameters", {
+    ...opts,
+    skipIfAlreadyDeployed: false,
+  })
   const oldBridge = await deployments.get("Bridge") // the proxy (existing record)
   const bridgeGov = await deployments.deploy("BridgeGovernance", {
     ...opts,
@@ -469,7 +492,7 @@ Notes:
 On-chain checks:
 
 ```sh
-cast code $NEW_IMPL --rpc-url $SEPOLIA_RPC_URL | head -c 20    # non-empty
+cast code $NEW_IMPL --rpc-url $SEPOLIA_RPC_URL | head -c 20 # non-empty
 cast code $ROUTER --rpc-url $SEPOLIA_RPC_URL | head -c 20
 cast code $NEW_GOV --rpc-url $SEPOLIA_RPC_URL | head -c 20
 # New implementation is inert: it only executes through the proxy
@@ -575,9 +598,9 @@ cast send $OLD_GOV 'finalizeBridgeGovernanceTransfer()' \
 On-chain checks:
 
 ```sh
-cast call $BRIDGE 'governance()(address)' --rpc-url $SEPOLIA_RPC_URL   # -> $NEW_GOV
-cast call $NEW_GOV 'bridge()(address)' --rpc-url $SEPOLIA_RPC_URL       # -> $BRIDGE
-cast call $NEW_GOV 'governanceDelays(uint256)(uint256)' 0 --rpc-url $SEPOLIA_RPC_URL  # -> 60
+cast call $BRIDGE 'governance()(address)' --rpc-url $SEPOLIA_RPC_URL                 # -> $NEW_GOV
+cast call $NEW_GOV 'bridge()(address)' --rpc-url $SEPOLIA_RPC_URL                    # -> $BRIDGE
+cast call $NEW_GOV 'governanceDelays(uint256)(uint256)' 0 --rpc-url $SEPOLIA_RPC_URL # -> 60
 ```
 
 Then wire the router (5b) — MUST be the first reservation action (it
@@ -592,7 +615,7 @@ cast send $NEW_GOV 'setReservationRouter(address)' $ROUTER \
 On-chain check:
 
 ```sh
-cast call $BRIDGE 'getReservationRouter()(address)' --rpc-url $SEPOLIA_RPC_URL  # -> $ROUTER
+cast call $BRIDGE 'getReservationRouter()(address)' --rpc-url $SEPOLIA_RPC_URL # -> $ROUTER
 ```
 
 **Rollback / abort:**
@@ -601,12 +624,12 @@ cast call $BRIDGE 'getReservationRouter()(address)' --rpc-url $SEPOLIA_RPC_URL  
   simply times out and is cleared by the next `begin*` or finalize attempt.
 - 5a'' (finalize): `bridge.governance` now points at the new governance.
   Reversible **while no reservation state exists** by running the same
-  begin/finalize pair on the *new* governance with `oldGov` as the target
+  begin/finalize pair on the _new_ governance with `oldGov` as the target
   (`$NEW_GOV.beginBridgeGovernanceTransfer($OLD_GOV)` → wait →
   `finalize`), or, if the old governance contract is still owner-able, by
   directly calling `bridge.transferGovernance` from whatever holds
   governance. After the router is wired (5b), do not attempt to point
-  the Bridge at the *old* governance: the old ABI lacks
+  the Bridge at the _old_ governance: the old ABI lacks
   `setReservationRouter` and the fallback would be left pointing at a
   router no governance can manage. The router wiring itself (5b) is
   **irreversible** — no "clear router" setter exists.
@@ -684,7 +707,7 @@ cast call $BRIDGE 'reservationParameters()(address,uint64,uint64,uint32,uint32,u
 - 6.3/6.4 (finalized): caps and parameters are re-settable by another
   begin/finalize pair (another 60 s each). The `reservationVault` address,
   however, is gated by `reservationTotalAmount == 0 && pendingReservedDeposits
-  == 0` — before any reservation exists, re-pointing the vault is still a
+== 0` — before any reservation exists, re-pointing the vault is still a
   governance call and reversible; after the first acceptance it is not
   (irreversibility warning in `RESERVATION_CAPS_DEPLOYMENT.md`).
 
@@ -755,11 +778,11 @@ In the keep-core working tree (`pr-4282-drill` layout):
 1. Regenerate bindings against the freshly published package:
 
    ```sh
-   make get_artifacts environment=sepolia   # fetch @keep-network/tbtc-v2@sepolia (new)
-   cd pkg/chain/ethereum/tbtc/gen && make   # abigen + keep-common generator,
-                                            # writes abi/, contract/, cmd/, _address/
+   make get_artifacts environment=sepolia # fetch @keep-network/tbtc-v2@sepolia (new)
+   cd pkg/chain/ethereum/tbtc/gen && make # abigen + keep-common generator,
+   # writes abi/, contract/, cmd/, _address/
    cd ../../../..
-   make generate environment=sepolia        # go generate ./...
+   make generate environment=sepolia # go generate ./...
    ```
 
    The addresses land in `pkg/chain/ethereum/tbtc/gen/_address/*` (embedded
@@ -793,7 +816,7 @@ In the keep-core working tree (`pr-4282-drill` layout):
    activation block B is reached:
 
    ```sh
-   make sepolia        # == make all environment=sepolia: get_artifacts, generate, build, release
+   make sepolia # == make all environment=sepolia: get_artifacts, generate, build, release
    ```
 
 **Rollback / abort:** the `reservationsActivationBlocks` entry has no
@@ -826,7 +849,7 @@ zero reserve and record that decision):
 # the vault's owner is the deployer/governance EOA (step 2)
 cast send $VAULT 'updateFeeReserveTarget(uint256)' 0 \
   --rpc-url $SEPOLIA_RPC_URL --private-key $SEPOLIA_PRIVATE_KEY
-cast call $VAULT 'feeReserveTarget()(uint256)' --rpc-url $SEPOLIA_RPC_URL  # -> 0
+cast call $VAULT 'feeReserveTarget()(uint256)' --rpc-url $SEPOLIA_RPC_URL # -> 0
 ```
 
 For the Sepolia rehearsal the chosen value is **0** and that decision is
@@ -848,7 +871,7 @@ cast send $NEW_GOV 'setVaultStatus(address,bool)' $VAULT true \
 On-chain check (fork dry-run step 5 model):
 
 ```sh
-cast call $BRIDGE 'isVaultTrusted(address)(bool)' $VAULT --rpc-url $SEPOLIA_RPC_URL   # -> true
+cast call $BRIDGE 'isVaultTrusted(address)(bool)' $VAULT --rpc-url $SEPOLIA_RPC_URL # -> true
 ```
 
 (If no entry is written for Sepolia in keep-core, `ReservationsActivationBlock`
@@ -883,9 +906,9 @@ cast call $BRIDGE 'reservationHandoffReserveWallets()(uint32)' --rpc-url $SEPOLI
 cast call $BRIDGE 'reservationParameters()(address,uint64,uint64,uint32,uint32,uint64,uint32,uint32,uint32,uint32)' \
   --rpc-url $SEPOLIA_RPC_URL
 # 12.3 vault trusted
-cast call $BRIDGE 'isVaultTrusted(address)(bool)' $VAULT --rpc-url $SEPOLIA_RPC_URL   # -> true
+cast call $BRIDGE 'isVaultTrusted(address)(bool)' $VAULT --rpc-url $SEPOLIA_RPC_URL # -> true
 # 12.4 router wired
-cast call $BRIDGE 'getReservationRouter()(address)' --rpc-url $SEPOLIA_RPC_URL   # -> $ROUTER
+cast call $BRIDGE 'getReservationRouter()(address)' --rpc-url $SEPOLIA_RPC_URL # -> $ROUTER
 ```
 
 12.1–12.4 must equal the staged ceremony values.
@@ -898,7 +921,7 @@ EOA; the lookup of the bogus `reservationKey` reverts before any
 caller-membership check):
 
 ```sh
-python3 - <<'EOF'
+python3 - << 'EOF'
 import json, os, urllib.request
 from eth_hash.auto import keccak
 BRIDGE = "0x2220acE07d86B508742D511478e517716B675940"
@@ -925,16 +948,15 @@ print("OK: router negative check reverted with 'Reservation is not active'")
 EOF
 ```
 
-
 ## Summary of irreversible points (in order)
 
-| Step | Action | Irreversible? | Escape |
-|---|---|---|---|
-| 4 | Bridge proxy `upgrade` | reversible while reservation state is empty | `upgrade` back to `0xc9CE...` |
-| 5b | `setReservationRouter` | **yes** (write-once) | none — address must be right |
-| 6.4 | `finalizeReservationParametersUpdate` | no until first acceptance | re-stage/re-finalize |
-| 8 | keep-core release with activation block B compiled in | no (client-side) | lower/raise B or remove the entry, re-release |
-| 11 | `setVaultStatus(true)` at/after B | no for the flag; the vault lock is permanent after first acceptance | `setVaultStatus(false)` (fee fallback applies) |
+| Step | Action                                                | Irreversible?                                                       | Escape                                         |
+| ---- | ----------------------------------------------------- | ------------------------------------------------------------------- | ---------------------------------------------- |
+| 4    | Bridge proxy `upgrade`                                | reversible while reservation state is empty                         | `upgrade` back to `0xc9CE...`                  |
+| 5b   | `setReservationRouter`                                | **yes** (write-once)                                                | none — address must be right                   |
+| 6.4  | `finalizeReservationParametersUpdate`                 | no until first acceptance                                           | re-stage/re-finalize                           |
+| 8    | keep-core release with activation block B compiled in | no (client-side)                                                    | lower/raise B or remove the entry, re-release  |
+| 11   | `setVaultStatus(true)` at/after B                     | no for the flag; the vault lock is permanent after first acceptance | `setVaultStatus(false)` (fee fallback applies) |
 
 ## Open items (TO VERIFY)
 

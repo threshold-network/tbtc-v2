@@ -13,12 +13,12 @@ bootstrap comes from the installed `@threshold-network/solidity-contracts` and
 
    ```sh
    cd solidity
-   yarn install          # runs postinstall, which applies the deploy-patches
+   yarn install # runs postinstall, which applies the deploy-patches
    ```
 
    The installed packages ship the `export/deploy` scripts and
    `export/artifacts`; that is all the test path needs. The optional
-   `.../deployments/development` record folders are *not* shipped by these
+   `.../deployments/development` record folders are _not_ shipped by these
    package versions and are not required — when they are absent, hardhat-deploy
    simply starts from no records and the external scripts deploy stubs in their
    place (e.g. a `NuCypherToken` stub). This matches CI, which also runs on a
@@ -41,7 +41,7 @@ a local-only false failure; a fresh CI checkout never sets it.
 So:
 
 ```sh
-env -u FORKING_URL -u FORKING_BLOCK yarn deploy:test   # warm the deploy cache
+env -u FORKING_URL -u FORKING_BLOCK yarn deploy:test # warm the deploy cache
 env -u FORKING_URL -u FORKING_BLOCK yarn test test/bridge/Bridge.Governance.test.ts
 ```
 
@@ -52,8 +52,8 @@ env -u FORKING_URL -u FORKING_BLOCK yarn test test/bridge/Bridge.Governance.test
 If you run `hardhat deploy` / tests **without** `USE_EXTERNAL_DEPLOY=true`, the
 external ReimbursementPool bootstrap is skipped and
 `deploy/00_resolve_reimbursement_pool.ts` throws
-`deployed ReimbursementPool contract not found` (the local scripts only *resolve*
-it; it is only *deployed* by the external random-beacon script). Use the default
+`deployed ReimbursementPool contract not found` (the local scripts only _resolve_
+it; it is only _deployed_ by the external random-beacon script). Use the default
 `yarn test` / `yarn deploy:test` env (which set it) instead of a bare
 `hardhat deploy`.
 
@@ -75,7 +75,7 @@ fixtures that trip up newcomers:
   leftover `.slice(2)` drops the first two hex chars and silently corrupts
   every LE-encoded value (the deposit refund locktime and `valueSat`). The
   corruption surfaces as `Authorization window would overlap the deposit
-  refund window` / `Refund locktime must be a value >= 500M`.
+refund window` / `Refund locktime must be a value >= 500M`.
 - Under ethers v6, a struct returned by a `getContract`-style read (e.g.
   `bridge.wallets(pkh)`) is a `Result` proxy whose own enumerable keys are only
   the indexed ones. Do not object-spread it (`...(await bridge.wallets(pkh))`

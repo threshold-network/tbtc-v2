@@ -81,12 +81,7 @@
       "name": "18-verify-activation",
       "status": "PASS",
       "values": {
-        "reservationCaps": [
-          "2000000",
-          "2000000",
-          "4",
-          "1"
-        ],
+        "reservationCaps": ["2000000", "2000000", "4", "1"],
         "reservationParameters": [
           "0x222C73bc1440b97876B64C3F34077904deF93714",
           "10000",

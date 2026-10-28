@@ -220,6 +220,7 @@ cast call "$BRIDGE" "pendingReservedDeposits()(uint64)"
 ```
 
 Note that the reservation getters are router selectors: before the router is set they revert with `Reservation router not set`, and after it is set they are served by the router's `delegatecall` on the Bridge's own storage.
+
 ## Generating the Mainnet Calldata (deploy script 98)
 
 `deploy/98_generate_reservation_mainnet_calldata.ts` builds the governance calldata for the steps above. It has no numeric defaults: every value below is required, and a missing or malformed value stops the script. Run it with:
