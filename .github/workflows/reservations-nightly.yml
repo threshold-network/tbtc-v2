@@ -8,9 +8,9 @@ name: Reservations nightly
 # `workflow_dispatch` run accepts the branch to test through the string inputs
 # below; the scheduled run and a no-input dispatch fall back to the defaults.
 #
-#   medusa   - Foundry/Medusa invariant suite on the fizz branch. Fails the
-#              job (and files a GitHub issue) when a property fails.
-#   coverage - solidity-coverage run on the coverage branch. Non-blocking: it
+#   medusa   - Foundry/Medusa invariant suite on the reservation branch. Fails
+#              the job (and files a GitHub issue) when a property fails.
+#   coverage - solidity-coverage run on the reservation branch. Non-blocking: it
 #              only uploads the report and summarises reservation-file
 #              coverage; the 18 known gas-assertion failures are tolerated.
 
@@ -22,11 +22,11 @@ on:
       fizz_ref:
         description: "Branch to run the Medusa invariant suite against"
         required: false
-        default: "tooling/reservations-fizz"
+        default: "reservations-upgrade"
       coverage_ref:
         description: "Branch to run the coverage suite against"
         required: false
-        default: "tooling/reservations-coverage"
+        default: "reservations-upgrade"
 
 permissions:
   contents: read
@@ -51,7 +51,7 @@ jobs:
       - name: Check out the Medusa branch
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.fizz_ref || 'tooling/reservations-fizz' }}
+          ref: ${{ github.event.inputs.fizz_ref || 'reservations-upgrade' }}
           persist-credentials: false
 
       - name: Set up Node
@@ -151,7 +151,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          MEDUSA_REF: ${{ github.event.inputs.fizz_ref || 'tooling/reservations-fizz' }}
+          MEDUSA_REF: ${{ github.event.inputs.fizz_ref || 'reservations-upgrade' }}
         run: |
           set -euo pipefail
           title="Nightly reservation invariant failure"
@@ -189,7 +189,7 @@ jobs:
       - name: Check out the coverage branch
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.coverage_ref || 'tooling/reservations-coverage' }}
+          ref: ${{ github.event.inputs.coverage_ref || 'reservations-upgrade' }}
           persist-credentials: false
 
       - name: Set up Node
