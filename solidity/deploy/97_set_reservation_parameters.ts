@@ -20,8 +20,11 @@ const MAX_TOTAL_AMOUNT = BigInt("10000000")
  *
  * Per `step-05-f-g-build-brief.md` §PR-G, the activation sequence is:
  *
- *   1. `beginReservationCapsUpdate(perWalletCap, singleAmount, maxActive)`
- *      then `finalizeReservationCapsUpdate()` — MUST run first. This
+ *   1. `beginReservationCapsUpdate(maxReservationsAmountPerWallet,
+ *      reservationMaxSingleAmount, maxActiveReservations,
+ *      maxThirdPartyReanchorHoldsPerWallet, handoffReserveWallets)`
+ *      (selector `0x4c1cda81`), then `finalizeReservationCapsUpdate()` —
+ *      MUST run first. This
  *      passes trivially because `reservationMaxTotalAmount` defaults to 0,
  *      so the relational check is `0 <= anything`. This is the
  *      setter-ordering hazard the bootstrap-ordering test in PR #B
