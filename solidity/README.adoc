@@ -83,6 +83,13 @@ contracts. Normal tests keep the default hardfork and contract size limit.
 Instrumentation changes gas use, so gas and reimbursement assertions can fail
 under coverage. Use normal tests, not coverage, for those assertions.
 
+The script also clears `FORKING_URL` and `FORKING_BLOCK` for its own run. A
+forking network changes the deployment path: the external exports then refuse to
+deploy their stub contracts (they throw `deployed NuCypherToken contract not
+found`), so deployment fixtures fail. A coverage run that inherits a fork URL
+from the shell is a forking run, not a coverage problem; the script makes that
+impossible.
+
 === Deploy contracts
 
 To deploy all contracts on the given network, please run:

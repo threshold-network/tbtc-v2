@@ -28,3 +28,4 @@
 /.openzeppelin/unknown-*.json
 solcInputs/
 gasReporterOutput.json
+/coverage.json
