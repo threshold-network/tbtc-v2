@@ -40,7 +40,7 @@ on:
 
 jobs:
   contracts-detect-changes:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       path-filter: ${{ steps.filter.outputs.path-filter }}
     steps:
@@ -59,7 +59,7 @@ jobs:
 
   contracts-validate-inputs:
     if: github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       # npm-version-bump@v2 builds a shell command using this input.
       - name: Validate deployment environment
@@ -76,7 +76,7 @@ jobs:
     if: |
       github.event_name != 'pull_request'
         || needs.contracts-detect-changes.outputs.path-filter == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: ./solidity
@@ -132,7 +132,7 @@ jobs:
     if: |
       github.event_name != 'pull_request'
         || needs.contracts-detect-changes.outputs.path-filter == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     defaults:
@@ -199,7 +199,7 @@ jobs:
     if: |
       github.event_name != 'pull_request'
         || needs.contracts-detect-changes.outputs.path-filter == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: ./solidity
@@ -235,7 +235,7 @@ jobs:
     if: |
       github.event_name == 'workflow_dispatch'
         && github.ref != 'refs/heads/dapp-development'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: ./solidity
@@ -334,7 +334,7 @@ jobs:
 
   contracts-etherscan-verification:
     needs: [contracts-deployment-testnet, contracts-validate-inputs]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: ./solidity
@@ -392,7 +392,7 @@ jobs:
     if: |
       github.event_name == 'workflow_dispatch'
         && github.ref == 'refs/heads/dapp-development'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: ./solidity
@@ -467,7 +467,7 @@ jobs:
     if: |
       github.event_name == 'push'
         || needs.contracts-detect-changes.outputs.path-filter == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: ./solidity
@@ -523,7 +523,7 @@ jobs:
     if: |
       github.event_name == 'push'
         || needs.contracts-detect-changes.outputs.path-filter == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: ./solidity
@@ -594,7 +594,7 @@ jobs:
         contracts-deployment-dry-run,
       ]
     if: always() && !cancelled()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Report gate
         env:

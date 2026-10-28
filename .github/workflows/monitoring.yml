@@ -24,7 +24,7 @@ on:
 
 jobs:
   monitoring-detect-changes:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       path-filter: ${{ steps.filter.outputs.path-filter }}
     steps:
@@ -45,7 +45,7 @@ jobs:
     if: |
       github.event_name != 'pull_request'
         || needs.monitoring-detect-changes.outputs.path-filter == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: ./monitoring
@@ -80,7 +80,7 @@ jobs:
   monitoring-docker:
     needs: [monitoring-detect-changes, monitoring-build]
     if: github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: ./monitoring
@@ -138,7 +138,7 @@ jobs:
     if: |
       github.event_name == 'push'
         || needs.monitoring-detect-changes.outputs.path-filter == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: ./monitoring
