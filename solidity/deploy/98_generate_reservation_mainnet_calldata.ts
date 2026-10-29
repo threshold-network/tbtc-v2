@@ -47,6 +47,107 @@ const REVEAL_DRIFT_SECONDS = 7_200 // 2 hours
 // with a strictly positive window.
 const REVEAL_FEASIBILITY_MARGIN_SECONDS = 3_600 // 1 hour
 
+// Deploy-script policy, NOT an on-chain rule: the Bridge puts no bound at
+// all on `reservationDissolutionDelay` (neither
+// `Reservation.updateReservationParameters` nor
+// `BridgeGovernance.beginReservationParametersUpdate` checks it), so the
+// value that reaches the chain is whatever governance signs. A zero delay
+// would make every position releasable the moment its term expires, and a
+// value near the uint32 ceiling would pin positions for centuries. This
+// script refuses both before any calldata is generated. The maximum is the
+// same 730 days the on-chain term bound uses, so the delay can never
+// outlive the maximum term it follows by more than the maximum term
+// itself.
+const SCRIPT_POLICY_MAX_DISSOLUTION_DELAY = 63_072_000 // 730 days
+
+/**
+ * The number of simultaneously open positions the fleet can actually hold,
+ * as the on-chain hand-off reserve gate sees it.
+ *
+ * `Reservation.reserveAcceptanceCapacity` reverts an acceptance with
+ * "Hand-off reserve exceeded" unless the active position count -- after the
+ * acceptance being reserved -- is at most
+ *
+ *     max(0, liveWalletsCount - handoffReserveWallets) * maxReservationsPerWallet
+ *
+ * because that many Live wallets must stay free to retire together while
+ * every open position still fits on the remaining ones. This is therefore
+ * the real fleet-fit ceiling, strictly below the naive
+ * `liveWalletsCount * maxReservationsPerWallet`, and a `maxActiveReservations`
+ * above it is unreachable: the acceptance reverts instead of the position
+ * being opened.
+ */
+export function handoffAwareSlotCapacity(params: {
+  liveWalletsCount: number
+  handoffReserveWallets: number
+  maxReservationsPerWallet: number
+}): number {
+  const remainingWallets =
+    params.liveWalletsCount > params.handoffReserveWallets
+      ? params.liveWalletsCount - params.handoffReserveWallets
+      : 0
+  return remainingWallets * params.maxReservationsPerWallet
+}
+
+/**
+ * Throws when the chosen dissolution delay is outside this script's own
+ * policy band. The Bridge does not bound `reservationDissolutionDelay` at
+ * all -- this is a deploy-script policy, not a contract rule -- so the guard
+ * exists to catch an operator typo before the calldata is signed.
+ *
+ * A delay of zero makes a position releasable the instant its term
+ * expires; a delay beyond the maximum pins positions for longer than any
+ * term the Bridge would accept.
+ */
+export function assertDissolutionDelayWithinScriptPolicy(
+  dissolutionDelay: number
+): void {
+  if (dissolutionDelay <= 0) {
+    throw new Error(
+      `RESERVATION_DISSOLUTION_DELAY_SECONDS (${dissolutionDelay}) must be ` +
+        "greater than zero (deploy-script policy: a zero delay makes every " +
+        "position releasable the moment its term expires; the Bridge " +
+        "itself does not bound this value)"
+    )
+  }
+  if (dissolutionDelay > SCRIPT_POLICY_MAX_DISSOLUTION_DELAY) {
+    throw new Error(
+      `RESERVATION_DISSOLUTION_DELAY_SECONDS (${dissolutionDelay}) exceeds ` +
+        `this script's maximum dissolution delay ` +
+        `(${SCRIPT_POLICY_MAX_DISSOLUTION_DELAY}s / 730 days) (deploy-script ` +
+        "policy: the Bridge itself does not bound this value)"
+    )
+  }
+}
+
+/**
+ * Throws when the chosen global position cap exceeds the number of
+ * positions the fleet can actually hold once the on-chain hand-off reserve
+ * gate is taken into account.
+ */
+export function assertHandoffAwareFleetFit(params: {
+  maxActive: number
+  liveWalletsCount: number
+  handoffReserveWallets: number
+  maxReservationsPerWallet: number
+}): void {
+  const capacity = handoffAwareSlotCapacity(params)
+  if (params.maxActive > capacity) {
+    throw new Error(
+      `RESERVATION_MAX_ACTIVE (${params.maxActive}) exceeds the hand-off ` +
+        "reserve-aware slot capacity " +
+        `(max(0, liveWalletsCount=${params.liveWalletsCount} - ` +
+        `handoffReserveWallets=${params.handoffReserveWallets}) * ` +
+        `maxReservationsPerWallet=${params.maxReservationsPerWallet} = ` +
+        `${capacity}); the on-chain hand-off reserve gate in ` +
+        "`Reservation.reserveAcceptanceCapacity` reverts such an acceptance " +
+        "with 'Hand-off reserve exceeded', so this cap could never be " +
+        "reached. Lower RESERVATION_MAX_ACTIVE, lower " +
+        "RESERVATION_HANDOFF_RESERVE_WALLETS, or register more Live wallets."
+    )
+  }
+}
+
 /**
  * Throws when the reservation parameters, combined with the Bridge's live
  * deposit parameters, would leave no reserved deposit possible. Nothing
@@ -534,6 +635,9 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
         "reserve must be greater than zero' require)"
     )
   }
+  // Deploy-script policy only -- the Bridge puts no bound on the dissolution
+  // delay, so this is where an operator typo is caught.
+  assertDissolutionDelayWithinScriptPolicy(RES_DISSOLUTION_DELAY)
   if (RES_TERM_SECONDS < MIN_RESERVATION_TERM) {
     throw new Error(
       `RESERVATION_TERM_SECONDS (${RES_TERM_SECONDS}) is below the on-chain ` +
@@ -641,6 +745,36 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
       `liveWalletsCount * maxReservationsPerWallet (${slotCapacityByWallets})`
   )
 
+  // --- Hand-off reserve-aware fleet-fit check. The relation above is the
+  // naive one; the on-chain hand-off reserve gate
+  // (`Reservation.reserveAcceptanceCapacity`) is stricter: an acceptance
+  // reverts with "Hand-off reserve exceeded" unless the active position
+  // count after it is at most
+  //   max(0, liveWalletsCount - handoffReserveWallets) * maxReservationsPerWallet,
+  // because that many Live wallets must stay free to retire together while
+  // every open position still fits on the remaining ones. A
+  // `maxActiveReservations` above that ceiling is unreachable, so the check
+  // is a hard failure here rather than a runtime revert on the first
+  // acceptance.
+  assertHandoffAwareFleetFit({
+    maxActive: MAX_ACTIVE,
+    liveWalletsCount: currentLiveWalletsCount,
+    handoffReserveWallets: HANDOFF_RESERVE_WALLETS,
+    maxReservationsPerWallet: MAX_RESERVATIONS_PER_WALLET,
+  })
+  const handoffAwareCapacity = handoffAwareSlotCapacity({
+    liveWalletsCount: currentLiveWalletsCount,
+    handoffReserveWallets: HANDOFF_RESERVE_WALLETS,
+    maxReservationsPerWallet: MAX_RESERVATIONS_PER_WALLET,
+  })
+  console.log(
+    `\nHand-off reserve-aware fleet fit OK: maxActiveReservations ` +
+      `(${MAX_ACTIVE}) <= max(0, liveWalletsCount=${currentLiveWalletsCount} - ` +
+      `handoffReserveWallets=${HANDOFF_RESERVE_WALLETS}) * ` +
+      `maxReservationsPerWallet=${MAX_RESERVATIONS_PER_WALLET} = ` +
+      `${handoffAwareCapacity}`
+  )
+
   // --- Verify a reserved deposit can actually be revealed under the chosen
   // term. Deposit._revealDeposit bounds the refund locktime two ways when
   // depositRevealAheadPeriod is set: it must be at least the reveal time plus
@@ -730,6 +864,27 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
       `OK (${MAX_ACTIVE} <= ${slotCapacityByWalletsBeforeFinalize})`
   )
 
+  // --- Re-verify the hand-off reserve-aware fleet fit immediately before
+  // generating the finalize/setVaultStatus calldata, for the same reason:
+  // a wallet retiring between the begin calls and the finalize execution
+  // shrinks the capacity the on-chain hand-off reserve gate allows.
+  assertHandoffAwareFleetFit({
+    maxActive: MAX_ACTIVE,
+    liveWalletsCount: liveWalletsCountBeforeFinalize,
+    handoffReserveWallets: HANDOFF_RESERVE_WALLETS,
+    maxReservationsPerWallet: MAX_RESERVATIONS_PER_WALLET,
+  })
+  const handoffAwareCapacityBeforeFinalize = handoffAwareSlotCapacity({
+    liveWalletsCount: liveWalletsCountBeforeFinalize,
+    handoffReserveWallets: HANDOFF_RESERVE_WALLETS,
+    maxReservationsPerWallet: MAX_RESERVATIONS_PER_WALLET,
+  })
+  console.log(
+    "\nRe-verified hand-off reserve-aware fleet fit immediately before " +
+      "finalize: OK (" +
+      `${MAX_ACTIVE} <= ${handoffAwareCapacityBeforeFinalize})`
+  )
+
   // --- Generate governance calldata ---
   console.log(
     "\n--- Generating governance calldata (router, then caps+params begin, then caps+params finalize, then activation) ---"
@@ -817,6 +972,30 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
         slotCapacity: slotCapacityByWalletsBeforeFinalize,
         satisfied: MAX_ACTIVE <= slotCapacityByWalletsBeforeFinalize,
       },
+    },
+    handoffAwareFleetFit: {
+      description:
+        "maxActiveReservations <= max(0, liveWalletsCount - handoffReserveWallets) * maxReservationsPerWallet, the ceiling the on-chain hand-off reserve gate enforces, checked twice since up to 48h passes between begin and finalize",
+      handoffReserveWallets: HANDOFF_RESERVE_WALLETS,
+      atBeginGeneration: {
+        liveWalletsCount: currentLiveWalletsCount,
+        slotCapacity: handoffAwareCapacity,
+        satisfied: MAX_ACTIVE <= handoffAwareCapacity,
+      },
+      atFinalizeGeneration: {
+        liveWalletsCount: liveWalletsCountBeforeFinalize,
+        slotCapacity: handoffAwareCapacityBeforeFinalize,
+        satisfied: MAX_ACTIVE <= handoffAwareCapacityBeforeFinalize,
+      },
+    },
+    dissolutionDelayPolicy: {
+      description:
+        "deploy-script policy (not an on-chain rule): the dissolution delay must be greater than zero and at most 730 days",
+      dissolutionDelaySeconds: RES_DISSOLUTION_DELAY,
+      maxDissolutionDelaySeconds: SCRIPT_POLICY_MAX_DISSOLUTION_DELAY,
+      satisfied:
+        RES_DISSOLUTION_DELAY > 0 &&
+        RES_DISSOLUTION_DELAY <= SCRIPT_POLICY_MAX_DISSOLUTION_DELAY,
     },
   }
 
