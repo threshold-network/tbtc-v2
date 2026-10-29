@@ -963,6 +963,57 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       expect(Number(await executor.pendingReservedDeposits())).to.equal(0)
     })
   })
+  describe("forceStaleReservedDeposit guards", () => {
+    const walletPubKeyHash = `0x${"e8".repeat(20)}` as `0x${string}`
+    const depositor = ethers.Wallet.createRandom().address
+    const refundDeadline = 2000000000
+
+    it("rejects a deposit that is not a pending reserved deposit", async () => {
+      const depositKey = `0x${"18".repeat(32)}`
+
+      await executor.seedDepositBasic(depositKey, depositor)
+
+      await expect(
+        executor.forceStaleReservedDeposit(depositKey)
+      ).to.be.revertedWith("Not a pending reserved deposit")
+    })
+
+    it("rejects a pending reserved deposit whose funding transaction was already swept", async () => {
+      const depositKey = `0x${"28".repeat(32)}`
+
+      await executor.seedDepositBasic(depositKey, depositor)
+      await executor.seedSweptDeposit(depositKey)
+      await executor.seedPendingReservedDepositBasic(
+        depositKey,
+        walletPubKeyHash,
+        refundDeadline,
+        true
+      )
+
+      await expect(
+        executor.forceStaleReservedDeposit(depositKey)
+      ).to.be.revertedWith("Deposit already swept")
+    })
+
+    it("rejects a pending reserved deposit that still has an acceptance authorization pending", async () => {
+      const depositKey = `0x${"38".repeat(32)}`
+
+      await executor.seedDepositBasic(depositKey, depositor)
+      await executor.seedPendingReservedDepositBasic(
+        depositKey,
+        walletPubKeyHash,
+        refundDeadline,
+        true
+      )
+      // The position's current generation -- nonce 0 for an unrevealed
+      // position -- is a Pending acceptance authorization.
+      await executor.seedPendingAction(depositKey, 0)
+
+      await expect(
+        executor.forceStaleReservedDeposit(depositKey)
+      ).to.be.revertedWith("Acceptance authorization pending")
+    })
+  })
   describe("notifyReservationActionTimeout (Reanchor)", () => {
     it("releases target wallet capacity on Reanchor timeout", async () => {
       // Reanchor-timeout releases the target wallet's reserved capacity.
