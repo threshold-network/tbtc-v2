@@ -4971,6 +4971,18 @@ describe("Bridge - Governance", () => {
       })
 
       it("should show a second begin as an overwrite", async () => {
+        // Advance one block first. `beginReservationCapsUpdate` stores
+        // `block.timestamp`, so its cost depends on whether the mined
+        // block's timestamp equals the value already in the slot. Ethers
+        // sends the transaction with the gas limit set to the estimate
+        // and no margin, and the estimate is taken against the pending
+        // block: with the clock unchanged it charges the SSTORE as a
+        // no-change and lands ~2.8k gas short when the mined block takes
+        // a later second. Mining a block here makes the pending timestamp
+        // differ from the staged one by construction, so the estimate and
+        // the execution agree.
+        await helpers.time.increaseTime(1)
+
         // The single staged slot is overwritten in place and no event says
         // so beyond the new `ReservationCapsUpdateStarted`, so the view is
         // the only way to see what the second begin replaced.
