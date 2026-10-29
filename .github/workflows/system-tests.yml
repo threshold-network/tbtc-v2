@@ -7,7 +7,7 @@ on:
 
 jobs:
   system-tests-deposit-redemption:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v3
 
@@ -72,7 +72,7 @@ jobs:
 
   system-tests-minting-unminting:
     needs: system-tests-deposit-redemption
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v3
 
