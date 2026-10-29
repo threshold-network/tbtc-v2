@@ -8,6 +8,9 @@ import fs from "fs"
 import path from "path"
 import func, {
   buildReservationActionDefinitions,
+  assertDissolutionDelayWithinScriptPolicy,
+  assertHandoffAwareFleetFit,
+  handoffAwareSlotCapacity,
   KNOWN_TIMELOCK,
   KNOWN_COUNCIL_SAFE,
 } from "../../deploy/98_generate_reservation_mainnet_calldata"
@@ -35,6 +38,32 @@ async function expectRejection(
     expect.fail(`expected rejection matching ${pattern}`)
   }
   expect((rejection as Error).message).to.match(pattern)
+}
+
+/**
+ * The deploy function writes its calldata summary into
+ * `solidity/deployments/mainnet/`, the same directory the deployment
+ * artifacts live in. These helpers find and remove those summaries.
+ */
+const SUMMARY_DIR = path.join(__dirname, "..", "..", "deployments", "mainnet")
+const SUMMARY_PREFIX = "reservation-bootstrap-calldata-"
+
+function findSummaryFiles(): string[] {
+  if (!fs.existsSync(SUMMARY_DIR)) return []
+  return fs
+    .readdirSync(SUMMARY_DIR)
+    .filter((f) => f.startsWith(SUMMARY_PREFIX) && f.endsWith(".json"))
+    .map((f) => path.join(SUMMARY_DIR, f))
+}
+
+function removeSummaryFiles(): void {
+  findSummaryFiles().forEach((f) => {
+    try {
+      fs.unlinkSync(f)
+    } catch {
+      // Ignore cleanup errors
+    }
+  })
 }
 
 describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
@@ -98,6 +127,13 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
         process.env[key] = savedEnv[key]
       }
     })
+    // Every full run of the deploy function writes a calldata summary into
+    // solidity/deployments/mainnet/. Those files are not deployment
+    // artifacts, and the deployment-artifacts suite reads that directory, so
+    // leaving one behind races with that suite when the tests run in
+    // parallel (the pull-request CI mode). Remove them after every test,
+    // not only in the suite that inspects their content.
+    removeSummaryFiles()
   })
 
   /**
@@ -564,6 +600,190 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
     })
   })
 
+  // The on-chain hand-off reserve gate in `Reservation.reserveAcceptanceCapacity`
+  // caps the active position count at
+  //   max(0, liveWalletsCount - handoffReserveWallets) * maxReservationsPerWallet,
+  // strictly below the naive `liveWalletsCount * maxReservationsPerWallet`
+  // the script used to check alone.
+  describe("hand-off reserve-aware fleet fit", () => {
+    it("should throw at begin-time when MAX_ACTIVE exceeds the hand-off reserve-aware capacity", async () => {
+      // 6 live wallets, hand-off reserve 2, per-wallet 1 => capacity 4.
+      // MAX_ACTIVE=5 passes the naive relation (5 <= 6) but not the
+      // hand-off-aware one (5 > 4).
+      const { mockHre } = createMockHre({ liveWalletsCount: 6 })
+      process.env.RESERVATION_HANDOFF_RESERVE_WALLETS = "2"
+      await expectRejection(
+        func(mockHre),
+        /hand-off reserve-aware slot capacity/
+      )
+    })
+
+    it("should throw at begin-time when the live-wallet count is at or below the hand-off reserve", async () => {
+      // 5 live wallets, hand-off reserve 5 => remaining wallets 0, capacity
+      // 0, so no position can ever be accepted. The naive relation
+      // (5 <= 5) still passes, so only the hand-off-aware check can
+      // catch this.
+      const { mockHre } = createMockHre({ liveWalletsCount: 5 })
+      process.env.RESERVATION_HANDOFF_RESERVE_WALLETS = "5"
+      await expectRejection(
+        func(mockHre),
+        /hand-off reserve-aware slot capacity/
+      )
+    })
+
+    it("should throw immediately before finalize when the hand-off-aware capacity shrinks between the two reads", async () => {
+      // Passes the begin-time check (10 live wallets, reserve 1 => capacity
+      // 9, MAX_ACTIVE=5) and the naive finalize check (5 live wallets =>
+      // naive capacity 5), but the hand-off-aware finalize capacity is
+      // 5 - 1 = 4, below MAX_ACTIVE=5.
+      const { mockHre } = createMockHre({
+        liveWalletsCount: 10,
+        liveWalletsCountAtFinalize: 5,
+      })
+      await expectRejection(
+        func(mockHre),
+        /hand-off reserve-aware slot capacity/
+      )
+    })
+
+    it("should accept a cap that fits the hand-off reserve-aware capacity", async () => {
+      // 6 live wallets, reserve 2, per-wallet 1 => capacity 4.
+      // MAX_ACTIVE=4 is exactly at the ceiling and must pass.
+      process.env.RESERVATION_MAX_ACTIVE = "4"
+      // Decision 1: maxTotalAmount <= MAX_ACTIVE * singleAmountCap
+      // = 4 * 100000.
+      process.env.RESERVATION_MAX_TOTAL_AMOUNT_SATS = "400000"
+      const { mockHre } = createMockHre({ liveWalletsCount: 6 })
+      process.env.RESERVATION_HANDOFF_RESERVE_WALLETS = "2"
+      const capture = captureConsoleLog()
+      let output: string
+      try {
+        await func(mockHre)
+      } finally {
+        output = capture.restore()
+      }
+      expect(output).to.include("Hand-off reserve-aware fleet fit OK")
+    })
+
+    it("should compute the hand-off-aware capacity the way the contract does", () => {
+      expect(
+        handoffAwareSlotCapacity({
+          liveWalletsCount: 10,
+          handoffReserveWallets: 1,
+          maxReservationsPerWallet: 1,
+        })
+      ).to.equal(9)
+      expect(
+        handoffAwareSlotCapacity({
+          liveWalletsCount: 2,
+          handoffReserveWallets: 2,
+          maxReservationsPerWallet: 1,
+        })
+      ).to.equal(0)
+      expect(
+        handoffAwareSlotCapacity({
+          liveWalletsCount: 1,
+          handoffReserveWallets: 3,
+          maxReservationsPerWallet: 1,
+        })
+      ).to.equal(0)
+      expect(
+        handoffAwareSlotCapacity({
+          liveWalletsCount: 10,
+          handoffReserveWallets: 2,
+          maxReservationsPerWallet: 3,
+        })
+      ).to.equal(24)
+    })
+
+    it("should not throw from the pure fleet-fit helper when the cap fits", () => {
+      expect(() =>
+        assertHandoffAwareFleetFit({
+          maxActive: 4,
+          liveWalletsCount: 6,
+          handoffReserveWallets: 2,
+          maxReservationsPerWallet: 1,
+        })
+      ).to.not.throw()
+    })
+
+    it("should throw from the pure fleet-fit helper when the cap does not fit", () => {
+      expect(() =>
+        assertHandoffAwareFleetFit({
+          maxActive: 5,
+          liveWalletsCount: 6,
+          handoffReserveWallets: 2,
+          maxReservationsPerWallet: 1,
+        })
+      ).to.throw(/Hand-off reserve exceeded/)
+    })
+  })
+
+  // The Bridge puts no bound at all on `reservationDissolutionDelay`, so the
+  // bound below is a deploy-script policy, not a contract rule.
+  describe("dissolution delay script policy", () => {
+    it("should throw when the dissolution delay is zero", async () => {
+      process.env.RESERVATION_DISSOLUTION_DELAY_SECONDS = "0"
+      const { mockHre } = createMockHre()
+      await expectRejection(
+        func(mockHre),
+        /RESERVATION_DISSOLUTION_DELAY_SECONDS \(0\) must be greater than zero/
+      )
+    })
+
+    it("should throw when the dissolution delay exceeds 730 days", async () => {
+      process.env.RESERVATION_DISSOLUTION_DELAY_SECONDS = "63072001" // 730 days + 1s
+      const { mockHre } = createMockHre()
+      await expectRejection(
+        func(mockHre),
+        /RESERVATION_DISSOLUTION_DELAY_SECONDS \(63072001\) exceeds/
+      )
+    })
+
+    it("should accept a dissolution delay of exactly 730 days", async () => {
+      process.env.RESERVATION_DISSOLUTION_DELAY_SECONDS = "63072000" // 730 days
+      const { mockHre } = createMockHre()
+      await func(mockHre)
+    })
+
+    it("should name the bound as a deploy-script policy, not an on-chain rule", async () => {
+      process.env.RESERVATION_DISSOLUTION_DELAY_SECONDS = "63072001"
+      const { mockHre } = createMockHre()
+      let rejection: unknown
+      try {
+        await func(mockHre)
+      } catch (error) {
+        rejection = error
+      }
+      expect(rejection, "func should throw").to.be.instanceOf(Error)
+      const { message } = rejection as Error
+      expect(message).to.include("deploy-script policy")
+      expect(message).to.include("the Bridge itself does not bound this value")
+    })
+
+    it("should reject a zero delay from the pure policy helper", () => {
+      expect(() => assertDissolutionDelayWithinScriptPolicy(0)).to.throw(
+        /must be greater than zero/
+      )
+      expect(() => assertDissolutionDelayWithinScriptPolicy(-1)).to.throw(
+        /must be greater than zero/
+      )
+    })
+
+    it("should reject a delay above the maximum from the pure policy helper", () => {
+      expect(() =>
+        assertDissolutionDelayWithinScriptPolicy(63_072_001)
+      ).to.throw(/exceeds this script's maximum dissolution delay/)
+    })
+
+    it("should accept delays inside the policy band from the pure policy helper", () => {
+      expect(() => assertDissolutionDelayWithinScriptPolicy(1)).to.not.throw()
+      expect(() =>
+        assertDissolutionDelayWithinScriptPolicy(63_072_000)
+      ).to.not.throw()
+    })
+  })
+
   describe("reserved-reveal feasibility guard", () => {
     it("should reject a 90-day term when the live reveal-ahead period is 150 days", async () => {
       // term 7,776,000s < min feasible term 12,884,400s
@@ -610,40 +830,10 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
   })
 
   describe("deployment summary JSON", () => {
-    const deploymentsDir = path.join(
-      __dirname,
-      "..",
-      "..",
-      "deployments",
-      "mainnet"
-    )
-
-    function findSummaryFiles(): string[] {
-      if (!fs.existsSync(deploymentsDir)) return []
-      return fs
-        .readdirSync(deploymentsDir)
-        .filter(
-          (f) =>
-            f.startsWith("reservation-bootstrap-calldata-") &&
-            f.endsWith(".json")
-        )
-        .map((f) => path.join(deploymentsDir, f))
-    }
-
-    function cleanupSummaryFiles(): void {
-      findSummaryFiles().forEach((f) => {
-        try {
-          fs.unlinkSync(f)
-        } catch {
-          // Ignore cleanup errors
-        }
-      })
-    }
-
     let summary: any
 
     beforeEach(async () => {
-      cleanupSummaryFiles()
+      removeSummaryFiles()
       const { mockHre } = createMockHre()
       await func(mockHre)
       const files = findSummaryFiles()
@@ -652,7 +842,7 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
     })
 
     afterEach(() => {
-      cleanupSummaryFiles()
+      removeSummaryFiles()
     })
 
     it("should have governanceActions derived from the single action list, in order, with 6 entries", () => {
@@ -697,6 +887,38 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
       expect(summary.existingContracts.ProxyAdmin).to.equal(PROXY_ADMIN_ADDRESS)
       expect(summary.existingContracts.Timelock).to.equal(KNOWN_TIMELOCK)
       expect(summary.existingContracts.CouncilSafe).to.equal(KNOWN_COUNCIL_SAFE)
+    })
+
+    it("should record both the begin-time and finalize-time hand-off reserve-aware fleet fit checks", () => {
+      expect(summary.handoffAwareFleetFit).to.have.property("atBeginGeneration")
+      expect(summary.handoffAwareFleetFit).to.have.property(
+        "atFinalizeGeneration"
+      )
+      expect(summary.handoffAwareFleetFit.handoffReserveWallets).to.equal(1)
+      expect(summary.handoffAwareFleetFit.atBeginGeneration.satisfied).to.be
+        .true
+      expect(summary.handoffAwareFleetFit.atFinalizeGeneration.satisfied).to.be
+        .true
+      // 10 live wallets, reserve 1, per-wallet 1 => 9.
+      expect(
+        summary.handoffAwareFleetFit.atBeginGeneration.slotCapacity
+      ).to.equal(9)
+      expect(
+        summary.handoffAwareFleetFit.atFinalizeGeneration.slotCapacity
+      ).to.equal(9)
+    })
+
+    it("should record the dissolution delay script policy and its satisfaction", () => {
+      expect(summary.dissolutionDelayPolicy.dissolutionDelaySeconds).to.equal(
+        86400
+      )
+      expect(
+        summary.dissolutionDelayPolicy.maxDissolutionDelaySeconds
+      ).to.equal(63072000)
+      expect(summary.dissolutionDelayPolicy.satisfied).to.be.true
+      expect(summary.dissolutionDelayPolicy.description).to.include(
+        "deploy-script policy"
+      )
     })
 
     // The summary feeds Safe transaction builders and other ethers v6
