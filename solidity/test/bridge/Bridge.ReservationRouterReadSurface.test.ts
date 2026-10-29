@@ -59,7 +59,6 @@ describe("Bridge - Reservation router read surface", () => {
   const anchorAmount = depositAmount - anchorFee
 
   before(async () => {
-    // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({ spvMaintainer, thirdParty, relay, bridge, tbtc, tbtcVault } =
       await bridgeFixture())
 
