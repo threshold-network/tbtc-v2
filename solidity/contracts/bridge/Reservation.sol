@@ -218,11 +218,12 @@ library Reservation {
         // sum would exceed the uint32 ceiling - starting somewhat before
         // February 7th 2106, proportional to the delay applied on top of
         // expiresAt's own margin.
-        // Both branches of `notifyReservationStranded` read this field,
-        // through the shared `eligible` flag: the `Live` and the
-        // `Closing` branch each strand a reservation only once
-        // `block.timestamp >= dissolutionEligibleAt`, and `Closing`
-        // additionally waits out the wallet's closing period. Re-anchor
+        // Two of the four wallet states `notifyReservationStranded` admits
+        // read this field, through the shared `eligible` flag: a `Live`
+        // wallet's reservation strands only once
+        // `block.timestamp >= dissolutionEligibleAt`, and a `Closing`
+        // wallet's additionally waits out the wallet's closing period.
+        // `Terminated` and `Closed` strand without it. Re-anchor
         // does not read it. `settleAcceptance` writes it on every
         // acceptance. It must continue to be written:
         // storage-completeness for a milestone-2 field means written, not
