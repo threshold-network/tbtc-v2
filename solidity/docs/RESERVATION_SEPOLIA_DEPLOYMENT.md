@@ -148,6 +148,14 @@ maxReservationsPerWallet`, as well as `maxActiveReservations`.
      The reserve is admission headroom, not a permanently empty wallet.
      Privileged hand-offs from `MovingFunds` or `Closing` can exceed
      the target's count and amount caps; third-party requests cannot;
+   - `RESERVATION_MAX_ACTIVE` well below the free slots — the wallet count
+     minus the hand-off reserve, times `RESERVATION_MAX_PER_WALLET` — not
+     merely at or below `liveWalletsCount`. A retiring wallet can only close
+     after its anchors move to a Live wallet with a free slot; a re-anchor
+     holds the target slot and keeps the source slot until it settles, and
+     third-party holds and retiring wallets use up slots too. With no free
+     slot a retiring wallet stays stuck in `MovingFunds`. Leave room for at
+     least two hand-offs;
    - `RESERVATION_MAX_TOTAL_AMOUNT_SATS <= RESERVATION_MAX_ACTIVE × RESERVATION_SINGLE_AMOUNT_CAP_SATS`.
 
    The Bridge checks amount and locktime feasibility when governance

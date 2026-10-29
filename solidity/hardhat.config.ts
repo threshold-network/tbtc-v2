@@ -17,6 +17,7 @@ import "@typechain/hardhat"
 import "./tasks/typechain-external"
 import "hardhat-dependency-compiler"
 import "solidity-docgen"
+import "solidity-coverage"
 
 // Preserve explicit verification in deploy scripts; do not wrap ethers transactions.
 setupTenderly({ automaticVerifications: false })
@@ -141,6 +142,15 @@ const config: HardhatUserConfig = {
       blockGasLimit: 30_000_000,
       // Keep the per-transaction gas estimation used by the ethers v5 signer.
       gas: "auto",
+      // Coverage-only pin: coverage compiles with the optimizer off, which
+      // pushes the largest linked-library deploys past EIP-7825's
+      // per-transaction gas cap under the default Osaka hardfork and makes
+      // their test hooks run out of gas. A pre-OSAKA hardfork has no such
+      // cap. Normal builds and tests leave the variable unset and keep the
+      // default hardfork.
+      ...(process.env.COVERAGE_HARDFORK
+        ? { hardfork: process.env.COVERAGE_HARDFORK }
+        : {}),
       forking: {
         // forking is enabled only if FORKING_URL env is provided
         enabled: !!process.env.FORKING_URL,

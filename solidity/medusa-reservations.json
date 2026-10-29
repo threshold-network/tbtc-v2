@@ -1,0 +1,65 @@
+{
+  "fuzzing": {
+    "workers": 4,
+    "workerResetLimit": 50,
+    "timeout": 0,
+    "testLimit": 0,
+    "callSequenceLength": 100,
+    "corpusDirectory": "cache_forge/medusa-reservations/corpus",
+    "coverageEnabled": true,
+    "coverageFormats": ["html", "lcov"],
+    "deploymentOrder": ["ReservationHandler"],
+    "targetContracts": ["ReservationHandler"],
+    "targetContractsBalances": ["0x0"],
+    "constructorArgs": {},
+    "deployerAddress": "0x30000",
+    "senderAddresses": ["0x10000", "0x20000", "0x30000"],
+    "blockNumberDelayMax": 7200,
+    "blockTimestampDelayMax": 86400,
+    "blockGasLimit": 125000000,
+    "transactionGasLimit": 12500000,
+    "testing": {
+      "stopOnFailedTest": false,
+      "stopOnFailedContractMatching": false,
+      "stopOnNoTests": true,
+      "testAllContracts": false,
+      "traceAll": false,
+      "excludeFunctionSignatures": [],
+      "assertionTesting": {
+        "enabled": false
+      },
+      "propertyTesting": {
+        "enabled": true,
+        "testPrefixes": ["property_"]
+      },
+      "optimizationTesting": {
+        "enabled": false,
+        "testPrefixes": ["optimize_"]
+      }
+    },
+    "chainConfig": {
+      "codeSizeCheckDisabled": true,
+      "cheatCodes": {
+        "cheatCodesEnabled": true,
+        "enableFFI": false
+      }
+    }
+  },
+  "compilation": {
+    "platform": "crytic-compile",
+    "platformConfig": {
+      "target": ".",
+      "solcVersion": "",
+      "exportDirectory": "cache_forge/medusa-reservations/crytic-export",
+      "args": ["--foundry-compile-all"]
+    }
+  },
+  "slither": {
+    "useSlither": false
+  },
+  "logging": {
+    "level": "info",
+    "logDirectory": "cache_forge/medusa-reservations/logs",
+    "noColor": true
+  }
+}
