@@ -1693,6 +1693,104 @@ describe("Reservation", () => {
       // reservation.
       expect(await testReservation.reservationState(reservationKey)).to.equal(0) // Unknown
     })
+
+    // The three guards below run before the capacity release, so each one
+    // is proven by the absence of any counter change: a guard that let a
+    // mismatched, settled or still-open generation through would either
+    // release capacity it never reserved or time out a live generation.
+    it("should revert when the current generation is not an acceptance", async () => {
+      const reservationKey = 401
+      const targetWalletPubKeyHash = `0x${"11".repeat(20)}`
+      const amount = 1000
+
+      await testReservation.setFullAction(
+        reservationKey,
+        0,
+        3, // Reanchor
+        1, // Pending
+        1, // far in the past
+        targetWalletPubKeyHash,
+        amount
+      )
+      await testReservation.setWalletReservationsCounters(
+        targetWalletPubKeyHash,
+        1,
+        amount
+      )
+      await testReservation.setGlobalReservationCounters(amount, 1)
+
+      await expect(
+        testReservation.notifyReservationAcceptanceTimedOut(reservationKey)
+      ).to.be.revertedWith("Action type mismatch")
+
+      expect(await testReservation.actionState(reservationKey, 0)).to.equal(1) // Pending
+      expect(
+        await testReservation.walletReservationsCount(targetWalletPubKeyHash)
+      ).to.equal(1)
+      expect(await testReservation.reservationTotalAmount()).to.equal(amount)
+    })
+
+    it("should revert when the acceptance authorization is no longer pending", async () => {
+      const reservationKey = 402
+      const targetWalletPubKeyHash = `0x${"11".repeat(20)}`
+      const amount = 1000
+
+      await testReservation.setFullAction(
+        reservationKey,
+        0,
+        1, // Acceptance
+        2, // Settled
+        1, // far in the past
+        targetWalletPubKeyHash,
+        amount
+      )
+      await testReservation.setWalletReservationsCounters(
+        targetWalletPubKeyHash,
+        1,
+        amount
+      )
+      await testReservation.setGlobalReservationCounters(amount, 1)
+
+      await expect(
+        testReservation.notifyReservationAcceptanceTimedOut(reservationKey)
+      ).to.be.revertedWith("Action is not pending")
+
+      expect(await testReservation.actionState(reservationKey, 0)).to.equal(2) // Settled
+      expect(
+        await testReservation.walletReservationsCount(targetWalletPubKeyHash)
+      ).to.equal(1)
+    })
+
+    it("should revert while the acceptance authorization window is still open", async () => {
+      const reservationKey = 403
+      const targetWalletPubKeyHash = `0x${"11".repeat(20)}`
+      const amount = 1000
+
+      await testReservation.setFullAction(
+        reservationKey,
+        0,
+        1, // Acceptance
+        1, // Pending
+        4294967295, // uint32 max: no reachable timestamp has passed it
+        targetWalletPubKeyHash,
+        amount
+      )
+      await testReservation.setWalletReservationsCounters(
+        targetWalletPubKeyHash,
+        1,
+        amount
+      )
+      await testReservation.setGlobalReservationCounters(amount, 1)
+
+      await expect(
+        testReservation.notifyReservationAcceptanceTimedOut(reservationKey)
+      ).to.be.revertedWith("Action has not timed out")
+
+      expect(await testReservation.actionState(reservationKey, 0)).to.equal(1) // Pending
+      expect(
+        await testReservation.walletReservationsCount(targetWalletPubKeyHash)
+      ).to.equal(1)
+    })
   })
 
   describe("notifyReservationActionTimeout", () => {

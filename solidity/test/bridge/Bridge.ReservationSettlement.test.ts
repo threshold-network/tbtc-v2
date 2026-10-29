@@ -826,4 +826,75 @@ describe("Bridge - Reservation settlement", () => {
       ).to.equal(ReservationState.Active)
     })
   })
+
+  describe("vault re-point while positions are open", () => {
+    it("refuses to change the reservation vault while an accepted reservation is open", async () => {
+      const { reservationKey } = await makeAcceptedReservation()
+      expect(
+        (await reservationRouter.reservations(reservationKey)).state
+      ).to.equal(ReservationState.Active)
+
+      // The open position keeps the standing reserved total non-zero, so
+      // re-pointing the vault would leave its claim against a vault the
+      // bridge no longer routes reservations through.
+      const replacementVault = ethers.Wallet.createRandom().address
+      await expect(
+        reservationRouter
+          .connect(bridgeGovernanceSigner)
+          .updateReservationParameters(
+            replacementVault,
+            RESERVATION_MIN_AMOUNT,
+            RESERVATION_TX_MAX_FEE,
+            RESERVATION_TERM,
+            RESERVATION_GRACE,
+            RESERVATION_MAX_TOTAL,
+            MAX_RESERVATIONS_PER_WALLET,
+            RESERVATION_ACTION_TIMEOUT,
+            RESERVATION_RENEWAL_WINDOW
+          )
+      ).to.be.revertedWith("Active reservations exist")
+
+      expect(
+        (await reservationRouter.reservationParameters()).reservationVault
+      ).to.equal(reservationVault.target)
+    })
+  })
+
+  describe("wallet closing gate", () => {
+    it("refuses to close a wallet that still custodies an accepted reservation", async () => {
+      // Earlier cases in this file may already have opened positions on this
+      // wallet, so the forecast is relative rather than absolute.
+      const custodyBefore =
+        await reservationRouter.walletReservationsCount(walletPubKeyHash)
+      await makeAcceptedReservation()
+      expect(
+        await reservationRouter.walletReservationsCount(walletPubKeyHash)
+      ).to.equal(custodyBefore + BigInt(1))
+
+      // Drive the wallet into Closing and let its closing period elapse.
+      // The position is still custodied by it -- its anchor can only leave
+      // through a re-anchor or a dissolution -- so closing it now would
+      // strand the position outside any wallet's custody ledger.
+      const { walletClosingPeriod } = await bridge.walletParameters()
+      await bridge.setWallet(walletPubKeyHash, {
+        ecdsaWalletID: ethers.randomBytes(32),
+        mainUtxoHash: ZERO_BYTES32,
+        pendingRedemptionsValue: 0,
+        createdAt: await lastBlockTime(),
+        movingFundsRequestedAt: 0,
+        closingStartedAt: await lastBlockTime(),
+        pendingMovedFundsSweepRequestsCount: 0,
+        state: walletState.Closing,
+        movingFundsTargetWalletsCommitmentHash: ZERO_BYTES32,
+      })
+      await increaseTime(Number(walletClosingPeriod) + 1)
+
+      await expect(
+        bridge.notifyWalletClosingPeriodElapsed(walletPubKeyHash)
+      ).to.be.revertedWith("Wallet still custodies reservations")
+      expect((await bridge.wallets(walletPubKeyHash)).state).to.equal(
+        walletState.Closing
+      )
+    })
+  })
 })

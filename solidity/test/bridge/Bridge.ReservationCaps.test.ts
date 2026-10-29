@@ -143,6 +143,86 @@ describe("Reservation - amount cap versus slot capacity", () => {
         slotCapacity
       )
     })
+
+    // Every governance write of `updateReservationParameters` is one
+    // misconfiguration away from terms no position can be opened under.
+    // Each case varies exactly one field of the admissible baseline.
+    describe("parameter validation matrix", () => {
+      const otherVault = "0x1111111111111111111111111111111111111111"
+
+      function setParams(overrides: Partial<typeof baseParams> = {}) {
+        const params = { ...baseParams, ...overrides }
+
+        return testReservation.updateReservationParameters(
+          params.reservationVault,
+          params.reservationMinAmount,
+          params.reservationTxMaxFee,
+          params.reservationTermSeconds,
+          params.reservationDissolutionDelay,
+          slotCapacity,
+          params.maxReservationsPerWallet,
+          params.reservationActionTimeout,
+          params.reservationRenewalWindowSeconds
+        )
+      }
+
+      it("rejects a zero transaction fee bound", async () => {
+        await expect(setParams({ reservationTxMaxFee: 0 })).to.be.revertedWith(
+          "Reservation transaction max fee must be greater than zero"
+        )
+      })
+
+      it("rejects a minimum amount that does not clear the fee bound", async () => {
+        await expect(
+          setParams({ reservationMinAmount: baseParams.reservationTxMaxFee })
+        ).to.be.revertedWith(
+          "Reservation minimum amount must be greater than the reservation TX max fee"
+        )
+      })
+
+      it("rejects a term below the protocol floor", async () => {
+        await expect(
+          setParams({ reservationTermSeconds: MIN_RESERVATION_TERM - 1 })
+        ).to.be.revertedWith("Reservation term out of protocol bounds")
+      })
+
+      it("rejects a renewal window as long as the term", async () => {
+        await expect(
+          setParams({
+            reservationRenewalWindowSeconds: baseParams.reservationTermSeconds,
+          })
+        ).to.be.revertedWith("Renewal window must be shorter than the term")
+      })
+
+      it("rejects a per-wallet position cap of zero", async () => {
+        await expect(
+          setParams({ maxReservationsPerWallet: 0 })
+        ).to.be.revertedWith(
+          "Max reservations per wallet must be greater than zero"
+        )
+      })
+
+      it("rejects pointing the vault at a configuration with no position cap", async () => {
+        await testReservation.setMaxActiveReservations(0)
+
+        await expect(
+          setParams({ reservationVault: otherVault })
+        ).to.be.revertedWith(
+          "Max active reservations must be greater than zero"
+        )
+      })
+
+      it("rejects switching the vault while positions are open", async () => {
+        // One open position makes `reservationTotalAmount` non-zero.
+        await testReservation.setReservationTotalAmount(1000)
+
+        await expect(
+          setParams({ reservationVault: otherVault })
+        ).to.be.revertedWith("Active reservations exist")
+
+        expect(await testReservation.reservationTotalAmount()).to.equal(1000)
+      })
+    })
   })
 
   describe("updateReservationCaps", () => {
