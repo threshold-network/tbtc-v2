@@ -15,7 +15,7 @@ on:
 
 jobs:
   npm-compile-publish:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: ./typescript

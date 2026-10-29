@@ -44,6 +44,62 @@ Foundry prints a seed on failure. Replay it with the same profile, replacing
 FOUNDRY_PROFILE=ci corepack yarn@4.12.0 test:foundry --fuzz-seed 0x1234
 ```
 
+## Reservation invariant suite
+
+`reservations/` holds a stateful invariant suite for the reservation
+accounting. `ReservationHandler` performs random sequences of these actions:
+
+- reveal a reserved deposit,
+- request, time out and prove an acceptance (on time and late),
+- request a re-anchor as the owner, a third party or governance,
+- time out and prove a re-anchor (on time and late),
+- strand a position,
+- mark a pending deposit stale, force it stale or release it to the pool,
+- retire or terminate a wallet, or add a Live wallet,
+- change the caps and the per-wallet and total limits,
+- move time forward.
+
+After every call, the suite checks these properties:
+
+| Property          | Rule                                                                                                             |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Active count      | `activeReservationsCount` equals open positions plus pending acceptances.                                        |
+| Total amount      | `reservationTotalAmount` equals open anchor amounts plus pending acceptance amounts.                             |
+| Wallet counters   | Each wallet's count and amount equal its open positions plus pending actions that target it.                     |
+| Third-party holds | Each wallet's hold count equals the pending third-party re-anchors that target it.                               |
+| Pending deposits  | `pendingReservedDeposits` equals the deposits that still carry a pending marker.                                 |
+| Anchor index      | Every open position is found from its current anchor outpoint.                                                   |
+| Final actions     | A Settled or Superseded generation never changes again.                                                          |
+| Caps              | A successful request never leaves a counter above its cap.                                                       |
+| Reserve gate      | A successful acceptance request leaves at most `(Live wallets - reserve) * per-wallet count cap` open positions. |
+| Credits           | Bank credits equal settled anchor values, and financed fees equal re-anchor miner fees.                          |
+
+The handler drives the real `Reservation` and `ReservationProofs` code
+through `ReservationInvariantHarness`. The harness makes two simplifications:
+
+- It writes the reveal-time records itself.
+- Its proof functions skip `validateProof`, the SPV header and merkle
+  check. The transaction vectors are real and the library parses them.
+
+Wallet lifecycle transitions are direct state writes, and the SPV proof
+check is out of scope. Each `test_*PropertyFires` test corrupts the state
+and shows that one property then fails.
+
+Run the suite with Foundry from `solidity/`:
+
+```sh
+corepack yarn@4.12.0 test:foundry --match-path 'test-foundry/reservations/*'
+```
+
+The `ci` profile runs 256 sequences of 100 calls. Run it with Medusa:
+
+```sh
+medusa fuzz --config medusa-reservations.json --timeout 1800
+```
+
+Medusa writes its corpus, coverage report and logs to
+`cache_forge/medusa-reservations/`.
+
 ## Compiler settings and generated files
 
 `foundry.toml` uses solc **0.8.17**, the **London** EVM target, and **1,000**
