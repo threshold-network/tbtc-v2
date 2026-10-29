@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   contracts-detect-changes:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       path-filter: ${{ steps.filter.outputs.path-filter }}
     steps:
@@ -35,7 +35,7 @@ jobs:
     if: |
       github.event_name != 'pull_request'
         || needs.contracts-detect-changes.outputs.path-filter == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: cross-chain/starknet
