@@ -1,3 +1,4 @@
+/* eslint-disable no-bitwise -- the storage helpers below set and clear bit ranges of a 256-bit word */
 import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
 
