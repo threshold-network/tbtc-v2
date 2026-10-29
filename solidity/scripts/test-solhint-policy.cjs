@@ -8,7 +8,7 @@ const root = path.resolve(__dirname, "..")
 
 test("the repository Solhint policy rejects regressions", async (context) => {
   const solhintOutput = execSync(
-    "npx solhint --formatter json 'contracts/**/*.sol'",
+    "npx solhint --disc --formatter json 'contracts/**/*.sol'",
     { cwd: root, encoding: "utf8" }
   )
 

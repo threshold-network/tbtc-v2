@@ -26,7 +26,7 @@ on:
 
 jobs:
   typescript-detect-changes:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       path-filter: ${{ steps.filter.outputs.path-filter }}
     steps:
@@ -48,7 +48,7 @@ jobs:
     if: |
       github.event_name != 'pull_request'
         || needs.typescript-detect-changes.outputs.path-filter == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: ./typescript
@@ -90,7 +90,7 @@ jobs:
     if: |
       github.event_name != 'pull_request'
         || needs.typescript-detect-changes.outputs.path-filter == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -139,7 +139,7 @@ jobs:
     if: |
       github.event_name == 'push'
         || needs.typescript-detect-changes.outputs.path-filter == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: ./typescript
@@ -177,7 +177,7 @@ jobs:
     if: |
       github.event_name == 'push'
         || needs.typescript-detect-changes.outputs.path-filter == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: ./typescript
