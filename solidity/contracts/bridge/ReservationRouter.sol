@@ -381,7 +381,9 @@ contract ReservationRouter is Governable, Initializable {
     ///        term length in seconds, within the protocol bounds. Applies
     ///        to future term grants; never alters an existing expiry.
     /// @param reservationDissolutionDelay New value of the post-expiry
-    ///        dissolution delay in seconds. Snapshotted per granted term.
+    ///        dissolution delay in seconds, at most the protocol's
+    ///        MAX_RESERVATION_DISSOLUTION_DELAY bound. Snapshotted per
+    ///        granted term.
     /// @param reservationMaxTotalAmount New cap on the total amount in
     ///        satoshi locked under active reservations.
     /// @param maxReservationsPerWallet New cap on the number of active

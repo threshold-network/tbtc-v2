@@ -15,6 +15,8 @@
 
 pragma solidity 0.8.17;
 
+import "./Reservation.sol";
+
 /// @title Bridge Governance library for storing updatable parameters.
 library BridgeGovernanceParameters {
     struct TreasuryData {
@@ -1629,7 +1631,11 @@ library BridgeGovernanceParameters {
     ///      was ever read or written in m1). Reservation parameters
     ///      accordingly do not include them. See
     ///      `Reservation.updateReservationParameters` for the underlying
-    ///      validation requirements.
+    ///      validation requirements. `reservationDissolutionDelay` must not
+    ///      exceed `Reservation.MAX_RESERVATION_DISSOLUTION_DELAY`: the
+    ///      delay is added to a granted term's expiry to compute the uint32
+    ///      `dissolutionEligibleAt`, so an unbounded delay can overflow that
+    ///      checked addition and revert every acceptance settlement.
     /// @param _newReservationVault New reservation vault address.
     /// @param _newReservationMinAmount New reservation minimum amount.
     /// @param _newReservationTxMaxFee New reservation transaction max fee.
@@ -1652,6 +1658,17 @@ library BridgeGovernanceParameters {
         uint32 _newReservationRenewalWindowSeconds
     ) external {
         /* solhint-disable not-rely-on-time */
+        // The delay is added to a granted term's expiry to compute the uint32
+        // `dissolutionEligibleAt`. An unbounded delay can overflow that
+        // checked addition and revert every acceptance settlement, and it can
+        // keep a position ineligible for stranding indefinitely. Reject it
+        // at the staging step so an over-long delay never enters the
+        // governance delay window.
+        require(
+            _newReservationDissolutionDelay <=
+                Reservation.MAX_RESERVATION_DISSOLUTION_DELAY,
+            "Reservation dissolution delay out of protocol bounds"
+        );
         self.newReservationVault = _newReservationVault;
         self.newReservationMinAmount = _newReservationMinAmount;
         self.newReservationTxMaxFee = _newReservationTxMaxFee;
