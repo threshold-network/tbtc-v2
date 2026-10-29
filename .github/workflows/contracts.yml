@@ -577,6 +577,29 @@ jobs:
           slither --compile-force-framework hardhat \
             --hardhat-artifacts-directory build .
 
+      # `dead-code` and `timestamp` are still excluded in slither.config.json:
+      # on this codebase they match every intentional time lock and one helper
+      # (37 findings on dev, 36 of them `timestamp`), which is not triaged
+      # work a red check would help with. Run them here instead so the
+      # findings stay visible without gating anything; `--detect` lists the
+      # detectors to run and takes precedence over `detectors_to_exclude`.
+      - name: Report dead-code and timestamp findings
+        if: always()
+        continue-on-error: true
+        run: |
+          slither --compile-force-framework hardhat \
+            --hardhat-artifacts-directory build \
+            --detect dead-code,timestamp \
+            --json slither-dead-code-timestamp.json .
+
+      - name: Upload dead-code and timestamp report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: slither-dead-code-timestamp
+          path: solidity/slither-dead-code-timestamp.json
+          if-no-files-found: ignore
+
   # Closes the fail-open hole: if contracts-detect-changes itself fails
   # (e.g. its paths-filter step dies on a permissions error), every gated
   # sibling silently skips and the required check contexts all read
@@ -589,6 +612,7 @@ jobs:
       [
         contracts-detect-changes,
         contracts-build-and-test,
+        contracts-foundry,
         contracts-format,
         contracts-slither,
         contracts-deployment-dry-run,
@@ -602,6 +626,7 @@ jobs:
           EVENT: ${{ github.event_name }}
           FILTER: ${{ needs.contracts-detect-changes.outputs.path-filter }}
           BUILD_TEST: ${{ needs.contracts-build-and-test.result }}
+          FOUNDRY: ${{ needs.contracts-foundry.result }}
           FORMAT: ${{ needs.contracts-format.result }}
           SLITHER: ${{ needs.contracts-slither.result }}
           DRY_RUN: ${{ needs.contracts-deployment-dry-run.result }}
@@ -615,14 +640,14 @@ jobs:
           # for this event + path-filter. Compute "expected to run" from the
           # same condition the job uses; expected jobs must be `success`,
           # not-expected jobs must be `skipped` (the only legitimate skip).
-          # build-and-test / deployment-dry-run:
+          # build-and-test / contracts-foundry / deployment-dry-run:
           #   if: github.event_name != 'pull_request' || filter == 'true'
           # format / slither:
           #   if: github.event_name == 'push' || filter == 'true'
           if [ "$EVENT" != "pull_request" ] || [ "$FILTER" = "true" ]; then
-            BT_EXPECTED=true; DR_EXPECTED=true
+            BT_EXPECTED=true; DR_EXPECTED=true; FOUNDRY_EXPECTED=true
           else
-            BT_EXPECTED=false; DR_EXPECTED=false
+            BT_EXPECTED=false; DR_EXPECTED=false; FOUNDRY_EXPECTED=false
           fi
           if [ "$EVENT" = "push" ] || [ "$FILTER" = "true" ]; then
             F_EXPECTED=true; S_EXPECTED=true
@@ -645,6 +670,7 @@ jobs:
             fi
           }
           check "$BUILD_TEST" "$BT_EXPECTED" contracts-build-and-test
+          check "$FOUNDRY"    "$FOUNDRY_EXPECTED" contracts-foundry
           check "$FORMAT"    "$F_EXPECTED"  contracts-format
           check "$SLITHER"   "$S_EXPECTED"  contracts-slither
           check "$DRY_RUN"   "$DR_EXPECTED" contracts-deployment-dry-run
