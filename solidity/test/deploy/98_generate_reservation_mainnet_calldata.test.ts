@@ -40,6 +40,32 @@ async function expectRejection(
   expect((rejection as Error).message).to.match(pattern)
 }
 
+/**
+ * The deploy function writes its calldata summary into
+ * `solidity/deployments/mainnet/`, the same directory the deployment
+ * artifacts live in. These helpers find and remove those summaries.
+ */
+const SUMMARY_DIR = path.join(__dirname, "..", "..", "deployments", "mainnet")
+const SUMMARY_PREFIX = "reservation-bootstrap-calldata-"
+
+function findSummaryFiles(): string[] {
+  if (!fs.existsSync(SUMMARY_DIR)) return []
+  return fs
+    .readdirSync(SUMMARY_DIR)
+    .filter((f) => f.startsWith(SUMMARY_PREFIX) && f.endsWith(".json"))
+    .map((f) => path.join(SUMMARY_DIR, f))
+}
+
+function removeSummaryFiles(): void {
+  findSummaryFiles().forEach((f) => {
+    try {
+      fs.unlinkSync(f)
+    } catch {
+      // Ignore cleanup errors
+    }
+  })
+}
+
 describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
   const DEPLOYER_ADDRESS = "0x1234567890123456789012345678901234567890"
   const BRIDGE_ADDRESS = "0x0000000000000000000000000000000000000001"
@@ -101,6 +127,13 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
         process.env[key] = savedEnv[key]
       }
     })
+    // Every full run of the deploy function writes a calldata summary into
+    // solidity/deployments/mainnet/. Those files are not deployment
+    // artifacts, and the deployment-artifacts suite reads that directory, so
+    // leaving one behind races with that suite when the tests run in
+    // parallel (the pull-request CI mode). Remove them after every test,
+    // not only in the suite that inspects their content.
+    removeSummaryFiles()
   })
 
   /**
@@ -797,40 +830,10 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
   })
 
   describe("deployment summary JSON", () => {
-    const deploymentsDir = path.join(
-      __dirname,
-      "..",
-      "..",
-      "deployments",
-      "mainnet"
-    )
-
-    function findSummaryFiles(): string[] {
-      if (!fs.existsSync(deploymentsDir)) return []
-      return fs
-        .readdirSync(deploymentsDir)
-        .filter(
-          (f) =>
-            f.startsWith("reservation-bootstrap-calldata-") &&
-            f.endsWith(".json")
-        )
-        .map((f) => path.join(deploymentsDir, f))
-    }
-
-    function cleanupSummaryFiles(): void {
-      findSummaryFiles().forEach((f) => {
-        try {
-          fs.unlinkSync(f)
-        } catch {
-          // Ignore cleanup errors
-        }
-      })
-    }
-
     let summary: any
 
     beforeEach(async () => {
-      cleanupSummaryFiles()
+      removeSummaryFiles()
       const { mockHre } = createMockHre()
       await func(mockHre)
       const files = findSummaryFiles()
@@ -839,7 +842,7 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
     })
 
     afterEach(() => {
-      cleanupSummaryFiles()
+      removeSummaryFiles()
     })
 
     it("should have governanceActions derived from the single action list, in order, with 6 entries", () => {
