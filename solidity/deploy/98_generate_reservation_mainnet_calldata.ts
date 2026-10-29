@@ -47,17 +47,20 @@ const REVEAL_DRIFT_SECONDS = 7_200 // 2 hours
 // with a strictly positive window.
 const REVEAL_FEASIBILITY_MARGIN_SECONDS = 3_600 // 1 hour
 
-// Deploy-script policy, NOT an on-chain rule: the Bridge puts no bound at
-// all on `reservationDissolutionDelay` (neither
-// `Reservation.updateReservationParameters` nor
-// `BridgeGovernance.beginReservationParametersUpdate` checks it), so the
-// value that reaches the chain is whatever governance signs. A zero delay
-// would make every position releasable the moment its term expires, and a
-// value near the uint32 ceiling would pin positions for centuries. This
-// script refuses both before any calldata is generated. The maximum is the
-// same 730 days the on-chain term bound uses, so the delay can never
-// outlive the maximum term it follows by more than the maximum term
-// itself.
+// Deploy-script guard, mirroring the on-chain bound. The Bridge now caps
+// `reservationDissolutionDelay` at
+// `Reservation.MAX_RESERVATION_DISSOLUTION_DELAY` (730 days) in both
+// `Reservation.updateReservationParameters` and
+// `BridgeGovernance.beginReservationParametersUpdate`, so an over-long delay
+// would revert on-chain at finalize -- up to 48h after the begin calldata
+// this script generates is submitted and staged. This script refuses it
+// first, so the operator learns before signing.
+//
+// The zero-delay rule below stays a deploy-script policy: the chain imposes
+// no minimum on the delay, because a zero delay is a valid governance
+// choice (the position becomes strand-eligible as soon as its term
+// expires). The script still refuses it, because a zero delay makes every
+// position releasable the moment its term expires.
 const SCRIPT_POLICY_MAX_DISSOLUTION_DELAY = 63_072_000 // 730 days
 
 /**
@@ -91,9 +94,10 @@ export function handoffAwareSlotCapacity(params: {
 
 /**
  * Throws when the chosen dissolution delay is outside this script's own
- * policy band. The Bridge does not bound `reservationDissolutionDelay` at
- * all -- this is a deploy-script policy, not a contract rule -- so the guard
- * exists to catch an operator typo before the calldata is signed.
+ * policy band. The maximum mirrors the on-chain
+ * `Reservation.MAX_RESERVATION_DISSOLUTION_DELAY` bound, so this guard
+ * catches an operator typo before the calldata is signed instead of
+ * letting it revert on-chain at finalize.
  *
  * A delay of zero makes a position releasable the instant its term
  * expires; a delay beyond the maximum pins positions for longer than any
@@ -107,7 +111,7 @@ export function assertDissolutionDelayWithinScriptPolicy(
       `RESERVATION_DISSOLUTION_DELAY_SECONDS (${dissolutionDelay}) must be ` +
         "greater than zero (deploy-script policy: a zero delay makes every " +
         "position releasable the moment its term expires; the Bridge " +
-        "itself does not bound this value)"
+        "itself imposes no minimum on this value)"
     )
   }
   if (dissolutionDelay > SCRIPT_POLICY_MAX_DISSOLUTION_DELAY) {
@@ -115,7 +119,8 @@ export function assertDissolutionDelayWithinScriptPolicy(
       `RESERVATION_DISSOLUTION_DELAY_SECONDS (${dissolutionDelay}) exceeds ` +
         `this script's maximum dissolution delay ` +
         `(${SCRIPT_POLICY_MAX_DISSOLUTION_DELAY}s / 730 days) (deploy-script ` +
-        "policy: the Bridge itself does not bound this value)"
+        "guard mirroring the on-chain MAX_RESERVATION_DISSOLUTION_DELAY " +
+        "bound; the Bridge rejects this value too)"
     )
   }
 }
@@ -635,8 +640,8 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
         "reserve must be greater than zero' require)"
     )
   }
-  // Deploy-script policy only -- the Bridge puts no bound on the dissolution
-  // delay, so this is where an operator typo is caught.
+  // Deploy-script guard -- mirrors the on-chain MAX_RESERVATION_DISSOLUTION_DELAY
+  // bound and catches an operator typo before the calldata is signed.
   assertDissolutionDelayWithinScriptPolicy(RES_DISSOLUTION_DELAY)
   if (RES_TERM_SECONDS < MIN_RESERVATION_TERM) {
     throw new Error(

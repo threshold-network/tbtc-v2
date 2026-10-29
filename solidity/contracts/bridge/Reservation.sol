@@ -70,6 +70,18 @@ library Reservation {
     uint32 internal constant MIN_RESERVATION_TERM = 90 days;
     // slither-disable-next-line unused-state
     uint32 internal constant MAX_RESERVATION_TERM = 730 days;
+    /// @notice Hard protocol bound on the post-expiry dissolution delay.
+    ///         The delay is added to a granted term's expiry to compute
+    ///         `dissolutionEligibleAt`, a uint32 timestamp: an unbounded
+    ///         delay can make that checked addition overflow, which would
+    ///         revert every acceptance settlement, and it can also keep a
+    ///         position ineligible for stranding indefinitely. The maximum
+    ///         is the same 730 days the custody term uses, so the delay can
+    ///         never outlive the maximum term it follows by more than the
+    ///         maximum term itself. There is no minimum: a zero delay is a
+    ///         valid governance choice (the position becomes strand-eligible
+    ///         as soon as its term expires).
+    uint32 internal constant MAX_RESERVATION_DISSOLUTION_DELAY = 730 days;
     /// @notice Represents the state of a reservation position.
     enum ReservationState {
         /// @dev The reservation is unknown to the Bridge. Acceptance
@@ -1614,6 +1626,14 @@ library Reservation {
             reservationRenewalWindowSeconds > 0 &&
                 reservationRenewalWindowSeconds < reservationTermSeconds,
             "Renewal window must be shorter than the term"
+        );
+        // The delay is added to the granted term's expiry to compute the
+        // uint32 `dissolutionEligibleAt`. An unbounded delay can overflow
+        // that checked addition and revert every acceptance settlement, and
+        // it can keep a position ineligible for stranding indefinitely.
+        require(
+            reservationDissolutionDelay <= MAX_RESERVATION_DISSOLUTION_DELAY,
+            "Reservation dissolution delay out of protocol bounds"
         );
         // A request on a deposit revealed in the same block can sign no
         // earlier than `now + DEPOSIT_MIN_AGE + 1` and no later than

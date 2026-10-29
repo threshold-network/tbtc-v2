@@ -452,6 +452,8 @@ interface IReservationBridge {
     ///      `reservationMinAmount` is greater than `reservationTxMaxFee`;
     ///      `reservationTermSeconds` stays within the protocol's
     ///      [MIN_RESERVATION_TERM, MAX_RESERVATION_TERM] bounds;
+    ///      `reservationDissolutionDelay` does not exceed the protocol's
+    ///      MAX_RESERVATION_DISSOLUTION_DELAY bound;
     ///      `reservationRenewalWindowSeconds` is greater than zero and
     ///      strictly shorter than the term; `reservationActionTimeout`
     ///      exceeds the wallet validator's final signing safety margin;

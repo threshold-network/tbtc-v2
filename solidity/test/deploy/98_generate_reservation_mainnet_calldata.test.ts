@@ -719,8 +719,10 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
     })
   })
 
-  // The Bridge puts no bound at all on `reservationDissolutionDelay`, so the
-  // bound below is a deploy-script policy, not a contract rule.
+  // The maximum below mirrors the on-chain
+  // `Reservation.MAX_RESERVATION_DISSOLUTION_DELAY` bound, so the script
+  // refuses an over-long delay before the calldata is signed instead of
+  // letting it revert on-chain at finalize.
   describe("dissolution delay script policy", () => {
     it("should throw when the dissolution delay is zero", async () => {
       process.env.RESERVATION_DISSOLUTION_DELAY_SECONDS = "0"
@@ -746,7 +748,7 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
       await func(mockHre)
     })
 
-    it("should name the bound as a deploy-script policy, not an on-chain rule", async () => {
+    it("should name the maximum as mirroring the on-chain bound", async () => {
       process.env.RESERVATION_DISSOLUTION_DELAY_SECONDS = "63072001"
       const { mockHre } = createMockHre()
       let rejection: unknown
@@ -757,8 +759,8 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
       }
       expect(rejection, "func should throw").to.be.instanceOf(Error)
       const { message } = rejection as Error
-      expect(message).to.include("deploy-script policy")
-      expect(message).to.include("the Bridge itself does not bound this value")
+      expect(message).to.include("deploy-script guard")
+      expect(message).to.include("MAX_RESERVATION_DISSOLUTION_DELAY")
     })
 
     it("should reject a zero delay from the pure policy helper", () => {
