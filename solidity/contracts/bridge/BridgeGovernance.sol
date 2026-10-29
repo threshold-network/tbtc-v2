@@ -1981,4 +1981,40 @@ contract BridgeGovernance is Ownable {
             0
         );
     }
+
+    /// @notice Returns the reservation caps update staged by
+    ///         `beginReservationCapsUpdate`, as the five values in that
+    ///         function's argument order followed by the initiation
+    ///         timestamp.
+    /// @dev A zero timestamp means nothing is staged; all six values are
+    ///      zero when the slot is empty. `finalizeReservationCapsUpdate`
+    ///      clears the timestamp along with the staged values.
+    ///      Only one caps update can be pending: `beginReservationCapsUpdate`
+    ///      overwrites the staged values and the timestamp without a warning,
+    ///      so read this view before every `begin` to see whether a change
+    ///      is already staged, for instance a capacity reduction, and to
+    ///      record what the call is about to replace. The view is
+    ///      unrestricted because the same values are already public through
+    ///      the `ReservationCapsUpdateStarted` event.
+    function pendingReservationCapsUpdate()
+        external
+        view
+        returns (
+            uint64 newMaxReservationsAmountPerWallet,
+            uint64 newReservationMaxSingleAmount,
+            uint32 newMaxActiveReservations,
+            uint32 newMaxThirdPartyReanchorHoldsPerWallet,
+            uint32 newHandoffReserveWallets,
+            uint256 changeInitiated
+        )
+    {
+        return (
+            reservationCapsData.newMaxReservationsAmountPerWallet,
+            reservationCapsData.newReservationMaxSingleAmount,
+            reservationCapsData.newMaxActiveReservations,
+            reservationCapsData.newMaxThirdPartyReanchorHoldsPerWallet,
+            reservationCapsData.newHandoffReserveWallets,
+            reservationCapsData.reservationCapsChangeInitiated
+        );
+    }
 }
