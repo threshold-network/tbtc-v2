@@ -67,6 +67,7 @@ import type {
   Bank,
   BankStub,
   Bridge,
+  BridgeGovernance,
   BridgeStub,
   IWalletRegistry,
   IRelay,
@@ -133,6 +134,7 @@ describe("Bridge - Reservation settlement", () => {
   let governance: HardhatEthersSigner
   let spvMaintainer: HardhatEthersSigner
   let thirdParty: HardhatEthersSigner
+  let guardians: HardhatEthersSigner[]
   let deployer: HardhatEthersSigner
 
   let bank: Bank & BankStub
@@ -144,6 +146,7 @@ describe("Bridge - Reservation settlement", () => {
   let tbtc: TBTC
   let tbtcVault: TBTCVault
   let reservationVault: ReservationVault
+  let bridgeGovernance: BridgeGovernance
   let bridgeGovernanceSigner: HardhatEthersSigner
 
   const walletPubKeyHash = "0x8db50eb52063ea9d98b3eac91489a90f738986f6"
@@ -163,10 +166,12 @@ describe("Bridge - Reservation settlement", () => {
       governance,
       spvMaintainer,
       thirdParty,
+      guardians,
       bank,
       relay,
       walletRegistry,
       bridge,
+      bridgeGovernance,
       reimbursementPool,
       tbtc,
       tbtcVault,
@@ -438,6 +443,202 @@ describe("Bridge - Reservation settlement", () => {
 
     return { fundingTx, anchorTx, reservationKey }
   }
+
+  // `BridgeGovernance.requestReservationReanchor` is the only route to the
+  // privileged branch of `Reservation.requestReservationReanchor` while the
+  // source wallet is Live: the router admits the call only when `msg.sender`
+  // is the Bridge's governance address, and on mainnet that address holds
+  // `BridgeGovernance`, not an EOA. The other cases in this file impersonate
+  // that address, which skips the forwarder; these call the contract as its
+  // owner.
+  describe("governance rotation off a Live source wallet", () => {
+    beforeEach(async () => {
+      await createSnapshot()
+    })
+
+    afterEach(async () => {
+      await restoreSnapshot()
+    })
+
+    async function setWalletState(pkh: string, state: number) {
+      await bridge.setWallet(pkh, {
+        ecdsaWalletID: ethers.randomBytes(32),
+        mainUtxoHash: ZERO_BYTES32,
+        pendingRedemptionsValue: 0,
+        createdAt: await lastBlockTime(),
+        movingFundsRequestedAt: state === walletState.MovingFunds ? 1 : 0,
+        closingStartedAt: 0,
+        pendingMovedFundsSweepRequestsCount: 0,
+        state,
+        movingFundsTargetWalletsCommitmentHash: ZERO_BYTES32,
+      })
+    }
+
+    it("rotates a Live-source position end to end", async () => {
+      const { anchorTx, reservationKey } = await makeAcceptedReservation()
+      const sourceCountBefore =
+        await reservationRouter.walletReservationsCount(walletPubKeyHash)
+      const targetCountBefore = await reservationRouter.walletReservationsCount(
+        secondWalletPubKeyHash
+      )
+
+      await expect(
+        bridgeGovernance
+          .connect(governance)
+          .requestReservationReanchor(reservationKey, secondWalletPubKeyHash)
+      )
+        .to.emit(reservationRouter, "ReservationReanchorRequested")
+        .withArgs(
+          reservationKey,
+          2,
+          walletPubKeyHash,
+          secondWalletPubKeyHash,
+          BigInt(RESERVATION_TX_MAX_FEE)
+        )
+
+      expect(
+        (await reservationRouter.reservations(reservationKey)).state
+      ).to.equal(ReservationState.ActionPending)
+      // The target's capacity is reserved by the request; the source's is
+      // released only at settlement.
+      expect(
+        await reservationRouter.walletReservationsCount(secondWalletPubKeyHash)
+      ).to.equal(targetCountBefore + 1n)
+      expect(
+        await reservationRouter.walletReservationsCount(walletPubKeyHash)
+      ).to.equal(sourceCountBefore)
+
+      const hopTx = buildTx(
+        [{ txHash: anchorTx.txHash, index: 0 }],
+        [
+          {
+            valueSat: anchorAmount,
+            script: p2wpkhScript(secondWalletPubKeyHash),
+          },
+        ]
+      )
+      await reservationRouter
+        .connect(spvMaintainer)
+        .submitReservationReanchorProof(
+          hopTx.info,
+          proofFor(hopTx.txHash),
+          reservationKey,
+          2
+        )
+
+      const reservation = await reservationRouter.reservations(reservationKey)
+      expect(reservation.walletPubKeyHash).to.equal(secondWalletPubKeyHash)
+      expect(reservation.state).to.equal(ReservationState.Active)
+      expect(
+        await reservationRouter.walletReservationsCount(walletPubKeyHash)
+      ).to.equal(sourceCountBefore - 1n)
+    })
+
+    it("reverts when the caller is not the owner", async () => {
+      const { reservationKey } = await makeAcceptedReservation()
+
+      await expect(
+        bridgeGovernance
+          .connect(thirdParty)
+          .requestReservationReanchor(reservationKey, secondWalletPubKeyHash)
+      ).to.be.revertedWith("Ownable: caller is not the owner")
+
+      expect(
+        (await reservationRouter.reservations(reservationKey)).state
+      ).to.equal(ReservationState.Active)
+    })
+
+    it("keeps the Live-source gate shut for a direct EOA call", async () => {
+      // `governance` also owns `BridgeGovernance`: the closest EOA
+      // equivalent of the Council Safe, and still refused, because the
+      // Bridge's governance slot holds the contract rather than the owner.
+      const { reservationKey } = await makeAcceptedReservation()
+
+      await expect(
+        reservationRouter
+          .connect(governance)
+          .requestReservationReanchor(
+            reservationKey,
+            secondWalletPubKeyHash,
+            [],
+            0
+          )
+      ).to.be.revertedWith("Only governance can rotate a Live wallet's anchor")
+    })
+
+    it("forwards a MovingFunds source the same way the hand-off path did", async () => {
+      const { anchorTx, reservationKey } = await makeAcceptedReservation()
+      await setWalletState(walletPubKeyHash, walletState.MovingFunds)
+
+      await expect(
+        bridgeGovernance
+          .connect(governance)
+          .requestReservationReanchor(reservationKey, secondWalletPubKeyHash)
+      )
+        .to.emit(reservationRouter, "ReservationReanchorRequested")
+        .withArgs(
+          reservationKey,
+          2,
+          walletPubKeyHash,
+          secondWalletPubKeyHash,
+          BigInt(RESERVATION_TX_MAX_FEE)
+        )
+
+      // A privileged hand-off never counts against the target's
+      // third-party hold cap.
+      expect(
+        await reservationRouter.pendingThirdPartyReanchorHolds(
+          secondWalletPubKeyHash
+        )
+      ).to.equal(0)
+
+      const hopTx = buildTx(
+        [{ txHash: anchorTx.txHash, index: 0 }],
+        [
+          {
+            valueSat: anchorAmount,
+            script: p2wpkhScript(secondWalletPubKeyHash),
+          },
+        ]
+      )
+      await reservationRouter
+        .connect(spvMaintainer)
+        .submitReservationReanchorProof(
+          hopTx.info,
+          proofFor(hopTx.txHash),
+          reservationKey,
+          2
+        )
+
+      expect(
+        (await reservationRouter.reservations(reservationKey)).walletPubKeyHash
+      ).to.equal(secondWalletPubKeyHash)
+    })
+
+    it("leaves the permissionless MovingFunds path reachable for third parties", async () => {
+      // `thirdParty` is this file's depositor, so it is the reservation's
+      // owner and therefore privileged; a guardian is the ordinary caller.
+      const { reservationKey } = await makeAcceptedReservation()
+      await setWalletState(walletPubKeyHash, walletState.MovingFunds)
+
+      await expect(
+        reservationRouter
+          .connect(guardians[0])
+          .requestReservationReanchor(
+            reservationKey,
+            secondWalletPubKeyHash,
+            [],
+            0
+          )
+      ).to.emit(reservationRouter, "ReservationReanchorRequested")
+
+      expect(
+        await reservationRouter.pendingThirdPartyReanchorHolds(
+          secondWalletPubKeyHash
+        )
+      ).to.equal(1)
+    })
+  })
 
   describe("cumulative re-anchor fee exposure (accepted regression)", () => {
     // A scaled parameter regime, the same technique `#1102`'s own
