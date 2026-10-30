@@ -217,6 +217,14 @@ contract ReservationSurfaceHandler is ReservationHandler {
 
     /// @dev mode 0: privileged (governance) request, which is the only one
     ///      allowed off a Live source; 1: third party.
+    /// @dev The third-party mode must change the caller, not only the
+    ///      `privileged` argument. The stack deposits belong to this
+    ///      handler and the handler is an approved SPV maintainer, so a
+    ///      request from the handler is privileged under both exemptions
+    ///      whatever the argument says, and the third-party hold cap is
+    ///      never reached. The third-party mode therefore calls from
+    ///      `THIRD_PARTY`, which is neither the reservation owner nor a
+    ///      maintainer, exactly like the accounting campaign does.
     function surfaceRequestReanchor(
         uint256 keySeed,
         uint256 targetSeed,
@@ -226,8 +234,14 @@ contract ReservationSurfaceHandler is ReservationHandler {
         uint256 key = stackKeys[keySeed % stackKeys.length];
         bytes20 target = stackWallets[targetSeed % stackWallets.length];
         mode = mode % 2;
+        if (mode == 1) {
+            vm.prank(THIRD_PARTY);
+        }
         try stack.requestReservationReanchor(key, target, mode == 0) {
             successes["surfaceRequestReanchor"] += 1;
+            if (mode == 1) {
+                successes["surfaceRequestReanchorThirdParty"] += 1;
+            }
         } catch {}
     }
 

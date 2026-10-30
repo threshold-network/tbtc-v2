@@ -460,6 +460,66 @@ contract ReservationSurfaceTest is Test {
     }
 
 
+    // ---------------------------------------------------------------------
+    // Campaign action reach: the third-party re-anchor request
+    // ---------------------------------------------------------------------
+
+    /// @dev The third-party mode of the re-anchor request must be issued by
+    ///      a caller that is neither the reservation owner nor an approved
+    ///      SPV maintainer, so the request records a third-party hold and
+    ///      the hold cap is reached.
+    function test_thirdPartyReanchorRequestRecordsAThirdPartyHold() public {
+        uint256 key = _acceptedPosition(0);
+
+        // The source wallet leaves Live, which is the only state a
+        // permissionless re-anchor may leave from.
+        handler.surfaceAdvanceWallet(0, false);
+
+        handler.surfaceRequestReanchor(key, 1, 1);
+
+        Reservation.ReservationRequest memory r = stack.reservationRecord(key);
+        Reservation.ReservationAction memory a = stack.reservationActionRecord(
+            key,
+            r.requestNonce
+        );
+        assertEq(
+            uint8(Reservation.ActionType.Reanchor),
+            uint8(a.actionType),
+            "the third-party request did not create a re-anchor"
+        );
+        assertTrue(
+            a.thirdPartyHold,
+            "the third-party request did not record a third-party hold"
+        );
+    }
+
+    /// @dev The hold cap is a real limit on the third-party mode: a second
+    ///      third-party request against the same target is refused once the
+    ///      cap is exhausted.
+    function test_thirdPartyReanchorHoldCapIsEnforced() public {
+        uint256 key = _acceptedPosition(0);
+
+        handler.surfaceAdvanceWallet(0, false);
+
+        // The cap is one hold per wallet in this configuration.
+        handler.surfaceRequestReanchor(key, 1, 1);
+        Reservation.ReservationRequest memory r = stack.reservationRecord(key);
+        Reservation.ReservationAction memory a = stack.reservationActionRecord(
+            key,
+            r.requestNonce
+        );
+        assertTrue(a.thirdPartyHold, "the first request took no hold");
+
+        uint256 before = handler.successes("surfaceRequestReanchor");
+        handler.surfaceRequestReanchor(key, 1, 1);
+        assertEq(
+            before,
+            handler.successes("surfaceRequestReanchor"),
+            "a third-party request past the hold cap was accepted"
+        );
+    }
+
+
     /// @dev Opens a position and returns its key: the reveal, the
     ///      acceptance authorization and the settlement.
     function _acceptedPosition(uint256 walletSeed) internal returns (uint256) {
