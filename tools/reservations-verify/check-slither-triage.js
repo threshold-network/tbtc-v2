@@ -136,7 +136,7 @@ const main = () => {
       const mapping = element.source_mapping || {}
       const file = mapping.filename_relative || mapping.filename_short
       return file && normFile(file).includes(scope)
-    }),
+    })
   )
 
   const rows = readTriage(TRIAGE)
@@ -144,7 +144,7 @@ const main = () => {
     rows.map((row) => [
       `${row.detector}\u0000${normFile(row.file)}\u0000${row.symbol}`,
       row,
-    ]),
+    ])
   )
 
   const untriaged = []
@@ -182,7 +182,7 @@ const main = () => {
   const out = []
   out.push(
     `Slither triage, scope \`${scope}\`${head ? `, head ${head}` : ""}, ` +
-      `${inScope.length} of ${detectors.length} results in scope.`,
+      `${inScope.length} of ${detectors.length} results in scope.`
   )
   out.push("")
   out.push("| # | detector | impact | file:line | symbol | verdict | row |")
@@ -191,7 +191,7 @@ const main = () => {
     out.push(
       `| ${index + 1} | ${finding.check} | ${finding.impact || "?"} | ` +
         `${lineOf(finding)} | ${symbolOf(finding)} | ` +
-        `${row ? row.verdict : "untriaged"} | ${row ? row.id : "-"} |`,
+        `${row ? row.verdict : "untriaged"} | ${row ? row.id : "-"} |`
     )
   })
   out.push("")
@@ -221,7 +221,7 @@ const main = () => {
     const shown = sorted.slice(0, 8).join(", ")
     const more = sorted.length > 8 ? `, and ${sorted.length - 8} more` : ""
     out.push(
-      `- \`${verdict}\` (${sorted.length} rows: ${shown}${more}): ${reason}`,
+      `- \`${verdict}\` (${sorted.length} rows: ${shown}${more}): ${reason}`
     )
   }
   out.push("")
@@ -232,7 +232,7 @@ const main = () => {
     for (const finding of untriaged) {
       out.push(
         `- ${finding.check} (${finding.impact || "?"}) at ${lineOf(finding)} ` +
-          `${symbolOf(finding)}`,
+          `${symbolOf(finding)}`
       )
     }
     out.push("")
@@ -261,7 +261,7 @@ const main = () => {
   out.push(
     `tbtc-v2.slither.findings = ${barValue} (in-scope findings with no ` +
       `triage row or with verdict \`open\`), bar is \`== 0\`: ` +
-      `${barValue === 0 ? "MET" : "NOT MET"}`,
+      `${barValue === 0 ? "MET" : "NOT MET"}`
   )
 
   process.stdout.write(out.join("\n") + "\n")
