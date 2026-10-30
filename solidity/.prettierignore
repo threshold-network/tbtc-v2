@@ -14,3 +14,6 @@ export.json
 # L1BTCDepositorNttWithExecutor.sol stays byte-frozen: its deployment record is
 # reconstructed from on-chain state and verification depends on the exact source.
 contracts/cross-chain/wormhole/L1BTCDepositorNttWithExecutor.sol
+
+# gas reporter side artifact (regenerated on every test run)
+gasReporterOutput.json

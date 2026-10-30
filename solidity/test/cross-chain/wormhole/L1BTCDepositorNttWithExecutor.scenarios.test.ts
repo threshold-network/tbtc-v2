@@ -21,6 +21,15 @@ const { createSnapshot, restoreSnapshot } = helpers.snapshot
 const WORMHOLE_CHAIN_DESTINATION = 32
 const WORMHOLE_CHAIN_BASE = 30
 
+// Staging writes the whole executor parameter set (including the quote and
+// relay-instruction byte strings) into storage, which makes Hardhat's gas
+// estimate land a few thousand gas below what the mined transaction needs;
+// the transaction is then rejected with "Transaction reverted and Hardhat
+// couldn't infer the reason" (empty revert data, out of gas in the proxy
+// delegatecall). Pin a gas limit that cannot be the limiting factor so the
+// scenario assertions do not depend on the estimate.
+const STAGE_GAS = { gasLimit: 1_500_000 }
+
 describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
   let depositor: L1BTCDepositorNttWithExecutor
   let bridge: MockTBTCBridge
@@ -104,7 +113,8 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
         .setExecutorParameters(
           { ...EXECUTOR_ARGS_REAL_QUOTE, refundAddress: user.address },
           FEE_ARGS_ZERO,
-          WORMHOLE_CHAIN_DESTINATION
+          WORMHOLE_CHAIN_DESTINATION,
+          STAGE_GAS
         )
 
       // Test quotes for different supported chains: post-M4-fix a quote
@@ -120,7 +130,8 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
         .setExecutorParameters(
           { ...EXECUTOR_ARGS_REAL_QUOTE, refundAddress: user.address },
           FEE_ARGS_ZERO,
-          WORMHOLE_CHAIN_BASE
+          WORMHOLE_CHAIN_BASE,
+          STAGE_GAS
         )
       const quoteBase = await depositor
         .connect(user)
@@ -166,7 +177,8 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
         .setExecutorParameters(
           executorArgs,
           zeroFeeArgs,
-          WORMHOLE_CHAIN_DESTINATION
+          WORMHOLE_CHAIN_DESTINATION,
+          STAGE_GAS
         )
       const [isSet1] = await depositor.connect(user).areExecutorParametersSet()
       expect(isSet1).to.be.true
@@ -190,7 +202,8 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
         .setExecutorParameters(
           executorArgs,
           highFeeArgs,
-          WORMHOLE_CHAIN_DESTINATION
+          WORMHOLE_CHAIN_DESTINATION,
+          STAGE_GAS
         )
       const [isSet2] = await depositor.connect(user).areExecutorParametersSet()
       expect(isSet2).to.be.true
@@ -214,7 +227,8 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
         .setExecutorParameters(
           executorArgs,
           maxFeeArgs,
-          WORMHOLE_CHAIN_DESTINATION
+          WORMHOLE_CHAIN_DESTINATION,
+          STAGE_GAS
         )
       const [isSet3] = await depositor.connect(user).areExecutorParametersSet()
       expect(isSet3).to.be.true
@@ -249,7 +263,8 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
         .setExecutorParameters(
           executorArgs,
           feeArgs1,
-          WORMHOLE_CHAIN_DESTINATION
+          WORMHOLE_CHAIN_DESTINATION,
+          STAGE_GAS
         )
 
       // Update default for fee recipient 2
@@ -271,7 +286,8 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
         .setExecutorParameters(
           executorArgs,
           feeArgs2,
-          WORMHOLE_CHAIN_DESTINATION
+          WORMHOLE_CHAIN_DESTINATION,
+          STAGE_GAS
         )
       const [isSet] = await depositor.connect(user).areExecutorParametersSet()
       expect(isSet).to.be.true
@@ -298,7 +314,8 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
           .setExecutorParameters(
             executorArgs,
             FEE_ARGS_ZERO,
-            WORMHOLE_CHAIN_DESTINATION
+            WORMHOLE_CHAIN_DESTINATION,
+            STAGE_GAS
           )
 
         // eslint-disable-next-line no-await-in-loop
@@ -327,7 +344,8 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
         .setExecutorParameters(
           executorArgs,
           FEE_ARGS_ZERO,
-          WORMHOLE_CHAIN_DESTINATION
+          WORMHOLE_CHAIN_DESTINATION,
+          STAGE_GAS
         )
       const [isSet1] = await depositor.connect(user).areExecutorParametersSet()
       expect(isSet1).to.be.true
@@ -343,7 +361,8 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
         .setExecutorParameters(
           executorArgs,
           FEE_ARGS_ZERO,
-          WORMHOLE_CHAIN_DESTINATION
+          WORMHOLE_CHAIN_DESTINATION,
+          STAGE_GAS
         )
       const [isSet3] = await depositor.connect(user).areExecutorParametersSet()
       expect(isSet3).to.be.true
@@ -365,7 +384,8 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
         .setExecutorParameters(
           { ...EXECUTOR_ARGS_REAL_QUOTE, refundAddress: user.address },
           FEE_ARGS_ZERO,
-          WORMHOLE_CHAIN_DESTINATION
+          WORMHOLE_CHAIN_DESTINATION,
+          STAGE_GAS
         )
 
       // Verify that executor parameters are now set
@@ -382,7 +402,8 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
         .setExecutorParameters(
           { ...EXECUTOR_ARGS_REAL_QUOTE, refundAddress: user.address },
           FEE_ARGS_ZERO,
-          WORMHOLE_CHAIN_DESTINATION
+          WORMHOLE_CHAIN_DESTINATION,
+          STAGE_GAS
         )
 
       // Try to quote for unsupported chain (should fail)

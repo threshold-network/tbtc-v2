@@ -1,0 +1,294 @@
+import type { HardhatRuntimeEnvironment } from "hardhat/types"
+import type { DeployFunction } from "hardhat-deploy/types"
+import { assertReservedDepositsFeasible } from "./98_generate_reservation_mainnet_calldata"
+
+// Local/test values; see the divergence notes at each call below. The
+// single-amount cap equals the Bridge's initial 1,000,000-sat dust threshold
+// (Bridge.initialize): the Bridge rejects any non-zero amount cap below the
+// dust threshold while a vault is configured, because no reveal could fit.
+const PER_WALLET_CAP = BigInt("1000000")
+const SINGLE_AMOUNT_CAP = BigInt("1000000")
+const TERM_SECONDS = 7776000 // 90 days = MIN_RESERVATION_TERM
+const MAX_TOTAL_AMOUNT = BigInt("10000000")
+
+/**
+ * 97_set_reservation_parameters.ts
+ *
+ * Wires the freshly deployed `ReservationVault` into the Bridge and marks it
+ * as trusted. Pairs with 95 (`95_deploy_reservation_vault.ts`) and 96
+ * (`96_transfer_reservation_vault_ownership.ts`).
+ *
+ * Per `step-05-f-g-build-brief.md` §PR-G, the activation sequence is:
+ *
+ *   1. `beginReservationCapsUpdate(maxReservationsAmountPerWallet,
+ *      reservationMaxSingleAmount, maxActiveReservations,
+ *      maxThirdPartyReanchorHoldsPerWallet, handoffReserveWallets)`
+ *      (selector `0x4c1cda81`), then `finalizeReservationCapsUpdate()` —
+ *      MUST run first. This
+ *      passes trivially because `reservationMaxTotalAmount` defaults to 0,
+ *      so the relational check is `0 <= anything`. This is the
+ *      setter-ordering hazard the bootstrap-ordering test in PR #B
+ *      already exhibits.
+ *
+ *   2. `beginReservationParametersUpdate(...)` then
+ *      `finalizeReservationParametersUpdate()` — wires the vault address
+ *      into the Bridge (the reservationVault arg) and sets the rest of
+ *      the reservation parameters. Total must fit under
+ *      `maxActiveReservations * reservationMaxSingleAmount` set in step 1.
+ *
+ *   3. `setVaultStatus(vault, true)` via `BridgeGovernance` — marks the
+ *      vault as trusted. Until this runs, deposits cannot be revealed
+ *      with the vault. Activation-ordering gate: on a real network this
+ *      must execute at or after this network's keep-core activation
+ *      block; see solidity/docs/RESERVATION_CAPS_DEPLOYMENT.md,
+ *      "Client Activation Ordering Gate".
+ *
+ * The `reservationVault` is set as the first argument of
+ * `beginReservationParametersUpdate` — there is no separate
+ * `setReservationVault` setter.
+ *
+ * Fee-reserve notice: this script does not set the vault's fee reserve
+ * target (it deploys at 0); governance must run
+ * `ReservationVault.updateFeeReserveTarget(target)` - or explicitly
+ * accept a zero reserve - before on-chain activation; see
+ * solidity/docs/RESERVATION_CAPS_DEPLOYMENT.md, "Fee-Reserve Target
+ * Governance Step".
+ *
+ * Trust-revocation notice: if governance later revokes trust with
+ * `setVaultStatus(vault, false)`, every acceptance settled while the
+ * vault is untrusted (on time or late) settles by direct credit to the
+ * depositor with no initiation fee; see
+ * solidity/docs/RESERVATION_CAPS_DEPLOYMENT.md, "Fee Fallback When
+ * Vault Trust Is Revoked".
+ *
+ * Test-network shortcut: on local development networks (hardhat,
+ * localhost, development, system_tests) where the timelock is bypassed,
+ * this script may begin and finalize in the same deploy run. On live
+ * non-mainnet networks (e.g. sepolia) this script runs the `begin*`
+ * steps only; the `finalize*` steps must be executed separately after
+ * the governance delay elapses (60s on sepolia, 48h on mainnet).
+ * Mainnet is skipped entirely via `func.skip` until the timelock is
+ * reviewed for production use.
+ */
+const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
+  const { deployments, getNamedAccounts, helpers, network } = hre
+  const { execute, get, read } = deployments
+  const { governance } = await getNamedAccounts()
+
+  const ReservationVault = await get("ReservationVault")
+
+  // `BridgeGovernance` is deployed with a 48-hour delay on every network
+  // except Sepolia, so a begin/finalize pair cannot complete in one run
+  // without moving the chain clock. Local development chains can, so this
+  // script keeps its documented "begin and finalize in the same deploy run"
+  // behaviour there. On live networks the finalizers are the operator's job
+  // after the delay elapses, and `func.skip` below already excludes mainnet.
+  const localNetworks = ["hardhat", "localhost", "development", "system_tests"]
+  const isLocalNetwork = localNetworks.includes(network.name)
+
+  const passGovernanceDelay = async () => {
+    if (!isLocalNetwork) {
+      return
+    }
+    const governanceDelay = await read(
+      "BridgeGovernance",
+      "governanceDelays",
+      0
+    )
+    await helpers.time.increaseTime(governanceDelay.toNumber() + 1)
+  }
+
+  // These test values were sized for local chains. On a live network the
+  // Bridge's deposit parameters may make them unusable (a reveal-ahead
+  // period longer than the 90-day term plus 24h, or a dust threshold above
+  // the caps), and activating with them would give a vault that can never
+  // hold a reservation. Refuse instead; use the network's runbook values.
+  if (!isLocalNetwork) {
+    const depositParameters = await read("Bridge", "depositParameters")
+    assertReservedDepositsFeasible({
+      depositDustThreshold: BigInt(depositParameters[0].toString()),
+      depositRevealAheadPeriod: Number(depositParameters[3].toString()),
+      termSeconds: TERM_SECONDS,
+      singleAmountCap: SINGLE_AMOUNT_CAP,
+      perWalletCap: PER_WALLET_CAP,
+      maxTotalAmount: MAX_TOTAL_AMOUNT,
+    })
+  }
+
+  // ----- Step 1: begin/finalize updateReservationCaps --------------------
+  // Settle the setter-ordering hazard. Reservation.sol defaults
+  // `reservationMaxTotalAmount` to 0, so the relational check in the
+  // finalizer passes trivially.
+  deployments.log("[1/3] beginReservationCapsUpdate")
+  await execute(
+    "BridgeGovernance",
+    { from: governance, log: true, waitConfirmations: 1 },
+    "beginReservationCapsUpdate",
+    // NOTE: these local/test values (maxReservationsAmountPerWallet=1e6,
+    // maxActiveReservations=100) are an intentional divergence from the
+    // M1-decided mainnet launch values that
+    // 98_generate_reservation_mainnet_calldata.ts hard-enforces
+    // (maxReservationsPerWallet must be exactly 1; maxActiveReservations
+    // must not exceed the live-wallet floor). Larger local/test values give
+    // more throughput for exercising the reservation flow in tests and are
+    // deliberately NOT meant to mirror the mainnet configuration.
+    // values per agent-docs/inventory/reservation-parameters.md
+    PER_WALLET_CAP, // maxReservationsAmountPerWallet
+    SINGLE_AMOUNT_CAP, // reservationMaxSingleAmount
+    BigInt("100"), // maxActiveReservations
+    BigInt("1"), // maxThirdPartyReanchorHoldsPerWallet
+    // One Live wallet is held back from acceptance capacity by the
+    // hand-off reserve gate, so a wallet retiring always leaves room for
+    // its open positions on the remaining Live wallets.
+    BigInt("1") // handoffReserveWallets
+  )
+  if (isLocalNetwork) {
+    await passGovernanceDelay()
+    await execute(
+      "BridgeGovernance",
+      { from: governance, log: true, waitConfirmations: 1 },
+      "finalizeReservationCapsUpdate"
+    )
+  } else {
+    const delay = await read("BridgeGovernance", "governanceDelays", 0)
+    deployments.log(
+      `[PENDING FINALIZE] Network: ${network.name} | Function: finalizeReservationCapsUpdate | ` +
+        `Args: () | Governance delay: ${delay.toString()}s | ` +
+        "Run separately after delay elapses"
+    )
+  }
+
+  // ----- Step 2: begin/finalize updateReservationParameters --------------
+  // `reservationVault` (the first arg) is set here — no separate
+  // `setReservationVault` setter exists. Total must fit under the
+  // `maxActiveReservations * reservationMaxSingleAmount` product set in
+  // step 1 (100 * 1_000_000 = 100_000_000, above 10_000_000).
+  deployments.log("[2/3] beginReservationParametersUpdate")
+  await execute(
+    "BridgeGovernance",
+    { from: governance, log: true, waitConfirmations: 1 },
+    "beginReservationParametersUpdate",
+    ReservationVault.address, // reservationVault
+    BigInt("10000"), // reservationMinAmount
+    BigInt("1000"), // reservationTxMaxFee
+    BigInt(TERM_SECONDS), // reservationTermSeconds (90 days = MIN_RESERVATION_TERM)
+    BigInt("86400"), // reservationDissolutionDelay (1 day)
+    MAX_TOTAL_AMOUNT, // reservationMaxTotalAmount
+    // NOTE: 5, not the mainnet-required 1 (see the divergence note above
+    // Step 1) -- deliberately larger for local/test throughput.
+    BigInt("5"), // maxReservationsPerWallet
+    BigInt("86400"), // reservationActionTimeout
+    BigInt("86400") // reservationRenewalWindowSeconds
+  )
+  if (isLocalNetwork) {
+    await passGovernanceDelay()
+    await execute(
+      "BridgeGovernance",
+      { from: governance, log: true, waitConfirmations: 1 },
+      "finalizeReservationParametersUpdate"
+    )
+  } else {
+    const delay = await read("BridgeGovernance", "governanceDelays", 0)
+    deployments.log(
+      `[PENDING FINALIZE] Network: ${network.name} | Function: finalizeReservationParametersUpdate | ` +
+        `Args: () | Governance delay: ${delay.toString()}s | ` +
+        "Run separately after delay elapses (do not run before " +
+        "finalizeReservationCapsUpdate has been executed and confirmed " +
+        "on-chain -- finalizing parameters before caps reverts on-chain)"
+    )
+  }
+
+  // ----- Step 3: setVaultStatus true (activate the vault) ----------------
+  // Final activation step. Until this runs, deposits cannot be revealed
+  // with the vault. This MUST NOT run before Step 2's finalize has
+  // actually executed on-chain (reservationVault wired into the Bridge) —
+  // otherwise the vault is marked trusted while `reservationVault` is
+  // still the zero address, letting deposits routed to the vault be
+  // revealed as ordinary (non-reserved) deposits. Step 2's finalize only
+  // runs synchronously here on local networks; on live non-mainnet
+  // networks it is deferred, so this step must be deferred too.
+  // Activation-ordering gate: on a real network this must execute at or
+  // after this network's keep-core activation block; see
+  // solidity/docs/RESERVATION_CAPS_DEPLOYMENT.md, "Client Activation
+  // Ordering Gate".
+  if (isLocalNetwork) {
+    deployments.log("[3/3] Activating vault via setVaultStatus")
+    await execute(
+      "BridgeGovernance",
+      { from: governance, log: true, waitConfirmations: 1 },
+      "setVaultStatus",
+      ReservationVault.address,
+      true
+    )
+  } else {
+    deployments.log(
+      `[PENDING ACTIVATION] Network: ${network.name} | Function: setVaultStatus | ` +
+        `Args: (${ReservationVault.address}, true) | ` +
+        "Run separately after finalizeReservationParametersUpdate has been executed " +
+        "and confirmed on-chain (do not activate while reservationVault is still zero)"
+    )
+    deployments.log(
+      "Activation-ordering gate: setVaultStatus(vault, true) must execute " +
+        "at or after this network's keep-core activation block; see " +
+        "solidity/docs/RESERVATION_CAPS_DEPLOYMENT.md, " +
+        "'Client Activation Ordering Gate'"
+    )
+    deployments.log(
+      "Fee-reserve notice: this script does not set the vault's fee " +
+        "reserve target (it deploys at 0); governance must run " +
+        "ReservationVault.updateFeeReserveTarget(target), or explicitly " +
+        "accept a zero reserve, before activation; see " +
+        "solidity/docs/RESERVATION_CAPS_DEPLOYMENT.md, " +
+        "'Fee-Reserve Target Governance Step'"
+    )
+    deployments.log(
+      "Trust-revocation notice: after setVaultStatus(vault, false), " +
+        "every acceptance settled while the vault is untrusted (on time " +
+        "or late) settles by direct credit to the depositor with no " +
+        "initiation fee; see solidity/docs/RESERVATION_CAPS_DEPLOYMENT.md, " +
+        "'Fee Fallback When Vault Trust Is Revoked'"
+    )
+  }
+}
+
+export default func
+
+func.tags = ["ReservationParameters", "ReservationVaultActivation"]
+func.dependencies = [
+  "ReservationVault",
+  "ReservationVaultOwnership",
+  "Bridge",
+  // Every reservation setter below is a router selector reached through
+  // `Bridge.fallback()`; without a router set the fallback reverts.
+  "ReservationRouter",
+  // `BridgeGovernance`'s governance-gated setters call into Bridge, which
+  // checks `onlyGovernance` (Bridge.governance == msg.sender). Bridge's
+  // own governance is only handed to BridgeGovernance by
+  // `21_transfer_bridge_governance.ts`, which is `runAtTheEnd = true` and
+  // therefore always runs after every non-`runAtTheEnd` script regardless
+  // of numeric filename order (hardhat-deploy buckets `runAtTheEnd`
+  // scripts into a separate batch that always runs last). Without this
+  // script also being `runAtTheEnd` (below) and depending on that tag,
+  // every governance-gated call here reverts with "Caller is not the
+  // governance" on every network, not just tests — found 2026-08-26.
+  "TransferBridgeGovernance",
+  // `BridgeGovernance` itself is `Ownable`; ownership transfers from
+  // `deployer` to `governance` in `22_transfer_bridge_governance_ownership.ts`
+  // (also `runAtTheEnd`, and by filename order it registers before this
+  // script within the end batch). Every `execute` call below signs as
+  // `governance`, matching the post-transfer owner — found 2026-08-26.
+  "BridgeGovernanceOwnership",
+]
+
+// Must run after `TransferBridgeGovernance` (see the dependency comment
+// above); `runAtTheEnd` scripts respect their own dependency graph within
+// the end batch, so this still executes after Bridge's governance is
+// handed to BridgeGovernance and before nothing else depends on it.
+func.runAtTheEnd = true
+
+// Skip on mainnet until the timelock is reviewed for production use.
+// This script is a deploy-time helper for test/development networks.
+// Production activation runs through the governance timelock as separate
+// runbook steps.
+func.skip = async (hre: HardhatRuntimeEnvironment): Promise<boolean> =>
+  hre.network.name === "mainnet"

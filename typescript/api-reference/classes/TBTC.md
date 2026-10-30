@@ -30,6 +30,7 @@ subpath which exports the base TBTC class.
 - [deposits](TBTC.md#deposits)
 - [maintenance](TBTC.md#maintenance)
 - [redemptions](TBTC.md#redemptions)
+- [reservations](TBTC.md#reservations)
 - [tbtcContracts](TBTC.md#tbtccontracts)
 
 ### Methods
@@ -118,7 +119,7 @@ Bitcoin client handle for low-level access.
 
 #### Defined in
 
-[src/services/tbtc-core.ts:44](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc-core.ts#L44)
+[src/services/tbtc-core.ts:49](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc-core.ts#L49)
 
 ___
 
@@ -134,7 +135,7 @@ Service supporting the tBTC v2 deposit flow.
 
 #### Defined in
 
-[src/services/tbtc-core.ts:27](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc-core.ts#L27)
+[src/services/tbtc-core.ts:28](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc-core.ts#L28)
 
 ___
 
@@ -151,7 +152,7 @@ and operators.
 
 #### Defined in
 
-[src/services/tbtc-core.ts:32](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc-core.ts#L32)
+[src/services/tbtc-core.ts:33](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc-core.ts#L33)
 
 ___
 
@@ -167,7 +168,23 @@ Service supporting the tBTC v2 redemption flow.
 
 #### Defined in
 
-[src/services/tbtc-core.ts:36](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc-core.ts#L36)
+[src/services/tbtc-core.ts:37](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc-core.ts#L37)
+
+___
+
+### reservations
+
+• `Readonly` **reservations**: `ReservationsService`
+
+Service supporting the tBTC v2 UTXO reservation flow.
+
+#### Inherited from
+
+[TBTCCore](TBTCCore.md).[reservations](TBTCCore.md#reservations)
+
+#### Defined in
+
+[src/services/tbtc-core.ts:41](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc-core.ts#L41)
 
 ___
 
@@ -183,7 +200,7 @@ Handle to tBTC contracts for low-level access.
 
 #### Defined in
 
-[src/services/tbtc-core.ts:40](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc-core.ts#L40)
+[src/services/tbtc-core.ts:45](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc-core.ts#L45)
 
 ## Methods
 
@@ -333,7 +350,7 @@ This function is especially useful for local development as it gives
 
 #### Defined in
 
-[src/services/tbtc-core.ts:149](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc-core.ts#L149)
+[src/services/tbtc-core.ts:156](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc-core.ts#L156)
 
 ___
 

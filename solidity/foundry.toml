@@ -74,6 +74,7 @@ additional_compiler_profiles = [
 compilation_restrictions = [
     { paths = "node_modules/@keep-network/ecdsa/contracts/WalletRegistry.sol", optimizer_runs = 200 },
     { paths = "contracts/bridge/BridgeGovernance.sol", optimizer_runs = 200 },
+    { paths = "contracts/bridge/Bridge.sol", optimizer_runs = 200 },
     { paths = "contracts/cross-chain/wormhole/L1BTCDepositorNttWithExecutor.sol", optimizer_runs = 1 }
 ]
 
@@ -82,3 +83,10 @@ runs = 256
 
 [profile.ci.fuzz]
 runs = 1000
+
+# Audit proof-of-concept guards (test/audit-poc) and the test/fizz helpers they
+# import. Opt-in: the default and ci profiles keep test-foundry as the only
+# suite, so CI is unchanged. Run them with `yarn test:audit-poc` or
+# `FOUNDRY_PROFILE=audit forge test -vvv`.
+[profile.audit]
+test = "test/audit-poc"

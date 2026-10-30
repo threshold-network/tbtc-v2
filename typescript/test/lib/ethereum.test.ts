@@ -21,6 +21,11 @@ import {
 import chai, { expect } from "chai"
 import { BigNumber, Wallet, constants, getDefaultProvider, utils } from "ethers"
 import { MockProvider } from "@ethereum-waffle/provider"
+import { EthereumReservations } from "../../src"
+import {
+  reservationBridgeAbiFragments,
+  type AbiFragment,
+} from "../../src/lib/ethereum/artifacts/reservation-bridge-fragments"
 import { waffleChai } from "@ethereum-waffle/chai"
 import { assertContractCalledWith } from "../utils/helpers"
 
@@ -988,6 +993,42 @@ describe("Ethereum", () => {
       it("should return the signer's network", async () => {
         expect(await chainIdFromSigner(mockProvider)).to.be.eql("1")
       })
+    })
+  })
+  describe("EthereumReservations", () => {
+    let bridgeContract: MockContract
+    let handle: EthereumReservations
+    const [signer] = new MockProvider().getWallets()
+
+    // The published Bridge artifact does not declare the router views; the
+    // handle reads them through the merged fragment ABI, so the mock
+    // contract needs the same merge to understand them.
+    const mergedBridgeABI = [
+      ...BridgeABI,
+      ...(reservationBridgeAbiFragments as AbiFragment[] as object[]),
+    ]
+
+    beforeEach(async () => {
+      bridgeContract = await deployMockContract(
+        signer,
+        `${JSON.stringify(mergedBridgeABI)}`
+      )
+      handle = new EthereumReservations({
+        address: bridgeContract.address,
+        signerOrProvider: signer,
+      })
+    })
+
+    it("should decode the live wallet count view", async () => {
+      await bridgeContract.mock.liveWalletsCount.returns(4)
+
+      expect(await handle.liveWalletsCount()).to.equal(4)
+    })
+
+    it("should decode the hand-off reserve view from the fragment ABI", async () => {
+      await bridgeContract.mock.reservationHandoffReserveWallets.returns(2)
+
+      expect(await handle.reservationHandoffReserveWallets()).to.equal(2)
     })
   })
 })

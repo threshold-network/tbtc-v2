@@ -15,6 +15,8 @@
 
 pragma solidity 0.8.17;
 
+import "./Reservation.sol";
+
 /// @title Bridge Governance library for storing updatable parameters.
 library BridgeGovernanceParameters {
     struct TreasuryData {
@@ -101,6 +103,29 @@ library BridgeGovernanceParameters {
         uint256 fraudSlashingAmountChangeInitiated;
         uint32 newFraudNotifierRewardMultiplier;
         uint256 fraudNotifierRewardMultiplierChangeInitiated;
+    }
+    struct ReservationData {
+        address newReservationVault;
+        uint64 newReservationMinAmount;
+        uint64 newReservationTxMaxFee;
+        uint32 newReservationTermSeconds;
+        uint32 newReservationDissolutionDelay;
+        uint64 newReservationMaxTotalAmount;
+        uint32 newMaxReservationsPerWallet;
+        uint32 newReservationActionTimeout;
+        uint32 newReservationRenewalWindowSeconds;
+        uint256 reservationParametersChangeInitiated;
+    }
+
+    struct ReservationCapsData {
+        uint64 newMaxReservationsAmountPerWallet;
+        uint64 newReservationMaxSingleAmount;
+        uint32 newMaxActiveReservations;
+        uint256 reservationCapsChangeInitiated;
+        // Appended to the end of the struct to keep any future storage
+        // layout upgrade of this data append-only.
+        uint32 newMaxThirdPartyReanchorHoldsPerWallet;
+        uint32 newHandoffReserveWallets;
     }
 
     event DepositDustThresholdUpdateStarted(
@@ -330,6 +355,28 @@ library BridgeGovernanceParameters {
 
     event TreasuryUpdateStarted(address newTreasury, uint256 timestamp);
     event TreasuryUpdated(address treasury);
+
+    event ReservationParametersUpdateStarted(
+        address newReservationVault,
+        uint64 newReservationMinAmount,
+        uint64 newReservationTxMaxFee,
+        uint32 newReservationTermSeconds,
+        uint32 newReservationDissolutionDelay,
+        uint64 newReservationMaxTotalAmount,
+        uint32 newMaxReservationsPerWallet,
+        uint32 newReservationActionTimeout,
+        uint32 newReservationRenewalWindowSeconds,
+        uint256 timestamp
+    );
+
+    event ReservationCapsUpdateStarted(
+        uint64 newMaxReservationsAmountPerWallet,
+        uint64 newReservationMaxSingleAmount,
+        uint32 newMaxActiveReservations,
+        uint32 newMaxThirdPartyReanchorHoldsPerWallet,
+        uint32 newHandoffReserveWallets,
+        uint256 timestamp
+    );
 
     /// @notice Reverts if called before the governance delay elapses.
     /// @param changeInitiatedTimestamp Timestamp indicating the beginning
@@ -1570,5 +1617,176 @@ library BridgeGovernanceParameters {
 
         self.newTreasury = address(0);
         self.treasuryChangeInitiated = 0;
+    }
+
+    // --- Reservation
+
+    /// @notice Begins the reservation parameters update process. All
+    ///         reservation parameters (including the reservation vault) are
+    ///         staged together since they are applied atomically via a
+    ///         single Bridge call.
+    /// @dev `reservationDissolutionTxMaxFee` and `maxCumulativeReanchorFee`,
+    ///      once declared in `BridgeState` for m2 storage completeness, were
+    ///      removed as dead/unused before this milestone shipped (neither
+    ///      was ever read or written in m1). Reservation parameters
+    ///      accordingly do not include them. See
+    ///      `Reservation.updateReservationParameters` for the underlying
+    ///      validation requirements. `reservationDissolutionDelay` must not
+    ///      exceed `Reservation.MAX_RESERVATION_DISSOLUTION_DELAY`: the
+    ///      delay is added to a granted term's expiry to compute the uint32
+    ///      `dissolutionEligibleAt`, so an unbounded delay can overflow that
+    ///      checked addition and revert every acceptance settlement.
+    /// @param _newReservationVault New reservation vault address.
+    /// @param _newReservationMinAmount New reservation minimum amount.
+    /// @param _newReservationTxMaxFee New reservation transaction max fee.
+    /// @param _newReservationTermSeconds New reservation term in seconds.
+    /// @param _newReservationDissolutionDelay New reservation dissolution delay.
+    /// @param _newReservationMaxTotalAmount New reservation max total amount.
+    /// @param _newMaxReservationsPerWallet New max reservations per wallet.
+    /// @param _newReservationActionTimeout New reservation action timeout.
+    /// @param _newReservationRenewalWindowSeconds New reservation renewal window in seconds.
+    function beginReservationParametersUpdate(
+        ReservationData storage self,
+        address _newReservationVault,
+        uint64 _newReservationMinAmount,
+        uint64 _newReservationTxMaxFee,
+        uint32 _newReservationTermSeconds,
+        uint32 _newReservationDissolutionDelay,
+        uint64 _newReservationMaxTotalAmount,
+        uint32 _newMaxReservationsPerWallet,
+        uint32 _newReservationActionTimeout,
+        uint32 _newReservationRenewalWindowSeconds
+    ) external {
+        /* solhint-disable not-rely-on-time */
+        // The delay is added to a granted term's expiry to compute the uint32
+        // `dissolutionEligibleAt`. An unbounded delay can overflow that
+        // checked addition and revert every acceptance settlement, and it can
+        // keep a position ineligible for stranding indefinitely. Reject it
+        // at the staging step so an over-long delay never enters the
+        // governance delay window.
+        require(
+            _newReservationDissolutionDelay <=
+                Reservation.MAX_RESERVATION_DISSOLUTION_DELAY,
+            "Reservation dissolution delay out of protocol bounds"
+        );
+        self.newReservationVault = _newReservationVault;
+        self.newReservationMinAmount = _newReservationMinAmount;
+        self.newReservationTxMaxFee = _newReservationTxMaxFee;
+        self.newReservationTermSeconds = _newReservationTermSeconds;
+        self.newReservationDissolutionDelay = _newReservationDissolutionDelay;
+        self.newReservationMaxTotalAmount = _newReservationMaxTotalAmount;
+        self.newMaxReservationsPerWallet = _newMaxReservationsPerWallet;
+        self.newReservationActionTimeout = _newReservationActionTimeout;
+        self.newReservationRenewalWindowSeconds =
+            _newReservationRenewalWindowSeconds;
+        self.reservationParametersChangeInitiated = block.timestamp;
+        emit ReservationParametersUpdateStarted(
+            _newReservationVault,
+            _newReservationMinAmount,
+            _newReservationTxMaxFee,
+            _newReservationTermSeconds,
+            _newReservationDissolutionDelay,
+            _newReservationMaxTotalAmount,
+            _newMaxReservationsPerWallet,
+            _newReservationActionTimeout,
+            _newReservationRenewalWindowSeconds,
+            block.timestamp
+        );
+        /* solhint-enable not-rely-on-time */
+    }
+
+    /// @notice Finalizes the reservation parameters update process.
+    /// @dev The staged values are read by the caller before this call; this
+    ///      function only enforces the governance delay and clears the
+    ///      staged change along with all staged reservation parameters.
+    function finalizeReservationParametersUpdate(
+        ReservationData storage self,
+        uint256 governanceDelay
+    )
+        external
+        onlyAfterGovernanceDelay(
+            self.reservationParametersChangeInitiated,
+            governanceDelay
+        )
+    {
+        self.newReservationVault = address(0);
+        self.newReservationMinAmount = 0;
+        self.newReservationTxMaxFee = 0;
+        self.newReservationTermSeconds = 0;
+        self.newReservationDissolutionDelay = 0;
+        self.newReservationMaxTotalAmount = 0;
+        self.newMaxReservationsPerWallet = 0;
+        self.newReservationActionTimeout = 0;
+        self.newReservationRenewalWindowSeconds = 0;
+        self.reservationParametersChangeInitiated = 0;
+    }
+
+    /// @notice Begins the reservation caps update process. Mirrors the
+    ///         begin/finalize dust-threshold pattern. The total amount cap
+    ///         (`reservationMaxTotalAmount`) and the two slot-capacity
+    ///         operands (`maxActiveReservations`, `reservationMaxSingleAmount`)
+    ///         are owned by different setters, so this staged update must
+    ///         finalize first when bootstrapping to satisfy the relational
+    ///         check enforced by `Reservation.updateReservationParameters`
+    ///         (`reservationMaxTotalAmount <= maxActiveReservations *
+    ///         reservationMaxSingleAmount`).
+    /// @param _newMaxReservationsAmountPerWallet New max reservations amount per wallet.
+    /// @param _newReservationMaxSingleAmount New reservation max single amount.
+    /// @param _newMaxActiveReservations New max active reservations.
+    /// @param _newMaxThirdPartyReanchorHoldsPerWallet New per-target cap on
+    ///        the number of concurrently pending third-party re-anchor
+    ///        holds; zero means third parties may not hold re-anchor
+    ///        capacity at all.
+    /// @param _newHandoffReserveWallets New number of Live wallets held
+    ///        back from acceptance capacity by the hand-off reserve gate;
+    ///        must be at least one.
+    function beginReservationCapsUpdate(
+        ReservationCapsData storage self,
+        uint64 _newMaxReservationsAmountPerWallet,
+        uint64 _newReservationMaxSingleAmount,
+        uint32 _newMaxActiveReservations,
+        uint32 _newMaxThirdPartyReanchorHoldsPerWallet,
+        uint32 _newHandoffReserveWallets
+    ) external {
+        /* solhint-disable not-rely-on-time */
+        self.newMaxReservationsAmountPerWallet =
+            _newMaxReservationsAmountPerWallet;
+        self.newReservationMaxSingleAmount = _newReservationMaxSingleAmount;
+        self.newMaxActiveReservations = _newMaxActiveReservations;
+        self.newMaxThirdPartyReanchorHoldsPerWallet =
+            _newMaxThirdPartyReanchorHoldsPerWallet;
+        self.newHandoffReserveWallets = _newHandoffReserveWallets;
+        self.reservationCapsChangeInitiated = block.timestamp;
+        emit ReservationCapsUpdateStarted(
+            _newMaxReservationsAmountPerWallet,
+            _newReservationMaxSingleAmount,
+            _newMaxActiveReservations,
+            _newMaxThirdPartyReanchorHoldsPerWallet,
+            _newHandoffReserveWallets,
+            block.timestamp
+        );
+        /* solhint-enable not-rely-on-time */
+    }
+
+    /// @notice Finalizes the reservation caps update process.
+    /// @dev The staged values are read by the caller before this call; this
+    ///      function only enforces the governance delay and clears the
+    ///      staged change along with all staged reservation caps.
+    function finalizeReservationCapsUpdate(
+        ReservationCapsData storage self,
+        uint256 governanceDelay
+    )
+        external
+        onlyAfterGovernanceDelay(
+            self.reservationCapsChangeInitiated,
+            governanceDelay
+        )
+    {
+        self.newMaxReservationsAmountPerWallet = 0;
+        self.newReservationMaxSingleAmount = 0;
+        self.newMaxActiveReservations = 0;
+        self.newMaxThirdPartyReanchorHoldsPerWallet = 0;
+        self.newHandoffReserveWallets = 0;
+        self.reservationCapsChangeInitiated = 0;
     }
 }

@@ -1,7 +1,7 @@
 import { BigNumber } from "ethers"
-import { EthereumAddress, Hex } from "@keep-network/tbtc-v2.ts"
+import { EthereumAddress, Hex } from "@keep-network/tbtc-v2.ts/core"
 
-import type { RedemptionRequestedEvent } from "@keep-network/tbtc-v2.ts"
+import type { RedemptionRequestedEvent } from "@keep-network/tbtc-v2.ts/core"
 
 export function redemptionRequest(
   blockNumber = 10,
