@@ -1943,4 +1943,78 @@ contract BridgeGovernance is Ownable {
             depositKey
         );
     }
+
+    /// @notice Authorizes moving a reservation's anchor from its current
+    ///         Live source wallet to another Live wallet. This is the
+    ///         governance-approved rotation path of
+    ///         `Reservation.requestReservationReanchor`, which admits only
+    ///         Bridge governance as the caller when the source wallet is
+    ///         still Live. The call is forwarded to the reservation surface
+    ///         at the Bridge address, so the caller the router observes is
+    ///         this contract, i.e. Bridge governance.
+    /// @param reservationKey The key of the reservation to re-anchor.
+    /// @param targetWalletPubKeyHash 20-byte public key hash of the target
+    ///        wallet, which must be Live and different from the source
+    ///        wallet.
+    /// @dev Can be called only by the contract owner. The call carries
+    ///      empty `walletMembersIDs` and member index 0: the governance
+    ///      path takes no signing-group member proof.
+    /// @dev This function does not have a governance delay, following
+    ///      `forceStaleReservedDeposit` rather than the reservation
+    ///      parameter setters. The delay pattern covers updates that apply
+    ///      to every position at once, where staging is the only way to
+    ///      publish the change before it takes effect; this call affects
+    ///      one identified position, and
+    ///      `Reservation.requestReservationReanchor` re-checks every
+    ///      condition (reservation Active, target wallet Live and
+    ///      different from the source, target capacity, request-time
+    ///      amount floor) at execution time, so a staged copy would only
+    ///      let those conditions drift before the finalize.
+    function requestReservationReanchor(
+        uint256 reservationKey,
+        bytes20 targetWalletPubKeyHash
+    ) external onlyOwner {
+        IReservationBridge(address(bridge)).requestReservationReanchor(
+            reservationKey,
+            targetWalletPubKeyHash,
+            new uint32[](0),
+            0
+        );
+    }
+
+    /// @notice Returns the reservation caps update staged by
+    ///         `beginReservationCapsUpdate`, as the five values in that
+    ///         function's argument order followed by the initiation
+    ///         timestamp.
+    /// @dev A zero timestamp means nothing is staged; all six values are
+    ///      zero when the slot is empty. `finalizeReservationCapsUpdate`
+    ///      clears the timestamp along with the staged values.
+    ///      Only one caps update can be pending: `beginReservationCapsUpdate`
+    ///      overwrites the staged values and the timestamp without a warning,
+    ///      so read this view before every `begin` to see whether a change
+    ///      is already staged, for instance a capacity reduction, and to
+    ///      record what the call is about to replace. The view is
+    ///      unrestricted because the same values are already public through
+    ///      the `ReservationCapsUpdateStarted` event.
+    function pendingReservationCapsUpdate()
+        external
+        view
+        returns (
+            uint64 newMaxReservationsAmountPerWallet,
+            uint64 newReservationMaxSingleAmount,
+            uint32 newMaxActiveReservations,
+            uint32 newMaxThirdPartyReanchorHoldsPerWallet,
+            uint32 newHandoffReserveWallets,
+            uint256 changeInitiated
+        )
+    {
+        return (
+            reservationCapsData.newMaxReservationsAmountPerWallet,
+            reservationCapsData.newReservationMaxSingleAmount,
+            reservationCapsData.newMaxActiveReservations,
+            reservationCapsData.newMaxThirdPartyReanchorHoldsPerWallet,
+            reservationCapsData.newHandoffReserveWallets,
+            reservationCapsData.reservationCapsChangeInitiated
+        );
+    }
 }

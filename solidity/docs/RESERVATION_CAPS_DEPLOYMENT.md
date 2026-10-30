@@ -2,12 +2,12 @@
 
 ## Overview
 
-The milestone-1 reservation subsystem introduces two governance setters with a deploy-ordering dependency and a fourth ABI/event argument relative to the #1094 specification. This document covers the new coordination requirements.
+The milestone-1 reservation subsystem introduces two governance setters with a deploy-ordering dependency and two further ABI/event arguments relative to the #1094 specification. This document covers the new coordination requirements.
 
 Changes relative to #1094:
 
-- `updateReservationCaps` now takes a fourth argument `maxThirdPartyReanchorHoldsPerWallet` (uint32, zero allowed). The 4-byte selector changes; existing Defender / Safe / Tenderly / multisend scripts that encode the 3-argument version will revert.
-- The `ReservationCapsUpdated` event gained a fourth field `maxThirdPartyReanchorHoldsPerWallet`. Off-chain indexers and dashboards that decode the 3-field version will need to update their event ABI; consumers that only read a subset of fields and ignore unknown trailing fields may only need a rebind/restart.
+- `updateReservationCaps` now takes two further arguments, `maxThirdPartyReanchorHoldsPerWallet` (uint32, zero allowed) and `handoffReserveWallets` (uint32, at least one). The 4-byte selector changes; existing Defender / Safe / Tenderly / multisend scripts that encode the 3-argument or 4-argument version will revert.
+- The `ReservationCapsUpdated` event gained two further fields, `maxThirdPartyReanchorHoldsPerWallet` and `handoffReserveWallets`. Off-chain indexers and dashboards that decode the 3-field or 4-field version will need to update their event ABI; consumers that only read a subset of fields and ignore unknown trailing fields may only need a rebind/restart.
 - `updateReservationParameters` enforces the Decision 1 on-chain relational check `reservationMaxTotalAmount <= maxActiveReservations * reservationMaxSingleAmount` by reading both `self.maxActiveReservations` and `self.reservationMaxSingleAmount` from storage. In the pristine pre-launch bootstrap state, both are zero, so the check short-circuits and any `reservationMaxTotalAmount` is accepted. Subsequent calls can revert with `Amount cap exceeds slot capacity` if governance sets `reservationMaxTotalAmount` first and the later `updateReservationCaps` operands cannot accommodate it.
 - A second, independent precondition applies whenever `updateReservationParameters` changes `reservationVault` to a non-zero address: the stored `self.maxActiveReservations` must already be greater than zero, or the call reverts with `Max active reservations must be greater than zero`. On a chain that has never run `updateReservationCaps`, `maxActiveReservations` is zero, so the bootstrap write that wires the vault into the Bridge **cannot** be the first reservation write. The caps write must land first — see "Deploy Order (Decision 1)".
 - `requestReservationReanchor` now takes a source-wallet member proof (`walletMembersIDs`, `walletMemberIndex`). The reservation owner, an SPV maintainer, and a proven source-wallet member are exempt from the per-target third-party re-anchor hold cap; every other caller reserves a pending third-party hold against the target wallet and reverts with "Target third-party re-anchor holds exceeded" once the target's pending count reaches `maxThirdPartyReanchorHoldsPerWallet` (zero blocks third-party holds entirely).
@@ -95,7 +95,7 @@ cast call "$BRIDGE_GOVERNANCE" "owner()(address)"                     # expect $
 cast call "$BRIDGE" "governance()(address)"                           # expect the candidate, after Stage 1
 ```
 
-1. **Correct deployment, source and ABI.** The candidate's deployment is recorded, its deployed bytecode matches the artifact built from this repository's `BridgeGovernance.sol` together with its linked library `BridgeGovernanceParameters`, and its ABI exposes the whole reservation surface this runbook uses — `setReservationRouter(address)`, `beginReservationCapsUpdate(uint64,uint64,uint32,uint32,uint32)`, `finalizeReservationCapsUpdate()`, `beginReservationParametersUpdate(address,uint64,uint64,uint32,uint32,uint64,uint32,uint32,uint32)`, `finalizeReservationParametersUpdate()`, `setVaultStatus(address,bool)`, plus the `governanceDelays(uint256)` and `owner()` getters. A candidate built from a different source revision, or linked differently, is a fresh-deployment decision, not a reuse decision.
+1. **Correct deployment, source and ABI.** The candidate's deployment is recorded, its deployed bytecode matches the artifact built from this repository's `BridgeGovernance.sol` together with its linked library `BridgeGovernanceParameters`, and its ABI exposes the whole reservation surface this runbook uses — `setReservationRouter(address)`, `beginReservationCapsUpdate(uint64,uint64,uint32,uint32,uint32)`, `finalizeReservationCapsUpdate()`, `pendingReservationCapsUpdate()`, `beginReservationParametersUpdate(address,uint64,uint64,uint32,uint32,uint64,uint32,uint32,uint32)`, `finalizeReservationParametersUpdate()`, `setVaultStatus(address,bool)`, plus the `governanceDelays(uint256)` and `owner()` getters. A candidate built from a different source revision, or linked differently, is a fresh-deployment decision, not a reuse decision.
 2. **Successful read-only preflights.** Each call above must succeed. Verify the candidate's `governanceDelays(0)` and Council Safe ownership. Record `Bridge.governance()` before the handoff: it may still return the old governance address. Equality with the candidate is the postcondition of Stage 1, not a prerequisite for deploying the candidate. A candidate still owned by the deployer must transfer ownership to the Council Safe before Safe calls.
 
 - **Reuse** a candidate whose deployment, source, ABI, owner and delay are verified. Stage 1 determines whether the Bridge governance handoff is still required.
@@ -159,6 +159,15 @@ Must be first. Every later reservation selector (`updateReservationCaps`, `updat
 **Call 2 — `beginReservationCapsUpdate(maxReservationsAmountPerWallet, reservationMaxSingleAmount, maxActiveReservations, maxThirdPartyReanchorHoldsPerWallet, handoffReserveWallets)`** (selector `0x4c1cda81`).
 
 Stages all five caps values. `maxActiveReservations` must be greater than zero, and `handoffReserveWallets` must be greater than zero.
+
+**Preflight before Call 2 — read the pending caps slot.** `BridgeGovernance` holds exactly one staged caps slot, and `beginReservationCapsUpdate` overwrites it in place: a second `begin` replaces the tuple and the initiation timestamp with no prompt, no revert and no cancel. Before submitting the begin, read what is already staged:
+
+```sh
+cast call "$BRIDGE_GOVERNANCE" \
+  "pendingReservationCapsUpdate()(uint64,uint64,uint32,uint32,uint32,uint256)"
+```
+
+The call (selector `0x2f6962b6`) returns the five staged values in this function's argument order, then the initiation timestamp. An all-zero tuple with a zero timestamp means nothing is staged. A non-zero timestamp means another caps change is already staged — a capacity reduction ahead of activation, for instance, which stages the same five values through the same slot — and this begin will replace it silently. Record the returned tuple and the timestamp in the governance log, together with the begin that follows. This read replaces the earlier workaround of comparing the last `ReservationCapsUpdateStarted` on `BridgeGovernance` against the last `ReservationCapsUpdated` on the Bridge: the event pair can only be compared after the fact, while the view reports the slot itself. `finalizeReservationCapsUpdate` clears the timestamp, so the same read after a finalize confirms the slot is empty again.
 
 **Call 3 — `beginReservationParametersUpdate(reservationVault, reservationMinAmount, reservationTxMaxFee, reservationTermSeconds, reservationDissolutionDelay, reservationMaxTotalAmount, maxReservationsPerWallet, reservationActionTimeout, reservationRenewalWindowSeconds)`** (selector `0x674ccdcb`).
 
@@ -626,7 +635,7 @@ The activation is not complete until the governance log contains, at minimum:
 - The `BridgeGovernance` address used, its owner (the Council Safe), and its `governanceDelays(0)` value at activation time.
 - The Bridge governance handoff: the `beginBridgeGovernanceTransfer` / `finalizeBridgeGovernanceTransfer` transaction hashes and the 48h window between them, or a note that the Bridge's governance already pointed at that `BridgeGovernance`.
 - The reservation router address and the on-chain code check that confirmed it is a contract at a non-zero address.
-- The three staged values (per-wallet cap, single-amount cap, `maxActiveReservations`) and the nine staged parameters, each with the environment-variable name it was generated from.
+- The five staged values (per-wallet cap, single-amount cap, `maxActiveReservations`, `maxThirdPartyReanchorHoldsPerWallet`, `handoffReserveWallets`) and the nine staged parameters, each with the environment-variable name it was generated from.
 - The Decision 1 arithmetic as evaluated: `reservationMaxTotalAmount` against `maxActiveReservations * reservationMaxSingleAmount`.
 - The `liveWalletsCount * maxReservationsPerWallet` slot-capacity check, with the block at which `liveWalletsCount` was read.
 - The chosen term, the `depositRevealAheadPeriod` in force at finalize time, and the derived `minFeasibleTerm`.
