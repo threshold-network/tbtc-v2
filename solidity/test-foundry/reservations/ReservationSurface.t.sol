@@ -8,6 +8,7 @@ import {StdInvariant} from "forge-std/StdInvariant.sol";
 import {Reservation} from "../../contracts/bridge/Reservation.sol";
 import {ReservationRouter} from "../../contracts/bridge/ReservationRouter.sol";
 import {WalletProposalValidator} from "../../contracts/bridge/WalletProposalValidator.sol";
+import {Wallets} from "../../contracts/bridge/Wallets.sol";
 
 import {ReservationSurfaceHandler} from "./ReservationSurfaceHandler.sol";
 import {ReservationStackHarness} from "./ReservationStackHarness.sol";
@@ -416,6 +417,168 @@ contract ReservationSurfaceTest is Test {
         assertEq(maxActive, probeActive);
         assertEq(maxHolds, probeHolds);
     }
+
+    // ---------------------------------------------------------------------
+    // Campaign action reach: the stale re-anchor recovery
+    // ---------------------------------------------------------------------
+
+    /// @dev A position whose re-anchor authorization has timed out is
+    ///      recovered by the campaign itself: the prove action expires the
+    ///      stale generation and issues a fresh one, without a separate
+    ///      timeout action.
+    function test_staleReanchorIsRecoveredAndReissued() public {
+        uint256 key = _acceptedPosition(0);
+
+        // Open a re-anchor generation off a retiring source.
+        handler.surfaceAdvanceWallet(0, false);
+        handler.surfaceRequestReanchor(key, 1, 0);
+        Reservation.ReservationRequest memory r = stack.reservationRecord(key);
+        uint64 firstNonce = r.requestNonce;
+        assertGt(firstNonce, 0, "no re-anchor generation was created");
+
+        // Move past the signing window of that generation.
+        Reservation.ReservationAction memory a = stack.reservationActionRecord(
+            key,
+            firstNonce
+        );
+        vm.warp(uint256(a.timeoutAt) + 1);
+
+        // The prove action must recover on its own.
+        handler.surfaceProveReanchor(key, 0, 0);
+
+        assertGt(
+            handler.successes("surfaceReanchorRecovered"),
+            0,
+            "the stale re-anchor was not recovered"
+        );
+        r = stack.reservationRecord(key);
+        assertGt(
+            r.requestNonce,
+            firstNonce,
+            "no fresh re-anchor generation was issued"
+        );
+    }
+
+    // ---------------------------------------------------------------------
+    // Campaign action reach: the wallet lifecycle
+    // ---------------------------------------------------------------------
+
+    /// @dev A wallet advances from Live through MovingFunds and Closing to
+    ///      Closed while at least three other wallets stay Live. The
+    ///      campaign action must not replace the selected wallet with a Live
+    ///      one, or the two last states are unreachable.
+    function test_walletAdvancesToClosedWhileThreeWalletsStayLive() public {
+        for (uint256 i = 0; i < 4; i++) {
+            handler.surfaceAdvanceWallet(i, false);
+        }
+
+        (, uint8 state) = handler.stackWalletAt(0);
+        assertEq(
+            uint8(Wallets.WalletState.MovingFunds),
+            state,
+            "the selected wallet did not reach MovingFunds"
+        );
+
+        handler.surfaceAdvanceWallet(0, false);
+        (, state) = handler.stackWalletAt(0);
+        assertEq(
+            uint8(Wallets.WalletState.Closing),
+            state,
+            "the selected wallet did not reach Closing"
+        );
+
+        handler.surfaceAdvanceWallet(0, false);
+        (, state) = handler.stackWalletAt(0);
+        assertEq(
+            uint8(Wallets.WalletState.Closed),
+            state,
+            "the selected wallet did not reach Closed"
+        );
+
+        uint256 live;
+        for (uint256 i = 0; i < 6; i++) {
+            (, uint8 walletState) = handler.stackWalletAt(i);
+            if (walletState == uint8(Wallets.WalletState.Live)) {
+                live += 1;
+            }
+        }
+        assertGe(live, 3, "the hand-off reserve of Live wallets was lost");
+    }
+
+    // ---------------------------------------------------------------------
+    // Campaign action reach: the third-party re-anchor request
+    // ---------------------------------------------------------------------
+
+    /// @dev The third-party mode of the re-anchor request must be issued by
+    ///      a caller that is neither the reservation owner nor an approved
+    ///      SPV maintainer, so the request records a third-party hold and
+    ///      the hold cap is reached.
+    function test_thirdPartyReanchorRequestRecordsAThirdPartyHold() public {
+        uint256 key = _acceptedPosition(0);
+
+        // The source wallet leaves Live, which is the only state a
+        // permissionless re-anchor may leave from.
+        handler.surfaceAdvanceWallet(0, false);
+
+        handler.surfaceRequestReanchor(key, 1, 1);
+
+        Reservation.ReservationRequest memory r = stack.reservationRecord(key);
+        Reservation.ReservationAction memory a = stack.reservationActionRecord(
+            key,
+            r.requestNonce
+        );
+        assertEq(
+            uint8(Reservation.ActionType.Reanchor),
+            uint8(a.actionType),
+            "the third-party request did not create a re-anchor"
+        );
+        assertTrue(
+            a.thirdPartyHold,
+            "the third-party request did not record a third-party hold"
+        );
+    }
+
+    /// @dev The hold cap is a real limit on the third-party mode: a second
+    ///      third-party request against the same target is refused once the
+    ///      cap is exhausted.
+    function test_thirdPartyReanchorHoldCapIsEnforced() public {
+        uint256 key = _acceptedPosition(0);
+
+        handler.surfaceAdvanceWallet(0, false);
+
+        // The cap is one hold per wallet in this configuration.
+        handler.surfaceRequestReanchor(key, 1, 1);
+        Reservation.ReservationRequest memory r = stack.reservationRecord(key);
+        Reservation.ReservationAction memory a = stack.reservationActionRecord(
+            key,
+            r.requestNonce
+        );
+        assertTrue(a.thirdPartyHold, "the first request took no hold");
+
+        uint256 before = handler.successes("surfaceRequestReanchor");
+        handler.surfaceRequestReanchor(key, 1, 1);
+        assertEq(
+            before,
+            handler.successes("surfaceRequestReanchor"),
+            "a third-party request past the hold cap was accepted"
+        );
+    }
+
+    /// @dev Opens a position and returns its key: the reveal, the
+    ///      acceptance authorization and the settlement.
+    function _acceptedPosition(uint256 walletSeed) internal returns (uint256) {
+        handler.surfaceReveal(walletSeed, 2_000_001, 1);
+        handler.surfaceRequestAcceptance(0);
+        uint256 key = handler.stackKeyAt(0);
+        vm.warp(block.timestamp + 2 hours + 1);
+        handler.surfaceProveAcceptance(0, 0, 0);
+        assertEq(
+            uint8(Reservation.ReservationState.Active),
+            uint8(stack.reservationRecord(key).state),
+            "the position did not open"
+        );
+        return key;
+    }
 }
 
 /// @notice Stateful invariant run over the surface handler. Medusa runs the
@@ -426,7 +589,14 @@ contract ReservationSurfaceInvariantsTest is StdInvariant, Test {
     function setUp() public {
         handler = new ReservationSurfaceHandler();
 
-        bytes4[] memory selectors = new bytes4[](18);
+        // Every action whose observation a property depends on must be
+        // reachable from the dispatcher, otherwise the property holds for
+        // every generated sequence without ever exercising its
+        // observation. `surfaceEarlyTimeout` is the only producer of
+        // `earlyTimeoutSucceeded`, `routerReadViews` the only producer of
+        // `routerViewMismatch`, and `surfaceValidateSweep` the only producer
+        // of `reservedSweepAccepted`.
+        bytes4[] memory selectors = new bytes4[](21);
         selectors[0] = handler.surfaceReveal.selector;
         selectors[1] = handler.surfaceRequestAcceptance.selector;
         selectors[2] = handler.surfaceProveAcceptance.selector;
@@ -445,6 +615,9 @@ contract ReservationSurfaceInvariantsTest is StdInvariant, Test {
         selectors[15] = handler.routerNonGovernanceUpdate.selector;
         selectors[16] = handler.surfaceNotifyTimeout.selector;
         selectors[17] = handler.surfaceAdvanceWallet.selector;
+        selectors[18] = handler.surfaceEarlyTimeout.selector;
+        selectors[19] = handler.routerReadViews.selector;
+        selectors[20] = handler.surfaceValidateSweep.selector;
         targetSelector(
             StdInvariant.FuzzSelector({
                 addr: address(handler),
@@ -506,6 +679,18 @@ contract ReservationSurfaceInvariantsTest is StdInvariant, Test {
         assertTrue(
             handler.property_validatorRejectsOutOfBoundProposals(),
             "the validator accepted an out-of-bound proposal"
+        );
+        // P24 / INV-401, SM-A5: the sweep entry point never accepts a
+        // proposal over a deposit revealed as reserved.
+        assertTrue(
+            handler.property_validatorNeverSweepsReservedDeposits(),
+            "the validator accepted a sweep over a reserved deposit"
+        );
+        // P24 / INV-401: the vault's initiation fee never exceeds the
+        // protocol ceiling, whatever the fee-update action proposes.
+        assertTrue(
+            handler.property_vaultFeeStaysWithinTheCeiling(),
+            "the vault's initiation fee exceeded the protocol ceiling"
         );
     }
 }

@@ -217,6 +217,14 @@ contract ReservationSurfaceHandler is ReservationHandler {
 
     /// @dev mode 0: privileged (governance) request, which is the only one
     ///      allowed off a Live source; 1: third party.
+    /// @dev The third-party mode must change the caller, not only the
+    ///      `privileged` argument. The stack deposits belong to this
+    ///      handler and the handler is an approved SPV maintainer, so a
+    ///      request from the handler is privileged under both exemptions
+    ///      whatever the argument says, and the third-party hold cap is
+    ///      never reached. The third-party mode therefore calls from
+    ///      `THIRD_PARTY`, which is neither the reservation owner nor a
+    ///      maintainer, exactly like the accounting campaign does.
     function surfaceRequestReanchor(
         uint256 keySeed,
         uint256 targetSeed,
@@ -226,8 +234,14 @@ contract ReservationSurfaceHandler is ReservationHandler {
         uint256 key = stackKeys[keySeed % stackKeys.length];
         bytes20 target = stackWallets[targetSeed % stackWallets.length];
         mode = mode % 2;
+        if (mode == 1) {
+            vm.prank(THIRD_PARTY);
+        }
         try stack.requestReservationReanchor(key, target, mode == 0) {
             successes["surfaceRequestReanchor"] += 1;
+            if (mode == 1) {
+                successes["surfaceRequestReanchorThirdParty"] += 1;
+            }
         } catch {}
     }
 
@@ -370,6 +384,13 @@ contract ReservationSurfaceHandler is ReservationHandler {
     ///      kept Live: the hand-off reserve gate needs Live wallets beyond the
     ///      reserve to admit an acceptance, so retiring every wallet would
     ///      make the acceptance path unreachable for the rest of a sequence.
+    /// @dev The selected wallet is kept. The Live count is guarded only for
+    ///      a wallet that is currently Live, because the guard exists to
+    ///      keep Live wallets available. A wallet that already left Live may
+    ///      advance along the rest of its lifecycle, so a MovingFunds wallet
+    ///      can reach Closing and a Closing wallet can reach Closed.
+    ///      Replacing a retiring selection with a Live wallet made those two
+    ///      states unreachable in the campaign.
     function surfaceAdvanceWallet(uint256 walletSeed, bool terminate) external {
         if (stackWallets.length == 0) return;
         uint256 live;
@@ -380,23 +401,7 @@ contract ReservationSurfaceHandler is ReservationHandler {
                 live += 1;
             }
         }
-        if (live <= 3) return;
-        // `requestReservationAcceptance` requires the designated wallet to be
-        // Live, so a deposit revealed to a retired wallet can never be
-        // accepted. Prefer a Live wallet so the acceptance path stays
-        // reachable while the fuzzer retires wallets.
         bytes20 wallet = stackWallets[walletSeed % stackWallets.length];
-        if (stack.walletState(wallet) != Wallets.WalletState.Live) {
-            for (uint256 i = 0; i < stackWallets.length; i++) {
-                if (
-                    stack.walletState(stackWallets[i]) ==
-                    Wallets.WalletState.Live
-                ) {
-                    wallet = stackWallets[i];
-                    break;
-                }
-            }
-        }
         Wallets.WalletState s = stack.walletState(wallet);
         if (
             s == Wallets.WalletState.Closed ||
@@ -404,6 +409,9 @@ contract ReservationSurfaceHandler is ReservationHandler {
         ) {
             return;
         }
+        // Retiring a Live wallet reduces the Live count, so the hand-off
+        // reserve guard applies to it only.
+        if (s == Wallets.WalletState.Live && live <= 3) return;
         Wallets.WalletState next =
             terminate
                 ? Wallets.WalletState.Terminated
@@ -1550,24 +1558,18 @@ contract ReservationSurfaceHandler is ReservationHandler {
     ///      refreshes one whose signing window has closed.
     function _ensurePendingReanchor(uint256 key) internal returns (bool) {
         if (_reanchorSignable(key)) return true;
+
+        // A pending re-anchor whose signing window has closed leaves the
+        // position in `ActionPending`, and the acceptance fallback in
+        // `_ensureOpenPosition` cannot resolve that state: the position
+        // holds a re-anchor generation, not an acceptance. The stale
+        // generation is expired first, through the production recovery path,
+        // so the position returns to `Active` and a fresh generation can be
+        // issued.
+        if (!_recoverStaleReanchor(key)) return false;
         if (!_ensureOpenPosition(key)) return false;
 
         Reservation.ReservationRequest memory r = stack.reservationRecord(key);
-        Reservation.ReservationAction memory a = stack.reservationActionRecord(
-            key,
-            r.requestNonce
-        );
-        if (
-            a.actionType == Reservation.ActionType.Reanchor &&
-            a.state == Reservation.ActionState.Pending
-        ) {
-            // The window has closed; move to the deadline so the timeout
-            // notification is legal, then re-issue.
-            if (block.timestamp < a.timeoutAt) vm.warp(a.timeoutAt);
-            _expireGeneration(key, Reservation.ActionType.Reanchor);
-        }
-
-        r = stack.reservationRecord(key);
         bytes20 target = stackWallets[
             uint256(uint160(r.walletPubKeyHash)) % stackWallets.length
         ];
@@ -1576,10 +1578,65 @@ contract ReservationSurfaceHandler is ReservationHandler {
                 (uint256(uint160(r.walletPubKeyHash)) + 1) % stackWallets.length
             ];
         }
+        // The target must be Live, and the campaign retires wallets, so the
+        // first choice may no longer be one.
+        if (stack.walletState(target) != Wallets.WalletState.Live) {
+            bytes20 live = _liveWalletOtherThan(r.walletPubKeyHash);
+            if (live == bytes20(0)) return false;
+            target = live;
+        }
         try stack.requestReservationReanchor(key, target, true) {} catch {
             return false;
         }
         return _reanchorSignable(key);
+    }
+
+    /// @dev Expires a pending re-anchor generation whose signing window has
+    ///      closed. Returns true when there is nothing stale to recover from
+    ///      or when the recovery went through. A position that is not in
+    ///      `ActionPending`, or whose latest generation is not a pending
+    ///      re-anchor, has nothing to recover.
+    function _recoverStaleReanchor(uint256 key) internal returns (bool) {
+        Reservation.ReservationRequest memory r = stack.reservationRecord(key);
+        if (r.requestNonce == 0) return true;
+        Reservation.ReservationAction memory a = stack.reservationActionRecord(
+            key,
+            r.requestNonce
+        );
+        if (
+            a.actionType != Reservation.ActionType.Reanchor ||
+            a.state != Reservation.ActionState.Pending
+        ) {
+            return true;
+        }
+        if (_reanchorSignable(key)) return true;
+
+        // Move to the deadline so the timeout notification is legal, then
+        // notify through the router, which is the production recovery path.
+        /* solhint-disable-next-line not-rely-on-time */
+        if (block.timestamp < uint256(a.timeoutAt)) vm.warp(a.timeoutAt);
+        if (!_expireGeneration(key, Reservation.ActionType.Reanchor)) {
+            return false;
+        }
+        successes["surfaceReanchorRecovered"] += 1;
+        return true;
+    }
+
+    /// @dev The first Live wallet that is not `source`, or the zero value
+    ///      when there is none.
+    function _liveWalletOtherThan(
+        bytes20 source
+    ) internal view returns (bytes20) {
+        for (uint256 i = 0; i < stackWallets.length; i++) {
+            bytes20 candidate = stackWallets[i];
+            if (
+                candidate != source &&
+                stack.walletState(candidate) == Wallets.WalletState.Live
+            ) {
+                return candidate;
+            }
+        }
+        return bytes20(0);
     }
 
     /// @dev Settles the pending re-anchor of `key`.
@@ -1706,6 +1763,15 @@ contract ReservationSurfaceHandler is ReservationHandler {
 
     function stackWalletOf(uint256 key) external view returns (bytes20) {
         return stackKeyWallet[key];
+    }
+
+    /// @dev The state of the campaign wallet at `index`, so a deterministic
+    ///      control can follow one wallet through its lifecycle.
+    function stackWalletAt(
+        uint256 index
+    ) external view returns (bytes20 wallet, uint8 state) {
+        wallet = stackWallets[index % stackWallets.length];
+        state = uint8(stack.walletState(wallet));
     }
 
     /// @dev Tops up the vault's Bank balance to the satoshi a burn will

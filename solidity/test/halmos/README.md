@@ -65,7 +65,7 @@ The tables below are the expectations written from reading the sources at the
 Sources: `Reservation.sol:596-600` (deposit floor
 `> minAmount + 2 * txMaxFee`), `ReservationProofs.sol:462-476` (fee at most
 `txMaxFee`, anchor at least `minAmount`), `Reservation.sol:900-906` (reanchor
-floor, strict), `Reservation.sol:1614-1621` (`txMaxFee > 0`,
+floor, strict), `Reservation.sol:1620-1627` (`txMaxFee > 0`,
 `minAmount > txMaxFee`).
 Command: `halmos --match-contract ReservationFloorHalmos --function check_`,
 profile `halmos`.
