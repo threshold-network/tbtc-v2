@@ -4901,8 +4901,29 @@ describe("Bridge - Governance", () => {
     const newMaxReservationsAmountPerWallet = 2000000
     const newReservationMaxSingleAmount = 1200000 // at least the 1,000,000-sat dust threshold
     const newMaxActiveReservations = 150
-    const newMaxThirdPartyReanchorHoldsPerWallet = 1
-    const newHandoffReserveWallets = 1
+    // Distinct from each other AND from the two amount caps, so that a swap
+    // of any two fields of the returned tuple is observable. The values
+    // themselves are irrelevant to the getter; only their distinctness is.
+    const newMaxThirdPartyReanchorHoldsPerWallet = 7
+    const newHandoffReserveWallets = 3
+
+    // The EVM-canonical selector of the getter, pinned here so that a change
+    // to its name or to its return types (which changes the selector) fails
+    // this test. The checked-in reservation ABI snapshot
+    // (solidity/test/fixtures/ReservationAbi.snapshot.json) covers
+    // `IReservationBridge` and `WalletProposalValidator` only, so
+    // `BridgeGovernance`'s own surface has no snapshot to catch this.
+    const PENDING_RESERVATION_CAPS_UPDATE_SELECTOR = "0x2f6962b6"
+
+    // The getter's declared output types, pinned here for the same reason.
+    const PENDING_RESERVATION_CAPS_UPDATE_OUTPUT_TYPES = [
+      "uint64",
+      "uint64",
+      "uint32",
+      "uint32",
+      "uint32",
+      "uint256",
+    ]
 
     // Second tuple, used to tell an overwrite from the first one. Larger,
     // so the relational check at `finalize` cannot be what fails.
@@ -4952,6 +4973,15 @@ describe("Bridge - Governance", () => {
 
       it("should return the staged tuple and its initiation timestamp", async () => {
         const staged = await bridgeGovernance.pendingReservationCapsUpdate()
+        expect(
+          bridgeGovernance.interface.getFunction("pendingReservationCapsUpdate")
+            .selector
+        ).to.be.equal(PENDING_RESERVATION_CAPS_UPDATE_SELECTOR)
+        expect(
+          bridgeGovernance.interface
+            .getFunction("pendingReservationCapsUpdate")
+            .outputs.map((o) => o.type)
+        ).to.deep.equal(PENDING_RESERVATION_CAPS_UPDATE_OUTPUT_TYPES)
         expect(staged.newMaxReservationsAmountPerWallet).to.be.equal(
           newMaxReservationsAmountPerWallet
         )
@@ -4999,6 +5029,12 @@ describe("Bridge - Governance", () => {
         const staged = await bridgeGovernance.pendingReservationCapsUpdate()
         expect(staged.newMaxActiveReservations).to.be.equal(
           overwrittenMaxActiveReservations
+        )
+        expect(staged.newMaxThirdPartyReanchorHoldsPerWallet).to.be.equal(
+          newMaxThirdPartyReanchorHoldsPerWallet
+        )
+        expect(staged.newHandoffReserveWallets).to.be.equal(
+          newHandoffReserveWallets
         )
         expect(staged.newMaxReservationsAmountPerWallet).to.be.equal(
           newMaxReservationsAmountPerWallet
