@@ -157,9 +157,9 @@ const coverageMode = (rows) => {
     console.log(
       `| ${row.id} | ${row.file} | ${row.symbol} | ${stmts.length}${
         stmts.length ? ` (${stmts.join(", ")})` : ""
-      } | ${arms.length}${arms.length ? ` (${arms.join(", ")})` : ""} | ${row.reason} | ${
-        row.reference
-      } |`
+      } | ${arms.length}${arms.length ? ` (${arms.join(", ")})` : ""} | ${
+        row.reason
+      } | ${row.reference} |`
     )
   }
 
