@@ -90,3 +90,12 @@ runs = 1000
 # `FOUNDRY_PROFILE=audit forge test -vvv`.
 [profile.audit]
 test = "test/audit-poc"
+
+# Halmos symbolic checks (test/halmos). Opt-in: the default and ci profiles
+# keep test-foundry as the only suite, so CI is unchanged. Run them with
+# FOUNDRY_PROFILE=halmos halmos --forge-build-out build/halmos
+# --match-contract ReservationFloorHalmos --function check_
+[profile.halmos]
+test = "test/halmos"
+out = "build/halmos"
+cache_path = "cache/halmos"
