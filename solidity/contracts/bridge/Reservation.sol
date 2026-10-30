@@ -1246,6 +1246,12 @@ library Reservation {
     ///      unreachable in m1):
     ///      - Reserved redemption settlement (PR #1112 / m2-redemption)
     ///      - Reservation dissolution settlement (PR #1114 / m2-dissolution)
+    ///      The helper ships in m1 as decided scaffolding (spec decision PD-3,
+    ///      milestone question D-8), so it has no caller here. Its statements
+    ///      and branch arms are therefore reported as uncovered and its mutants
+    ///      as surviving; both are accounted for in
+    ///      `tools/reservations-verify/exclusions.txt` (row EX-001). Re-check
+    ///      that list when the m2 settlement call sites land.
     function closeReservation(
         BridgeState.Storage storage self,
         ReservationRequest storage reservation
