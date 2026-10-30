@@ -456,7 +456,7 @@ interface IReservationBridge {
     ///      MAX_RESERVATION_DISSOLUTION_DELAY bound;
     ///      `reservationRenewalWindowSeconds` is greater than zero and
     ///      strictly shorter than the term; `reservationActionTimeout`
-    ///      exceeds the wallet validator's final signing safety margin;
+    ///      exceeds the validator's safety margin plus deposit minimum age;
     ///      `maxReservationsPerWallet` is greater than zero;
     ///      `reservationMaxTotalAmount` does not exceed the slot capacity
     ///      `maxActiveReservations * reservationMaxSingleAmount` (skipped
@@ -547,16 +547,16 @@ interface IReservationBridge {
     ) external;
 
     /// @notice Marks a reservation custodied by a terminated or closed
-    ///         wallet as stranded, or one custodied by a closing wallet once
-    ///         the reservation's dissolution-eligible timestamp has passed:
-    ///         an idle position closes, capacity is released and the
-    ///         owner's minted balance remains an ordinary pooled claim.
-    ///         Pending actions remain proof-eligible and cannot be
-    ///         stranded.
+    ///         wallet as stranded, or one custodied by a live or closing
+    ///         wallet once the reservation's dissolution-eligible timestamp
+    ///         has passed: an idle position closes, capacity is released
+    ///         and the owner's minted balance remains an ordinary pooled
+    ///         claim. Pending actions remain proof-eligible and cannot be
+    ///         stranded. See `Reservation.notifyReservationStranded`.
     /// @dev Callable by anyone. Reverts unless the reservation is Active
-    ///      and its custodying wallet is Terminated, Closed, or Closing
-    ///      with `block.timestamp >= reservation.dissolutionEligibleAt`.
-    ///      See `Reservation.notifyReservationStranded`.
+    ///      and its custodying wallet is Terminated, Closed, Live with
+    ///      `block.timestamp >= reservation.dissolutionEligibleAt`, or
+    ///      Closing with that timestamp and its closing period passed.
     /// @param reservationKey The key of the stranded reservation.
     function notifyReservationStranded(uint256 reservationKey) external;
 
