@@ -80,6 +80,7 @@ import type {
 import bridgeFixture from "../fixtures/bridge"
 import type { Mock } from "../helpers/mock"
 import { walletState } from "../fixtures"
+import { requireValue } from "../../helpers/require-value"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 const { lastBlockTime, increaseTime } = helpers.time
@@ -633,7 +634,10 @@ describe("Bridge - Reservation settlement", () => {
     it("applies a rotation in the same block as the owner's call, and refuses a non-owner", async () => {
       const { reservationKey } = await makeAcceptedReservation()
 
-      const blockBefore = await ethers.provider.getBlock("latest")
+      const blockBefore = requireValue(
+        await ethers.provider.getBlock("latest"),
+        "Block"
+      )
       const actionBefore = await reservationRouter.reservationActions(
         reservationKey,
         1
@@ -643,8 +647,11 @@ describe("Bridge - Reservation settlement", () => {
         .connect(governance)
         .requestReservationReanchor(reservationKey, secondWalletPubKeyHash)
 
-      const receipt = await tx.wait()
-      const blockAfter = await ethers.provider.getBlock(receipt.blockNumber)
+      const receipt = requireValue(await tx.wait(), "Transaction receipt")
+      const blockAfter = requireValue(
+        await ethers.provider.getBlock(receipt.blockNumber),
+        "Block"
+      )
 
       // The call and the rotation share one block: no clock movement, no
       // second transaction, no waiting out a window. The chain is free to
