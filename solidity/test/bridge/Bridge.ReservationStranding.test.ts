@@ -33,6 +33,10 @@
  *     (`refundDeadlineValidated = true`).
  *   - Rejects when an acceptance authorization is still pending
  *     (`ActionState.Pending`).
+ *   - `BridgeGovernance.forceStaleReservedDeposit` forwarder: the owner's
+ *     call force-clears a pending deposit before its deadline, and a
+ *     non-owner call is refused. Added with the coverage close on
+ *     2026-10-30; the forwarder had no caller in any test before it.
  *
  * The fixture mirrors `Bridge.ReservationSettlement.test.ts` exactly so
  * the test runs against the same deployed bridge/reservation-router pair;

@@ -7,6 +7,9 @@
  *
  * Kept describes:
  *   - action source-anchor binding
+ *   - late settlement of a timed-out generation (added 2026-10-30: the
+ *     late branch's unwind of a newer pending generation, which needs the
+ *     two-settleable-generations state this file already builds)
  *
  * Pruned describes from original source block:
  *   - claim double-spend regression (full block - redemption-racing only)
