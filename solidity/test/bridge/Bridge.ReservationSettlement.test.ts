@@ -548,6 +548,79 @@ describe("Bridge - Reservation settlement", () => {
       ).to.equal(ReservationState.Active)
     })
 
+    // The forwarder carries an EMPTY member proof and member index 0: the
+    // governance path takes no signing-group member proof. If the forwarder
+    // passed a non-empty proof, `Reservation.requestReservationReanchor`
+    // would run the source-wallet member check, which consults the ECDSA
+    // registry. The registry mock is armed to revert on that call, so a
+    // forwarder that carried a proof would surface this exact reason and
+    // the rotation would fail. Its success is the empty-proof property at
+    // the Hardhat level.
+    it("carries an empty member proof, so the source-wallet member check never runs", async () => {
+      const { reservationKey } = await makeAcceptedReservation()
+
+      await walletRegistry.isWalletMember.reverts(
+        "the forwarder must not ask the registry about a member proof"
+      )
+
+      try {
+        await expect(
+          bridgeGovernance
+            .connect(governance)
+            .requestReservationReanchor(reservationKey, secondWalletPubKeyHash)
+        )
+          .to.emit(reservationRouter, "ReservationReanchorRequested")
+          .withArgs(
+            reservationKey,
+            2,
+            walletPubKeyHash,
+            secondWalletPubKeyHash,
+            BigInt(RESERVATION_TX_MAX_FEE)
+          )
+      } finally {
+        await walletRegistry.isWalletMember.reset()
+      }
+
+      expect(
+        (await reservationRouter.reservations(reservationKey)).state
+      ).to.equal(ReservationState.ActionPending)
+    })
+
+    // The forwarder must not swallow the Bridge's revert: it forwards with
+    // no try/catch, so the Bridge's own reason reaches the caller. Here the
+    // Bridge refuses an unknown reservation key.
+    it("propagates the Bridge's revert instead of swallowing it", async () => {
+      const unknownKey = `0x${"ee".repeat(32)}`
+
+      await expect(
+        bridgeGovernance
+          .connect(governance)
+          .requestReservationReanchor(unknownKey, secondWalletPubKeyHash)
+      ).to.be.revertedWith("Reservation is not active")
+    })
+
+    // A second revert-propagation case, on a guard the Bridge checks after
+    // the reservation lookup: the target wallet must be Live. A forwarder
+    // that swallowed the failure would leave the operator with a silent
+    // no-op instead of the reason.
+    it("propagates the Bridge's revert when the target wallet is not Live", async () => {
+      const { reservationKey } = await makeAcceptedReservation()
+
+      // Retire the target wallet: it is no longer Live, so the Bridge
+      // refuses the rotation.
+      await setWalletState(secondWalletPubKeyHash, walletState.MovingFunds)
+
+      await expect(
+        bridgeGovernance
+          .connect(governance)
+          .requestReservationReanchor(reservationKey, secondWalletPubKeyHash)
+      ).to.be.revertedWith("Target wallet must be in Live state")
+
+      expect(
+        (await reservationRouter.reservations(reservationKey)).state
+      ).to.equal(ReservationState.Active)
+    })
+
     it("keeps the Live-source gate shut for a direct EOA call", async () => {
       // `governance` also owns `BridgeGovernance`: the closest EOA
       // equivalent of the Council Safe, and still refused, because the
