@@ -75,8 +75,7 @@ contract ReservationFloorHalmos is Test {
         uint64 minAmount
     ) internal pure returns (bool) {
         return
-            uint256(depositAmount) >
-                uint256(minAmount) + 2 * uint256(txMaxFee);
+            uint256(depositAmount) > uint256(minAmount) + 2 * uint256(txMaxFee);
     }
 
     /// ReservationProofs.sol:462-465 and :473-476. `depositAmount -
@@ -119,9 +118,7 @@ contract ReservationFloorHalmos is Test {
     function _assumeParams(uint64 txMaxFee, uint64 minAmount) internal pure {
         vm.assume(txMaxFee > 0);
         vm.assume(minAmount > txMaxFee);
-        vm.assume(
-            uint256(minAmount) + uint256(txMaxFee) <= type(uint64).max
-        );
+        vm.assume(uint256(minAmount) + uint256(txMaxFee) <= type(uint64).max);
     }
 
     // --- current code -------------------------------------------------------

@@ -98,82 +98,98 @@ function readLines(file) {
   return fs.readFileSync(file, "utf8").split("\n")
 }
 
+// Checks one citation and returns a problem object, or null when the
+// citation resolves.
+function checkEntry(harness, entry) {
+  const contractPath = path.join(CONTRACTS, entry.contract)
+
+  if (!fs.existsSync(contractPath)) {
+    return {
+      harness,
+      contract: entry.contract,
+      range: entry.range,
+      reason: "contract file does not exist",
+    }
+  }
+
+  const lines = readLines(contractPath)
+  const [from, to] = entry.range
+
+  if (from < 1 || to > lines.length) {
+    return {
+      harness,
+      contract: entry.contract,
+      range: entry.range,
+      reason: `cited range is outside the file (file has ${lines.length} lines)`,
+    }
+  }
+
+  const slice = lines.slice(from - 1, to).join("\n")
+  const missing = entry.expect.filter(
+    (expression) => !slice.includes(expression)
+  )
+
+  if (missing.length === 0) {
+    return null
+  }
+
+  return {
+    harness,
+    contract: entry.contract,
+    range: entry.range,
+    reason: `cited range no longer holds ${missing
+      .map((expression) => `"${expression}"`)
+      .join(", ")}`,
+  }
+}
+
 function main() {
   const asJson = process.argv.includes("--json")
 
   const problems = []
   let checked = 0
 
-  for (const group of CITATIONS) {
+  const groups = CITATIONS.map((group) => {
     const harnessPath = path.join(HALMOS_DIR, group.file)
+
     if (!fs.existsSync(harnessPath)) {
-      problems.push({
-        harness: group.file,
-        contract: null,
-        range: null,
-        reason: "harness file is missing",
+      return {
+        group,
+        problems: [
+          {
+            harness: group.file,
+            contract: null,
+            range: null,
+            reason: "harness file is missing",
+          },
+        ],
+        checked: 0,
+      }
+    }
+
+    const entryProblems = group.entries
+      .map((entry) => {
+        checked += 1
+        return checkEntry(group.file, entry)
       })
-      continue
-    }
+      .filter(Boolean)
 
-    for (const entry of group.entries) {
-      checked += 1
-      const contractPath = path.join(CONTRACTS, entry.contract)
+    return { group, problems: entryProblems, checked: group.entries.length }
+  })
 
-      if (!fs.existsSync(contractPath)) {
-        problems.push({
-          harness: group.file,
-          contract: entry.contract,
-          range: entry.range,
-          reason: "contract file does not exist",
-        })
-        continue
-      }
-
-      const lines = readLines(contractPath)
-      const [from, to] = entry.range
-
-      if (from < 1 || to > lines.length) {
-        problems.push({
-          harness: group.file,
-          contract: entry.contract,
-          range: entry.range,
-          reason: `cited range is outside the file (file has ${lines.length} lines)`,
-        })
-        continue
-      }
-
-      const slice = lines.slice(from - 1, to).join("\n")
-      const missing = entry.expect.filter((e) => !slice.includes(e))
-
-      if (missing.length > 0) {
-        problems.push({
-          harness: group.file,
-          contract: entry.contract,
-          range: entry.range,
-          reason: `cited range no longer holds ${missing
-            .map((m) => `"${m}"`)
-            .join(", ")}`,
-        })
-      }
-    }
-  }
+  groups.forEach((result) => problems.push(...result.problems))
 
   if (asJson) {
     console.log(
-      JSON.stringify(
-        { checked, ok: problems.length === 0, problems },
-        null,
-        2
-      )
+      JSON.stringify({ checked, ok: problems.length === 0, problems }, null, 2)
     )
   } else {
-    for (const p of problems) {
-      const where = p.contract
-        ? `${p.contract}:${p.range ? p.range.join("-") : "?"}`
+    problems.forEach((problem) => {
+      const where = problem.contract
+        ? `${problem.contract}:${problem.range ? problem.range.join("-") : "?"}`
         : "(no contract)"
-      console.error(`${p.harness}: ${where}: ${p.reason}`)
-    }
+      console.error(`${problem.harness}: ${where}: ${problem.reason}`)
+    })
     if (problems.length === 0) {
       console.log(`all ${checked} Halmos citations resolve`)
     } else {
