@@ -1,0 +1,21 @@
+# Known verification exclusions for the reservation surface.
+#
+# One row per unit that a coverage or mutation report would otherwise report
+# as a gap, with the reason it is a gap and the decision that keeps it there.
+# A row names a function, not a line range: the line numbers move with every
+# contract change, the symbol does not.
+#
+# Format, pipe separated:
+#   id | file | symbol | kind | reason | reference
+#
+# `kind` is the set of checks the exclusion applies to:
+#   coverage   the symbol has no reachable path in this release, so its
+#              statements and branch arms are reported as uncovered
+#   mutation   a mutant of the symbol cannot be killed by any test for the
+#              same reason, so it is reported as surviving
+#
+# `reference` cites the decision that put the unit in this state. The
+# references are public: they are the identifiers of the published
+# reservations specification.
+
+EX-001 | contracts/bridge/Reservation.sol | closeReservation | coverage,mutation | The helper closes a reservation position on the milestone 2 settlement paths. It ships in this release as decided scaffolding, so it has no caller here: no contract, test or script can reach it, and a mutant of it cannot be killed. The milestone 2 settlement work brings the call sites with it. | PD-3, D-8
