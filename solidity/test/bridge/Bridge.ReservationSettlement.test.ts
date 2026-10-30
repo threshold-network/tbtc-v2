@@ -621,6 +621,65 @@ describe("Bridge - Reservation settlement", () => {
       ).to.equal(ReservationState.Active)
     })
 
+    // The forwarder has no governance delay: the rotation takes effect in
+    // the same block as the owner's call. That is a design property, not an
+    // accident of the staged setters, so it is pinned here rather than left
+    // implicit. The observable half is that the action record exists and
+    // the position is already `ActionPending` in the very block the call
+    // was mined in, with no clock movement in between.
+    //
+    // The `onlyOwner` half is pinned in the same case: a non-owner call is
+    // refused, so the no-delay path is not open to anyone.
+    it("applies a rotation in the same block as the owner's call, and refuses a non-owner", async () => {
+      const { reservationKey } = await makeAcceptedReservation()
+
+      const blockBefore = await ethers.provider.getBlock("latest")
+      const actionBefore = await reservationRouter.reservationActions(
+        reservationKey,
+        1
+      )
+
+      const tx = await bridgeGovernance
+        .connect(governance)
+        .requestReservationReanchor(reservationKey, secondWalletPubKeyHash)
+
+      const receipt = await tx.wait()
+      const blockAfter = await ethers.provider.getBlock(receipt.blockNumber)
+
+      // The call and the rotation share one block: no clock movement, no
+      // second transaction, no waiting out a window. The chain is free to
+      // reuse a timestamp across blocks, so the assertion is that the
+      // action was created in the call's own block, not that the clock
+      // moved by exactly one second.
+      expect(receipt.blockNumber).to.be.equal(blockBefore.number + 1)
+      expect(blockAfter.timestamp).to.be.at.least(blockBefore.timestamp)
+
+      // The action record for the new generation exists in that same
+      // block, and the position is already pending.
+      const actionAfter = await reservationRouter.reservationActions(
+        reservationKey,
+        2
+      )
+      expect(actionAfter.requestedAt).to.be.equal(blockAfter.timestamp)
+      expect(actionAfter.state).to.equal(ActionState.Pending)
+      expect(actionAfter.actionType).to.equal(ActionType.Reanchor)
+      expect(actionAfter.targetWalletPubKeyHash).to.equal(
+        secondWalletPubKeyHash
+      )
+      expect(actionBefore.state).to.not.equal(ActionState.Pending)
+
+      expect(
+        (await reservationRouter.reservations(reservationKey)).state
+      ).to.equal(ReservationState.ActionPending)
+
+      // The no-delay path is the owner's alone.
+      await expect(
+        bridgeGovernance
+          .connect(thirdParty)
+          .requestReservationReanchor(reservationKey, secondWalletPubKeyHash)
+      ).to.be.revertedWith("Ownable: caller is not the owner")
+    })
+
     it("keeps the Live-source gate shut for a direct EOA call", async () => {
       // `governance` also owns `BridgeGovernance`: the closest EOA
       // equivalent of the Council Safe, and still refused, because the
