@@ -539,7 +539,7 @@ contract ReservationRouter is Governable, Initializable {
     ///         every acceptance, any `handoffReserveWallets` Live wallets
     ///         may retire together and all open positions still fit on
     ///         the remaining Live wallets within the per-wallet count
-    ///         cap. Set by `updateReservationCaps`; always at least one.
+    ///         cap. `updateReservationCaps` requires one; zero before it.
     /// @return The hand-off reserve in Live wallets.
     function reservationHandoffReserveWallets() external view returns (uint32) {
         return self.handoffReserveWallets;

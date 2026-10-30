@@ -1591,8 +1591,8 @@ library Reservation {
     ///      - `reservationRenewalWindowSeconds` must be greater than zero
     ///        and strictly shorter than the term (written in milestone 1
     ///        for storage completeness; unread until renewal lands),
-    ///      - `reservationActionTimeout` must exceed the wallet
-    ///        validator's final signing safety margin,
+    ///      - `reservationActionTimeout` must exceed the wallet validator's
+    ///        safety margin plus the deposit minimum age, by one second,
     ///      - `maxReservationsPerWallet` must be greater than zero, so the
     ///        per-wallet count cap cannot be silently disabled by a
     ///        parameter update,
