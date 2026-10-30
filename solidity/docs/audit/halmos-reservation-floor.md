@@ -38,15 +38,15 @@ two "current code" checks reported a defect the contracts no longer contain.
 
 The harness was re-derived against the current `reservations-upgrade` head:
 
-| Copy | Source at the derived head |
-|---|---|
-| acceptance deposit floor | `solidity/contracts/bridge/Reservation.sol:596-600` |
-| acceptance settlement fee bound | `solidity/contracts/bridge/ReservationProofs.sol:462-465` |
+| Copy                                 | Source at the derived head                                |
+| ------------------------------------ | --------------------------------------------------------- |
+| acceptance deposit floor             | `solidity/contracts/bridge/Reservation.sol:596-600`       |
+| acceptance settlement fee bound      | `solidity/contracts/bridge/ReservationProofs.sol:462-465` |
 | acceptance settlement anchor minimum | `solidity/contracts/bridge/ReservationProofs.sol:473-476` |
-| re-anchor request floor | `solidity/contracts/bridge/Reservation.sol:900-906` |
-| re-anchor settlement fee bound | `solidity/contracts/bridge/ReservationProofs.sol:700-703` |
-| re-anchor settlement dust floor | `solidity/contracts/bridge/ReservationProofs.sol:708-711` |
-| parameter setter rules | `solidity/contracts/bridge/Reservation.sol:1614-1621` |
+| re-anchor request floor              | `solidity/contracts/bridge/Reservation.sol:900-906`       |
+| re-anchor settlement fee bound       | `solidity/contracts/bridge/ReservationProofs.sol:700-703` |
+| re-anchor settlement dust floor      | `solidity/contracts/bridge/ReservationProofs.sol:708-711` |
+| parameter setter rules               | `solidity/contracts/bridge/Reservation.sol:1614-1621`     |
 
 The re-derivation changed what the checks say about the current code:
 
@@ -75,12 +75,12 @@ The 14 checks split into 10 passes and 4 failures. Every failure is a check
 whose name ends in `_expectedCounterexample`; no other check fails. The four
 expected failures are:
 
-| Check | Why it is expected to fail |
-|---|---|
-| `check_SP85_oldFloor_admittedTheStuckBand_expectedCounterexample` | Witness that the old acceptance floor admitted the stuck band. |
-| `check_SP85_fixB_nonStrictDepositMinimum_expectedCounterexample` | A non-strict deposit minimum is off by one against the strict re-anchor floor. |
-| `check_SP85_witness_fixBStrictAssumptionsSatisfiable_expectedCounterexample` | Vacuity guard: the strict fix check's assumptions are satisfiable. |
-| `check_SP85_witness_fixABAssumptionsSatisfiable_expectedCounterexample` | Vacuity guard: the combined fix check's assumptions are satisfiable. |
+| Check                                                                        | Why it is expected to fail                                                     |
+| ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| `check_SP85_oldFloor_admittedTheStuckBand_expectedCounterexample`            | Witness that the old acceptance floor admitted the stuck band.                 |
+| `check_SP85_fixB_nonStrictDepositMinimum_expectedCounterexample`             | A non-strict deposit minimum is off by one against the strict re-anchor floor. |
+| `check_SP85_witness_fixBStrictAssumptionsSatisfiable_expectedCounterexample` | Vacuity guard: the strict fix check's assumptions are satisfiable.             |
+| `check_SP85_witness_fixABAssumptionsSatisfiable_expectedCounterexample`      | Vacuity guard: the combined fix check's assumptions are satisfiable.           |
 
 Halmos exits non-zero on this harness, because the four expected
 counterexamples are reported as failures. The pass/fail split is the result;
