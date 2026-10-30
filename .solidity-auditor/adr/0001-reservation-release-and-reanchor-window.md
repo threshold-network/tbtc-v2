@@ -4,7 +4,7 @@ Date: 2026-10-13 | Status: accepted
 
 ## Context
 
-A reservation position on a Live wallet that passed `dissolutionEligibleAt` held wallet and global capacity forever, because `notifyReservationStranded` refused Live wallets and `closeReservation` has no caller in milestone 1. Separately, anyone could push such a wallet into Closing and strand the position in the same transaction, ahead of the owner's re-anchor right. See `FIXES.md` (R-12, R-07).
+A reservation position on a Live wallet that passed `dissolutionEligibleAt` held wallet and global capacity forever, because `notifyReservationStranded` refused Live wallets and milestone 1 had no other release path for a position. Separately, anyone could push such a wallet into Closing and strand the position in the same transaction, ahead of the owner's re-anchor right. See `FIXES.md` (R-12, R-07).
 
 ## Options Considered
 

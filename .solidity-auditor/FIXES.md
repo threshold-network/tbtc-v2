@@ -104,8 +104,8 @@ behaviour, so each needs the authors' review. Findings and evidence: `solidity/d
 ## R-12: release path for expired positions on Live wallets
 
 - Root cause: `notifyReservationStranded` refused Live wallets and
-  `closeReservation` has no caller in milestone 1, so an expired position on a
-  Live wallet held capacity forever.
+  milestone 1 had no other release path for a position, so an expired position
+  on a Live wallet held capacity forever.
 - Fix: allow the strand on a Live wallet once `dissolutionEligibleAt` has
   passed. No extra window: only governance can re-anchor from a Live wallet.
 - Behaviour change: anyone can release an expired position on a Live wallet;

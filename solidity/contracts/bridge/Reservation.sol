@@ -1237,47 +1237,6 @@ library Reservation {
         }
     }
 
-    /// @notice Closes a reservation: releases wallet and global capacity,
-    ///         removes the position from the reverse anchor index, and
-    ///         marks the reservation as Closed. Mirrors `strandReservation`'s
-    ///         release surface so an m2 close leaves the same invariants a
-    ///         strand does.
-    /// @dev Intended for milestone 2 settlement call sites (both currently
-    ///      unreachable in m1):
-    ///      - Reserved redemption settlement (PR #1112 / m2-redemption)
-    ///      - Reservation dissolution settlement (PR #1114 / m2-dissolution)
-    function closeReservation(
-        BridgeState.Storage storage self,
-        ReservationRequest storage reservation
-    ) internal {
-        require(
-            reservation.state == ReservationState.Active ||
-                reservation.state == ReservationState.ActionPending,
-            "Reservation must be Active or ActionPending"
-        );
-        releaseAcceptanceCapacity(
-            self,
-            reservation.walletPubKeyHash,
-            reservation.anchorAmount
-        );
-        removeAnchoredCustody(
-            self,
-            reservation.walletPubKeyHash,
-            reservation.anchorAmount
-        );
-        delete self.reservationsByAnchorUtxo[
-            uint256(
-                keccak256(
-                    abi.encodePacked(
-                        reservation.anchorTxHash,
-                        reservation.anchorTxOutputIndex
-                    )
-                )
-            )
-        ];
-        reservation.state = ReservationState.Closed;
-    }
-
     /// @notice Marks a reservation custodied by a terminated or closed
     ///         wallet, or past its dissolution eligibility, as stranded: an
     ///         idle position closes, capacity is released and the owner's
@@ -1292,7 +1251,7 @@ library Reservation {
     ///        (`closingStartedAt + walletClosingPeriod`) have passed.
     ///      - Live: an expired position otherwise pinned its wallet's and the
     ///        global capacity forever, because milestone 1 has no other
-    ///        release path (`closeReservation` has no caller). Only
+    ///        release path for a position. Only
     ///        governance can re-anchor from a Live wallet, so an extra
     ///        exclusive window would protect no owner action.
     ///      - Closing: `requestReservationReanchor` accepts a Closing source

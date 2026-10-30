@@ -182,7 +182,7 @@ These two items prevent a successful upgrade if not addressed in the deployment 
   `anchorAmount > minAmount + txMaxFee`. Anchors in `[minAmount, minAmount + txMaxFee]` cannot be moved.
   - _Fix_: adjust the deposit minimum to `> minAmount + 2 * txMaxFee` (see section 4).
 - **R-12**: `notifyReservationStranded` requires the source wallet to not be `Live`. An expired position on
-  a `Live` wallet cannot be stranded or closed because `closeReservation` has no external caller.
+  a `Live` wallet cannot be stranded because milestone 1 has no other release path for a position.
   - _Fix_: provide a caller or explicit expiry cleanup for Live-wallet reservations.
 - **R-13 and R-14**: `Wallets.getWalletBtcBalance` checks only the main UTXO. A wallet with zero main UTXO
   but custodying active reservation anchors can be permissionlessly transitioned from `Live` ->
@@ -266,7 +266,7 @@ on the design intent. No severity is claimed here. In-PR rows first.
 | ---- | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------- |
 | R-21 | `AbstractL1BTCDepositor.sol:509` | Failed deferred reimbursement re-stored with no payout path                                                                                                                | Real-Low; open, no fix in this PR | Yes        | S2 GL-24; `test_repro_GL24_poolSwappedToNonPoolContract`                                                                        |
 | R-50 | `Reservation.sol:1291-1295`      | Action timeout setter admits a value with no signing window                                                                                                                | Informational                     | Yes        | Mutation M-10, M-108, M-112; `AcceptanceSigningWindowBoundary.t.sol`, `ReanchorSigningWindowBoundary.t.sol`; fix in section 4.2 |
-| R-51 | `Reservation.sol:1040-1065`      | `closeReservation` has no caller in milestone 1 (dead code)                                                                                                                | Informational                     | Yes        | Mutation M-38 to M-41, M-109; no call site in `contracts/`                                                                      |
+| R-51 | `Reservation.sol:1040-1065`      | `closeReservation` had no caller in milestone 1 (dead code)                                                                                                                | Informational; helper removed      | Yes        | Mutation M-38 to M-41, M-109; no call site in `contracts/`                                                                      |
 | R-54 | `Reservation.sol:806-809`        | The re-anchor floor uses the current minimum, so after governance lowers `reservationMinAmount` an existing position can re-anchor below the minimum it was accepted under | Design question                   | Yes        | Campaign 10, `test_repro_sp62_anchorBelowSnapshottedMinimum`. Question: is that intended?                                       |
 
 ## 7. Test assets offered upstream
