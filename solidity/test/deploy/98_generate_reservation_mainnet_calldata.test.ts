@@ -538,7 +538,13 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
   // A reserved reveal is only possible when the deposit refund window the
   // Bridge demands (reveal-ahead period) fits inside the one a reservation
   // allows (term plus the 24h refund safety margin), and when a dust-sized
-  // deposit fits under every amount cap. Neither rule is checked on-chain.
+  // deposit fits under every amount cap. Both rules are also enforced
+  // on-chain: `BridgeState.assertReservedDepositsFeasible`
+  // (contracts/bridge/BridgeState.sol:703-734) is called by both
+  // reservation setters while a vault is set
+  // (Reservation.sol:1689, :1792) and by `updateDepositParameters`
+  // (BridgeState.sol:666). The deploy script mirrors the same rules so an
+  // operator learns about a bad value here instead of at finalize.
   describe("reserved-deposit feasibility against the live deposit parameters", () => {
     it("should throw when the reveal-ahead period exceeds the term plus the refund safety margin", async () => {
       // Live mainnet value: 150 days, against VALID_ENV's 90-day term.
