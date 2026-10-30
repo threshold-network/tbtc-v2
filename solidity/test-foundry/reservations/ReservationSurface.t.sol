@@ -426,7 +426,14 @@ contract ReservationSurfaceInvariantsTest is StdInvariant, Test {
     function setUp() public {
         handler = new ReservationSurfaceHandler();
 
-        bytes4[] memory selectors = new bytes4[](18);
+        // Every action whose observation a property depends on must be
+        // reachable from the dispatcher, otherwise the property holds for
+        // every generated sequence without ever exercising its
+        // observation. `surfaceEarlyTimeout` is the only producer of
+        // `earlyTimeoutSucceeded`, `routerReadViews` the only producer of
+        // `routerViewMismatch`, and `surfaceValidateSweep` the only producer
+        // of `reservedSweepAccepted`.
+        bytes4[] memory selectors = new bytes4[](21);
         selectors[0] = handler.surfaceReveal.selector;
         selectors[1] = handler.surfaceRequestAcceptance.selector;
         selectors[2] = handler.surfaceProveAcceptance.selector;
@@ -445,6 +452,9 @@ contract ReservationSurfaceInvariantsTest is StdInvariant, Test {
         selectors[15] = handler.routerNonGovernanceUpdate.selector;
         selectors[16] = handler.surfaceNotifyTimeout.selector;
         selectors[17] = handler.surfaceAdvanceWallet.selector;
+        selectors[18] = handler.surfaceEarlyTimeout.selector;
+        selectors[19] = handler.routerReadViews.selector;
+        selectors[20] = handler.surfaceValidateSweep.selector;
         targetSelector(
             StdInvariant.FuzzSelector({
                 addr: address(handler),
@@ -506,6 +516,18 @@ contract ReservationSurfaceInvariantsTest is StdInvariant, Test {
         assertTrue(
             handler.property_validatorRejectsOutOfBoundProposals(),
             "the validator accepted an out-of-bound proposal"
+        );
+        // P24 / INV-401, SM-A5: the sweep entry point never accepts a
+        // proposal over a deposit revealed as reserved.
+        assertTrue(
+            handler.property_validatorNeverSweepsReservedDeposits(),
+            "the validator accepted a sweep over a reserved deposit"
+        );
+        // P24 / INV-401: the vault's initiation fee never exceeds the
+        // protocol ceiling, whatever the fee-update action proposes.
+        assertTrue(
+            handler.property_vaultFeeStaysWithinTheCeiling(),
+            "the vault's initiation fee exceeded the protocol ceiling"
         );
     }
 }
