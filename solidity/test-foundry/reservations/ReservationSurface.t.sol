@@ -459,7 +459,6 @@ contract ReservationSurfaceTest is Test {
         );
     }
 
-
     // ---------------------------------------------------------------------
     // Campaign action reach: the wallet lifecycle
     // ---------------------------------------------------------------------
@@ -505,7 +504,6 @@ contract ReservationSurfaceTest is Test {
         }
         assertGe(live, 3, "the hand-off reserve of Live wallets was lost");
     }
-
 
     // ---------------------------------------------------------------------
     // Campaign action reach: the third-party re-anchor request
@@ -565,7 +563,6 @@ contract ReservationSurfaceTest is Test {
             "a third-party request past the hold cap was accepted"
         );
     }
-
 
     /// @dev Opens a position and returns its key: the reveal, the
     ///      acceptance authorization and the settlement.
