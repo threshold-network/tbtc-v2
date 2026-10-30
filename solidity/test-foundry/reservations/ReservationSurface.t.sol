@@ -8,6 +8,7 @@ import {StdInvariant} from "forge-std/StdInvariant.sol";
 import {Reservation} from "../../contracts/bridge/Reservation.sol";
 import {ReservationRouter} from "../../contracts/bridge/ReservationRouter.sol";
 import {WalletProposalValidator} from "../../contracts/bridge/WalletProposalValidator.sol";
+import {Wallets} from "../../contracts/bridge/Wallets.sol";
 
 import {ReservationSurfaceHandler} from "./ReservationSurfaceHandler.sol";
 import {ReservationStackHarness} from "./ReservationStackHarness.sol";
@@ -415,6 +416,64 @@ contract ReservationSurfaceTest is Test {
         assertEq(single, probeSingle);
         assertEq(maxActive, probeActive);
         assertEq(maxHolds, probeHolds);
+    }
+
+    // ---------------------------------------------------------------------
+    // Campaign action reach: the stale re-anchor recovery
+    // ---------------------------------------------------------------------
+
+    /// @dev A position whose re-anchor authorization has timed out is
+    ///      recovered by the campaign itself: the prove action expires the
+    ///      stale generation and issues a fresh one, without a separate
+    ///      timeout action.
+    function test_staleReanchorIsRecoveredAndReissued() public {
+        uint256 key = _acceptedPosition(0);
+
+        // Open a re-anchor generation off a retiring source.
+        handler.surfaceAdvanceWallet(0, false);
+        handler.surfaceRequestReanchor(key, 1, 0);
+        Reservation.ReservationRequest memory r = stack.reservationRecord(key);
+        uint64 firstNonce = r.requestNonce;
+        assertGt(firstNonce, 0, "no re-anchor generation was created");
+
+        // Move past the signing window of that generation.
+        Reservation.ReservationAction memory a = stack.reservationActionRecord(
+            key,
+            firstNonce
+        );
+        vm.warp(uint256(a.timeoutAt) + 1);
+
+        // The prove action must recover on its own.
+        handler.surfaceProveReanchor(key, 0, 0);
+
+        assertGt(
+            handler.successes("surfaceReanchorRecovered"),
+            0,
+            "the stale re-anchor was not recovered"
+        );
+        r = stack.reservationRecord(key);
+        assertGt(
+            r.requestNonce,
+            firstNonce,
+            "no fresh re-anchor generation was issued"
+        );
+    }
+
+
+    /// @dev Opens a position and returns its key: the reveal, the
+    ///      acceptance authorization and the settlement.
+    function _acceptedPosition(uint256 walletSeed) internal returns (uint256) {
+        handler.surfaceReveal(walletSeed, 2_000_001, 1);
+        handler.surfaceRequestAcceptance(0);
+        uint256 key = handler.stackKeyAt(0);
+        vm.warp(block.timestamp + 2 hours + 1);
+        handler.surfaceProveAcceptance(0, 0, 0);
+        assertEq(
+            uint8(Reservation.ReservationState.Active),
+            uint8(stack.reservationRecord(key).state),
+            "the position did not open"
+        );
+        return key;
     }
 }
 

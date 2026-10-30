@@ -1550,24 +1550,18 @@ contract ReservationSurfaceHandler is ReservationHandler {
     ///      refreshes one whose signing window has closed.
     function _ensurePendingReanchor(uint256 key) internal returns (bool) {
         if (_reanchorSignable(key)) return true;
+
+        // A pending re-anchor whose signing window has closed leaves the
+        // position in `ActionPending`, and the acceptance fallback in
+        // `_ensureOpenPosition` cannot resolve that state: the position
+        // holds a re-anchor generation, not an acceptance. The stale
+        // generation is expired first, through the production recovery path,
+        // so the position returns to `Active` and a fresh generation can be
+        // issued.
+        if (!_recoverStaleReanchor(key)) return false;
         if (!_ensureOpenPosition(key)) return false;
 
         Reservation.ReservationRequest memory r = stack.reservationRecord(key);
-        Reservation.ReservationAction memory a = stack.reservationActionRecord(
-            key,
-            r.requestNonce
-        );
-        if (
-            a.actionType == Reservation.ActionType.Reanchor &&
-            a.state == Reservation.ActionState.Pending
-        ) {
-            // The window has closed; move to the deadline so the timeout
-            // notification is legal, then re-issue.
-            if (block.timestamp < a.timeoutAt) vm.warp(a.timeoutAt);
-            _expireGeneration(key, Reservation.ActionType.Reanchor);
-        }
-
-        r = stack.reservationRecord(key);
         bytes20 target = stackWallets[
             uint256(uint160(r.walletPubKeyHash)) % stackWallets.length
         ];
@@ -1576,10 +1570,65 @@ contract ReservationSurfaceHandler is ReservationHandler {
                 (uint256(uint160(r.walletPubKeyHash)) + 1) % stackWallets.length
             ];
         }
+        // The target must be Live, and the campaign retires wallets, so the
+        // first choice may no longer be one.
+        if (stack.walletState(target) != Wallets.WalletState.Live) {
+            bytes20 live = _liveWalletOtherThan(r.walletPubKeyHash);
+            if (live == bytes20(0)) return false;
+            target = live;
+        }
         try stack.requestReservationReanchor(key, target, true) {} catch {
             return false;
         }
         return _reanchorSignable(key);
+    }
+
+    /// @dev Expires a pending re-anchor generation whose signing window has
+    ///      closed. Returns true when there is nothing stale to recover from
+    ///      or when the recovery went through. A position that is not in
+    ///      `ActionPending`, or whose latest generation is not a pending
+    ///      re-anchor, has nothing to recover.
+    function _recoverStaleReanchor(uint256 key) internal returns (bool) {
+        Reservation.ReservationRequest memory r = stack.reservationRecord(key);
+        if (r.requestNonce == 0) return true;
+        Reservation.ReservationAction memory a = stack.reservationActionRecord(
+            key,
+            r.requestNonce
+        );
+        if (
+            a.actionType != Reservation.ActionType.Reanchor ||
+            a.state != Reservation.ActionState.Pending
+        ) {
+            return true;
+        }
+        if (_reanchorSignable(key)) return true;
+
+        // Move to the deadline so the timeout notification is legal, then
+        // notify through the router, which is the production recovery path.
+        /* solhint-disable-next-line not-rely-on-time */
+        if (block.timestamp < uint256(a.timeoutAt)) vm.warp(a.timeoutAt);
+        if (!_expireGeneration(key, Reservation.ActionType.Reanchor)) {
+            return false;
+        }
+        successes["surfaceReanchorRecovered"] += 1;
+        return true;
+    }
+
+    /// @dev The first Live wallet that is not `source`, or the zero value
+    ///      when there is none.
+    function _liveWalletOtherThan(
+        bytes20 source
+    ) internal view returns (bytes20) {
+        for (uint256 i = 0; i < stackWallets.length; i++) {
+            bytes20 candidate = stackWallets[i];
+            if (
+                candidate != source &&
+                stack.walletState(candidate) == Wallets.WalletState.Live
+            ) {
+                return candidate;
+            }
+        }
+        return bytes20(0);
     }
 
     /// @dev Settles the pending re-anchor of `key`.
