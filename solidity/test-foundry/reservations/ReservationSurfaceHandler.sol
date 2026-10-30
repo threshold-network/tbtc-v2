@@ -384,6 +384,13 @@ contract ReservationSurfaceHandler is ReservationHandler {
     ///      kept Live: the hand-off reserve gate needs Live wallets beyond the
     ///      reserve to admit an acceptance, so retiring every wallet would
     ///      make the acceptance path unreachable for the rest of a sequence.
+    /// @dev The selected wallet is kept. The Live count is guarded only for
+    ///      a wallet that is currently Live, because the guard exists to
+    ///      keep Live wallets available. A wallet that already left Live may
+    ///      advance along the rest of its lifecycle, so a MovingFunds wallet
+    ///      can reach Closing and a Closing wallet can reach Closed.
+    ///      Replacing a retiring selection with a Live wallet made those two
+    ///      states unreachable in the campaign.
     function surfaceAdvanceWallet(uint256 walletSeed, bool terminate) external {
         if (stackWallets.length == 0) return;
         uint256 live;
@@ -394,23 +401,7 @@ contract ReservationSurfaceHandler is ReservationHandler {
                 live += 1;
             }
         }
-        if (live <= 3) return;
-        // `requestReservationAcceptance` requires the designated wallet to be
-        // Live, so a deposit revealed to a retired wallet can never be
-        // accepted. Prefer a Live wallet so the acceptance path stays
-        // reachable while the fuzzer retires wallets.
         bytes20 wallet = stackWallets[walletSeed % stackWallets.length];
-        if (stack.walletState(wallet) != Wallets.WalletState.Live) {
-            for (uint256 i = 0; i < stackWallets.length; i++) {
-                if (
-                    stack.walletState(stackWallets[i]) ==
-                    Wallets.WalletState.Live
-                ) {
-                    wallet = stackWallets[i];
-                    break;
-                }
-            }
-        }
         Wallets.WalletState s = stack.walletState(wallet);
         if (
             s == Wallets.WalletState.Closed ||
@@ -418,6 +409,9 @@ contract ReservationSurfaceHandler is ReservationHandler {
         ) {
             return;
         }
+        // Retiring a Live wallet reduces the Live count, so the hand-off
+        // reserve guard applies to it only.
+        if (s == Wallets.WalletState.Live && live <= 3) return;
         Wallets.WalletState next =
             terminate
                 ? Wallets.WalletState.Terminated
@@ -1769,6 +1763,15 @@ contract ReservationSurfaceHandler is ReservationHandler {
 
     function stackWalletOf(uint256 key) external view returns (bytes20) {
         return stackKeyWallet[key];
+    }
+
+    /// @dev The state of the campaign wallet at `index`, so a deterministic
+    ///      control can follow one wallet through its lifecycle.
+    function stackWalletAt(
+        uint256 index
+    ) external view returns (bytes20 wallet, uint8 state) {
+        wallet = stackWallets[index % stackWallets.length];
+        state = uint8(stack.walletState(wallet));
     }
 
     /// @dev Tops up the vault's Bank balance to the satoshi a burn will

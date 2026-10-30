@@ -461,6 +461,53 @@ contract ReservationSurfaceTest is Test {
 
 
     // ---------------------------------------------------------------------
+    // Campaign action reach: the wallet lifecycle
+    // ---------------------------------------------------------------------
+
+    /// @dev A wallet advances from Live through MovingFunds and Closing to
+    ///      Closed while at least three other wallets stay Live. The
+    ///      campaign action must not replace the selected wallet with a Live
+    ///      one, or the two last states are unreachable.
+    function test_walletAdvancesToClosedWhileThreeWalletsStayLive() public {
+        for (uint256 i = 0; i < 4; i++) {
+            handler.surfaceAdvanceWallet(i, false);
+        }
+
+        (, uint8 state) = handler.stackWalletAt(0);
+        assertEq(
+            uint8(Wallets.WalletState.MovingFunds),
+            state,
+            "the selected wallet did not reach MovingFunds"
+        );
+
+        handler.surfaceAdvanceWallet(0, false);
+        (, state) = handler.stackWalletAt(0);
+        assertEq(
+            uint8(Wallets.WalletState.Closing),
+            state,
+            "the selected wallet did not reach Closing"
+        );
+
+        handler.surfaceAdvanceWallet(0, false);
+        (, state) = handler.stackWalletAt(0);
+        assertEq(
+            uint8(Wallets.WalletState.Closed),
+            state,
+            "the selected wallet did not reach Closed"
+        );
+
+        uint256 live;
+        for (uint256 i = 0; i < 6; i++) {
+            (, uint8 walletState) = handler.stackWalletAt(i);
+            if (walletState == uint8(Wallets.WalletState.Live)) {
+                live += 1;
+            }
+        }
+        assertGe(live, 3, "the hand-off reserve of Live wallets was lost");
+    }
+
+
+    // ---------------------------------------------------------------------
     // Campaign action reach: the third-party re-anchor request
     // ---------------------------------------------------------------------
 
