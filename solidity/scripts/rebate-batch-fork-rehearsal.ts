@@ -150,6 +150,12 @@ const PANIC_SELECTOR = "0x4e487b71"
 export function classifyRevert(
   error: unknown
 ): { kind: RevertKind; data?: string } {
+  // A string carries no shape: every error stringifies the same way, so a
+  // message alone cannot prove that the EVM ran the transaction. The caller
+  // passes the error object, not `String(error)`.
+  if (typeof error !== "object" || error === null) {
+    return { kind: "not-a-revert" }
+  }
   const candidate = error as {
     code?: unknown
     data?: unknown
@@ -584,7 +590,7 @@ async function main(): Promise<void> {
       // A timeout, a nonce error, a funding error or an argument-encoding
       // exception is not a revert, and treating one as a revert would let
       // the negative control pass without the hazard ever being shown.
-      const revert = classifyRevert(message)
+      const revert = classifyRevert(e)
       const bareRevert = revert.kind === "bare"
       const status =
         expect === "revert"

@@ -463,39 +463,40 @@ function stripAstIds(typeId: string): string {
     return typeId.replace(/\)(\d+)(_[a-z]+)?$/, ")")
   }
   // A composite head: recurse into the arguments, which is where the
-  // struct and contract ids live.
-  let out = ""
+  // struct and contract ids live. The suffix after the closing bracket is
+  // an array length and stays verbatim: `t_array(t_uint256)49_storage`
+  // and `t_array(t_uint256)48_storage` are different types.
+  const close = typeId.lastIndexOf(")")
+  if (close < open) return typeId
+  const arguments_ = splitTopLevelArguments(typeId.slice(open + 1, close))
+  return `${head}(${arguments_.map(stripAstIds).join(",")})${typeId.slice(close + 1)}`
+}
+
+/**
+ * Splits a type argument list on the commas that are not inside a nested
+ * one, so `t_address,t_mapping(t_address,t_bool)` gives two arguments.
+ *
+ * A comma has to be consumed by whoever reads it: a reader that stops on
+ * `,` without advancing past it never makes progress and loops forever,
+ * which is what a flat scan over a nested type did.
+ */
+function splitTopLevelArguments(args: string): string[] {
+  const parts: string[] = []
   let depth = 0
-  let index = 0
-  while (index < typeId.length) {
-    const char = typeId[index]
+  let start = 0
+  for (let index = 0; index < args.length; index += 1) {
+    const char = args[index]
     if (char === "(") {
       depth += 1
-      out += char
-      index += 1
-      continue
-    }
-    if (char === ")") {
+    } else if (char === ")") {
       depth -= 1
-      out += char
-      index += 1
-      continue
+    } else if (char === "," && depth === 0) {
+      parts.push(args.slice(start, index))
+      start = index + 1
     }
-    if (depth === 0) {
-      out += char
-      index += 1
-      continue
-    }
-    // Inside an argument list: read the argument up to the next comma or
-    // the closing bracket.
-    let argument = ""
-    while (index < typeId.length && typeId[index] !== "," && typeId[index] !== ")") {
-      argument += typeId[index]
-      index += 1
-    }
-    out += stripAstIds(argument)
   }
-  return out
+  parts.push(args.slice(start))
+  return parts
 }
 
 /**
