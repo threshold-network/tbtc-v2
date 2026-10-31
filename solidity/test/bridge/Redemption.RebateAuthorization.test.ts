@@ -31,9 +31,15 @@ describe("Redemption - isRebateAuthorizedForRedemption", () => {
   const stakeAmount = to1e18(100000000)
 
   before(async () => {
-    ;({ deployer, thirdParty, t, rebateStaking } = await bridgeFixture())
+    ;({ deployer, governance, thirdParty, t, rebateStaking } =
+      await bridgeFixture())
 
-    balanceOwner = thirdParty
+    // The balance owner must be a DIFFERENT address from the redeemer: the
+    // library returns `true` on `balanceOwner == redeemer` before it ever
+    // consults the rebate staking contract, so a balance owner that is
+    // also the redeemer would short-circuit every authorization check and
+    // the rebate-authorization path would never be exercised at all.
+    balanceOwner = governance
 
     const factory = await ethers.getContractFactory("TestRedemption", deployer)
     testRedemption = await factory.deploy()
