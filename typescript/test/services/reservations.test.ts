@@ -1269,6 +1269,198 @@ describe("ReservationsService", () => {
     })
   })
 
+  describe("acceptance preflight and request race", () => {
+    // SM-C14: an off-chain preflight is a prediction, not an acceptance
+    // guarantee. Between the preflight read and the on-chain request the
+    // capacity, the wallet state, the caps and the owner/depositor match
+    // can all change, and the contract re-checks every rule, so the
+    // request may revert even though the preflight reported `ok`.
+
+    const depositKey = BigNumber.from(1)
+    const funding = singleInputProofTestData.bitcoinChainData
+    const fundingTxHash = funding.transaction.transactionHash
+
+    beforeEach(() => {
+      mockReservations.addReservedDeposit(depositKey, {
+        amount: BigNumber.from(500000),
+        walletPublicKeyHash: WALLET_A_PKH,
+        isReserved: true,
+        revealedAt: Math.floor(Date.now() / 1000) - 3600,
+        depositor: TEST_DEPOSITOR,
+      })
+      mockReservations.setWalletState(WALLET_A_PKH, WalletState.Live)
+      loadFundingChainData(
+        mockBitcoinClient,
+        singleInputProofTestData,
+        singleInputProofTestData.requiredConfirmations
+      )
+    })
+
+    it("should reject the acceptance request when the wallet leaves Live state after a clean preflight", async () => {
+      // The off-chain prediction: every rule the preflight can read holds.
+      const preflight = await service.checkAcceptancePreflight(
+        depositKey,
+        WALLET_A_PKH
+      )
+
+      expect(preflight.ok).to.be.true
+      expect(preflight.failures).to.have.length(0)
+
+      // The on-chain state changes between the read and the request: the
+      // wallet starts retiring.
+      mockReservations.setWalletState(WALLET_A_PKH, WalletState.Closing)
+
+      // The on-chain outcome: the contract re-checks the wallet state and
+      // reverts.
+      await expect(
+        service.requestAcceptance(fundingTxHash, 1, WALLET_A_PKH)
+      ).to.be.rejectedWith("Wallet must be in Live state")
+
+      // The prediction and the outcome disagree.
+      expect(preflight.ok).to.be.true
+      expect(preflight.failures).to.have.length(0)
+    })
+
+    it("should reject the acceptance request when the global active-reservations cap fills up after a clean preflight", async () => {
+      // The off-chain prediction: every rule the preflight can read holds.
+      const preflight = await service.checkAcceptancePreflight(
+        depositKey,
+        WALLET_A_PKH
+      )
+
+      expect(preflight.ok).to.be.true
+      expect(preflight.failures).to.have.length(0)
+
+      // The on-chain state changes between the read and the request: the
+      // global capacity is exhausted by other reservations.
+      mockReservations.occupancy = { count: 1000, maxActive: 1000 }
+
+      // The on-chain outcome: the contract re-checks the cap and reverts.
+      await expect(
+        service.requestAcceptance(fundingTxHash, 1, WALLET_A_PKH)
+      ).to.be.rejectedWith("Active reservations cap exceeded")
+
+      // The prediction and the outcome disagree.
+      expect(preflight.ok).to.be.true
+      expect(preflight.failures).to.have.length(0)
+    })
+  })
+
+  describe("acceptance preflight blindness to the signing window", () => {
+    // US-98: the same read-then-write gap, stated at the SDK boundary.
+    //
+    // `checkAcceptancePreflight` reports the on-chain request rules it can
+    // evaluate off-chain. The deadline-based signing-window rules are not
+    // among them: the deposit's snapshotted refund deadline is not exposed
+    // as a public view, so the SDK cannot evaluate them at all. A preflight
+    // `ok` therefore says nothing about whether the authorization window
+    // still admits a signature.
+    //
+    // WHAT THIS TEST PROVES: the SDK side only. It shows that a preflight
+    // read while the window is open stays `ok` with no window-related
+    // failure entry after the window closes, and that the subsequent
+    // on-chain request still reverts. The SDK's report is therefore
+    // INCOMPLETE, not merely stale: no entry could have mentioned the
+    // window even in principle, because the SDK has no way to read it.
+    //
+    // WHAT LIVES ELSEWHERE: the contract-side guard itself, "Deposit refund
+    // deadline allows no signing window" (Reservation.sol), and the rule
+    // that the deposit's refund deadline is snapshotted at reveal and is not
+    // a public view, are exercised in the Solidity suite. This test does not
+    // re-prove the guard; it proves the SDK cannot see the rule the guard
+    // enforces.
+    //
+    // The mock mirrors the contract's re-check: `signingWindowOpen` is
+    // mock-side state that the preflight never reads, and the request
+    // reverts with the contract's own message when the window is closed.
+
+    const depositKey = BigNumber.from(1)
+    const funding = singleInputProofTestData.bitcoinChainData
+    const fundingTxHash = funding.transaction.transactionHash
+
+    beforeEach(() => {
+      mockReservations.addReservedDeposit(depositKey, {
+        amount: BigNumber.from(500000),
+        walletPublicKeyHash: WALLET_A_PKH,
+        isReserved: true,
+        revealedAt: Math.floor(Date.now() / 1000) - 3600,
+        depositor: TEST_DEPOSITOR,
+      })
+      mockReservations.setWalletState(WALLET_A_PKH, WalletState.Live)
+      loadFundingChainData(
+        mockBitcoinClient,
+        singleInputProofTestData,
+        singleInputProofTestData.requiredConfirmations
+      )
+    })
+
+    it("should keep the acceptance preflight ok after the signing window closes, so the preflight does not predict the reverted request", async () => {
+      // The off-chain prediction, taken while the authorization window is
+      // still open: every rule the SDK is able to read holds.
+      const preflight = await service.checkAcceptancePreflight(
+        depositKey,
+        WALLET_A_PKH
+      )
+
+      expect(preflight.ok).to.be.true
+      expect(preflight.failures).to.have.length(0)
+
+      // Between the read and the request the deposit's authorization
+      // window closes: the refund deadline passes, so the window no longer
+      // admits a signature. The SDK cannot observe this: the snapshotted
+      // refund deadline is not a public view.
+      mockReservations.signingWindowOpen = false
+
+      // The on-chain outcome: the contract re-checks the window and reverts.
+      await expect(
+        service.requestAcceptance(fundingTxHash, 1, WALLET_A_PKH)
+      ).to.be.rejectedWith("Acceptance authorization has no signing window")
+
+      // The SDK's report is not merely stale, it is INCOMPLETE. Even after
+      // the window has closed, the preflight carries no window-related
+      // entry: no such entry is possible, because the SDK cannot read the
+      // deposit's refund deadline.
+      expect(preflight.ok).to.be.true
+      expect(preflight.failures).to.have.length(0)
+      const windowRelated = preflight.failures.filter((failure) =>
+        /window|deadline|expire/i.test(failure)
+      )
+      expect(windowRelated).to.deep.equal([])
+    })
+
+    it("should report the acceptance rules it can see but not the signing window, so the preflight is a partial prediction", async () => {
+      // The rules the SDK CAN evaluate are reported: the wallet Live state.
+      mockReservations.setWalletState(WALLET_A_PKH, WalletState.Closing)
+
+      const visible = await service.checkAcceptancePreflight(
+        depositKey,
+        WALLET_A_PKH
+      )
+
+      expect(visible.ok).to.be.false
+      expect(visible.failures).to.include("wallet is not in Live state")
+
+      // The rules the SDK CANNOT evaluate are not reported, even when the
+      // window is closed at the time of the read: the preflight says
+      // nothing about the window, so its verdict is partial in both
+      // directions.
+      mockReservations.signingWindowOpen = false
+
+      const blind = await service.checkAcceptancePreflight(
+        depositKey,
+        WALLET_A_PKH
+      )
+
+      expect(blind.ok).to.be.false
+      expect(blind.failures).to.include("wallet is not in Live state")
+      expect(
+        blind.failures.filter((failure) =>
+          /window|deadline|expire/i.test(failure)
+        )
+      ).to.deep.equal([])
+    })
+  })
+
   describe("releaseToPool", () => {
     it("should release to the zero address when no vault is given", async () => {
       const depositKey = BigNumber.from(42)
