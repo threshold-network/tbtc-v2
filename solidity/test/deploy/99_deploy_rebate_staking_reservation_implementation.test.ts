@@ -771,9 +771,18 @@ describe("deploy/99 deploy_rebate_staking_reservation_implementation", () => {
 
       // The candidate: the real self-reference left as zeros, and the
       // address written into the other zero region instead.
+      //
+      // The address goes in as bare hex: the runtime already carries its
+      // own `0x`, so an address with its prefix in it would make the
+      // runtime the wrong length, and the fixture would be rejected by the
+      // length check before it ever reached the self-reference logic.
       const candidate =
-        `0x${artifact.slice(0, otherZeroRegion)}${address}` +
+        `0x${artifact.slice(0, otherZeroRegion)}${address.slice(2)}` +
         `${artifact.slice(otherZeroRegion + 40)}`
+
+      // The fixture has to be a runtime of the right shape, or the test
+      // would pass for the wrong reason.
+      expect(candidate.length).to.equal(deposit.deployedBytecode.length)
 
       const result = proveLibraryIdentity({
         name: "Deposit",
@@ -782,6 +791,9 @@ describe("deploy/99 deploy_rebate_staking_reservation_implementation", () => {
         artifactRuntime: deposit.deployedBytecode,
       })
       expect(result.matches).to.equal(false)
+      // The rejection has to come from the runtime not being this build,
+      // not from the fixture being malformed.
+      expect(result.reason).to.match(/is not the Deposit build/)
     })
 
     it("pins the self-reference at the head of the runtime", async () => {
