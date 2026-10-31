@@ -12,13 +12,13 @@ import {
 import {
   assertBridgeImplementationChanges,
   assertSelectorPresence,
+  artifactLinkSites,
   buildRebateBatch,
   encodeExecuteBatch,
   encodeScheduleBatch,
-  extractPushedAddresses,
   hashOperationBatch,
-  linkedLibraryAddresses,
   postExecutionCheck,
+  proveBridgeIdentity,
   rebateSelectorPlan,
   scanSelectors,
 } from "../deploy/99_deploy_rebate_staking_reservation_implementation"
@@ -95,6 +95,111 @@ interface Step {
 }
 
 const steps: Step[] = []
+
+/**
+ * What a failed redemption attempt actually was.
+ *
+ * `bare` is the only kind that proves the hazard: the EVM reverted with no
+ * return data, which is what the missing `isRebateAuthorized` selector
+ * does, because `RebateStaking` has neither a fallback nor a receive
+ * function.
+ */
+export type RevertKind =
+  /** The EVM reverted and returned no data. */
+  | "bare"
+  /** The EVM reverted with an `Error(string)` or a panic. */
+  | "reason"
+  /** The EVM reverted with a custom error's return data. */
+  | "custom-error"
+  /** The EVM reverted with return data that is neither of the above. */
+  | "data"
+  /** The error is not an EVM revert at all. */
+  | "not-a-revert"
+
+/** The `Error(string)` selector, `keccak256("Error(string)")[:4]`. */
+const ERROR_STRING_SELECTOR = "0x08c379a0"
+/** The `Panic(uint256)` selector, `keccak256("Panic(uint256)")[:4]`. */
+const PANIC_SELECTOR = "0x4e487b71"
+
+/**
+ * Classifies a failed redemption attempt.
+ *
+ * The negative control of this rehearsal is only worth anything if a
+ * "reverted" verdict rests on an EVM revert. A timeout, a nonce error, a
+ * funding error or an argument-encoding exception is not a revert, and
+ * accepting one as a revert would let the rehearsal report the hazard as
+ * demonstrated when nothing was demonstrated at all.
+ *
+ * The classification is by the error's own shape:
+ *
+ *  - An EVM revert is an ethers `CALL_EXCEPTION`, a Hardhat
+ *    `SolidityError`, or a JSON-RPC error whose code is the standard
+ *    "execution reverted" code. Anything else - a transport failure, a
+ *    nonce error, an encoding error - is `not-a-revert`.
+ *  - A revert with empty return data is `bare`. That is the shape the
+ *    missing selector produces: `RebateStaking` has no fallback, so the
+ *    call returns no data at all.
+ *  - A revert with a reason string, a panic or a custom error carries
+ *    return data, and is reported as such rather than as a bare revert.
+ *
+ * The Hardhat shapes are the ones this rehearsal actually sees: Hardhat
+ * raises a `SolidityError` for an execution failure, and that error
+ * carries no `code` at all, so a classifier that keyed on `code` alone
+ * would call every real revert a non-revert.
+ */
+export function classifyRevert(
+  error: unknown
+): { kind: RevertKind; data?: string } {
+  const candidate = error as {
+    code?: unknown
+    data?: unknown
+    message?: unknown
+    stackTrace?: unknown
+    constructor?: { name?: string }
+  } | null
+  const code = typeof candidate?.code === "string" ? candidate.code : undefined
+  const message = String(candidate?.message ?? error)
+  const data = typeof candidate?.data === "string" ? candidate.data : undefined
+
+  // An EVM revert has to be recognised as one before its return data can
+  // be read. The three shapes below are the only ones that mean "the EVM
+  // ran the transaction and it failed".
+  const isEthersCallException = code === "CALL_EXCEPTION"
+  const isHardhatSolidityError =
+    candidate?.constructor?.name === "SolidityError" ||
+    candidate?.stackTrace !== undefined
+  const isJsonRpcRevert =
+    code === "-32000" || /execution reverted/i.test(message)
+  if (!isEthersCallException && !isHardhatSolidityError && !isJsonRpcRevert) {
+    return { kind: "not-a-revert" }
+  }
+
+  // Non-empty return data: the revert carried a payload, so it is not the
+  // bare revert the missing selector produces.
+  if (data !== undefined && data !== "0x") {
+    if (data.startsWith(ERROR_STRING_SELECTOR) || data.startsWith(PANIC_SELECTOR)) {
+      return { kind: "reason", data }
+    }
+    return { kind: "custom-error", data }
+  }
+
+  // Empty return data. The message says which kind of empty revert it is.
+  if (/reverted without a reason/i.test(message)) {
+    return { kind: "bare" }
+  }
+  if (/missing revert data/i.test(message)) {
+    return { kind: "bare" }
+  }
+  if (/reverted with reason string/i.test(message)) {
+    return { kind: "reason" }
+  }
+  if (/reverted with (an unrecognized )?custom error/i.test(message)) {
+    return { kind: "custom-error" }
+  }
+  // A revert with empty return data whose message says nothing about it is
+  // still a revert, and an empty payload is the shape the hazard has.
+  return { kind: "bare" }
+}
 
 function record(step: Step): void {
   steps.push(step)
@@ -247,10 +352,15 @@ async function main(): Promise<void> {
 
   // The deployed Bridge build is now the input the deploy script would be
   // given, so the same rules apply to it: it must differ from the installed
-  // one, and it must link a Redemption library that calls the rebate
-  // selector. The rehearsal checks both through the same helpers the deploy
-  // script uses, so the rehearsal and the ceremony agree on what "the
-  // release build" means.
+  // one, and it must *be* the Bridge. The rehearsal checks both through the
+  // same helpers the deploy script uses, so the rehearsal and the ceremony
+  // agree on what "the release build" means.
+  //
+  // The identity proof names the Redemption library from the Bridge
+  // artifact's link map, so the library is identified rather than guessed
+  // at from a PUSH20 scan. The negative control below passes the
+  // Redemption library itself as the Bridge implementation and requires
+  // the proof to reject it.
   const currentBridgeImplWord = await ethers.provider.getStorage(
     bridge,
     EIP_1967_IMPLEMENTATION_SLOT
@@ -258,38 +368,57 @@ async function main(): Promise<void> {
   const currentBridgeImpl = eth.getAddress(
     `0x${currentBridgeImplWord.slice(26)}`
   )
+  const bridgeArtifact = await artifacts.readArtifact(BRIDGE_ARTIFACT)
+  const linkSites = artifactLinkSites(bridgeArtifact.deployedLinkReferences)
   try {
     assertBridgeImplementationChanges(currentBridgeImpl, newBridgeImpl)
     const bridgeCode = await ethers.provider.getCode(newBridgeImpl)
-    const libraryCandidates = linkedLibraryAddresses(bridgeCode, [
-      bridge,
-      rebateStaking,
-      KNOWN_PROXY_ADMIN,
-      KNOWN_TIMELOCK,
-      KNOWN_COUNCIL_SAFE,
-    ])
-    const redemptionLibraries: string[] = []
-    for (const candidate of libraryCandidates) {
-      const code = await ethers.provider.getCode(candidate)
-      if (code === "0x") continue
-      if (scanSelectors(code)["0x96253dad"] === true) {
-        redemptionLibraries.push(candidate)
-      }
-    }
-    if (redemptionLibraries.length === 0) {
+    const identity = proveBridgeIdentity({
+      candidateAddress: newBridgeImpl,
+      candidateRuntime: bridgeCode,
+      artifactRuntime: bridgeArtifact.deployedBytecode,
+      linkSites,
+    })
+    if (!identity.isBridge) {
       throw new Error(
-        "no library linked by the deployed Bridge build carries 0x96253dad"
+        `the deployed Bridge build is not the Bridge implementation: ${identity.reason}`
       )
     }
+    const redemptionLibrary = identity.libraries.Redemption
+    if (redemptionLibrary === undefined) {
+      throw new Error("the deployed Bridge build does not link a Redemption library")
+    }
+    const redemptionCode = await ethers.provider.getCode(redemptionLibrary)
+    if (scanSelectors(redemptionCode)["0x96253dad"] !== true) {
+      throw new Error(
+        `the Redemption library ${redemptionLibrary} does not carry 0x96253dad`
+      )
+    }
+
+    // Negative control: the Redemption library is a library, not the
+    // Bridge implementation. It satisfies every other check the
+    // pre-flight makes, so the identity proof has to reject it.
+    const redemptionIdentity = proveBridgeIdentity({
+      candidateAddress: redemptionLibrary,
+      candidateRuntime: redemptionCode,
+      artifactRuntime: bridgeArtifact.deployedBytecode,
+      linkSites,
+    })
+    if (redemptionIdentity.isBridge) {
+      throw new Error(
+        `the Redemption library ${redemptionLibrary} was accepted as the Bridge implementation`
+      )
+    }
+
     record({
       name: "02b-bridge-build-matches-the-input-rules",
       status: "PASS",
       values: {
         currentBridgeImpl,
         newBridgeImpl,
-        redemptionLibrary: redemptionLibraries[0],
-        libraryCandidates: libraryCandidates.length,
-        pushedAddresses: extractPushedAddresses(bridgeCode).length,
+        redemptionLibrary,
+        libraries: identity.libraries,
+        rejectionOfRedemptionLibrary: redemptionIdentity.reason,
       },
     })
   } catch (e) {
@@ -451,22 +580,24 @@ async function main(): Promise<void> {
       return { ok: true, txHash: receipt.hash }
     } catch (e) {
       const message = String(e)
-      // The missing-selector revert is bare: `RebateStaking` has no fallback,
-      // so the call returns no data. A revert carrying a reason string or a
-      // custom error came from an input or state check instead, which would
-      // make a "reverted" verdict a false positive.
-      const bareRevert =
-        message.includes("without a reason") ||
-        (!message.includes("reverted with reason string") &&
-          !message.includes("reverted with custom error"))
+      // The verdict has to rest on an EVM revert, not on any error at all.
+      // A timeout, a nonce error, a funding error or an argument-encoding
+      // exception is not a revert, and treating one as a revert would let
+      // the negative control pass without the hazard ever being shown.
+      const revert = classifyRevert(message)
+      const bareRevert = revert.kind === "bare"
       const status =
-        expect === "revert" ? (bareRevert ? "PASS" : "FAIL") : "FAIL"
+        expect === "revert"
+          ? bareRevert
+            ? "PASS"
+            : "FAIL"
+          : "FAIL"
       record({
         name,
         status,
         error:
           expect === "revert" && !bareRevert
-            ? `reverted for the wrong reason (expected the bare missing-selector revert): ${message}`
+            ? `expected the bare missing-selector revert, got ${revert.kind}: ${message}`
             : message,
       })
       return { ok: false, error: message, bareRevert }
@@ -651,7 +782,9 @@ async function main(): Promise<void> {
   console.log(`  batch order redemption succeeded:   ${batched.ok}`)
   console.log(`  post-execution check:               ${postCheck !== undefined}`)
 
-  const failed = steps.some((step) => step.status === "FAIL")
+  // `writeArtifact` sets the exit status from the recorded steps, so the
+  // run fails here exactly when a step failed, on this path and on every
+  // early return alike.
   writeArtifact(
     block,
     { bridge, rebateStaking, newBridgeImpl, newStakingImpl, operationId },
@@ -662,12 +795,17 @@ async function main(): Promise<void> {
       postCheck,
     }
   )
-  if (failed) {
-    console.log("\nFAIL: at least one step failed; see the artifact")
-    process.exitCode = 1
-  }
 }
 
+/**
+ * Writes the artifact and sets the process exit status.
+ *
+ * Every exit from the rehearsal goes through here, including the early
+ * returns a failed pre-flight makes. A rehearsal that never scheduled or
+ * executed the batch must not exit 0: the exit status is the only thing a
+ * caller outside this file can see, so a step that recorded `FAIL` and
+ * returned has to fail the run.
+ */
 function writeArtifact(
   block: number,
   addresses: Record<string, string | undefined>,
@@ -676,6 +814,7 @@ function writeArtifact(
   const dir = path.join(__dirname, "..", "dryrun-artifacts")
   fs.mkdirSync(dir, { recursive: true })
   const file = path.join(dir, `rebate-batch-fork-${block}.json`)
+  const failed = steps.some((step) => step.status === "FAIL")
   fs.writeFileSync(
     file,
     JSON.stringify(
@@ -691,6 +830,10 @@ function writeArtifact(
     )
   )
   console.log(`\nArtifact: ${file}`)
+  if (failed) {
+    console.log("\nFAIL: at least one step failed; see the artifact")
+    process.exitCode = 1
+  }
 }
 
 main().catch((error: unknown) => {

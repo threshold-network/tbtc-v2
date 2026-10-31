@@ -2,7 +2,9 @@ import fs from "fs"
 import path from "path"
 import type { HardhatRuntimeEnvironment } from "hardhat/types"
 import type { DeployFunction, DeployOptions } from "hardhat-deploy/types"
+import { artifacts } from "hardhat"
 import { ethers as utils } from "ethers"
+import { getStorageUpgradeReport } from "@openzeppelin/upgrades-core"
 import {
   EIP_1967_ADMIN_SLOT,
   EIP_1967_IMPLEMENTATION_SLOT,
@@ -371,6 +373,222 @@ export interface StorageEntry {
   type: string
 }
 
+/**
+ * A whole `storageLayout` as solc emits it: the flat entry list plus the
+ * `types` table that gives each type id its members.
+ *
+ * The type ids are compilation-local: the same source compiled twice names
+ * its struct `t_struct(Stake)34999_storage` in one build and
+ * `t_struct(Stake)36253_storage` in the other, and renumbers its contract
+ * types the same way (`t_contract(IERC20Upgradeable)13046` versus
+ * `...13055`). Those ids are opaque handles into the `types` table, not
+ * descriptions of the type, so comparing them across two compilations
+ * compares compiler bookkeeping rather than the storage.
+ */
+export interface StorageLayout {
+  storage: StorageEntry[]
+  types: Record<string, unknown>
+}
+
+/**
+ * The layout shape `@openzeppelin/upgrades-core` expects. Its own
+ * `StorageLayout` type is stricter than the records on disk (it wants the
+ * `contract` and `astId` fields solc writes), so the two are bridged with a
+ * cast at the one call site rather than by re-declaring the library's
+ * types here.
+ */
+type UpgradesStorageLayout = Parameters<
+  typeof getStorageUpgradeReport
+>[0]
+
+/**
+ * The semantic form of a solc type id: what the type *is*, read out of the
+ * layout's own `types` table.
+ *
+ * solc's type ids are compilation-local handles:
+ * `t_contract(IERC20Upgradeable)13046` in one compilation and
+ * `t_contract(IERC20Upgradeable)13055` in the next name the same type.
+ * The `types` table gives each id its `label`, which carries no AST id:
+ * `contract IERC20Upgradeable`, `struct RebateStaking.Stake`,
+ * `mapping(address => struct RebateStaking.Stake)`, `uint256[49]`. Those
+ * labels are what two compilations can be compared by.
+ *
+ * A type id the table does not know is returned with its AST suffix
+ * stripped, so an unknown type still compares by shape rather than by
+ * numbering.
+ */
+export function semanticTypeId(
+  typeId: string,
+  types: Record<string, unknown> = {}
+): string {
+  const labelled = types[typeId]
+  if (typeof labelled === "object" && labelled !== null && "label" in labelled) {
+    const label = (labelled as { label: unknown }).label
+    if (typeof label === "string") {
+      return label
+    }
+  }
+  // No label available: strip the AST ids from the type id, e.g.
+  // `t_struct(Stake)34999_storage` -> `t_struct(Stake)`.
+  //
+  // The AST id is only stripped where it is one. In
+  // `t_array(t_uint256)49_storage` the number after the bracket is the
+  // array's *length*, and stripping it would make `uint256[49]` and
+  // `uint256[48]` the same type.
+  return stripAstIds(typeId)
+}
+
+/** The type ids whose trailing number is an AST id rather than a length. */
+const AST_ID_HEADS: Record<string, true> = {
+  t_struct: true,
+  t_contract: true,
+  t_enum: true,
+  t_userDefinedValueType: true,
+}
+
+/**
+ * Removes the AST ids from a type id, keeping the array lengths.
+ *
+ * solc's type ids carry the AST id of the declaration in a few places:
+ * `t_struct(Stake)34999_storage`, `t_contract(IERC20Upgradeable)13046`,
+ * `t_enum(RebateTreasuryFeeMode)34969`. The same declaration gets a
+ * different id in the next compilation, so the ids have to go for two
+ * builds to be compared.
+ */
+function stripAstIds(typeId: string): string {
+  const open = typeId.indexOf("(")
+  if (open === -1) return typeId
+  const head = typeId.slice(0, open)
+  if (AST_ID_HEADS[head] === true) {
+    return typeId.replace(/\)(\d+)(_[a-z]+)?$/, ")")
+  }
+  // A composite head: recurse into the arguments, which is where the
+  // struct and contract ids live.
+  let out = ""
+  let depth = 0
+  let index = 0
+  while (index < typeId.length) {
+    const char = typeId[index]
+    if (char === "(") {
+      depth += 1
+      out += char
+      index += 1
+      continue
+    }
+    if (char === ")") {
+      depth -= 1
+      out += char
+      index += 1
+      continue
+    }
+    if (depth === 0) {
+      out += char
+      index += 1
+      continue
+    }
+    // Inside an argument list: read the argument up to the next comma or
+    // the closing bracket.
+    let argument = ""
+    while (index < typeId.length && typeId[index] !== "," && typeId[index] !== ")") {
+      argument += typeId[index]
+      index += 1
+    }
+    out += stripAstIds(argument)
+  }
+  return out
+}
+
+/**
+ * The storage-layout comparison this gate uses.
+ *
+ * `@openzeppelin/upgrades-core` compares two layouts by their *meaning*:
+ * it parses each type id against that compilation's `types` table, resolves
+ * struct and enum members, and reports a difference only when the storage
+ * really differs. Two builds of the same source that differ only in their
+ * AST numbering are equal to it, which is exactly the property this gate
+ * needs, and the one the raw type-id comparison did not have.
+ *
+ * The library is asked for `unsafeAllowCustomTypes` because the pinned
+ * solc 0.8.17 does not populate `.members` for enums in `storageLayout`
+ * output, so the library would otherwise refuse to compare the
+ * `RebateTreasuryFeeMode` enum at all. The repo's own
+ * `test/bridge/Bridge.StorageLayout.test.ts` makes the same allowance for
+ * the same reason and pins the enum member order from source instead. The
+ * enum order is pinned the same way here.
+ */
+export const LAYOUT_COMPARISON_OPTIONS = {
+  unsafeAllowCustomTypes: true,
+  unsafeAllowRenames: false,
+} as const
+
+/**
+ * The semantic storage-layout gate.
+ *
+ * Two layouts are compared by what they *store*, not by the opaque ids solc
+ * hands out. `@openzeppelin/upgrades-core` resolves every type id against
+ * the `types` table of its own compilation, so a struct that one build calls
+ * `t_struct(Stake)34999_storage` and the other calls
+ * `t_struct(Stake)36253_storage` is one struct, and a field whose real type
+ * changed is reported even when the ids differ.
+ *
+ * This is the check that has to hold before a live proxy is pointed at a
+ * new implementation. It returns the report so the caller can print it; it
+ * throws on the first incompatibility, naming the field.
+ */
+export function assertLayoutCompatible(
+  deployed: StorageLayout,
+  head: StorageLayout
+): string {
+  let report
+  try {
+    report = getStorageUpgradeReport(
+      normaliseLayout(deployed) as unknown as UpgradesStorageLayout,
+      normaliseLayout(head) as unknown as UpgradesStorageLayout,
+      {
+        ...LAYOUT_COMPARISON_OPTIONS,
+        unsafeAllowLinkedLibraries: false,
+        unsafeSkipStorageCheck: false,
+        unsafeAllow: [],
+        kind: "transparent",
+      }
+    )
+  } catch (error) {
+    throw new Error(
+      `layout: the storage layouts could not be compared: ${
+        (error as Error).message
+      }`
+    )
+  }
+  if (!report.pass) {
+    throw new Error(`layout: incompatible storage layout\n${report.explain(false)}`)
+  }
+  return report.explain(false)
+}
+
+/**
+ * Puts a layout into the shape the comparison expects.
+ *
+ * The offsets are the one field the two sources disagree about: solc
+ * writes them as numbers in a build's `storageLayout`, and the
+ * hardhat-deploy record that reads the same layout back writes them as
+ * strings. `0` and `"0"` are different values to a strict comparison, so
+ * a layout that was read from a record would otherwise report every
+ * packed field as having moved. The offsets are numbers here, which is
+ * what solc emits.
+ */
+function normaliseLayout(layout: StorageLayout): {
+  storage: Record<string, unknown>[]
+  types: Record<string, unknown>
+} {
+  return {
+    ...layout,
+    storage: layout.storage.map((entry) => ({
+      ...entry,
+      offset: Number(entry.offset),
+    })),
+  }
+}
+
 /** Last absolute slot an entry covers. Arrays span their declared length. */
 function endSlot(entry: StorageEntry): number {
   const match = /^t_array\(.*\)(\d+)_storage$/.exec(entry.type)
@@ -389,7 +607,8 @@ function endSlot(entry: StorageEntry): number {
  */
 export function assertLayoutAppendOnly(
   deployed: StorageEntry[],
-  head: StorageEntry[]
+  head: StorageEntry[],
+  types?: { deployed?: StorageLayout; head?: StorageLayout }
 ): void {
   // `__gap` appears more than once in a real layout (the OZ base gap near
   // slot 1 and the contract's own trailing gap), so entries are matched by
@@ -411,13 +630,24 @@ export function assertLayoutAppendOnly(
     if (counterpart === undefined) {
       throw new Error(`layout: deployed field ${key} is gone at head`)
     }
-    if (counterpart.slot !== entry.slot || counterpart.offset !== entry.offset) {
+    // The offset is compared numerically: solc writes it as a number and
+    // the hardhat-deploy record writes the same value back as a string,
+    // so `0` and `"0"` are the same offset.
+    if (
+      counterpart.slot !== entry.slot ||
+      Number(counterpart.offset) !== Number(entry.offset)
+    ) {
       throw new Error(
         `layout: ${entry.label} moved from slot ${entry.slot}+${entry.offset} ` +
           `to ${counterpart.slot}+${counterpart.offset}`
       )
     }
-    if (counterpart.type !== entry.type) {
+    // The two type ids are compared by meaning, not verbatim: solc
+    // renumbers its type ids on every compilation, so the same field has a
+    // different id in the two builds even though it stores the same thing.
+    const deployedType = semanticTypeId(entry.type, types?.deployed?.types)
+    const headType = semanticTypeId(counterpart.type, types?.head?.types)
+    if (headType !== deployedType) {
       throw new Error(
         `layout: ${entry.label} type changed from ${entry.type} to ${counterpart.type}`
       )
@@ -461,6 +691,19 @@ export function assertLayoutAppendOnly(
  * empty layout that trivially passes the gate.
  */
 export function readStorageLayout(recordPath: string): StorageEntry[] {
+  return readStorageLayoutFile(recordPath).storage
+}
+
+/**
+ * Reads a whole `storageLayout` out of a hardhat-deploy record: the flat
+ * entry list and the `types` table that gives every type id its members.
+ *
+ * The `types` table is what makes a semantic comparison possible. It is
+ * required, not optional: a layout without it cannot be compared by
+ * meaning, and the gate must not silently fall back to comparing opaque
+ * type ids across two different compilations.
+ */
+export function readStorageLayoutFile(recordPath: string): StorageLayout {
   const parsed: unknown = JSON.parse(fs.readFileSync(recordPath, "utf8"))
   if (
     typeof parsed !== "object" ||
@@ -478,7 +721,10 @@ export function readStorageLayout(recordPath: string): StorageEntry[] {
   ) {
     throw new Error(`${recordPath}: storageLayout.storage is not an array`)
   }
-  return layout.storage.map((raw: unknown, index: number): StorageEntry => {
+  if (!("types" in layout) || typeof layout.types !== "object" || layout.types === null) {
+    throw new Error(`${recordPath}: storageLayout.types is missing`)
+  }
+  const storage = layout.storage.map((raw: unknown, index: number): StorageEntry => {
     if (typeof raw !== "object" || raw === null) {
       throw new Error(`${recordPath}: storageLayout.storage[${index}] is not an object`)
     }
@@ -499,6 +745,7 @@ export function readStorageLayout(recordPath: string): StorageEntry[] {
     }
     return { label, slot, offset: normalisedOffset, type }
   })
+  return { storage, types: layout.types as Record<string, unknown> }
 }
 
 /** Reads the runtime bytecode hardhat-deploy recorded for a deployment. */
@@ -602,6 +849,228 @@ export function linkedLibraryAddresses(
   return extractPushedAddresses(bridgeImplCode).filter(
     (address) => !excluded.has(address.toLowerCase())
   )
+}
+
+/**
+ * The link sites of a compiled artifact: for every library the artifact
+ * links, the byte offsets in the *deployed* bytecode where that library's
+ * address is written.
+ */
+export interface LinkSite {
+  /** Library name, e.g. `Redemption`. */
+  library: string
+  /** Byte offset into the deployed bytecode. */
+  start: number
+  /** Length in bytes; always 20 for an address. */
+  length: number
+}
+
+/**
+ * The link sites of an artifact, read from its `deployedLinkReferences`.
+ *
+ * `deployedLinkReferences` is the map of the *runtime* code: the offsets
+ * where solc writes each linked library's address. Reading it is what makes
+ * the Bridge-identity proof possible, because it says which library each
+ * address literal in the runtime belongs to.
+ */
+export function artifactLinkSites(
+  deployedLinkReferences: Record<
+    string,
+    Record<string, { start: number; length: number }[]>
+  >
+): LinkSite[] {
+  const sites: LinkSite[] = []
+  for (const libraries of Object.values(deployedLinkReferences)) {
+    for (const [library, references] of Object.entries(libraries)) {
+      for (const reference of references) {
+        sites.push({
+          library,
+          start: reference.start,
+          length: reference.length,
+        })
+      }
+    }
+  }
+  return sites
+}
+
+/**
+ * The Bridge runtime the artifact describes, with the library addresses
+ * substituted for the placeholders.
+ *
+ * solc leaves an unlinked address in the runtime as a
+ * `__$<34 hex chars>$__` placeholder, one per library. Substituting each
+ * placeholder with the address the link map says belongs to that library
+ * gives the *expected* runtime for a given set of library addresses: two
+ * builds of the same Bridge are equal to it when they link the same
+ * libraries, and differ when they do not.
+ */
+export function bridgeRuntimeWithLibraries(
+  deployedBytecode: string,
+  sites: LinkSite[],
+  libraryAddresses: Record<string, string>
+): string {
+  const hex = deployedBytecode.toLowerCase().replace(/^0x/, "")
+  const chunks = new Map<string, string>()
+  for (const site of sites) {
+    const chunk = hex.slice(site.start * 2, site.start * 2 + site.length * 2)
+    if (chunk.length !== site.length * 2) {
+      throw new Error(
+        `link site for ${site.library} at ${site.start} is outside the bytecode`
+      )
+    }
+    chunks.set(chunk, site.library)
+  }
+  let out = hex
+  for (const [chunk, library] of chunks) {
+    const address = libraryAddresses[library]
+    if (address === undefined) {
+      throw new Error(`no address given for the linked library ${library}`)
+    }
+    const normalised = address.toLowerCase().replace(/^0x/, "")
+    if (normalised.length !== 40) {
+      throw new Error(`${library} address ${address} is not 20 bytes`)
+    }
+    out = out.split(chunk).join(normalised)
+  }
+  return `0x${out}`
+}
+
+/**
+ * What the identity proof concluded about a candidate Bridge build.
+ */
+export interface BridgeIdentity {
+  /** The candidate is the Bridge artifact, linked as described. */
+  isBridge: boolean
+  /** The libraries the candidate links, by name. */
+  libraries: Record<string, string>
+  /** Why the candidate was rejected, when it was. */
+  reason?: string
+}
+
+/**
+ * Whether a candidate runtime is a library that refers to itself.
+ *
+ * solc writes a library's own address into the runtime it deploys: the
+ * `Redemption` library's runtime begins with `PUSH20 <its own address>`.
+ * A candidate that carries its own address among its PUSH20 literals is
+ * therefore a library, not the Bridge implementation.
+ *
+ * This is the case the review named: passed in as
+ * `BRIDGE_RESERVATION_IMPLEMENTATION`, the `Redemption` library satisfies
+ * every other check in the pre-flight. It has code, it is not the
+ * implementation the Bridge proxy already delegates to, and it does carry
+ * the `isRebateAuthorized` selector the scan looks for. Rejecting a
+ * self-reference is what stops it from being certified as the Bridge.
+ */
+export function isSelfReferencingLibrary(
+  candidateAddress: string,
+  candidateRuntime: string
+): boolean {
+  const candidate = candidateAddress.toLowerCase().replace(/^0x/, "")
+  return extractPushedAddresses(candidateRuntime).some(
+    (address) => address.toLowerCase().replace(/^0x/, "") === candidate
+  )
+}
+
+/**
+ * Proves that a candidate runtime is the Bridge implementation.
+ *
+ * The proof is a bytecode identity, not a heuristic:
+ *
+ *  1. A candidate that refers to itself is rejected: it is a library, and
+ *    the Bridge implementation is not a library.
+ *  2. The candidate's runtime is compared against the Bridge artifact's own
+ *     runtime with the link sites filled in. Everything except the library
+ *     addresses has to match byte for byte, so a candidate that is not this
+ *     Bridge does not pass, whatever its address literals look like.
+ *  3. The library addresses the candidate links are read from the
+ *     artifact's link map, so the `Redemption` library is *named*, not
+ *     guessed from a PUSH20 scan.
+ */
+export function proveBridgeIdentity(params: {
+  /** The candidate's address on chain. */
+  candidateAddress: string
+  /** The candidate's runtime bytecode, as deployed. */
+  candidateRuntime: string
+  /** The Bridge artifact's deployed bytecode, with link placeholders. */
+  artifactRuntime: string
+  /** The Bridge artifact's deployed link references. */
+  linkSites: LinkSite[]
+}): BridgeIdentity {
+  const { candidateAddress, candidateRuntime, artifactRuntime, linkSites } = params
+  const candidate = candidateRuntime.toLowerCase().replace(/^0x/, "")
+  const artifact = artifactRuntime.toLowerCase().replace(/^0x/, "")
+
+  // Step 1: a library is not the Bridge implementation.
+  if (isSelfReferencingLibrary(candidateAddress, candidateRuntime)) {
+    return {
+      isBridge: false,
+      libraries: {},
+      reason:
+        `the candidate ${candidateAddress} refers to itself in its own runtime, ` +
+        "so it is a library and not the Bridge implementation",
+    }
+  }
+
+  // At every link site the artifact carries a placeholder and the candidate
+  // carries the real address. Read both at the same offset: the artifact's
+  // placeholder names the library, the candidate's address says which
+  // library it links.
+  const libraries: Record<string, string> = {}
+  const placeholderToAddress = new Map<string, string>()
+  for (const site of linkSites) {
+    const from = site.start * 2
+    const to = from + site.length * 2
+    const placeholder = artifact.slice(from, to)
+    const linked = candidate.slice(from, to)
+    if (placeholder.length !== site.length * 2) {
+      throw new Error(
+        `link site for ${site.library} at ${site.start} is outside the artifact bytecode`
+      )
+    }
+    if (linked.length !== site.length * 2) {
+      return {
+        isBridge: false,
+        libraries,
+        reason: `the candidate runtime is shorter than the Bridge artifact's link site for ${site.library}`,
+      }
+    }
+    if (!/^[0-9a-f]+$/.test(linked)) {
+      return {
+        isBridge: false,
+        libraries,
+        reason: `the candidate runtime carries a non-hex value at the ${site.library} link site`,
+      }
+    }
+    const existing = placeholderToAddress.get(placeholder)
+    if (existing !== undefined && existing !== linked) {
+      return {
+        isBridge: false,
+        libraries,
+        reason: `the candidate links two different addresses for ${site.library}`,
+      }
+    }
+    placeholderToAddress.set(placeholder, linked)
+    libraries[site.library] = utils.getAddress(`0x${linked}`)
+  }
+
+  // Step 2: everything outside the link sites must match byte for byte.
+  const expected = bridgeRuntimeWithLibraries(
+    artifactRuntime,
+    linkSites,
+    libraries
+  )
+  if (expected.slice(2) !== candidate) {
+    return {
+      isBridge: false,
+      libraries,
+      reason:
+        "the candidate runtime differs from the Bridge artifact outside the library link sites",
+    }
+  }
+
+  return { isBridge: true, libraries }
 }
 
 /**
@@ -716,6 +1185,49 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   assertBridgeImplementationChanges(currentBridgeImpl, bridgeImplAddress)
   console.log(`  current Bridge implementation: ${currentBridgeImpl} (action [1] changes it)`)
 
+  // The input must actually be the Bridge. Every other check in this script
+  // asks whether an address is *usable*; this one asks whether the code
+  // behind it is the Bridge implementation, and it does so by bytecode
+  // identity against the Bridge artifact:
+  //
+  //   - a candidate that refers to its own address is a library, and the
+  //     Bridge implementation is not a library. The `Redemption` library
+  //     passed in here would otherwise satisfy every other check: it has
+  //     code, it is not the installed implementation, and it does carry
+  //     the `isRebateAuthorized` selector the scan below looks for;
+  //   - the rest of the runtime must match the Bridge artifact's runtime
+  //     byte for byte, with the library link sites filled in with the
+  //     addresses the candidate links.
+  //
+  // The libraries are then *named* from the artifact's link map, so the
+  // `Redemption` library is identified rather than guessed at from a
+  // PUSH20 scan.
+  console.log("\n--- Bridge identity proof ---")
+  const bridgeArtifact = await artifacts.readArtifact("Bridge")
+  const identity = proveBridgeIdentity({
+    candidateAddress: bridgeImplAddress,
+    candidateRuntime: bridgeImplCode,
+    artifactRuntime: bridgeArtifact.deployedBytecode,
+    linkSites: artifactLinkSites(bridgeArtifact.deployedLinkReferences),
+  })
+  if (!identity.isBridge) {
+    throw new Error(
+      `BRIDGE_RESERVATION_IMPLEMENTATION ${bridgeImplAddress} is not the Bridge implementation: ` +
+        `${identity.reason}. Action [1] would install code the Bridge proxy cannot dispatch to.`
+    )
+  }
+  console.log(`  runtime matches the Bridge artifact: OK`)
+  for (const [library, address] of Object.entries(identity.libraries)) {
+    console.log(`  links ${library}: ${address}`)
+  }
+  const redemptionLibrary = identity.libraries.Redemption
+  if (redemptionLibrary === undefined) {
+    throw new Error(
+      `the Bridge implementation ${bridgeImplAddress} does not link a Redemption library, ` +
+        "so the batch would install a Bridge that cannot call the rebate gate."
+    )
+  }
+
   // --- Step 3: Deploy the freeze-head RebateStaking implementation ---
   console.log("\n--- Deploying RebateStaking implementation ---")
   const rebateImpl = await deploy("RebateStakingReservationImplementation", {
@@ -807,36 +1319,23 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   )
   console.log("  head RebateStaking: all four rebate selectors present")
 
-  const libraryCandidates = linkedLibraryAddresses(bridgeImplCode, [
-    Bridge.address,
-    RebateStaking.address,
-    proxyAdmin,
-    KNOWN_TIMELOCK,
-    KNOWN_COUNCIL_SAFE,
-  ])
-  const redemptionLibraries: string[] = []
-  for (const candidate of libraryCandidates) {
-    const code = await ethers.provider.getCode(candidate)
-    if (code === "0x") continue
-    const found = scanSelectors(code)
-    if (found[REBATE_SELECTORS.isRebateAuthorized] === true) {
-      redemptionLibraries.push(candidate)
-    }
-  }
-  if (redemptionLibraries.length === 0) {
+  // The Redemption library is the one the identity proof *named* from the
+  // Bridge artifact's link map, not one guessed at from a PUSH20 scan. The
+  // scan used to be the only way to find it, and it could not tell the
+  // Redemption library apart from any other library that happens to carry
+  // the same selector.
+  const redemptionCode = await ethers.provider.getCode(redemptionLibrary)
+  if (redemptionCode === "0x") {
     throw new Error(
-      `no library linked by the Bridge implementation ${bridgeImplAddress} carries ${REBATE_SELECTORS.isRebateAuthorized}. ` +
-        "The batch would install a Bridge that cannot call the rebate gate, so the build is not the release build."
+      `the Redemption library ${redemptionLibrary} linked by the Bridge implementation ${bridgeImplAddress} has no code`
     )
   }
-  for (const library of redemptionLibraries) {
-    assertSelectorPresence(
-      `Redemption library ${library}`,
-      await ethers.provider.getCode(library),
-      plan.newRedemption
-    )
-    console.log(`  Redemption library ${library}: calls isRebateAuthorized`)
-  }
+  assertSelectorPresence(
+    `Redemption library ${redemptionLibrary}`,
+    redemptionCode,
+    plan.newRedemption
+  )
+  console.log(`  Redemption library ${redemptionLibrary}: calls isRebateAuthorized`)
   console.log(
     `  Bridge implementation selectors: ${JSON.stringify(scanSelectors(bridgeImplCode))}`
   )
@@ -845,11 +1344,26 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   // Deployed layout comes from the record of the implementation the proxy
   // delegates to today; the head layout from the record just written. Both
   // are files, parsed rather than trusted.
+  //
+  // The comparison is semantic: `@openzeppelin/upgrades-core` resolves each
+  // type against the `types` table of its own compilation, so the two
+  // records are compared by what they store and not by the opaque,
+  // compilation-local type ids solc hands out. The two builds of this same
+  // source differ in those ids and agree in everything else, so an
+  // id-by-id comparison would reject the intended upgrade.
   console.log("\n--- Storage layout gate ---")
-  assertLayoutAppendOnly(
-    readStorageLayout(recordPath("RebateStakingTIP109HotfixImplementation")),
-    readStorageLayout(recordPath("RebateStakingReservationImplementation"))
+  const deployedLayout = readStorageLayoutFile(
+    recordPath("RebateStakingTIP109HotfixImplementation")
   )
+  const headLayout = readStorageLayoutFile(
+    recordPath("RebateStakingReservationImplementation")
+  )
+  assertLayoutCompatible(deployedLayout, headLayout)
+  console.log("  storage layout compatible (semantic comparison): OK")
+  assertLayoutAppendOnly(deployedLayout.storage, headLayout.storage, {
+    deployed: deployedLayout,
+    head: headLayout,
+  })
   console.log("  append-only, same end slot: OK")
 
   // --- Step 7: Build the single batch ---
@@ -906,7 +1420,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     },
     inputContracts: {
       BridgeReservationImplementation: bridgeImplAddress,
-      RedemptionLibrary: redemptionLibraries[0],
+      RedemptionLibrary: redemptionLibrary,
     },
     existingContracts: {
       Bridge: Bridge.address,
@@ -936,7 +1450,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
       installedRebateStakingHas: scanSelectors(installedCode),
       headRebateStakingHas: scanSelectors(newStakingCode),
       redemptionLibraryHas: scanSelectors(
-        await ethers.provider.getCode(redemptionLibraries[0])
+        await ethers.provider.getCode(redemptionLibrary)
       ),
       bridgeImplementationHas: scanSelectors(bridgeImplCode),
     },
@@ -948,7 +1462,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
       ),
       BridgeReservationImplementation: ethers.keccak256(bridgeImplCode),
       RedemptionLibrary: ethers.keccak256(
-        await ethers.provider.getCode(redemptionLibraries[0])
+        await ethers.provider.getCode(redemptionLibrary)
       ),
     },
   }

@@ -1,6 +1,6 @@
 import { expect } from "chai"
 import path from "path"
-import { ethers } from "hardhat"
+import { artifacts, ethers } from "hardhat"
 import {
   REBATE_SELECTORS,
   assertBridgeImplementationChanges,
@@ -10,18 +10,26 @@ import {
   TRAP_SELECTOR_UINT256_AMOUNT,
   assertBatchOrder,
   assertLayoutAppendOnly,
+  assertLayoutCompatible,
   assertSelectorPresence,
+  artifactLinkSites,
+  bridgeRuntimeWithLibraries,
   buildRebateBatch,
   encodeExecuteBatch,
   encodeScheduleBatch,
   encodeUpgrade,
   hashOperationBatch,
+  isSelfReferencingLibrary,
+  proveBridgeIdentity,
   readDeployedBytecode,
   readStorageLayout,
+  readStorageLayoutFile,
   rebateSelectorPlan,
   scanSelectors,
+  semanticTypeId,
   type RebateBatch,
   type StorageEntry,
+  type StorageLayout,
 } from "../../deploy/99_deploy_rebate_staking_reservation_implementation"
 
 const PROXY_ADMIN = "0x16A76d3cd3C1e3CE843C6680d6B37E9116b5C706"
@@ -413,7 +421,251 @@ describe("deploy/99 deploy_rebate_staking_reservation_implementation", () => {
       expect(found[REBATE_SELECTORS.cancelRebate]).to.equal(true)
     })
   })
+
+  describe("the storage-layout comparison is semantic, not by type id", () => {
+    it("gives two builds of the same source the same type identity", () => {
+      // solc's type ids are compilation-local handles: the same struct is
+      // `t_struct(Stake)34999_storage` in one compilation and
+      // `t_struct(Stake)36253_storage` in the next. The gate has to see
+      // one struct, not two.
+      //
+      // The `types` table is what carries the meaning: its `label` field
+      // has no AST id in it.
+      const deployed = readStorageLayoutFile(
+        recordPath("RebateStakingTIP109HotfixImplementation")
+      )
+      const stakes = deployed.storage.find((entry) => entry.label === "stakes")
+      expect(stakes).to.not.equal(undefined)
+      expect(semanticTypeId(stakes!.type, deployed.types)).to.equal(
+        "mapping(address => struct RebateStaking.Stake)"
+      )
+      const token = deployed.storage.find((entry) => entry.label === "token")
+      expect(semanticTypeId(token!.type, deployed.types)).to.equal(
+        "contract IERC20Upgradeable"
+      )
+      // Without a types table the AST id is stripped instead, so an
+      // unknown type still compares by shape rather than by numbering.
+      expect(semanticTypeId("t_struct(Stake)34999_storage")).to.equal(
+        "t_struct(Stake)"
+      )
+      expect(semanticTypeId("t_struct(Stake)36253_storage")).to.equal(
+        "t_struct(Stake)"
+      )
+      expect(
+        semanticTypeId("t_contract(IERC20Upgradeable)13046")
+      ).to.equal(semanticTypeId("t_contract(IERC20Upgradeable)13055"))
+    })
+
+    it("keeps genuinely different types apart", () => {
+      expect(semanticTypeId("t_uint256")).to.not.equal(semanticTypeId("t_uint128"))
+      expect(semanticTypeId("t_struct(Stake)1_storage")).to.not.equal(
+        semanticTypeId("t_struct(Rebate)1_storage")
+      )
+      expect(semanticTypeId("t_array(t_uint256)49_storage")).to.not.equal(
+        semanticTypeId("t_array(t_uint256)48_storage")
+      )
+    })
+
+    it("accepts the real deployed layout against the real compiled head layout", async () => {
+      // This is the check the gate exists for, against the two layouts the
+      // ceremony actually compares: the deployed implementation's record
+      // and the layout the compiler produces for the head source.
+      //
+      // The head layout comes out of the compiler, so its type ids are
+      // numbered differently from the deployed record's. An id-by-id
+      // comparison rejects this upgrade; a semantic one accepts it.
+      const deployed = readStorageLayoutFile(
+        recordPath("RebateStakingTIP109HotfixImplementation")
+      )
+      const head = await compiledHeadLayout()
+
+      // The two layouts really do differ in their type ids: that is the
+      // property that broke the previous comparison.
+      const deployedToken = deployed.storage.find((entry) => entry.label === "token")
+      const headToken = head.storage.find((entry) => entry.label === "token")
+      expect(deployedToken).to.not.equal(undefined)
+      expect(headToken).to.not.equal(undefined)
+      expect(deployedToken?.type).to.not.equal(headToken?.type)
+      expect(semanticTypeId(deployedToken?.type ?? "", deployed.types)).to.equal(
+        semanticTypeId(headToken?.type ?? "", head.types)
+      )
+
+      expect(() => assertLayoutCompatible(deployed, head)).to.not.throw()
+      expect(() =>
+        assertLayoutAppendOnly(deployed.storage, head.storage, {
+          deployed,
+          head,
+        })
+      ).to.not.throw()
+    })
+
+    it("rejects a head layout whose field moved", async () => {
+      const deployed = readStorageLayoutFile(
+        recordPath("RebateStakingTIP109HotfixImplementation")
+      )
+      const head = await compiledHeadLayout()
+      const moved = JSON.parse(JSON.stringify(head)) as StorageLayout
+      const field = moved.storage.find((entry) => entry.label === "rebatePerToken")
+      expect(field).to.not.equal(undefined)
+      field!.slot = "99"
+      expect(() => assertLayoutCompatible(deployed, moved)).to.throw(
+        /incompatible storage layout/i
+      )
+    })
+
+    it("rejects a head layout whose field changed type", async () => {
+      const deployed = readStorageLayoutFile(
+        recordPath("RebateStakingTIP109HotfixImplementation")
+      )
+      const head = await compiledHeadLayout()
+      const retyped = JSON.parse(JSON.stringify(head)) as StorageLayout
+      // `rollingWindow` is a uint256 on both sides; make it a uint128 and
+      // the storage really differs.
+      const field = retyped.storage.find((entry) => entry.label === "rollingWindow")
+      expect(field).to.not.equal(undefined)
+      field!.type = "t_uint128"
+      retyped.types.t_uint128 = { encoding: "inplace", label: "uint128", numberOfBytes: "16" }
+      expect(() => assertLayoutCompatible(deployed, retyped)).to.throw(
+        /incompatible storage layout/i
+      )
+    })
+
+    it("reads the deployed record's types table", () => {
+      const layout = readStorageLayoutFile(
+        recordPath("RebateStakingTIP109HotfixImplementation")
+      )
+      expect(Object.keys(layout.types).length).to.be.greaterThan(0)
+      // The struct behind `stakes` has to be in the table, or the layout
+      // could not be compared by meaning at all.
+      const stakes = layout.storage.find((entry) => entry.label === "stakes")
+      expect(stakes).to.not.equal(undefined)
+      expect(layout.types[stakes!.type]).to.not.equal(undefined)
+    })
+  })
+
+  describe("the Bridge input is proven to be the Bridge", () => {
+    it("rejects a Redemption library address as the Bridge implementation", async () => {
+      // The counterexample the review named: the `Redemption` library
+      // carries code, it is not the installed implementation, and it does
+      // carry the `isRebateAuthorized` selector, so every other check in
+      // the pre-flight accepts it. The identity proof has to reject it.
+      const artifact = await artifacts.readArtifact("Bridge")
+      const linkSites = artifactLinkSites(artifact.deployedLinkReferences)
+      const redemption = await artifacts.readArtifact("Redemption")
+
+      // A library's runtime starts with a PUSH20 of its own address. The
+      // deployed library has that address written at its first link site,
+      // so build the runtime the library would actually have.
+      const libraryAddress = "0x1111111111111111111111111111111111111111"
+      const selfRuntime = `0x73${libraryAddress.slice(2)}${redemption.deployedBytecode.slice(2).slice(42)}`
+
+      const identity = proveBridgeIdentity({
+        candidateAddress: libraryAddress,
+        candidateRuntime: selfRuntime,
+        artifactRuntime: artifact.deployedBytecode,
+        linkSites,
+      })
+      expect(identity.isBridge).to.equal(false)
+      expect(identity.reason).to.match(/refers to itself|its own/i)
+    })
+
+    it("recognises a library by its own address in its runtime", () => {
+      const libraryAddress = "0x1111111111111111111111111111111111111111"
+      const selfRuntime = `0x73${libraryAddress.slice(2)}60006000fd`
+      expect(isSelfReferencingLibrary(libraryAddress, selfRuntime)).to.equal(true)
+      expect(
+        isSelfReferencingLibrary(
+          "0x2222222222222222222222222222222222222222",
+          selfRuntime
+        )
+      ).to.equal(false)
+    })
+
+    it("rejects a runtime that is not the Bridge at all", async () => {
+      const artifact = await artifacts.readArtifact("Bridge")
+      const linkSites = artifactLinkSites(artifact.deployedLinkReferences)
+      // A runtime of the right length that is not the Bridge: the same
+      // length as the artifact, so the rejection is about the bytes and
+      // not about a truncated runtime.
+      const notTheBridge = `0x${"60".repeat(
+        artifact.deployedBytecode.length / 2 - 1
+      )}`
+      const identity = proveBridgeIdentity({
+        candidateAddress: "0x2222222222222222222222222222222222222222",
+        candidateRuntime: notTheBridge,
+        artifactRuntime: artifact.deployedBytecode,
+        linkSites,
+      })
+      expect(identity.isBridge).to.equal(false)
+      expect(identity.reason).to.match(/differs from the Bridge artifact/)
+    })
+
+    it("accepts the real Bridge build linked against real libraries", async () => {
+      // The positive control: the Bridge artifact, with its link
+      // placeholders replaced by the addresses a real deployment links.
+      const artifact = await artifacts.readArtifact("Bridge")
+      const linkSites = artifactLinkSites(artifact.deployedLinkReferences)
+      expect(linkSites.length).to.be.greaterThan(0)
+
+      const libraries: Record<string, string> = {}
+      for (const site of linkSites) {
+        if (libraries[site.library] === undefined) {
+          libraries[site.library] = ethers.getAddress(
+            `0x${"11".repeat(20).slice(0, 40)}`
+          )
+        }
+      }
+      // Give each library its own address, so the link sites are distinct.
+      let counter = 0x11
+      for (const site of linkSites) {
+        if (libraries[site.library] === undefined) {
+          libraries[site.library] = ethers.getAddress(
+            `0x${counter.toString(16).padStart(2, "0").repeat(20)}`
+          )
+          counter += 1
+        }
+      }
+      const linked = bridgeRuntimeWithLibraries(
+        artifact.deployedBytecode,
+        linkSites,
+        libraries
+      )
+      const identity = proveBridgeIdentity({
+        candidateAddress: "0x3333333333333333333333333333333333333333",
+        candidateRuntime: linked,
+        artifactRuntime: artifact.deployedBytecode,
+        linkSites,
+      })
+      expect(identity.isBridge).to.equal(true)
+      expect(identity.libraries.Redemption).to.not.equal(undefined)
+      expect(identity.libraries.Redemption).to.equal(libraries.Redemption)
+    })
+  })
 })
+
+/**
+ * The storage layout the compiler produces for the head `RebateStaking`.
+ *
+ * Read out of the build info rather than hand-written, so the test
+ * compares the two layouts the ceremony actually compares: the deployed
+ * implementation's record on disk and the compiler's own output for the
+ * head source.
+ */
+async function compiledHeadLayout(): Promise<StorageLayout> {
+  const buildInfo = await artifacts.getBuildInfo(
+    "contracts/bridge/RebateStaking.sol:RebateStaking"
+  )
+  if (buildInfo === undefined) {
+    throw new Error("no build info for the head RebateStaking")
+  }
+  const output = buildInfo.output.contracts["contracts/bridge/RebateStaking.sol"]
+  const contract = output?.RebateStaking
+  if (contract === undefined || !("storageLayout" in contract)) {
+    throw new Error("the head RebateStaking build info carries no storage layout")
+  }
+  const layout: unknown = contract.storageLayout
+  return layout as StorageLayout
+}
 
 /** The `__gap` that reserves the tail: the one with the highest slot. */
 function trailingGap(
