@@ -30,6 +30,12 @@ describe("RedemptionWatchtower - _redemptionDelay", () => {
   const requestedAmount = 10n
 
   before(async () => {
+    // The signer comes from the provider's default account: the suite
+    // deploys only the harness, so it needs no fixture and no named
+    // signer.
+    const [signer] = await ethers.getSigners()
+    deployer = signer
+
     const factory = await ethers.getContractFactory(
       "TestRedemptionWatchtower",
       deployer

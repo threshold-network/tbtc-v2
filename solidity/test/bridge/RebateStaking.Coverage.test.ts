@@ -106,7 +106,13 @@ describe("RebateStaking - uncovered statement coverage", () => {
     context("when the token address is zero", () => {
       it("should revert", async () => {
         await expect(
-          deployProxy(bridge.target as string, ethers.ZeroAddress, 100, 100, 100)
+          deployProxy(
+            bridge.target as string,
+            ethers.ZeroAddress,
+            100,
+            100,
+            100
+          )
         ).to.be.revertedWithCustomError(
           await ethers.getContractFactory("RebateStaking"),
           "ParametersCannotBeZero"

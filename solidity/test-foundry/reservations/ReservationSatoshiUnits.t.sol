@@ -544,13 +544,7 @@ contract ReservationSatoshiUnitsTest is Test {
         string memory arrayKey,
         uint256 index
     ) internal pure returns (string memory) {
-        return
-            string.concat(
-                arrayKey,
-                "[",
-                vm.toString(uint256(index)),
-                "]"
-            );
+        return string.concat(arrayKey, "[", vm.toString(uint256(index)), "]");
     }
 
     /// @dev The JSON path of an element's field inside an array.
@@ -559,11 +553,6 @@ contract ReservationSatoshiUnitsTest is Test {
         uint256 index,
         string memory field
     ) internal pure returns (string memory) {
-        return
-            string.concat(
-                _elementPath(arrayKey, index),
-                ".",
-                field
-            );
+        return string.concat(_elementPath(arrayKey, index), ".", field);
     }
 }
