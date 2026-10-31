@@ -262,19 +262,34 @@ describe("RebateStaking - uncovered statement coverage", () => {
     })
 
     context("when a rebate has aged out of the rolling window", () => {
+      // The timestamp of the aged-out rebate, kept so the later case can
+      // cancel the same entry again and observe that the rolling-window
+      // start index has moved past it.
+      let requestedAt: number
+
       before(async () => {
         await createSnapshot()
 
         // A rebate recorded before the rolling window starts. The cancel
         // walks the rebate array and skips the entry instead of matching it,
         // which is what advances the rolling-window start index.
+        //
+        // The cancel has to happen BEFORE any later `applyForRebate`:
+        // `applyForRebate` reads the rolling window through
+        // `getRebateInRollingWindow`, which advances the very same start
+        // index for an aged-out entry. Once that read has happened the
+        // cancel's loop starts past the aged-out entry and never reaches
+        // the skip, so the cancel would have nothing to advance.
         const rollingWindow = Number(await rebateStaking.rollingWindow())
         await bridge.applyForRebate(thirdParty.address, treasuryFee)
-        const requestedAt = await lastBlockTime()
+        requestedAt = await lastBlockTime()
         await increaseTime(rollingWindow + 1)
-        await bridge.applyForRebate(thirdParty.address, treasuryFee)
 
         await bridge.cancelRebate(thirdParty.address, requestedAt)
+
+        // A second rebate, recorded after the cancel, so the array holds
+        // both the aged-out entry and an in-window one.
+        await bridge.applyForRebate(thirdParty.address, treasuryFee)
       })
 
       after(async () => {
@@ -304,6 +319,21 @@ describe("RebateStaking - uncovered statement coverage", () => {
           0
         )
         expect(rebateAmount).to.be.equal(treasuryFee)
+      })
+
+      it("should advance the rolling-window start index past the aged-out rebate", async () => {
+        // The skip advances the rolling-window start index, so a later
+        // cancel no longer looks at the aged-out entry at all: the loop
+        // starts past it and the cancel finds nothing to zero. Without the
+        // index advance the loop would start at the aged-out entry again,
+        // match its timestamp and zero its rebate.
+        await bridge.cancelRebate(thirdParty.address, requestedAt)
+
+        const [, agedOutRebate] = await rebateStaking.getRebate(
+          thirdParty.address,
+          0
+        )
+        expect(agedOutRebate).to.be.equal(treasuryFee)
       })
     })
   })
