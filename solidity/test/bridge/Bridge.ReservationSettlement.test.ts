@@ -80,6 +80,7 @@ import type {
 import bridgeFixture from "../fixtures/bridge"
 import type { Mock } from "../helpers/mock"
 import { walletState } from "../fixtures"
+import { requireValue } from "../../helpers/require-value"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 const { lastBlockTime, increaseTime } = helpers.time
@@ -546,6 +547,144 @@ describe("Bridge - Reservation settlement", () => {
       expect(
         (await reservationRouter.reservations(reservationKey)).state
       ).to.equal(ReservationState.Active)
+    })
+
+    // The forwarder carries an EMPTY member proof and member index 0: the
+    // governance path takes no signing-group member proof. If the forwarder
+    // passed a non-empty proof, `Reservation.requestReservationReanchor`
+    // would run the source-wallet member check, which consults the ECDSA
+    // registry. The registry mock is armed to revert on that call, so a
+    // forwarder that carried a proof would surface this exact reason and
+    // the rotation would fail. Its success is the empty-proof property at
+    // the Hardhat level.
+    it("carries an empty member proof, so the source-wallet member check never runs", async () => {
+      const { reservationKey } = await makeAcceptedReservation()
+
+      await walletRegistry.isWalletMember.reverts(
+        "the forwarder must not ask the registry about a member proof"
+      )
+
+      try {
+        await expect(
+          bridgeGovernance
+            .connect(governance)
+            .requestReservationReanchor(reservationKey, secondWalletPubKeyHash)
+        )
+          .to.emit(reservationRouter, "ReservationReanchorRequested")
+          .withArgs(
+            reservationKey,
+            2,
+            walletPubKeyHash,
+            secondWalletPubKeyHash,
+            BigInt(RESERVATION_TX_MAX_FEE)
+          )
+      } finally {
+        await walletRegistry.isWalletMember.reset()
+      }
+
+      expect(
+        (await reservationRouter.reservations(reservationKey)).state
+      ).to.equal(ReservationState.ActionPending)
+    })
+
+    // The forwarder must not swallow the Bridge's revert: it forwards with
+    // no try/catch, so the Bridge's own reason reaches the caller. Here the
+    // Bridge refuses an unknown reservation key.
+    it("propagates the Bridge's revert instead of swallowing it", async () => {
+      const unknownKey = `0x${"ee".repeat(32)}`
+
+      await expect(
+        bridgeGovernance
+          .connect(governance)
+          .requestReservationReanchor(unknownKey, secondWalletPubKeyHash)
+      ).to.be.revertedWith("Reservation is not active")
+    })
+
+    // A second revert-propagation case, on a guard the Bridge checks after
+    // the reservation lookup: the target wallet must be Live. A forwarder
+    // that swallowed the failure would leave the operator with a silent
+    // no-op instead of the reason.
+    it("propagates the Bridge's revert when the target wallet is not Live", async () => {
+      const { reservationKey } = await makeAcceptedReservation()
+
+      // Retire the target wallet: it is no longer Live, so the Bridge
+      // refuses the rotation.
+      await setWalletState(secondWalletPubKeyHash, walletState.MovingFunds)
+
+      await expect(
+        bridgeGovernance
+          .connect(governance)
+          .requestReservationReanchor(reservationKey, secondWalletPubKeyHash)
+      ).to.be.revertedWith("Target wallet must be in Live state")
+
+      expect(
+        (await reservationRouter.reservations(reservationKey)).state
+      ).to.equal(ReservationState.Active)
+    })
+
+    // The forwarder has no governance delay: the rotation takes effect in
+    // the same block as the owner's call. That is a design property, not an
+    // accident of the staged setters, so it is pinned here rather than left
+    // implicit. The observable half is that the action record exists and
+    // the position is already `ActionPending` in the very block the call
+    // was mined in, with no clock movement in between.
+    //
+    // The `onlyOwner` half is pinned in the same case: a non-owner call is
+    // refused, so the no-delay path is not open to anyone.
+    it("applies a rotation in the same block as the owner's call, and refuses a non-owner", async () => {
+      const { reservationKey } = await makeAcceptedReservation()
+
+      const blockBefore = requireValue(
+        await ethers.provider.getBlock("latest"),
+        "Block"
+      )
+      const actionBefore = await reservationRouter.reservationActions(
+        reservationKey,
+        1
+      )
+
+      const tx = await bridgeGovernance
+        .connect(governance)
+        .requestReservationReanchor(reservationKey, secondWalletPubKeyHash)
+
+      const receipt = requireValue(await tx.wait(), "Transaction receipt")
+      const blockAfter = requireValue(
+        await ethers.provider.getBlock(receipt.blockNumber),
+        "Block"
+      )
+
+      // The call and the rotation share one block: no clock movement, no
+      // second transaction, no waiting out a window. The chain is free to
+      // reuse a timestamp across blocks, so the assertion is that the
+      // action was created in the call's own block, not that the clock
+      // moved by exactly one second.
+      expect(receipt.blockNumber).to.be.equal(blockBefore.number + 1)
+      expect(blockAfter.timestamp).to.be.at.least(blockBefore.timestamp)
+
+      // The action record for the new generation exists in that same
+      // block, and the position is already pending.
+      const actionAfter = await reservationRouter.reservationActions(
+        reservationKey,
+        2
+      )
+      expect(actionAfter.requestedAt).to.be.equal(blockAfter.timestamp)
+      expect(actionAfter.state).to.equal(ActionState.Pending)
+      expect(actionAfter.actionType).to.equal(ActionType.Reanchor)
+      expect(actionAfter.targetWalletPubKeyHash).to.equal(
+        secondWalletPubKeyHash
+      )
+      expect(actionBefore.state).to.not.equal(ActionState.Pending)
+
+      expect(
+        (await reservationRouter.reservations(reservationKey)).state
+      ).to.equal(ReservationState.ActionPending)
+
+      // The no-delay path is the owner's alone.
+      await expect(
+        bridgeGovernance
+          .connect(thirdParty)
+          .requestReservationReanchor(reservationKey, secondWalletPubKeyHash)
+      ).to.be.revertedWith("Ownable: caller is not the owner")
     })
 
     it("keeps the Live-source gate shut for a direct EOA call", async () => {

@@ -14,6 +14,7 @@ const ZERO_ADDRESS = ethers.ZeroAddress
 describe("Bridge - Parameters", () => {
   let governance: HardhatEthersSigner
   let thirdParty: HardhatEthersSigner
+  let deployer: HardhatEthersSigner
   let bridge: Bridge & BridgeStub
   let bridgeGovernance: BridgeGovernance
   let deployBridge: (
@@ -21,8 +22,14 @@ describe("Bridge - Parameters", () => {
   ) => Promise<[Contract, Deployment]>
 
   before(async () => {
-    ;({ governance, thirdParty, bridge, bridgeGovernance, deployBridge } =
-      await bridgeFixture())
+    ;({
+      deployer,
+      governance,
+      thirdParty,
+      bridge,
+      bridgeGovernance,
+      deployBridge,
+    } = await bridgeFixture())
   })
 
   describe("updateDepositParameters", () => {
@@ -2139,6 +2146,118 @@ describe("Bridge - Parameters", () => {
           })
         })
       })
+    })
+  })
+
+  // `Bridge.setSpvMaintainerStatus` is `onlyGovernance`, and on every
+  // network the governance is `BridgeGovernance`, not an EOA. The forwarder
+  // in `BridgeGovernance` is therefore the only path an operator or a
+  // deployment script actually takes; the Bridge-side setter is covered
+  // above by impersonating the governance address, which skips it. Both
+  // halves are pinned here: the owner's call reaches the Bridge setter,
+  // and a non-owner's call is refused before the forwarder body runs.
+  describe("setSpvMaintainerStatus forwarder", () => {
+    // A fresh address, so the assertion is a transition rather than a
+    // restatement of fixture state.
+    const maintainer = "0x0000000000000000000000000000000000002a01"
+
+    beforeEach(async () => {
+      await createSnapshot()
+    })
+
+    afterEach(async () => {
+      await restoreSnapshot()
+    })
+
+    it("sets the maintainer status on the Bridge when the owner calls", async () => {
+      await expect(
+        bridgeGovernance
+          .connect(governance)
+          .setSpvMaintainerStatus(maintainer, true)
+      )
+        .to.emit(bridge, "SpvMaintainerStatusUpdated")
+        .withArgs(maintainer, true)
+    })
+
+    it("refuses a non-owner without touching the Bridge", async () => {
+      await expect(
+        bridgeGovernance
+          .connect(thirdParty)
+          .setSpvMaintainerStatus(maintainer, true)
+      ).to.be.revertedWith("Ownable: caller is not the owner")
+    })
+  })
+
+  // `Bridge.setReservationRouter` is `onlyGovernance` as well, and it is
+  // write-once, so the shared fixture's Bridge (already pointed at the
+  // router by `deploy/06a_deploy_reservation_router.ts`) cannot exercise
+  // the forwarder's success path. Deploy a Bridge whose governance is a
+  // freshly deployed `BridgeGovernance` instead: the transfer is immediate
+  // (`transferGovernance` has no claim step, see `deploy/21`), which is how
+  // the deployment pipeline hands the Bridge to its governance contract.
+  describe("setReservationRouter forwarder", () => {
+    let freshBridge: BridgeStub
+    let freshGovernance: BridgeGovernance
+
+    before(async () => {
+      await createSnapshot()
+
+      freshBridge = (await deployBridge(1))[0] as unknown as BridgeStub
+      // `BridgeGovernance` requires the stateless
+      // `BridgeGovernanceParameters` library linked at deploy time; the
+      // fixture's own instance of it is the one the deployment pipeline
+      // links, and the library holds no state of its own.
+      const paramsLib = await helpers.contracts.getContract(
+        "BridgeGovernanceParameters"
+      )
+      // Deploy from `deployer` explicitly: the default signer is an
+      // unnamed account (index 0), and the deployer of an `Ownable`
+      // contract becomes its owner.
+      freshGovernance = (await (
+        await ethers.getContractFactory("BridgeGovernance", {
+          libraries: {
+            BridgeGovernanceParameters: paramsLib.target,
+          },
+        })
+      )
+        .connect(deployer)
+        .deploy(
+          freshBridge.target,
+          constants.governanceDelay
+        )) as BridgeGovernance
+      await freshGovernance.waitForDeployment()
+      await freshBridge
+        .connect(deployer)
+        .transferGovernance(freshGovernance.target)
+    })
+
+    after(async () => {
+      await restoreSnapshot()
+    })
+
+    it("sets the router through the Bridge when the owner calls", async () => {
+      await expect(
+        freshGovernance
+          .connect(deployer)
+          .setReservationRouter(freshBridge.target)
+      ).to.not.be.reverted
+      expect(await freshBridge.getReservationRouter()).to.equal(
+        freshBridge.target
+      )
+    })
+
+    it("refuses a non-owner and leaves the router unset", async () => {
+      const routerAfterRefusal = await freshBridge.getReservationRouter()
+
+      await expect(
+        freshGovernance
+          .connect(thirdParty)
+          .setReservationRouter(freshBridge.target)
+      ).to.be.revertedWith("Ownable: caller is not the owner")
+
+      expect(await freshBridge.getReservationRouter()).to.equal(
+        routerAfterRefusal
+      )
     })
   })
 })

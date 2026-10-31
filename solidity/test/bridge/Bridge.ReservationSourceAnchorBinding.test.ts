@@ -7,6 +7,9 @@
  *
  * Kept describes:
  *   - action source-anchor binding
+ *   - late settlement of a timed-out generation (added 2026-10-30: the
+ *     late branch's unwind of a newer pending generation, which needs the
+ *     two-settleable-generations state this file already builds)
  *
  * Pruned describes from original source block:
  *   - claim double-spend regression (full block - redemption-racing only)
@@ -565,6 +568,307 @@ describe("Bridge - Reservation source-anchor binding", () => {
     //   // DROPPED: depends on `redeemReservation` on ReservationVault, which
     //   // is m2-only (does not exist in m1).
     // })
+  })
+
+  // ---- Late settlement of a timed-out re-anchor ----
+  //
+  // `submitReservationReanchorProof` has two settlement shapes: an on-time
+  // proof names the position's current `Pending` generation, and a late
+  // proof names an older `TimedOut` one whose source anchor is still
+  // current (`ReservationProofs.sol:713-735`). The late shape has one extra
+  // duty: if the position has meanwhile moved on to a newer `Pending`
+  // generation, that generation can never settle (the late proof consumes
+  // the anchor it was authorized to spend), so it is unwound to
+  // `Superseded` and its reserved capacity is released before the late
+  // settlement re-takes the capacity the timeout released
+  // (`unwindPendingAction`, `:722-728`).
+  //
+  // This is the state the H-4R lab run left behind: two generations
+  // snapshotting the same anchor outpoint, the newer one settling on time
+  // and the older one stranded as `TimedOut` (see
+  // `agent-docs/overnight-2026-10-30/h4-cause-analysis.md`).
+  describe("late settlement of a timed-out generation", () => {
+    beforeEach(async () => {
+      await createSnapshot()
+    })
+
+    afterEach(async () => {
+      await restoreSnapshot()
+    })
+
+    // The re-anchor request is privileged while the source wallet is Live
+    // (only `BridgeGovernance` may rotate a Live source), so the source is
+    // put into `MovingFunds` first, which makes the permissionless branch
+    // reachable for `thirdParty`.
+    async function moveWalletToMovingFunds(pkh: string) {
+      const wallet = await bridge.wallets(pkh)
+      await bridge.setWallet(pkh, {
+        ecdsaWalletID: wallet.ecdsaWalletID,
+        mainUtxoHash: wallet.mainUtxoHash,
+        pendingRedemptionsValue: wallet.pendingRedemptionsValue,
+        createdAt: wallet.createdAt,
+        movingFundsRequestedAt: await lastBlockTime(),
+        closingStartedAt: wallet.closingStartedAt,
+        pendingMovedFundsSweepRequestsCount:
+          wallet.pendingMovedFundsSweepRequestsCount,
+        state: walletState.MovingFunds,
+        movingFundsTargetWalletsCommitmentHash:
+          wallet.movingFundsTargetWalletsCommitmentHash,
+      })
+    }
+
+    // Generation 2 authorizes the A -> B hop and times out while the hop
+    // transaction is already confirmed on Bitcoin. Generation 3 then
+    // re-authorizes the same hop and stays `Pending`. Both snapshot the same
+    // source outpoint, so the one confirmed transaction is a valid candidate
+    // for either generation, which is exactly the collision the late branch
+    // resolves.
+    async function timedOutGenerationUnderAPendingNewer() {
+      const { anchorTx, reservationKey } = await makeAcceptedReservation()
+      await moveWalletToMovingFunds(walletPubKeyHash)
+
+      await reservationRouter
+        .connect(thirdParty)
+        .requestReservationReanchor(
+          reservationKey,
+          secondWalletPubKeyHash,
+          [],
+          0
+        )
+      const hopTx = buildTx(
+        [{ txHash: anchorTx.txHash, index: 0 }],
+        [
+          {
+            valueSat: anchorAmount - 500n,
+            script: p2wpkhScript(secondWalletPubKeyHash),
+          },
+        ]
+      )
+
+      await increaseTime(RESERVATION_ACTION_TIMEOUT + 1)
+      await reservationRouter
+        .connect(thirdParty)
+        .notifyReservationActionTimeout(reservationKey)
+
+      // The timeout opens the re-anchor cooldown; wait it out before asking
+      // for the next generation.
+      await increaseTime(RESERVATION_ACTION_TIMEOUT + 1)
+      await reservationRouter
+        .connect(thirdParty)
+        .requestReservationReanchor(
+          reservationKey,
+          secondWalletPubKeyHash,
+          [],
+          0
+        )
+
+      return { anchorTx, hopTx, reservationKey }
+    }
+
+    it("settles the older generation late and supersedes the newer pending one", async () => {
+      const { hopTx, reservationKey } =
+        await timedOutGenerationUnderAPendingNewer()
+
+      // Both generations are settleable from the same confirmed transaction.
+      expect(
+        (await reservationRouter.reservations(reservationKey)).state
+      ).to.equal(ReservationState.ActionPending)
+      expect(
+        (await reservationRouter.reservationActions(reservationKey, 3)).state
+      ).to.equal(ActionState.Pending)
+      expect(
+        await reservationRouter.walletReservationsCount(secondWalletPubKeyHash)
+      ).to.equal(1n)
+
+      const tx = reservationRouter
+        .connect(spvMaintainer)
+        .submitReservationReanchorProof(
+          hopTx.info,
+          proofFor(hopTx.txHash),
+          reservationKey,
+          2
+        )
+
+      await expect(tx)
+        .to.emit(reservationRouter, "ReservationLateSettled")
+        .withArgs(reservationKey, 2, ActionType.Reanchor)
+      await expect(tx)
+        .to.emit(reservationRouter, "ReservationActionSuperseded")
+        .withArgs(reservationKey, 3)
+      await expect(tx)
+        .to.emit(reservationRouter, "ReservationReanchored")
+        .withArgs(
+          reservationKey,
+          2,
+          secondWalletPubKeyHash,
+          hopTx.txHash,
+          anchorAmount - 500n,
+          500
+        )
+
+      const reservation = await reservationRouter.reservations(reservationKey)
+      expect(reservation.state).to.equal(ReservationState.Active)
+      expect(reservation.walletPubKeyHash).to.equal(secondWalletPubKeyHash)
+      expect(reservation.anchorTxHash).to.equal(hopTx.txHash)
+      expect(reservation.anchorAmount).to.equal(anchorAmount - 500n)
+      // The settled generation is 2, but the position's generation counter
+      // stays at 3: the newer generation is terminal `Superseded`, not
+      // settled, and nothing renumbers it.
+      expect(reservation.requestNonce).to.equal(3n)
+
+      expect(
+        (await reservationRouter.reservationActions(reservationKey, 2)).state
+      ).to.equal(ActionState.Settled)
+      expect(
+        (await reservationRouter.reservationActions(reservationKey, 3)).state
+      ).to.equal(ActionState.Superseded)
+
+      // The unwind released generation 3's reservation of B and the late
+      // path re-took the capacity generation 2's timeout released, so B ends
+      // holding exactly one position: the post-hop anchor. Without the
+      // unwind B would hold two, one of them for a generation that can never
+      // settle.
+      expect(
+        await reservationRouter.walletReservationsCount(secondWalletPubKeyHash)
+      ).to.equal(1n)
+      expect(
+        await reservationRouter.walletReservationsAmount(secondWalletPubKeyHash)
+      ).to.equal(anchorAmount - 500n)
+      expect(
+        await reservationRouter.walletReservationsCount(walletPubKeyHash)
+      ).to.equal(0n)
+      expect(
+        await reservationRouter.walletReservationsAmount(walletPubKeyHash)
+      ).to.equal(0n)
+
+      // Reference kept intentionally out of the assertions above: the
+      // generations' shared source snapshot is the reason both are
+      // candidates, and it is what makes the collision real.
+      expect(
+        (await reservationRouter.reservationActions(reservationKey, 2))
+          .sourceAnchorUtxoHash
+      ).to.equal(
+        (await reservationRouter.reservationActions(reservationKey, 3))
+          .sourceAnchorUtxoHash
+      )
+    })
+
+    // Negative control for the unwind half of the branch. Same prefix, with
+    // no newer pending generation: the late settlement must still emit
+    // `ReservationLateSettled`, and it must not emit
+    // `ReservationActionSuperseded` or release anything else. A late branch
+    // that unwound unconditionally fails here on the missing pending action
+    // ("No pending action to unwind"); a late branch that never unwinds
+    // fails the test above on the extra reserved position.
+    it("settles a timed-out generation late with no newer pending one, superseding nothing", async () => {
+      const { anchorTx, reservationKey } = await makeAcceptedReservation()
+      await moveWalletToMovingFunds(walletPubKeyHash)
+
+      await reservationRouter
+        .connect(thirdParty)
+        .requestReservationReanchor(
+          reservationKey,
+          secondWalletPubKeyHash,
+          [],
+          0
+        )
+      const hopTx = buildTx(
+        [{ txHash: anchorTx.txHash, index: 0 }],
+        [
+          {
+            valueSat: anchorAmount - 500n,
+            script: p2wpkhScript(secondWalletPubKeyHash),
+          },
+        ]
+      )
+      await increaseTime(RESERVATION_ACTION_TIMEOUT + 1)
+      await reservationRouter
+        .connect(thirdParty)
+        .notifyReservationActionTimeout(reservationKey)
+
+      const tx = reservationRouter
+        .connect(spvMaintainer)
+        .submitReservationReanchorProof(
+          hopTx.info,
+          proofFor(hopTx.txHash),
+          reservationKey,
+          2
+        )
+
+      await expect(tx).to.emit(reservationRouter, "ReservationLateSettled")
+      await expect(tx).to.not.emit(
+        reservationRouter,
+        "ReservationActionSuperseded"
+      )
+
+      const reservation = await reservationRouter.reservations(reservationKey)
+      expect(reservation.state).to.equal(ReservationState.Active)
+      expect(reservation.walletPubKeyHash).to.equal(secondWalletPubKeyHash)
+      expect(reservation.requestNonce).to.equal(2n)
+      expect(
+        (await reservationRouter.reservationActions(reservationKey, 2)).state
+      ).to.equal(ActionState.Settled)
+      expect(
+        await reservationRouter.walletReservationsCount(secondWalletPubKeyHash)
+      ).to.equal(1n)
+      expect(
+        await reservationRouter.walletReservationsAmount(secondWalletPubKeyHash)
+      ).to.equal(anchorAmount - 500n)
+    })
+
+    // Negative control for the late events. From the identical
+    // two-settleable-generations state, proving the newer `Pending`
+    // generation is the on-time path: it emits neither `ReservationLateSettled`
+    // nor `ReservationActionSuperseded`, leaves the older generation
+    // `TimedOut`, and reaches the same final position and counters. This is
+    // the resolution the client actually chose in H-4R, and it shows the
+    // two events are specific to the late branch rather than to settlement
+    // in general.
+    it("settles the pending newer generation on time from the same transaction, emitting neither late event", async () => {
+      const { hopTx, reservationKey } =
+        await timedOutGenerationUnderAPendingNewer()
+
+      const tx = reservationRouter
+        .connect(spvMaintainer)
+        .submitReservationReanchorProof(
+          hopTx.info,
+          proofFor(hopTx.txHash),
+          reservationKey,
+          3
+        )
+
+      await expect(tx)
+        .to.emit(reservationRouter, "ReservationReanchored")
+        .withArgs(
+          reservationKey,
+          3,
+          secondWalletPubKeyHash,
+          hopTx.txHash,
+          anchorAmount - 500n,
+          500
+        )
+      await expect(tx).to.not.emit(reservationRouter, "ReservationLateSettled")
+      await expect(tx).to.not.emit(
+        reservationRouter,
+        "ReservationActionSuperseded"
+      )
+
+      const reservation = await reservationRouter.reservations(reservationKey)
+      expect(reservation.state).to.equal(ReservationState.Active)
+      expect(reservation.requestNonce).to.equal(3n)
+      expect(
+        (await reservationRouter.reservationActions(reservationKey, 2)).state
+      ).to.equal(ActionState.TimedOut)
+      expect(
+        (await reservationRouter.reservationActions(reservationKey, 3)).state
+      ).to.equal(ActionState.Settled)
+      expect(
+        await reservationRouter.walletReservationsCount(secondWalletPubKeyHash)
+      ).to.equal(1n)
+      expect(
+        await reservationRouter.walletReservationsAmount(secondWalletPubKeyHash)
+      ).to.equal(anchorAmount - 500n)
+    })
   })
   // The router's read-only surface must reflect the on-chain state it is
   // delegate-called against: the pending third-party hold counter and the
