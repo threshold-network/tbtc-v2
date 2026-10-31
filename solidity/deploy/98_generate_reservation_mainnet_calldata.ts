@@ -4,6 +4,11 @@ import path from "path"
 import { HardhatRuntimeEnvironment } from "hardhat/types"
 import { DeployFunction } from "hardhat-deploy/types"
 import { getAddress, Interface, ZeroAddress } from "ethers"
+import {
+  artifactLinkSites,
+  bridgeRuntimeWithLibraries,
+  LinkSite,
+} from "./99_deploy_rebate_staking_reservation_implementation"
 
 // Known mainnet Timelock Controller address. Owner of the ProxyAdmin,
 // used for scheduling and executing proxy upgrades with a 24h delay. This
@@ -470,6 +475,64 @@ function requireEnvNumber(name: string): number {
   return Number(requireEnvBigInt(name))
 }
 
+/**
+ * The runtime a hardhat-deploy record describes, with its libraries linked in.
+ *
+ * A record stores the *unlinked* deployed bytecode: at every link site solc
+ * left a `__$<34 hex chars>$__` placeholder, and the addresses the deployment
+ * linked sit in the record's `libraries` map. Comparing that string against
+ * `eth_getCode` compares placeholders with addresses, so it can only ever be
+ * unequal, however correct the deployment is. The addresses have to be
+ * substituted before anything is compared.
+ *
+ * The link sites come from the compiled artifact, because a record does not
+ * carry them, so the artifact must be the build the record was written from.
+ * A record from another build has different bytes and its placeholders are not
+ * at the artifact's offsets; substituting there would compare against a
+ * runtime nobody deployed, so the mismatch is reported instead.
+ */
+export function linkedRecordRuntime(params: {
+  /** The record's name, for the error messages. */
+  name: string
+  /** The record's `deployedBytecode`, placeholders included, if it has one. */
+  recordBytecode: string | undefined
+  /** The compiled artifact's `deployedBytecode`, placeholders included. */
+  artifactBytecode: string
+  /** The artifact's `deployedLinkReferences`, as link sites. */
+  linkSites: LinkSite[]
+  /** The record's `libraries` map: library name to the address it linked. */
+  libraries: Record<string, string>
+}): string {
+  const { name, recordBytecode, artifactBytecode, linkSites, libraries } =
+    params
+  if (
+    typeof recordBytecode !== "string" ||
+    typeof artifactBytecode !== "string"
+  ) {
+    throw new Error(
+      `The ${name} runtime cannot be reconstructed: the record or the artifact carries no deployed bytecode.`
+    )
+  }
+  if (recordBytecode.toLowerCase() !== artifactBytecode.toLowerCase()) {
+    throw new Error(
+      `The ${name} deployment record was written from a different build than ` +
+        "the compiled artifact: their deployed bytecodes differ, so the " +
+        "artifact's link sites do not describe the record's code. Recompile at " +
+        "the recorded commit, or re-deploy, before generating calldata."
+    )
+  }
+  const unlinked = linkSites
+    .filter((site) => libraries[site.library] === undefined)
+    .map((site) => site.library)
+  if (unlinked.length > 0) {
+    throw new Error(
+      `The ${name} deployment record carries no linked address for ` +
+        `${unlinked.join(", ")}, so its runtime cannot be reconstructed.`
+    )
+  }
+  return bridgeRuntimeWithLibraries(recordBytecode, linkSites, libraries)
+}
+
 const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const { deployments, getNamedAccounts, artifacts, ethers } = hre
   const { get, read } = deployments
@@ -572,15 +635,31 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
         "duplicate-set calldata."
     )
   }
+  // The router is library-linked (`06a_deploy_reservation_router.ts` deploys
+  // it with `Reservation` and `ReservationProofs`), so the record's
+  // `deployedBytecode` carries link placeholders, not addresses. Link it with
+  // the addresses the record says the deployment used, and compare that with
+  // the code at the address.
+  const routerArtifact = await artifacts.readArtifact("ReservationRouter")
+  const expectedRouterRuntime = linkedRecordRuntime({
+    name: "ReservationRouter",
+    recordBytecode: ReservationRouter.deployedBytecode,
+    artifactBytecode: routerArtifact.deployedBytecode,
+    linkSites: artifactLinkSites(routerArtifact.deployedLinkReferences),
+    libraries: ReservationRouter.libraries ?? {},
+  })
   const routerOnChainCode = await ethers.provider.getCode(
     ReservationRouter.address
   )
-  if (routerOnChainCode !== ReservationRouter.deployedBytecode) {
+  if (routerOnChainCode.toLowerCase() !== expectedRouterRuntime.toLowerCase()) {
     throw new Error(
       "On-chain bytecode at ReservationRouter address " +
         `${ReservationRouter.address} does not match the compiled ` +
-        "artifact's deployed bytecode; refusing to embed a mismatched " +
-        "address in mainnet governance calldata."
+        "artifact's deployed bytecode linked with the record's libraries " +
+        `(${Object.entries(ReservationRouter.libraries ?? {})
+          .map(([library, address]) => `${library}=${address}`)
+          .join(", ")}); refusing to embed a mismatched address in mainnet ` +
+        "governance calldata."
     )
   }
   console.log(

@@ -310,7 +310,14 @@ export function assertSelectorPresence(
   bytecode: string,
   expectations: Record<string, boolean>
 ): Record<string, boolean> {
-  const found = scanSelectors(bytecode, Object.keys(expectations))
+  // The trap selector is scanned alongside the expected ones. Scanning only
+  // `Object.keys(expectations)` leaves it out of `found`, and absent from a
+  // `Record<string, boolean>` is `undefined` -- so a guard keyed on that
+  // lookup can never fire, whatever the bytecode carries.
+  const found = scanSelectors(bytecode, [
+    ...Object.keys(expectations),
+    TRAP_SELECTOR_UINT256_AMOUNT,
+  ])
   const problems: string[] = []
   Object.entries(expectations).forEach(([selector, expectedPresent]) => {
     if (found[selector] !== expectedPresent) {
@@ -319,10 +326,13 @@ export function assertSelectorPresence(
       )
     }
   })
-  if (found[TRAP_SELECTOR_UINT256_AMOUNT] !== undefined) {
+  // A boolean, not `!== undefined`: once the key is scanned, `undefined`
+  // never comes back, so that test is true for every build and would reject
+  // the correct one.
+  if (found[TRAP_SELECTOR_UINT256_AMOUNT] === true) {
     // Not requested by the caller, but never acceptable on a rebate build.
     problems.push(
-      `trap selector ${TRAP_SELECTOR_UINT256_AMOUNT} must not be accepted`
+      `trap selector ${TRAP_SELECTOR_UINT256_AMOUNT} is present and must not be accepted`
     )
   }
   if (problems.length > 0) {
@@ -950,6 +960,95 @@ export function readDeployedBytecode(recordPath: string): string {
     throw new Error(`${recordPath}: deployedBytecode is not a hex string`)
   }
   return code
+}
+
+/** Reads the address hardhat-deploy recorded for a deployment. */
+export function readRecordAddress(recordPath: string): unknown {
+  const parsed: unknown = JSON.parse(fs.readFileSync(recordPath, "utf8"))
+  if (typeof parsed !== "object" || parsed === null || !("address" in parsed)) {
+    throw new Error(`${recordPath}: no address`)
+  }
+  return (parsed as Record<string, unknown>).address
+}
+
+/**
+ * Ties the storage gate's baseline record to the implementation the proxy
+ * actually delegates to.
+ *
+ * The gate compares two *files*: the pre-upgrade layout from the
+ * `RebateStakingTIP109HotfixImplementation` record and the head layout from
+ * the record this script wrote. Neither file is the chain, and nothing else
+ * binds them: hardhat-deploy rewrites records in place
+ * (`RebateStaking.json` on mainnet already carries `numDeployments: 2`), so a
+ * record can describe a build the proxy does not point at. The gate would
+ * then certify the upgrade against the wrong storage layout -- the one thing
+ * standing between a layout-breaking upgrade and a live proxy.
+ *
+ * The address is the one record field that can be compared with the chain, so
+ * it is compared here, before either layout is read.
+ */
+export function assertRecordAddressMatchesImplementation(params: {
+  /** The record's name, for the error message. */
+  name: string
+  /** The record's `address` field, as parsed from the file. */
+  recordAddress: unknown
+  /** The implementation in the proxy's EIP-1967 implementation slot. */
+  installedImplementation: string
+}): void {
+  const { name, recordAddress, installedImplementation } = params
+  if (typeof recordAddress !== "string") {
+    throw new Error(
+      `the ${name} record carries no address, so it cannot be matched against the ` +
+        `implementation the proxy delegates to (${installedImplementation})`
+    )
+  }
+  if (recordAddress.toLowerCase() !== installedImplementation.toLowerCase()) {
+    throw new Error(
+      `the ${name} record describes ${recordAddress}, but the proxy's EIP-1967 ` +
+        `implementation slot holds ${installedImplementation}. The record is not ` +
+        "the build the proxy delegates to, so its storage layout is not the " +
+        "deployed layout; refusing to run the storage gate against it."
+    )
+  }
+}
+
+/**
+ * Asserts the Bridge's stored rebate-staking pointer is the proxy this batch
+ * upgrades.
+ *
+ * `Bridge.getRebateStaking()` is the pointer every rebate path reads before it
+ * touches the staking contract
+ * (`Redemption.isRebateAuthorized`, `applyForRebate`), so the batch only lands
+ * its remedy if the pointer names the proxy the batch upgrades. A *non-zero*
+ * pointer to any other address is fatal and this function throws on it: the
+ * call lands on a contract without `isRebateAuthorized` and reverts with empty
+ * return data, which is the exact breakage the batch exists to close.
+ *
+ * A zero pointer is the documented "no rebate staking" state: the gate
+ * soft-fails to `false`, so it cannot break a redemption. It is still not a
+ * pass here -- the remedy would not land -- but it is not a mismatch, so the
+ * caller reports it as `unset` and the operator decides.
+ */
+export function assertBridgeRebateStakingPointer(params: {
+  /** `Bridge.getRebateStaking()`, as read from the chain. */
+  bridgePointer: string
+  /** The RebateStaking proxy this batch upgrades. */
+  rebateStakingProxy: string
+}): "unset" | "matches" {
+  const { bridgePointer, rebateStakingProxy } = params
+  if (bridgePointer.toLowerCase() === utils.ZeroAddress.toLowerCase()) {
+    return "unset"
+  }
+  if (bridgePointer.toLowerCase() !== rebateStakingProxy.toLowerCase()) {
+    throw new Error(
+      `Bridge.getRebateStaking() is ${bridgePointer}, but the batch upgrades the ` +
+        `RebateStaking proxy ${rebateStakingProxy}. A non-zero pointer to another ` +
+        "address makes every rebate path call a contract without " +
+        "`isRebateAuthorized` and revert with empty return data; refusing to " +
+        "emit the batch."
+    )
+  }
+  return "matches"
 }
 
 /**
@@ -1775,9 +1874,21 @@ const func: DeployFunction =
     // The gate is the one function, so the rehearsal enforces the same
     // three checks this script does.
     console.log("\n--- Storage layout gate ---")
-    const deployedLayout = readStorageLayoutFile(
-      recordPath("RebateStakingTIP109HotfixImplementation")
+    // The gate compares files; the proxy delegates to an address. Bind the
+    // baseline record to the implementation in the EIP-1967 slot first, so a
+    // rewritten or stale record cannot certify the upgrade against a layout
+    // that is not the deployed one.
+    const deployedRecordName = "RebateStakingTIP109HotfixImplementation"
+    const deployedRecordPath = recordPath(deployedRecordName)
+    assertRecordAddressMatchesImplementation({
+      name: deployedRecordName,
+      recordAddress: readRecordAddress(deployedRecordPath),
+      installedImplementation: installedImpl,
+    })
+    console.log(
+      `  baseline record ${deployedRecordName} is the installed implementation ${installedImpl}: OK`
     )
+    const deployedLayout = readStorageLayoutFile(deployedRecordPath)
     const headLayout = readStorageLayoutFile(
       recordPath("RebateStakingReservationImplementation")
     )
@@ -1798,6 +1909,27 @@ const func: DeployFunction =
 
     // --- Step 7: Build the single batch ---
     console.log("\n--- Building the Timelock batch ---")
+    // The batch upgrades the proxy; the Bridge has to point at it. A stale or
+    // wrong non-zero pointer leaves the rebate path calling code that cannot
+    // answer it, which is the breakage the batch is meant to close.
+    const bridgeRebateStaking: string = await hre.deployments.read(
+      "Bridge",
+      "getRebateStaking"
+    )
+    if (
+      assertBridgeRebateStakingPointer({
+        bridgePointer: bridgeRebateStaking,
+        rebateStakingProxy: RebateStaking.address,
+      }) === "unset"
+    ) {
+      console.log(
+        `  WARNING: Bridge.getRebateStaking() is ${utils.ZeroAddress}: the batch ` +
+          "upgrades the proxy but leaves the Bridge's pointer unset, so the rebate " +
+          "path stays disabled until a separate setRebateStaking call lands."
+      )
+    } else {
+      console.log(`  Bridge.getRebateStaking() == ${RebateStaking.address}: OK`)
+    }
     const timelock = new ethers.Contract(
       KNOWN_TIMELOCK,
       ["function getMinDelay() view returns (uint256)"],
@@ -1855,6 +1987,7 @@ const func: DeployFunction =
       existingContracts: {
         Bridge: Bridge.address,
         BridgeCurrentImplementation: currentBridgeImpl,
+        BridgeRebateStaking: bridgeRebateStaking,
         RebateStaking: RebateStaking.address,
         RebateStakingInstalledImplementation: installedImpl,
         ProxyAdmin: proxyAdmin,
@@ -1936,7 +2069,19 @@ const func: DeployFunction =
 export default func
 
 func.tags = ["DeployRebateStakingReservationImplementation"]
-func.dependencies = ["Bridge"]
+// No `Bridge` dependency: this script reads the `Bridge` *record*, never the
+// deploy script that writes it. hardhat-deploy resolves a script's
+// `dependencies` *before* it consults `skip` (1.0.4,
+// `DeploymentsManager.executeDeployScripts`), so a `"Bridge"` dependency runs
+// `06_deploy_bridge.ts` on every network even when this script then skips
+// itself, and 06 has neither a `skip` nor a mainnet guard. On mainnet the
+// Bridge is already deployed, so the run aborts inside 06 -- after 06 has
+// re-deployed `Deposit`, `DepositSweep` and `Wallets` (their sources change in
+// this release, so hardhat-deploy finds the recorded deployment transaction
+// stale) and rewritten those records to name implementations the live Bridge
+// does not link. A local or rehearsal run that needs the records built first
+// passes the tags explicitly:
+// `--tags Bridge,DeployRebateStakingReservationImplementation`.
 func.runAtTheEnd = true
 func.skip = async (): Promise<boolean> =>
   process.env.DEPLOY_REBATE_BATCH !== "true"

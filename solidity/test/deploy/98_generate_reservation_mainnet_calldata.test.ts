@@ -11,9 +11,11 @@ import func, {
   assertDissolutionDelayWithinScriptPolicy,
   assertHandoffAwareFleetFit,
   handoffAwareSlotCapacity,
+  linkedRecordRuntime,
   KNOWN_TIMELOCK,
   KNOWN_COUNCIL_SAFE,
 } from "../../deploy/98_generate_reservation_mainnet_calldata"
+import { artifactLinkSites } from "../../deploy/99_deploy_rebate_staking_reservation_implementation"
 
 /**
  * Asserts that `promise` rejects with an error whose message matches
@@ -74,7 +76,6 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
   const RESERVATION_ROUTER_ADDRESS =
     "0xAABbCcddEe00112233445566778899AaBbCCdDeE"
   const PROXY_ADMIN_ADDRESS = "0x1111111111111111111111111111111111111111"
-  const ROUTER_DEPLOYED_BYTECODE = "0x600160005260206000f3"
 
   // The real compiled BridgeGovernance ABI -- used as the single encoding
   // source, mirroring what the deploy script itself loads via
@@ -82,10 +83,35 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
   let bridgeGovernanceArtifact: any
   let bridgeGovInterface: Interface
 
+  // The real compiled ReservationRouter artifact. The router is
+  // library-linked, so its `deployedBytecode` carries solc's link
+  // placeholders -- which is why a deployment record of it does too, and why
+  // the on-chain check has to link the record before comparing.
+  let routerArtifact: any
+  /** The addresses a deployment record would say it linked, by library name. */
+  let routerLibraries: Record<string, string>
+  /** The runtime the router has on chain when linked as `routerLibraries`. */
+  let routerLinkedRuntime: string
+
   before(async () => {
     bridgeGovernanceArtifact =
       await hre.artifacts.readArtifact("BridgeGovernance")
     bridgeGovInterface = new ethers.Interface(bridgeGovernanceArtifact.abi)
+    routerArtifact = await hre.artifacts.readArtifact("ReservationRouter")
+    const linkSites = artifactLinkSites(routerArtifact.deployedLinkReferences)
+    routerLibraries = Object.fromEntries(
+      [...new Set(linkSites.map((site) => site.library))].map((library, i) => [
+        library,
+        `0x${(i + 5).toString(16).repeat(40)}`,
+      ])
+    )
+    routerLinkedRuntime = linkedRecordRuntime({
+      name: "ReservationRouter",
+      recordBytecode: routerArtifact.deployedBytecode,
+      artifactBytecode: routerArtifact.deployedBytecode,
+      linkSites,
+      libraries: routerLibraries,
+    })
   })
 
   // A complete set of env vars that satisfies every validation the script
@@ -160,7 +186,7 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
     const reservationRouterOnChain =
       overrides?.reservationRouterOnChain ?? ethers.ZeroAddress
     const routerOnChainCode =
-      overrides?.routerOnChainCode ?? ROUTER_DEPLOYED_BYTECODE
+      overrides?.routerOnChainCode ?? routerLinkedRuntime
     const proxyAdminOwner = overrides?.proxyAdminOwner ?? KNOWN_TIMELOCK
     const bridgeGovernanceOwner =
       overrides?.bridgeGovernanceOwner ?? KNOWN_COUNCIL_SAFE
@@ -190,10 +216,13 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
       getNamedAccounts: async () => ({ deployer: DEPLOYER_ADDRESS }),
       artifacts: {
         readArtifact: async (name: string) => {
-          if (name !== "BridgeGovernance") {
-            throw new Error(`Unexpected artifact request: ${name}`)
+          if (name === "BridgeGovernance") {
+            return bridgeGovernanceArtifact
           }
-          return bridgeGovernanceArtifact
+          if (name === "ReservationRouter") {
+            return routerArtifact
+          }
+          throw new Error(`Unexpected artifact request: ${name}`)
         },
       },
       ethers: {
@@ -213,7 +242,13 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
             throw new Error(`No deployment found for: ${name}`)
           }
           if (name === "ReservationRouter") {
-            return { address, deployedBytecode: ROUTER_DEPLOYED_BYTECODE }
+            // A hardhat-deploy record: the unlinked artifact bytecode plus
+            // the addresses the deployment linked into it.
+            return {
+              address,
+              deployedBytecode: routerArtifact.deployedBytecode,
+              libraries: routerLibraries,
+            }
           }
           return { address }
         },
@@ -486,6 +521,61 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
         routerOnChainCode: "0xdeadbeef",
       })
       await expectRejection(func(mockHre), /bytecode/)
+    })
+  })
+
+  describe("router runtime check links the record's bytecode (finding: linked code compared with unlinked bytes)", () => {
+    it("has a linked router build, so the record's bytecode carries placeholders", () => {
+      expect(routerArtifact.deployedBytecode).to.include("__$")
+      expect(Object.keys(routerLibraries).length).to.be.greaterThan(0)
+      expect(routerLinkedRuntime).to.not.equal(routerArtifact.deployedBytecode)
+    })
+
+    it("passes when the on-chain code is the record's bytecode with its libraries linked", async () => {
+      const { mockHre } = createMockHre()
+      await func(mockHre) // must not throw
+    })
+
+    it("throws when the on-chain code differs at a library link site only", async () => {
+      const [library] = Object.keys(routerLibraries)
+      const wrongLibraries = {
+        ...routerLibraries,
+        [library]: "0x9999999999999999999999999999999999999999",
+      }
+      const { mockHre } = createMockHre({
+        routerOnChainCode: linkedRecordRuntime({
+          name: "ReservationRouter",
+          recordBytecode: routerArtifact.deployedBytecode,
+          artifactBytecode: routerArtifact.deployedBytecode,
+          linkSites: artifactLinkSites(routerArtifact.deployedLinkReferences),
+          libraries: wrongLibraries,
+        }),
+      })
+      await expectRejection(func(mockHre), /does not match the compiled/)
+    })
+
+    it("throws when the record was written from a different build", () => {
+      expect(() =>
+        linkedRecordRuntime({
+          name: "ReservationRouter",
+          recordBytecode: `0x${"00".repeat(10)}`,
+          artifactBytecode: routerArtifact.deployedBytecode,
+          linkSites: artifactLinkSites(routerArtifact.deployedLinkReferences),
+          libraries: routerLibraries,
+        })
+      ).to.throw(/different build than the compiled artifact/)
+    })
+
+    it("throws when the record carries no address for a linked library", () => {
+      expect(() =>
+        linkedRecordRuntime({
+          name: "ReservationRouter",
+          recordBytecode: routerArtifact.deployedBytecode,
+          artifactBytecode: routerArtifact.deployedBytecode,
+          linkSites: artifactLinkSites(routerArtifact.deployedLinkReferences),
+          libraries: {},
+        })
+      ).to.throw(/carries no linked address for/)
     })
   })
 
