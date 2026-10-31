@@ -731,10 +731,7 @@ describe("deploy/99 deploy_rebate_staking_reservation_implementation", () => {
       const address = "0x4444444444444444444444444444444444444444"
       // A runtime of the right shape that is not this build: the deployed
       // runtime with one byte changed somewhere else in it.
-      const deployed = deployedLibraryRuntime(
-        deposit.deployedBytecode,
-        address
-      )
+      const deployed = deployedLibraryRuntime(deposit.deployedBytecode, address)
       const tampered = `0x${deployed
         .slice(2)
         .match(/.{2}/g)
