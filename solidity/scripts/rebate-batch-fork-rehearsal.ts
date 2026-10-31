@@ -1,7 +1,7 @@
+/* eslint-disable no-console -- this script's output is the rehearsal's step-by-step report */
 import fs from "fs"
 import path from "path"
 import { ContractFactory, ethers as eth } from "ethers"
-import type { TransactionReceipt } from "ethers"
 import { artifacts, ethers, network } from "hardhat"
 import {
   EIP_1967_IMPLEMENTATION_SLOT,
@@ -11,15 +11,20 @@ import {
 } from "../deploy/85_deploy_tip109_governance_upgrade"
 import {
   assertBridgeImplementationChanges,
+  assertLayoutAppendOnly,
+  assertLayoutCompatible,
   assertSelectorPresence,
   artifactLinkSites,
   buildRebateBatch,
+  compiledStorageLayout,
   encodeExecuteBatch,
   encodeScheduleBatch,
   hashOperationBatch,
   postExecutionCheck,
   proveBridgeIdentity,
+  proveLibraryIdentity,
   rebateSelectorPlan,
+  readStorageLayoutFile,
   scanSelectors,
 } from "../deploy/99_deploy_rebate_staking_reservation_implementation"
 
@@ -249,20 +254,20 @@ async function deployLinked(
 ) {
   const artifact = await artifacts.readArtifact(artifactName)
   let content = artifact.bytecode.slice(2)
-  for (const libs of Object.values(artifact.linkReferences)) {
-    for (const [libName, refs] of Object.entries(libs)) {
+  Object.values(artifact.linkReferences).forEach((libs) => {
+    Object.entries(libs).forEach(([libName, refs]) => {
       const address = libAddresses[libName]
       if (address === undefined) {
         throw new Error(`${artifactName}: no address for library ${libName}`)
       }
       const hex = address.toLowerCase().replace(/^0x/, "")
-      for (const ref of refs) {
+      refs.forEach((ref) => {
         const start = ref.start * 2
         content =
           content.slice(0, start) + hex + content.slice(start + ref.length * 2)
-      }
-    }
-  }
+      })
+    })
+  })
   const factory = new ContractFactory(artifact.abi, `0x${content}`, signer)
   const contract = await factory.deploy()
   await contract.waitForDeployment()
@@ -291,6 +296,9 @@ async function findRegisteredWalletsSlot(
     const base = eth.keccak256(
       coder.encode(["bytes20", "uint256"], [pk, BigInt(slot)])
     )
+    // The slots are probed one after another: the first one that holds the
+    // wallet's id is the slot, and the reads are cheap.
+    // eslint-disable-next-line no-await-in-loop
     const word = await ethers.provider.getStorage(bridge, base)
     // `ecdsaWalletID` is the struct's first field, so it is the first word.
     if (word.toLowerCase() === ecdsaWalletID.toLowerCase()) {
@@ -331,8 +339,14 @@ async function main(): Promise<void> {
   ]
 
   console.log("\n=== Step 1: impersonate actors ===")
+  // The actors are set up one after another: each impersonation is a
+  // separate provider call, and they have to be in place before any of the
+  // later steps runs.
+  // eslint-disable-next-line no-restricted-syntax
   for (const actor of actors) {
+    // eslint-disable-next-line no-await-in-loop
     await network.provider.send("hardhat_impersonateAccount", [actor])
+    // eslint-disable-next-line no-await-in-loop
     await network.provider.send("hardhat_setBalance", [
       actor,
       "0x8AC7230489E80000",
@@ -350,8 +364,14 @@ async function main(): Promise<void> {
       "stands in for the release pipeline, which owns the Bridge deployment) ==="
   )
   const libAddresses: Record<string, string> = {}
+  // The libraries are deployed one after another: each deployment is a
+  // transaction that has to be mined before the next one, and the Bridge
+  // build below links all of them.
+  // eslint-disable-next-line no-restricted-syntax
   for (const { name, artifact } of LIBS) {
+    // eslint-disable-next-line no-await-in-loop
     const { contract } = await deployLinked(artifact, deployer, {})
+    // eslint-disable-next-line no-await-in-loop
     libAddresses[name] = await contract.getAddress()
     console.log(`    ${name} -> ${libAddresses[name]}`)
   }
@@ -431,6 +451,39 @@ async function main(): Promise<void> {
       )
     }
 
+    // Every linked library has to be the release build, not only
+    // `Redemption`. The Bridge is a dispatcher, so a wrapper that links the
+    // right `Redemption` and a wrong-version `Deposit` is a byte-identical
+    // Bridge that runs different code in `revealDeposit`. The rehearsal
+    // deploys the libraries itself above, so it can check each one against
+    // the build it deployed.
+    const libraryIdentities: Record<string, boolean> = {}
+    // The libraries are checked one after another: each check reads the
+    // chain and the artifact, and every one of them has to be checked
+    // before the ordering cases run.
+    // eslint-disable-next-line no-restricted-syntax
+    for (const library of Object.keys(identity.libraries)) {
+      const address = identity.libraries[library]
+      // eslint-disable-next-line no-await-in-loop
+      const libraryArtifact = await artifacts.readArtifact(
+        `contracts/bridge/${library}.sol:${library}`
+      )
+      // eslint-disable-next-line no-await-in-loop
+      const onChainRuntime = await ethers.provider.getCode(address)
+      const result = proveLibraryIdentity({
+        name: library,
+        address,
+        onChainRuntime,
+        artifactRuntime: libraryArtifact.deployedBytecode,
+      })
+      libraryIdentities[library] = result.matches
+      if (!result.matches) {
+        throw new Error(
+          `the deployed Bridge build links ${library} at ${address}, but ${result.reason}`
+        )
+      }
+    }
+
     record({
       name: "02b-bridge-build-matches-the-input-rules",
       status: "PASS",
@@ -439,6 +492,7 @@ async function main(): Promise<void> {
         newBridgeImpl,
         redemptionLibrary,
         libraries: identity.libraries,
+        libraryIdentities,
         rejectionOfRedemptionLibrary: redemptionIdentity.reason,
       },
     })
@@ -448,7 +502,8 @@ async function main(): Promise<void> {
       status: "FAIL",
       error: String(e),
     })
-    return writeArtifact(block, { bridge, rebateStaking })
+    writeArtifact(block, { bridge, rebateStaking })
+    return
   }
 
   console.log("\n=== Step 3: pre-flight selector scan ===")
@@ -491,7 +546,56 @@ async function main(): Promise<void> {
     })
   } catch (e) {
     record({ name: "03-selector-scan", status: "FAIL", error: String(e) })
-    return writeArtifact(block, { bridge, rebateStaking })
+    writeArtifact(block, { bridge, rebateStaking })
+    return
+  }
+
+  // --- Step 3b: the production storage-layout gate ---
+  // The rehearsal deploys a staking implementation and installs it, so the
+  // layout of that build has to be the one the deploy script would accept.
+  // Without this step a build that swaps `rollingWindow` and
+  // `unstakingPeriod` passes every other rehearsal step: the actors are
+  // unstaked, so `isRebateAuthorized` answers false without touching the
+  // swapped parameters, and the redemption retries and the slot checks all
+  // succeed. The deploy script would reject that build; the rehearsal has
+  // to as well, or the rehearsal proves less than the ceremony.
+  //
+  // The head layout comes out of the build info of the exact contract that
+  // was deployed above, and the deployed layout out of the record of the
+  // implementation the proxy delegates to on the fork.
+  console.log("\n=== Step 3b: storage-layout gate ===")
+  try {
+    const deployedLayout = readStorageLayoutFile(
+      path.join(
+        __dirname,
+        "..",
+        "deployments",
+        "mainnet",
+        "RebateStakingTIP109HotfixImplementation.json"
+      )
+    )
+    const headLayout = await compiledStorageLayout(STAKING_ARTIFACT)
+    assertLayoutCompatible(deployedLayout, headLayout)
+    assertLayoutAppendOnly(deployedLayout.storage, headLayout.storage, {
+      deployed: deployedLayout,
+      head: headLayout,
+    })
+    record({
+      name: "03b-storage-layout-gate",
+      status: "PASS",
+      values: {
+        deployedFields: deployedLayout.storage.length,
+        headFields: headLayout.storage.length,
+      },
+    })
+  } catch (e) {
+    record({
+      name: "03b-storage-layout-gate",
+      status: "FAIL",
+      error: String(e),
+    })
+    writeArtifact(block, { bridge, rebateStaking })
+    return
   }
 
   console.log("\n=== Step 4: seed the redemption path ===")
@@ -612,8 +716,12 @@ async function main(): Promise<void> {
       // the negative control pass without the hazard ever being shown.
       const revert = classifyRevert(e)
       const bareRevert = revert.kind === "bare"
-      const status =
-        expect === "revert" ? (bareRevert ? "PASS" : "FAIL") : "FAIL"
+      // A revert was expected: the step passes only when the failure was a
+      // bare EVM revert. A success was expected: any failure is a failure.
+      let status: "PASS" | "FAIL" = "FAIL"
+      if (expect === "revert" && bareRevert) {
+        status = "PASS"
+      }
       record({
         name,
         status,
@@ -708,7 +816,8 @@ async function main(): Promise<void> {
       status: "FAIL",
       error: `Council Safe ${COUNCIL_SAFE} does not hold PROPOSER_ROLE`,
     })
-    return writeArtifact(block, { bridge, rebateStaking })
+    writeArtifact(block, { bridge, rebateStaking })
+    return
   }
   let executorSigner = await ethers.getSigner(deployerAddress)
   let executorLabel = "open-executor-role"
@@ -735,7 +844,8 @@ async function main(): Promise<void> {
           status: "FAIL",
           error: "no actor holds EXECUTOR_ROLE and the role is not open",
         })
-        return writeArtifact(block, { bridge, rebateStaking })
+        writeArtifact(block, { bridge, rebateStaking })
+        return
       }
       executorSigner = timelock
       executorLabel = "timelock-self"
@@ -864,7 +974,13 @@ function writeArtifact(
   }
 }
 
-main().catch((error: unknown) => {
-  console.error(error)
-  process.exitCode = 1
-})
+// The rehearsal is a script, not a module: importing it (the unit suite
+// imports the revert classifier from here) must not start a fork run. The
+// guard is the same one `scripts/compare-pr1067-parity.ts` uses, and it
+// holds under `hardhat run`, which is how the script is invoked.
+if (require.main === module) {
+  main().catch((error: unknown) => {
+    console.error(error)
+    process.exitCode = 1
+  })
+}

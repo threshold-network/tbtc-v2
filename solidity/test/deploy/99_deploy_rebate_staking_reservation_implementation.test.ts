@@ -1,9 +1,13 @@
 import { expect } from "chai"
+import fs from "fs"
 import path from "path"
 import { artifacts, ethers } from "hardhat"
 import {
   REBATE_SELECTORS,
+  REBATE_TREASURY_FEE_MODE_ORDER,
   assertBridgeImplementationChanges,
+  assertEnumMemberOrder,
+  deployedLibraryRuntime,
   extractPushedAddresses,
   linkedLibraryAddresses,
   requireBridgeImplementationInput,
@@ -21,7 +25,9 @@ import {
   hashOperationBatch,
   isSelfReferencingLibrary,
   proveBridgeIdentity,
+  proveLibraryIdentity,
   readDeployedBytecode,
+  readEnumMemberOrder,
   readStorageLayout,
   readStorageLayoutFile,
   rebateSelectorPlan,
@@ -445,12 +451,13 @@ describe("deploy/99 deploy_rebate_staking_reservation_implementation", () => {
         recordPath("RebateStakingTIP109HotfixImplementation")
       )
       const stakes = deployed.storage.find((entry) => entry.label === "stakes")
-      expect(stakes).to.not.equal(undefined)
-      expect(semanticTypeId(stakes!.type, deployed.types)).to.equal(
+      if (stakes === undefined) throw new Error("no stakes field")
+      expect(semanticTypeId(stakes.type, deployed.types)).to.equal(
         "mapping(address => struct RebateStaking.Stake)"
       )
       const token = deployed.storage.find((entry) => entry.label === "token")
-      expect(semanticTypeId(token!.type, deployed.types)).to.equal(
+      if (token === undefined) throw new Error("no token field")
+      expect(semanticTypeId(token.type, deployed.types)).to.equal(
         "contract IERC20Upgradeable"
       )
       // Without a types table the AST id is stripped instead, so an
@@ -522,11 +529,44 @@ describe("deploy/99 deploy_rebate_staking_reservation_implementation", () => {
       const field = moved.storage.find(
         (entry) => entry.label === "rebatePerToken"
       )
-      expect(field).to.not.equal(undefined)
-      field!.slot = "99"
+      if (field === undefined) throw new Error("no rebatePerToken field")
+      field.slot = "99"
       expect(() => assertLayoutCompatible(deployed, moved)).to.throw(
         /incompatible storage layout/i
       )
+    })
+
+    it("rejects a head layout whose two fields swapped slots", async () => {
+      // The counterexample the review named for the rehearsal: a build
+      // that swaps `rollingWindow` and `unstakingPeriod` keeps all four
+      // selectors and every top-level slot count, so the rehearsal's
+      // redemption cases would all pass while the staking parameters mean
+      // something else. The production gate has to reject it.
+      const deployed = readStorageLayoutFile(
+        recordPath("RebateStakingTIP109HotfixImplementation")
+      )
+      const head = await compiledHeadLayout()
+      const swapped = JSON.parse(JSON.stringify(head)) as StorageLayout
+      const window = swapped.storage.find(
+        (entry) => entry.label === "rollingWindow"
+      )
+      const unstaking = swapped.storage.find(
+        (entry) => entry.label === "unstakingPeriod"
+      )
+      if (window === undefined) throw new Error("no rollingWindow field")
+      if (unstaking === undefined) throw new Error("no unstakingPeriod field")
+      const windowSlot = window.slot
+      window.slot = unstaking.slot
+      unstaking.slot = windowSlot
+      expect(() => assertLayoutCompatible(deployed, swapped)).to.throw(
+        /incompatible storage layout/i
+      )
+      expect(() =>
+        assertLayoutAppendOnly(deployed.storage, swapped.storage, {
+          deployed,
+          head: swapped,
+        })
+      ).to.throw(/moved from slot/)
     })
 
     it("rejects a head layout whose field changed type", async () => {
@@ -540,8 +580,8 @@ describe("deploy/99 deploy_rebate_staking_reservation_implementation", () => {
       const field = retyped.storage.find(
         (entry) => entry.label === "rollingWindow"
       )
-      expect(field).to.not.equal(undefined)
-      field!.type = "t_uint128"
+      if (field === undefined) throw new Error("no rollingWindow field")
+      field.type = "t_uint128"
       retyped.types.t_uint128 = {
         encoding: "inplace",
         label: "uint128",
@@ -560,8 +600,8 @@ describe("deploy/99 deploy_rebate_staking_reservation_implementation", () => {
       // The struct behind `stakes` has to be in the table, or the layout
       // could not be compared by meaning at all.
       const stakes = layout.storage.find((entry) => entry.label === "stakes")
-      expect(stakes).to.not.equal(undefined)
-      expect(layout.types[stakes!.type]).to.not.equal(undefined)
+      if (stakes === undefined) throw new Error("no stakes field")
+      expect(layout.types[stakes.type]).to.not.equal(undefined)
     })
   })
 
@@ -632,23 +672,18 @@ describe("deploy/99 deploy_rebate_staking_reservation_implementation", () => {
       expect(linkSites.length).to.be.greaterThan(0)
 
       const libraries: Record<string, string> = {}
-      for (const site of linkSites) {
-        if (libraries[site.library] === undefined) {
-          libraries[site.library] = ethers.getAddress(
-            `0x${"11".repeat(20).slice(0, 40)}`
-          )
-        }
-      }
-      // Give each library its own address, so the link sites are distinct.
+      // Give each library its own address, so the link sites are distinct:
+      // two libraries sharing an address would be a build that links the
+      // same library twice.
       let counter = 0x11
-      for (const site of linkSites) {
+      linkSites.forEach((site) => {
         if (libraries[site.library] === undefined) {
           libraries[site.library] = ethers.getAddress(
             `0x${counter.toString(16).padStart(2, "0").repeat(20)}`
           )
           counter += 1
         }
-      }
+      })
       const linked = bridgeRuntimeWithLibraries(
         artifact.deployedBytecode,
         linkSites,
@@ -663,6 +698,204 @@ describe("deploy/99 deploy_rebate_staking_reservation_implementation", () => {
       expect(identity.isBridge).to.equal(true)
       expect(identity.libraries.Redemption).to.not.equal(undefined)
       expect(identity.libraries.Redemption).to.equal(libraries.Redemption)
+    })
+  })
+
+  describe("every linked library is verified, not only Redemption", () => {
+    it("accepts a library whose runtime is the release build", async () => {
+      // The positive control for the library check: the runtime a library
+      // really has on chain. solc writes the library's own address into the
+      // `PUSH20` at the head of the deployed runtime, so the on-chain
+      // runtime is the artifact's runtime with that slot filled in.
+      const deposit = await artifacts.readArtifact("Deposit")
+      const address = "0x4444444444444444444444444444444444444444"
+      const onChainRuntime = deployedLibraryRuntime(
+        deposit.deployedBytecode,
+        address
+      )
+      const result = proveLibraryIdentity({
+        name: "Deposit",
+        address,
+        onChainRuntime,
+        artifactRuntime: deposit.deployedBytecode,
+      })
+      expect(result.matches).to.equal(true)
+    })
+
+    it("rejects a library linked to the wrong build", async () => {
+      // The counterexample the review named: the Bridge links the correct
+      // `Redemption` library but a wrong-version `Deposit` library. The
+      // Bridge wrapper is byte-identical either way, so only a check of
+      // the library itself catches it.
+      const deposit = await artifacts.readArtifact("Deposit")
+      const address = "0x4444444444444444444444444444444444444444"
+      // A runtime of the right shape that is not this build: the deployed
+      // runtime with one byte changed somewhere else in it.
+      const deployed = deployedLibraryRuntime(
+        deposit.deployedBytecode,
+        address
+      )
+      const tampered = `0x${deployed
+        .slice(2)
+        .match(/.{2}/g)
+        ?.map((byte, index) => (index === 50 ? "ff" : byte))
+        .join("")}`
+      const result = proveLibraryIdentity({
+        name: "Deposit",
+        address,
+        onChainRuntime: tampered,
+        artifactRuntime: deposit.deployedBytecode,
+      })
+      expect(result.matches).to.equal(false)
+      expect(result.reason).to.match(/is not the Deposit build/)
+    })
+
+    it("rejects a library address with no code", async () => {
+      // An address with no code is not a library, and the check has to say
+      // so rather than pass it through.
+      const deposit = await artifacts.readArtifact("Deposit")
+      const address = "0x5555555555555555555555555555555555555555"
+      const result = proveLibraryIdentity({
+        name: "Deposit",
+        address,
+        onChainRuntime: "0x",
+        artifactRuntime: deposit.deployedBytecode,
+      })
+      expect(result.matches).to.equal(false)
+    })
+
+    it("rejects a library runtime that does not carry its own address", async () => {
+      // A runtime that is not a library's runtime at all: the build's
+      // bytes with the self-reference left as zeros. The check has to
+      // refuse it rather than treat the zeros as the self-reference.
+      const deposit = await artifacts.readArtifact("Deposit")
+      const address = "0x6666666666666666666666666666666666666666"
+      const result = proveLibraryIdentity({
+        name: "Deposit",
+        address,
+        onChainRuntime: deposit.deployedBytecode,
+        artifactRuntime: deposit.deployedBytecode,
+      })
+      expect(result.matches).to.equal(false)
+      expect(result.reason).to.match(/carries the library's own address/)
+    })
+
+    it("rejects a library deployed at another address", async () => {
+      // The exact counterexample the review named: the Bridge links
+      // `Deposit` at an address, but the code there is a library that was
+      // deployed somewhere else. The Bridge wrapper is byte-identical
+      // either way, so only this check sees it.
+      const deposit = await artifacts.readArtifact("Deposit")
+      const deployedAt = "0x9999999999999999999999999999999999999999"
+      const linkedAt = "0x8888888888888888888888888888888888888888"
+      const onChainRuntime = deployedLibraryRuntime(
+        deposit.deployedBytecode,
+        deployedAt
+      )
+      const result = proveLibraryIdentity({
+        name: "Deposit",
+        address: linkedAt,
+        onChainRuntime,
+        artifactRuntime: deposit.deployedBytecode,
+      })
+      expect(result.matches).to.equal(false)
+      expect(result.reason).to.match(/was not deployed at this address/)
+    })
+
+    it("names every library the Bridge links", async () => {
+      // The point of the check: the identity proof names all six linked
+      // libraries, not only `Redemption`, so every one of them can be
+      // verified.
+      const artifact = await artifacts.readArtifact("Bridge")
+      const linkSites = artifactLinkSites(artifact.deployedLinkReferences)
+      const libraries: Record<string, string> = {}
+      let counter = 0x11
+      linkSites.forEach((site) => {
+        if (libraries[site.library] === undefined) {
+          libraries[site.library] = ethers.getAddress(
+            `0x${counter.toString(16).padStart(2, "0").repeat(20)}`
+          )
+          counter += 1
+        }
+      })
+      const linked = bridgeRuntimeWithLibraries(
+        artifact.deployedBytecode,
+        linkSites,
+        libraries
+      )
+      const identity = proveBridgeIdentity({
+        candidateAddress: "0x3333333333333333333333333333333333333333",
+        candidateRuntime: linked,
+        artifactRuntime: artifact.deployedBytecode,
+        linkSites,
+      })
+      expect(identity.isBridge).to.equal(true)
+      expect(Object.keys(identity.libraries).sort()).to.deep.equal([
+        "Deposit",
+        "DepositSweep",
+        "Fraud",
+        "MovingFunds",
+        "Redemption",
+        "Wallets",
+      ])
+    })
+  })
+
+  describe("the fee-mode enum order is pinned", () => {
+    it("accepts the order the source declares", () => {
+      const source = stakingSource()
+      const order = assertEnumMemberOrder({
+        source,
+        enumName: "RebateTreasuryFeeMode",
+        expected: REBATE_TREASURY_FEE_MODE_ORDER,
+      })
+      expect(order).to.deep.equal(["Both", "DepositOnly", "RedemptionOnly"])
+    })
+
+    it("rejects a reordered enum", () => {
+      // The counterexample the review named: reordering `DepositOnly` and
+      // `RedemptionOnly` leaves the stored byte width, the labels, the
+      // top-level slots and the selector plan unchanged, so every layout
+      // assertion accepts it while every persisted value of 1 or 2
+      // acquires the opposite fee policy.
+      const source = stakingSource()
+      const reordered = source.replace(
+        "enum RebateTreasuryFeeMode {\n        Both,\n        DepositOnly,\n        RedemptionOnly\n    }",
+        "enum RebateTreasuryFeeMode {\n        Both,\n        RedemptionOnly,\n        DepositOnly\n    }"
+      )
+      expect(reordered).to.not.equal(source)
+      expect(() =>
+        assertEnumMemberOrder({
+          source: reordered,
+          enumName: "RebateTreasuryFeeMode",
+          expected: REBATE_TREASURY_FEE_MODE_ORDER,
+        })
+      ).to.throw(/declares \[Both, RedemptionOnly, DepositOnly\]/)
+    })
+
+    it("rejects an enum with a member added", () => {
+      const source = stakingSource()
+      const extended = source.replace(
+        "enum RebateTreasuryFeeMode {\n        Both,",
+        "enum RebateTreasuryFeeMode {\n        Both,\n        Extra,"
+      )
+      expect(() =>
+        assertEnumMemberOrder({
+          source: extended,
+          enumName: "RebateTreasuryFeeMode",
+          expected: REBATE_TREASURY_FEE_MODE_ORDER,
+        })
+      ).to.throw(/declares/)
+    })
+
+    it("reads the order out of the source", () => {
+      // The order is read from the source on every run, so a reorder in the
+      // source is a change the gate sees rather than a change it cannot.
+      const order = readEnumMemberOrder(
+        stakingSource(),
+        "RebateTreasuryFeeMode"
+      )
+      expect(order).to.deep.equal(["Both", "DepositOnly", "RedemptionOnly"])
     })
   })
 })
@@ -700,6 +933,28 @@ function trailingGap(entries: StorageEntry[]): StorageEntry | undefined {
     .filter((entry) => entry.label === "__gap")
     .sort((a, b) => Number(a.slot) - Number(b.slot))
     .pop()
+}
+
+/**
+ * The staking contract's source, read from disk.
+ *
+ * The enum order is read from the source rather than from the compiled
+ * layout, because the deployed layout carries no enum members: the pinned
+ * solc 0.8.17 does not write them. So the source is the only place the
+ * deployed order can be read from.
+ */
+function stakingSource(): string {
+  return fs.readFileSync(
+    path.join(
+      __dirname,
+      "..",
+      "..",
+      "contracts",
+      "bridge",
+      "RebateStaking.sol"
+    ),
+    "utf8"
+  )
 }
 
 /** Bytecode carrying all four rebate selectors, for scan unit tests. */

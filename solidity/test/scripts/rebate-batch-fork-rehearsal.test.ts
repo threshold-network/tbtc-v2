@@ -1,4 +1,6 @@
 import assert from "assert"
+import fs from "fs"
+import path from "path"
 import { classifyRevert } from "../../scripts/rebate-batch-fork-rehearsal"
 
 const test = it
@@ -124,5 +126,37 @@ describe("rebate-batch-fork-rehearsal (revert classification)", () => {
         "not-a-revert"
       )
     })
+  })
+})
+
+describe("rebate-batch-fork-rehearsal (entrypoint)", () => {
+  test("does not run the rehearsal when it is imported", () => {
+    // The counterexample the review named: this test file imports the
+    // classifier, and the module's unconditional `main()` call started the
+    // whole fork run beside the test suite. The head CI log shows it:
+    // `Error: Fork block is 121, expected pinned 0`.
+    //
+    // The guard is `require.main === module`, the same one
+    // `scripts/compare-pr1067-parity.ts` uses, and it holds under
+    // `hardhat run`, which is how the script is invoked.
+    const source = fs.readFileSync(
+      path.join(
+        __dirname,
+        "..",
+        "..",
+        "scripts",
+        "rebate-batch-fork-rehearsal.ts"
+      ),
+      "utf8"
+    )
+    assert.ok(
+      source.includes("if (require.main === module) {"),
+      "the rehearsal must guard its entrypoint with require.main === module"
+    )
+    // The call to `main()` has to be inside that guard, not beside it.
+    const guardIndex = source.indexOf("if (require.main === module) {")
+    const callIndex = source.indexOf("main().catch(")
+    assert.ok(guardIndex !== -1, "no entrypoint guard found")
+    assert.ok(callIndex > guardIndex, "main() is called outside the guard")
   })
 })
