@@ -59,7 +59,7 @@ const CITATIONS = [
       },
       {
         contract: "bridge/Reservation.sol",
-        range: [1614, 1621],
+        range: [1620, 1627],
         // The parameter setter rules.
         expect: [
           "reservationTxMaxFee > 0",

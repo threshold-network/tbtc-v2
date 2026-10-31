@@ -410,10 +410,10 @@ library BridgeState {
         // (acceptance anchor, re-anchor, dissolution) can be reported
         // timed out. Reserved redemptions use `redemptionTimeout` instead.
         // Must strictly exceed the wallet proposal validator's timeout
-        // safety margin; enforced on-chain by
-        // `Reservation.updateReservationParameters`'s
-        // `reservationActionTimeout > REQUEST_TIMEOUT_SAFETY_MARGIN`
-        // require. Snapshotted into each action record at request time.
+        // safety margin plus the deposit minimum age, by at least one
+        // second; enforced on-chain by `Reservation.updateReservationParameters`:
+        // `reservationActionTimeout > REQUEST_TIMEOUT_SAFETY_MARGIN + DEPOSIT_MIN_AGE + 1`.
+        // Snapshotted into each action record at request time.
         uint32 reservationActionTimeout;
         // Length in seconds of the renewal window: must be strictly shorter
         // than the term so renewals cannot be stacked. Written for storage

@@ -1246,6 +1246,12 @@ library Reservation {
     ///      unreachable in m1):
     ///      - Reserved redemption settlement (PR #1112 / m2-redemption)
     ///      - Reservation dissolution settlement (PR #1114 / m2-dissolution)
+    ///      The helper ships in m1 as decided scaffolding (spec decision PD-3,
+    ///      milestone question D-8), so it has no caller here. Its statements
+    ///      and branch arms are therefore reported as uncovered and its mutants
+    ///      as surviving; both are accounted for in
+    ///      `tools/reservations-verify/exclusions.txt` (row EX-001). Re-check
+    ///      that list when the m2 settlement call sites land.
     function closeReservation(
         BridgeState.Storage storage self,
         ReservationRequest storage reservation
@@ -1585,8 +1591,8 @@ library Reservation {
     ///      - `reservationRenewalWindowSeconds` must be greater than zero
     ///        and strictly shorter than the term (written in milestone 1
     ///        for storage completeness; unread until renewal lands),
-    ///      - `reservationActionTimeout` must exceed the wallet
-    ///        validator's final signing safety margin,
+    ///      - `reservationActionTimeout` must exceed the wallet validator's
+    ///        safety margin plus the deposit minimum age, by one second,
     ///      - `maxReservationsPerWallet` must be greater than zero, so the
     ///        per-wallet count cap cannot be silently disabled by a
     ///        parameter update,

@@ -46,7 +46,7 @@ The harness was re-derived against the current `reservations-upgrade` head:
 | re-anchor request floor              | `solidity/contracts/bridge/Reservation.sol:900-906`       |
 | re-anchor settlement fee bound       | `solidity/contracts/bridge/ReservationProofs.sol:700-703` |
 | re-anchor settlement dust floor      | `solidity/contracts/bridge/ReservationProofs.sol:708-711` |
-| parameter setter rules               | `solidity/contracts/bridge/Reservation.sol:1614-1621`     |
+| parameter setter rules               | `solidity/contracts/bridge/Reservation.sol:1620-1627`     |
 
 The re-derivation changed what the checks say about the current code:
 

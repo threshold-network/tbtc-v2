@@ -31,7 +31,7 @@ pragma solidity 0.8.17;
 //                                   so it reverts on overflow)
 //   ReservationProofs.sol:700-703   re-anchor settlement: fee <= txMaxFee
 //   ReservationProofs.sol:708-711   re-anchor settlement: new anchor > txMaxFee
-//   Reservation.sol:1614-1621       parameter setter: txMaxFee > 0 and
+//   Reservation.sol:1620-1627       parameter setter: txMaxFee > 0 and
 //                                   minAmount > txMaxFee
 //
 // Scope notes:
@@ -113,7 +113,7 @@ contract ReservationFloorHalmos is Test {
         return anchorAmount >= txMaxFee + minAmount;
     }
 
-    /// Parameter setter rules (Reservation.sol:1614-1621) plus the
+    /// Parameter setter rules (Reservation.sol:1620-1627) plus the
     /// no-overflow exclusions described in the file header.
     function _assumeParams(uint64 txMaxFee, uint64 minAmount) internal pure {
         vm.assume(txMaxFee > 0);

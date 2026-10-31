@@ -12,6 +12,10 @@
 #   killset    compile and run the reservation kill set
 #   full       run the full Hardhat suite
 #   survivors  re-apply the mutants listed in survivors.txt against the kill set
+#   exclusions check that every uncovered coverage unit and every surviving
+#              mutant has a written reason in exclusions.txt (see
+#              check-exclusions.js); needs a coverage report and, for the
+#              mutation half, a mutants JSON
 #   sdk        generate typechain bindings and run the SDK suite
 #   fork       run the mainnet-fork lifecycle, SDK and hand-off scripts
 #              (needs FORKING_URL in the environment and --fork-ref)
@@ -71,7 +75,7 @@ done
   exit 2
 }
 if [ -z "$steps" ]; then
-  steps="killset,full,survivors,sdk"
+  steps="killset,full,survivors,exclusions,sdk"
   [ -n "$old_head" ] && [ -n "$new_head" ] && steps="reconcile,$steps"
   [ -n "$fork_ref" ] && [ -n "${FORKING_URL:-}" ] && steps="$steps,fork"
   [ -n "$kc" ] && steps="$steps,drift"
@@ -150,6 +154,38 @@ if has survivors; then
   if ! git -C "$tbtc" diff --quiet -- solidity/contracts; then
     record "contracts restored after mutation" FAIL "git diff on solidity/contracts is not empty"
   fi
+fi
+
+if has exclusions; then
+  # The coverage half needs a coverage-final.json; the mutation half needs the
+  # mutants JSON the survivors step writes. Each half runs on its own when its
+  # input is there, and a missing input is a FAIL rather than a silent pass.
+  cov="${COVERAGE_REPORT:-$sol/coverage/coverage-final.json}"
+  mut="${MUTANTS_JSON:-$OUT/survivors.json}"
+  ec=0
+  detail=""
+  if [ -f "$cov" ]; then
+    node "$here/check-exclusions.js" coverage --coverage "$cov" > "$OUT/exclusions-coverage.log" 2>&1
+    crc=$?
+    # The count comes from the checker's own total line, not from counting the
+    # listed lines, so the header of the listing is not counted as a gap.
+    detail="coverage: $(sed -nE 's/^  total: ([0-9]+) uncovered statement.*/\1/p' "$OUT/exclusions-coverage.log") uncovered statement(s) without a written reason"
+    [ "$crc" -ne 0 ] && ec=1
+  else
+    detail="coverage: no report at $cov"
+    ec=1
+  fi
+  if [ -f "$mut" ]; then
+    node "$here/check-exclusions.js" mutation --mutants "$mut" > "$OUT/exclusions-mutation.log" 2>&1
+    mrc=$?
+    detail="$detail; mutation: $(sed -nE 's/^  total: ([0-9]+) surviving mutant.*/\1/p' "$OUT/exclusions-mutation.log") surviving mutant(s) without a written reason"
+    [ "$mrc" -ne 0 ] && ec=1
+  else
+    detail="$detail; mutation: no mutants file at $mut"
+    ec=1
+  fi
+  v=$([ "$ec" -eq 0 ] && echo PASS || echo FAIL)
+  record "known exclusions accounted for" "$v" "$detail"
 fi
 
 if has sdk; then
