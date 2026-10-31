@@ -1356,23 +1356,31 @@ describe("ReservationsService", () => {
     // `ok` therefore says nothing about whether the authorization window
     // still admits a signature.
     //
-    // WHAT THIS TEST PROVES: the SDK side only. It shows that a preflight
-    // read while the window is open stays `ok` with no window-related
-    // failure entry after the window closes, and that the subsequent
-    // on-chain request still reverts. The SDK's report is therefore
-    // INCOMPLETE, not merely stale: no entry could have mentioned the
-    // window even in principle, because the SDK has no way to read it.
+    // WHAT THIS TEST PROVES: the SDK side only. It shows that a FRESH
+    // preflight read taken after the window has closed is still `ok` with
+    // no window-related failure entry, and that the on-chain request still
+    // reverts. The SDK's report is therefore INCOMPLETE, not merely stale:
+    // no entry could have mentioned the window even in principle, because
+    // the SDK has no way to read it.
     //
-    // WHAT LIVES ELSEWHERE: the contract-side guard itself, "Deposit refund
-    // deadline allows no signing window" (Reservation.sol), and the rule
-    // that the deposit's refund deadline is snapshotted at reveal and is not
-    // a public view, are exercised in the Solidity suite. This test does not
-    // re-prove the guard; it proves the SDK cannot see the rule the guard
-    // enforces.
+    // The two production guards are separate and are exercised separately:
+    // the refund-overlap require ("Authorization window would overlap the
+    // deposit refund window") fires when the deposit's snapshotted refund
+    // deadline has passed, and the action-timeout require ("Acceptance
+    // authorization has no signing window") fires when the recomputed
+    // action timeout leaves no room to sign.
     //
-    // The mock mirrors the contract's re-check: `signingWindowOpen` is
-    // mock-side state that the preflight never reads, and the request
-    // reverts with the contract's own message when the window is closed.
+    // WHAT LIVES ELSEWHERE: the contract-side guards themselves and the
+    // rule that the deposit's refund deadline is snapshotted at reveal and
+    // is not a public view, are exercised in the Solidity suite. This test
+    // does not re-prove the guards; it proves the SDK cannot see the rules
+    // the guards enforce.
+    //
+    // The mock mirrors the contract's re-check: `signingWindowOpen` and
+    // `refundWindowClosed` are mock-side state that the preflight never
+    // reads, and the request reverts with the contract's own message when
+    // the corresponding window is closed. The two flags model two DIFFERENT
+    // production guards, so the test names the guard it exercises.
 
     const depositKey = BigNumber.from(1)
     const funding = singleInputProofTestData.bitcoinChainData
@@ -1394,7 +1402,7 @@ describe("ReservationsService", () => {
       )
     })
 
-    it("should keep the acceptance preflight ok after the signing window closes, so the preflight does not predict the reverted request", async () => {
+    it("should keep the acceptance preflight ok after the refund window closes, so the preflight does not predict the reverted request", async () => {
       // The off-chain prediction, taken while the authorization window is
       // still open: every rule the SDK is able to read holds.
       const preflight = await service.checkAcceptancePreflight(
@@ -1405,27 +1413,46 @@ describe("ReservationsService", () => {
       expect(preflight.ok).to.be.true
       expect(preflight.failures).to.have.length(0)
 
-      // Between the read and the request the deposit's authorization
-      // window closes: the refund deadline passes, so the window no longer
-      // admits a signature. The SDK cannot observe this: the snapshotted
-      // refund deadline is not a public view.
-      mockReservations.signingWindowOpen = false
+      // Between the read and the request the deposit's snapshotted refund
+      // deadline passes, so the authorization window would overlap it and
+      // no longer admits a signature. The SDK cannot observe this: the
+      // snapshotted refund deadline is not a public view.
+      mockReservations.refundWindowClosed = true
 
-      // The on-chain outcome: the contract re-checks the window and reverts.
+      // The on-chain outcome: the contract re-checks the refund overlap and
+      // reverts with the refund-overlap message.
       await expect(
         service.requestAcceptance(fundingTxHash, 1, WALLET_A_PKH)
-      ).to.be.rejectedWith("Acceptance authorization has no signing window")
+      ).to.be.rejectedWith(
+        "Authorization window would overlap the deposit refund window"
+      )
 
-      // The SDK's report is not merely stale, it is INCOMPLETE. Even after
-      // the window has closed, the preflight carries no window-related
-      // entry: no such entry is possible, because the SDK cannot read the
-      // deposit's refund deadline.
-      expect(preflight.ok).to.be.true
-      expect(preflight.failures).to.have.length(0)
-      const windowRelated = preflight.failures.filter((failure) =>
+      // A FRESH read after the closure is still `ok`. The SDK's report is
+      // not merely stale, it is INCOMPLETE: even a read taken now carries
+      // no window-related entry, because no such entry is possible - the
+      // SDK cannot read the deposit's refund deadline.
+      const fresh = await service.checkAcceptancePreflight(
+        depositKey,
+        WALLET_A_PKH
+      )
+
+      expect(fresh.ok).to.be.true
+      expect(fresh.failures).to.have.length(0)
+      const windowRelated = fresh.failures.filter((failure) =>
         /window|deadline|expire/i.test(failure)
       )
       expect(windowRelated).to.deep.equal([])
+    })
+
+    it("should reject the acceptance request with the action-timeout message when the signing window is closed", async () => {
+      // The other production guard: the action timeout is recomputed from
+      // the CURRENT block timestamp plus the configured action timeout, so
+      // it closes on its own schedule and has its own revert message.
+      mockReservations.signingWindowOpen = false
+
+      await expect(
+        service.requestAcceptance(fundingTxHash, 1, WALLET_A_PKH)
+      ).to.be.rejectedWith("Acceptance authorization has no signing window")
     })
 
     it("should report the acceptance rules it can see but not the signing window, so the preflight is a partial prediction", async () => {

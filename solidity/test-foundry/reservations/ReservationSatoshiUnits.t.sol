@@ -429,24 +429,47 @@ contract ReservationSatoshiUnitsTest is Test {
 
     /// @dev The length of a JSON array. `vm.parseJsonArrayLength` is not
     ///      available in the pinned forge-std revision, so the length is
-    ///      read by probing the elements until the parse fails.
+    ///      read by probing for the EXISTENCE of each element. The
+    ///      existence probe is `vm.keyExistsJson` on the element itself,
+    ///      not on one of its fields: a field-level probe would treat a
+    ///      malformed element (one missing a required field) as the end
+    ///      of the array and silently truncate it, so the remaining
+    ///      elements would go unchecked. With an element-level probe, a
+    ///      malformed element is still counted, and the missing or
+    ///      invalid required field then fails the field parse that the
+    ///      caller performs on it.
     function _arrayLength(
         string memory json,
         string memory arrayKey
-    ) internal pure returns (uint256 length) {
+    ) internal view returns (uint256 length) {
         // The vector's arrays are short; a hard cap keeps a malformed
         // file from turning this into an unbounded loop.
         uint256 maxEntries = 64;
 
         for (uint256 i = 0; i < maxEntries; i++) {
-            try vm.parseJsonUint(json, _elementKey(arrayKey, i, "satoshis")) {
-                length = i + 1;
-            } catch {
+            if (!vm.keyExistsJson(json, _elementPath(arrayKey, i))) {
                 return length;
             }
+            length = i + 1;
         }
 
         revert("the shared vector array is longer than the read cap");
+    }
+
+    /// @dev The JSON path of an element inside an array, with no field
+    ///      selected: `arrayKey[index]`. This is the path the existence
+    ///      probe uses, so it selects the element as a whole.
+    function _elementPath(
+        string memory arrayKey,
+        uint256 index
+    ) internal pure returns (string memory) {
+        return
+            string.concat(
+                arrayKey,
+                "[",
+                vm.toString(uint256(index)),
+                "]"
+            );
     }
 
     /// @dev The JSON path of an element's field inside an array.
@@ -457,10 +480,8 @@ contract ReservationSatoshiUnitsTest is Test {
     ) internal pure returns (string memory) {
         return
             string.concat(
-                arrayKey,
-                "[",
-                vm.toString(uint256(index)),
-                "].",
+                _elementPath(arrayKey, index),
+                ".",
                 field
             );
     }
