@@ -22,6 +22,7 @@ const { createSnapshot, restoreSnapshot } = helpers.snapshot
  */
 describe("Redemption - isRebateAuthorizedForRedemption", () => {
   let deployer: HardhatEthersSigner
+  let governance: HardhatEthersSigner
   let thirdParty: HardhatEthersSigner
   let balanceOwner: HardhatEthersSigner
   let t: TestERC20
