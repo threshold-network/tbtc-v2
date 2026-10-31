@@ -86,9 +86,9 @@ describe("deploy/99 deploy_rebate_staking_reservation_implementation", () => {
     })
 
     it("accepts a named implementation and checksums it", () => {
-      expect(requireBridgeImplementationInput(BRIDGE_IMPL.toLowerCase())).to.equal(
-        BRIDGE_IMPL
-      )
+      expect(
+        requireBridgeImplementationInput(BRIDGE_IMPL.toLowerCase())
+      ).to.equal(BRIDGE_IMPL)
     })
 
     it("refuses an implementation the Bridge proxy already delegates to", () => {
@@ -96,7 +96,10 @@ describe("deploy/99 deploy_rebate_staking_reservation_implementation", () => {
         assertBridgeImplementationChanges(BRIDGE_IMPL, BRIDGE_IMPL)
       ).to.throw(/would be a no-op/)
       expect(() =>
-        assertBridgeImplementationChanges(BRIDGE_IMPL, BRIDGE_IMPL.toLowerCase())
+        assertBridgeImplementationChanges(
+          BRIDGE_IMPL,
+          BRIDGE_IMPL.toLowerCase()
+        )
       ).to.throw(/would be a no-op/)
     })
 
@@ -220,9 +223,11 @@ describe("deploy/99 deploy_rebate_staking_reservation_implementation", () => {
       const batch = goodBatch()
       const calldata = encodeScheduleBatch(batch, BigInt(86400))
       expect(calldata.slice(0, 10)).to.equal(
-        ethers.id(
-          "scheduleBatch(address[],uint256[],bytes[],bytes32,bytes32,uint256)"
-        ).slice(0, 10)
+        ethers
+          .id(
+            "scheduleBatch(address[],uint256[],bytes[],bytes32,bytes32,uint256)"
+          )
+          .slice(0, 10)
       )
       expect(calldata.slice(0, 10)).to.equal(scheduleSelector)
       const decoded = ethers.AbiCoder.defaultAbiCoder().decode(
@@ -238,9 +243,9 @@ describe("deploy/99 deploy_rebate_staking_reservation_implementation", () => {
       const batch = goodBatch()
       const calldata = encodeExecuteBatch(batch)
       expect(calldata.slice(0, 10)).to.equal(
-        ethers.id(
-          "executeBatch(address[],uint256[],bytes[],bytes32,bytes32)"
-        ).slice(0, 10)
+        ethers
+          .id("executeBatch(address[],uint256[],bytes[],bytes32,bytes32)")
+          .slice(0, 10)
       )
       expect(calldata.slice(0, 10)).to.equal(executeSelector)
       const decoded = ethers.AbiCoder.defaultAbiCoder().decode(
@@ -325,13 +330,15 @@ describe("deploy/99 deploy_rebate_staking_reservation_implementation", () => {
 
     it("states a plan where the installed build lacks both authorization selectors", () => {
       const plan = rebateSelectorPlan()
-      expect(plan.installedStaking[REBATE_SELECTORS.isRebateAuthorized]).to.equal(
-        false
-      )
+      expect(
+        plan.installedStaking[REBATE_SELECTORS.isRebateAuthorized]
+      ).to.equal(false)
       expect(
         plan.installedStaking[REBATE_SELECTORS.setRebateAuthorization]
       ).to.equal(false)
-      expect(plan.newStaking[REBATE_SELECTORS.isRebateAuthorized]).to.equal(true)
+      expect(plan.newStaking[REBATE_SELECTORS.isRebateAuthorized]).to.equal(
+        true
+      )
       expect(plan.newRedemption[REBATE_SELECTORS.isRebateAuthorized]).to.equal(
         true
       )
@@ -343,7 +350,9 @@ describe("deploy/99 deploy_rebate_staking_reservation_implementation", () => {
       const deployed = readStorageLayout(
         recordPath("RebateStakingTIP109HotfixImplementation")
       )
-      expect(deployed.find((e) => e.label === "delegates")?.slot).to.equal("107")
+      expect(deployed.find((e) => e.label === "delegates")?.slot).to.equal(
+        "107"
+      )
       expect(trailingGap(deployed)?.slot).to.equal("108")
       expect(() =>
         assertLayoutAppendOnly(deployed, appendRebateAuthorizations(deployed))
@@ -354,9 +363,9 @@ describe("deploy/99 deploy_rebate_staking_reservation_implementation", () => {
       const head = appendRebateAuthorizations(
         readStorageLayout(recordPath("RebateStakingTIP109HotfixImplementation"))
       )
-      expect(head.find((e) => e.label === "rebateAuthorizations")?.slot).to.equal(
-        "108"
-      )
+      expect(
+        head.find((e) => e.label === "rebateAuthorizations")?.slot
+      ).to.equal("108")
       const gap = trailingGap(head)
       expect(gap?.slot).to.equal("109")
       expect(gap?.type).to.equal("t_array(t_uint256)48_storage")
@@ -393,8 +402,9 @@ describe("deploy/99 deploy_rebate_staking_reservation_implementation", () => {
       const deployed = readStorageLayout(
         recordPath("RebateStakingTIP109HotfixImplementation")
       )
-      const head = appendRebateAuthorizations(deployed)
-        .filter((entry) => entry !== trailingGap(appendRebateAuthorizations(deployed)))
+      const head = appendRebateAuthorizations(deployed).filter(
+        (entry) => entry !== trailingGap(appendRebateAuthorizations(deployed))
+      )
       expect(() => assertLayoutAppendOnly(deployed, head)).to.not.throw()
       const trailing = trailingGap(head)
       const shortGap = head.map((entry) =>
@@ -451,13 +461,15 @@ describe("deploy/99 deploy_rebate_staking_reservation_implementation", () => {
       expect(semanticTypeId("t_struct(Stake)36253_storage")).to.equal(
         "t_struct(Stake)"
       )
-      expect(
-        semanticTypeId("t_contract(IERC20Upgradeable)13046")
-      ).to.equal(semanticTypeId("t_contract(IERC20Upgradeable)13055"))
+      expect(semanticTypeId("t_contract(IERC20Upgradeable)13046")).to.equal(
+        semanticTypeId("t_contract(IERC20Upgradeable)13055")
+      )
     })
 
     it("keeps genuinely different types apart", () => {
-      expect(semanticTypeId("t_uint256")).to.not.equal(semanticTypeId("t_uint128"))
+      expect(semanticTypeId("t_uint256")).to.not.equal(
+        semanticTypeId("t_uint128")
+      )
       expect(semanticTypeId("t_struct(Stake)1_storage")).to.not.equal(
         semanticTypeId("t_struct(Rebate)1_storage")
       )
@@ -481,14 +493,16 @@ describe("deploy/99 deploy_rebate_staking_reservation_implementation", () => {
 
       // The two layouts really do differ in their type ids: that is the
       // property that broke the previous comparison.
-      const deployedToken = deployed.storage.find((entry) => entry.label === "token")
+      const deployedToken = deployed.storage.find(
+        (entry) => entry.label === "token"
+      )
       const headToken = head.storage.find((entry) => entry.label === "token")
       expect(deployedToken).to.not.equal(undefined)
       expect(headToken).to.not.equal(undefined)
       expect(deployedToken?.type).to.not.equal(headToken?.type)
-      expect(semanticTypeId(deployedToken?.type ?? "", deployed.types)).to.equal(
-        semanticTypeId(headToken?.type ?? "", head.types)
-      )
+      expect(
+        semanticTypeId(deployedToken?.type ?? "", deployed.types)
+      ).to.equal(semanticTypeId(headToken?.type ?? "", head.types))
 
       expect(() => assertLayoutCompatible(deployed, head)).to.not.throw()
       expect(() =>
@@ -505,7 +519,9 @@ describe("deploy/99 deploy_rebate_staking_reservation_implementation", () => {
       )
       const head = await compiledHeadLayout()
       const moved = JSON.parse(JSON.stringify(head)) as StorageLayout
-      const field = moved.storage.find((entry) => entry.label === "rebatePerToken")
+      const field = moved.storage.find(
+        (entry) => entry.label === "rebatePerToken"
+      )
       expect(field).to.not.equal(undefined)
       field!.slot = "99"
       expect(() => assertLayoutCompatible(deployed, moved)).to.throw(
@@ -521,10 +537,16 @@ describe("deploy/99 deploy_rebate_staking_reservation_implementation", () => {
       const retyped = JSON.parse(JSON.stringify(head)) as StorageLayout
       // `rollingWindow` is a uint256 on both sides; make it a uint128 and
       // the storage really differs.
-      const field = retyped.storage.find((entry) => entry.label === "rollingWindow")
+      const field = retyped.storage.find(
+        (entry) => entry.label === "rollingWindow"
+      )
       expect(field).to.not.equal(undefined)
       field!.type = "t_uint128"
-      retyped.types.t_uint128 = { encoding: "inplace", label: "uint128", numberOfBytes: "16" }
+      retyped.types.t_uint128 = {
+        encoding: "inplace",
+        label: "uint128",
+        numberOfBytes: "16",
+      }
       expect(() => assertLayoutCompatible(deployed, retyped)).to.throw(
         /incompatible storage layout/i
       )
@@ -572,7 +594,9 @@ describe("deploy/99 deploy_rebate_staking_reservation_implementation", () => {
     it("recognises a library by its own address in its runtime", () => {
       const libraryAddress = "0x1111111111111111111111111111111111111111"
       const selfRuntime = `0x73${libraryAddress.slice(2)}60006000fd`
-      expect(isSelfReferencingLibrary(libraryAddress, selfRuntime)).to.equal(true)
+      expect(isSelfReferencingLibrary(libraryAddress, selfRuntime)).to.equal(
+        true
+      )
       expect(
         isSelfReferencingLibrary(
           "0x2222222222222222222222222222222222222222",
@@ -658,19 +682,20 @@ async function compiledHeadLayout(): Promise<StorageLayout> {
   if (buildInfo === undefined) {
     throw new Error("no build info for the head RebateStaking")
   }
-  const output = buildInfo.output.contracts["contracts/bridge/RebateStaking.sol"]
+  const output =
+    buildInfo.output.contracts["contracts/bridge/RebateStaking.sol"]
   const contract = output?.RebateStaking
   if (contract === undefined || !("storageLayout" in contract)) {
-    throw new Error("the head RebateStaking build info carries no storage layout")
+    throw new Error(
+      "the head RebateStaking build info carries no storage layout"
+    )
   }
   const layout: unknown = contract.storageLayout
   return layout as StorageLayout
 }
 
 /** The `__gap` that reserves the tail: the one with the highest slot. */
-function trailingGap(
-  entries: StorageEntry[]
-): StorageEntry | undefined {
+function trailingGap(entries: StorageEntry[]): StorageEntry | undefined {
   return entries
     .filter((entry) => entry.label === "__gap")
     .sort((a, b) => Number(a.slot) - Number(b.slot))
@@ -688,9 +713,7 @@ function syntheticStakingCode(): string {
  * The head layout: `rebateAuthorizations` appended into the first slot of
  * the reserved gap, which then shrinks from 49 to 48 slots.
  */
-function appendRebateAuthorizations(
-  deployed: StorageEntry[]
-) {
+function appendRebateAuthorizations(deployed: StorageEntry[]) {
   const gap = trailingGap(deployed)
   if (gap === undefined) throw new Error("fixture: no __gap in deployed layout")
   const inserted = {
@@ -703,7 +726,11 @@ function appendRebateAuthorizations(
     entry === gap
       ? [
           inserted,
-          { ...entry, slot: String(Number(entry.slot) + 1), type: "t_array(t_uint256)48_storage" },
+          {
+            ...entry,
+            slot: String(Number(entry.slot) + 1),
+            type: "t_array(t_uint256)48_storage",
+          },
         ]
       : [entry]
   )

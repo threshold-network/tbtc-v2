@@ -59,7 +59,8 @@ describe("rebate-batch-fork-rehearsal (revert classification)", () => {
     })
 
     test("recognises a custom-error revert", () => {
-      const data = "0x1234567800000000000000000000000000000000000000000000000000000001"
+      const data =
+        "0x1234567800000000000000000000000000000000000000000000000000000001"
       const error = Object.assign(
         new Error(
           "VM Exception while processing transaction: reverted with an unrecognized custom error (return data: 0x12345678)"
@@ -90,10 +91,9 @@ describe("rebate-batch-fork-rehearsal (revert classification)", () => {
     })
 
     test("rejects a nonce error", () => {
-      const error = Object.assign(
-        new Error("nonce has already been used"),
-        { code: "NONCE_EXPIRED" }
-      )
+      const error = Object.assign(new Error("nonce has already been used"), {
+        code: "NONCE_EXPIRED",
+      })
       assert.equal(classifyRevert(error).kind, "not-a-revert")
     })
 

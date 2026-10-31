@@ -114,7 +114,9 @@ export function buildRebateBatch(params: {
   bridgeImplementation: string
   salt: string
 }): RebateBatch {
-  if (params.rebateStakingProxy.toLowerCase() === params.bridgeProxy.toLowerCase()) {
+  if (
+    params.rebateStakingProxy.toLowerCase() === params.bridgeProxy.toLowerCase()
+  ) {
     throw new Error("RebateStaking and Bridge proxies are the same address")
   }
   // Ordering here is the whole point of the script. RebateStaking first.
@@ -271,7 +273,13 @@ export function hashOperationBatch(batch: RebateBatch): string {
   return utils.keccak256(
     utils.AbiCoder.defaultAbiCoder().encode(
       ["address[]", "uint256[]", "bytes[]", "bytes32", "bytes32"],
-      [batch.targets, batch.values, batch.payloads, batch.predecessor, batch.salt]
+      [
+        batch.targets,
+        batch.values,
+        batch.payloads,
+        batch.predecessor,
+        batch.salt,
+      ]
     )
   )
 }
@@ -284,7 +292,9 @@ export function scanSelectors(
   const haystack = bytecode.toLowerCase().replace(/^0x/, "")
   const found: Record<string, boolean> = {}
   for (const selector of selectors) {
-    found[selector] = haystack.includes(selector.toLowerCase().replace(/^0x/, ""))
+    found[selector] = haystack.includes(
+      selector.toLowerCase().replace(/^0x/, "")
+    )
   }
   return found
 }
@@ -310,7 +320,9 @@ export function assertSelectorPresence(
   }
   if (found[TRAP_SELECTOR_UINT256_AMOUNT] !== undefined) {
     // Not requested by the caller, but never acceptable on a rebate build.
-    problems.push(`trap selector ${TRAP_SELECTOR_UINT256_AMOUNT} must not be accepted`)
+    problems.push(
+      `trap selector ${TRAP_SELECTOR_UINT256_AMOUNT} must not be accepted`
+    )
   }
   if (problems.length > 0) {
     throw new Error(`${label} selector scan failed: ${problems.join("; ")}`)
@@ -397,9 +409,7 @@ export interface StorageLayout {
  * cast at the one call site rather than by re-declaring the library's
  * types here.
  */
-type UpgradesStorageLayout = Parameters<
-  typeof getStorageUpgradeReport
->[0]
+type UpgradesStorageLayout = Parameters<typeof getStorageUpgradeReport>[0]
 
 /**
  * The semantic form of a solc type id: what the type *is*, read out of the
@@ -422,8 +432,12 @@ export function semanticTypeId(
   types: Record<string, unknown> = {}
 ): string {
   const labelled = types[typeId]
-  if (typeof labelled === "object" && labelled !== null && "label" in labelled) {
-    const label = (labelled as { label: unknown }).label
+  if (
+    typeof labelled === "object" &&
+    labelled !== null &&
+    "label" in labelled
+  ) {
+    const { label } = labelled as { label: unknown }
     if (typeof label === "string") {
       return label
     }
@@ -468,8 +482,8 @@ function stripAstIds(typeId: string): string {
   // and `t_array(t_uint256)48_storage` are different types.
   const close = typeId.lastIndexOf(")")
   if (close < open) return typeId
-  const arguments_ = splitTopLevelArguments(typeId.slice(open + 1, close))
-  return `${head}(${arguments_.map(stripAstIds).join(",")})${typeId.slice(close + 1)}`
+  const typeArguments = splitTopLevelArguments(typeId.slice(open + 1, close))
+  return `${head}(${typeArguments.map(stripAstIds).join(",")})${typeId.slice(close + 1)}`
 }
 
 /**
@@ -561,7 +575,9 @@ export function assertLayoutCompatible(
     )
   }
   if (!report.pass) {
-    throw new Error(`layout: incompatible storage layout\n${report.explain(false)}`)
+    throw new Error(
+      `layout: incompatible storage layout\n${report.explain(false)}`
+    )
   }
   return report.explain(false)
 }
@@ -722,30 +738,38 @@ export function readStorageLayoutFile(recordPath: string): StorageLayout {
   ) {
     throw new Error(`${recordPath}: storageLayout.storage is not an array`)
   }
-  if (!("types" in layout) || typeof layout.types !== "object" || layout.types === null) {
+  if (
+    !("types" in layout) ||
+    typeof layout.types !== "object" ||
+    layout.types === null
+  ) {
     throw new Error(`${recordPath}: storageLayout.types is missing`)
   }
-  const storage = layout.storage.map((raw: unknown, index: number): StorageEntry => {
-    if (typeof raw !== "object" || raw === null) {
-      throw new Error(`${recordPath}: storageLayout.storage[${index}] is not an object`)
+  const storage = layout.storage.map(
+    (raw: unknown, index: number): StorageEntry => {
+      if (typeof raw !== "object" || raw === null) {
+        throw new Error(
+          `${recordPath}: storageLayout.storage[${index}] is not an object`
+        )
+      }
+      const entry: Record<string, unknown> = raw as Record<string, unknown>
+      const { label, slot, offset, type } = entry
+      // solc writes `slot` as a decimal string and `offset` as a number.
+      const normalisedOffset =
+        typeof offset === "number" ? String(offset) : offset
+      if (
+        typeof label !== "string" ||
+        typeof slot !== "string" ||
+        typeof normalisedOffset !== "string" ||
+        typeof type !== "string"
+      ) {
+        throw new Error(
+          `${recordPath}: storageLayout.storage[${index}] needs label/slot/offset/type`
+        )
+      }
+      return { label, slot, offset: normalisedOffset, type }
     }
-    const entry: Record<string, unknown> = raw as Record<string, unknown>
-    const { label, slot, offset, type } = entry
-    // solc writes `slot` as a decimal string and `offset` as a number.
-    const normalisedOffset =
-      typeof offset === "number" ? String(offset) : offset
-    if (
-      typeof label !== "string" ||
-      typeof slot !== "string" ||
-      typeof normalisedOffset !== "string" ||
-      typeof type !== "string"
-    ) {
-      throw new Error(
-        `${recordPath}: storageLayout.storage[${index}] needs label/slot/offset/type`
-      )
-    }
-    return { label, slot, offset: normalisedOffset, type }
-  })
+  )
   return { storage, types: layout.types as Record<string, unknown> }
 }
 
@@ -798,7 +822,8 @@ export function assertBridgeImplementationChanges(
   candidateImplementation: string
 ): void {
   if (
-    currentImplementation.toLowerCase() === candidateImplementation.toLowerCase()
+    currentImplementation.toLowerCase() ===
+    candidateImplementation.toLowerCase()
   ) {
     throw new Error(
       `the Bridge implementation ${candidateImplementation} is the one the Bridge proxy already delegates to. ` +
@@ -820,10 +845,12 @@ export function extractPushedAddresses(bytecode: string): string[] {
   }
   const bytes = Buffer.from(hex, "hex")
   const found: string[] = []
-  for (let index = 0; index < bytes.length; ) {
+  for (let index = 0; index < bytes.length;) {
     const opcode = bytes[index]
     if (opcode === 0x73) {
-      found.push(Buffer.from(bytes.subarray(index + 1, index + 21)).toString("hex"))
+      found.push(
+        Buffer.from(bytes.subarray(index + 1, index + 21)).toString("hex")
+      )
       index += 21
       continue
     }
@@ -846,7 +873,9 @@ export function linkedLibraryAddresses(
   bridgeImplCode: string,
   knownNonLibraries: readonly string[]
 ): string[] {
-  const excluded = new Set(knownNonLibraries.map((address) => address.toLowerCase()))
+  const excluded = new Set(
+    knownNonLibraries.map((address) => address.toLowerCase())
+  )
   return extractPushedAddresses(bridgeImplCode).filter(
     (address) => !excluded.has(address.toLowerCase())
   )
@@ -999,7 +1028,8 @@ export function proveBridgeIdentity(params: {
   /** The Bridge artifact's deployed link references. */
   linkSites: LinkSite[]
 }): BridgeIdentity {
-  const { candidateAddress, candidateRuntime, artifactRuntime, linkSites } = params
+  const { candidateAddress, candidateRuntime, artifactRuntime, linkSites } =
+    params
   const candidate = candidateRuntime.toLowerCase().replace(/^0x/, "")
   const artifact = artifactRuntime.toLowerCase().replace(/^0x/, "")
 
@@ -1091,13 +1121,17 @@ export async function postExecutionCheck(params: {
   bridgeImplementation: string
 }): Promise<Record<string, string>> {
   const readImpl = async (proxy: string): Promise<string> => {
-    const word = await params.provider.getStorage(proxy, EIP_1967_IMPLEMENTATION_SLOT)
+    const word = await params.provider.getStorage(
+      proxy,
+      EIP_1967_IMPLEMENTATION_SLOT
+    )
     return utils.getAddress(`0x${word.slice(26)}`)
   }
   const rebateImpl = await readImpl(params.rebateStakingProxy)
   const bridgeImpl = await readImpl(params.bridgeProxy)
   if (
-    rebateImpl.toLowerCase() !== params.rebateStakingImplementation.toLowerCase()
+    rebateImpl.toLowerCase() !==
+    params.rebateStakingImplementation.toLowerCase()
   ) {
     throw new Error(
       `post-execution: RebateStaking impl is ${rebateImpl}, expected ${params.rebateStakingImplementation}`
@@ -1130,7 +1164,6 @@ export async function postExecutionCheck(params: {
 }
 
 const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
   const { deploy, get } = hre.deployments
   const { deployer } = await hre.getNamedAccounts()
   const { ethers } = hre
@@ -1145,7 +1178,9 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   console.log(
     "Next Bridge upgrade: RebateStaking + Bridge in ONE Timelock batch"
   )
-  console.log("RebateStaking upgrade is action [0], the Bridge upgrade action [1]")
+  console.log(
+    "RebateStaking upgrade is action [0], the Bridge upgrade action [1]"
+  )
   console.log("=".repeat(80))
   console.log(`Network: ${hre.network.name}`)
   console.log(`Deployer: ${deployer}`)
@@ -1184,7 +1219,9 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     `0x${currentBridgeImplWord.slice(26)}`
   )
   assertBridgeImplementationChanges(currentBridgeImpl, bridgeImplAddress)
-  console.log(`  current Bridge implementation: ${currentBridgeImpl} (action [1] changes it)`)
+  console.log(
+    `  current Bridge implementation: ${currentBridgeImpl} (action [1] changes it)`
+  )
 
   // The input must actually be the Bridge. Every other check in this script
   // asks whether an address is *usable*; this one asks whether the code
@@ -1253,7 +1290,9 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const proxyAdminFromBridge = ethers.getAddress(
     `0x${bridgeAdminData.slice(26)}`
   )
-  if (proxyAdminFromStaking.toLowerCase() !== proxyAdminFromBridge.toLowerCase()) {
+  if (
+    proxyAdminFromStaking.toLowerCase() !== proxyAdminFromBridge.toLowerCase()
+  ) {
     throw new Error(
       `Admin mismatch: RebateStaking proxy admin ${proxyAdminFromStaking}, Bridge proxy admin ${proxyAdminFromBridge}`
     )
@@ -1298,7 +1337,12 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   )
   const installedImpl = ethers.getAddress(`0x${installedImplWord.slice(26)}`)
   const installedCode = await ethers.provider.getCode(installedImpl)
-  const deploymentsDir = path.join(__dirname, "..", "deployments", hre.network.name)
+  const deploymentsDir = path.join(
+    __dirname,
+    "..",
+    "deployments",
+    hre.network.name
+  )
   const recordPath = (name: string): string =>
     path.join(deploymentsDir, `${name}.json`)
   const newStakingCode = readDeployedBytecode(
@@ -1336,7 +1380,9 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     redemptionCode,
     plan.newRedemption
   )
-  console.log(`  Redemption library ${redemptionLibrary}: calls isRebateAuthorized`)
+  console.log(
+    `  Redemption library ${redemptionLibrary}: calls isRebateAuthorized`
+  )
   console.log(
     `  Bridge implementation selectors: ${JSON.stringify(scanSelectors(bridgeImplCode))}`
   )
@@ -1459,7 +1505,9 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     // the proxy was pointed at without recompiling the source.
     deployedBytecodeHashes: {
       RebateStakingReservationImplementation: ethers.keccak256(
-        readDeployedBytecode(recordPath("RebateStakingReservationImplementation"))
+        readDeployedBytecode(
+          recordPath("RebateStakingReservationImplementation")
+        )
       ),
       BridgeReservationImplementation: ethers.keccak256(bridgeImplCode),
       RedemptionLibrary: ethers.keccak256(
@@ -1477,7 +1525,9 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     fs.writeFileSync(summaryPath, JSON.stringify(record, null, 2))
     console.log(`\nCeremony record saved to: ${summaryPath}`)
   } catch (error) {
-    console.log(`WARNING: Failed to write ceremony record: ${(error as Error).message}`)
+    console.log(
+      `WARNING: Failed to write ceremony record: ${(error as Error).message}`
+    )
   }
 
   console.log(`\n${"=".repeat(80)}`)
@@ -1488,7 +1538,9 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   console.log(`      new impl: ${rebateImpl.address}`)
   console.log("  [1] Bridge upgrade (plain ProxyAdmin.upgrade)")
   console.log(`      proxy: ${Bridge.address}`)
-  console.log(`      new impl: ${bridgeImplAddress} (input, deployed by the release pipeline)`)
+  console.log(
+    `      new impl: ${bridgeImplAddress} (input, deployed by the release pipeline)`
+  )
   console.log("  Reversed order reverts redemptions; see the fork rehearsal.")
   console.log("=".repeat(80))
 }

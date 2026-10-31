@@ -78,7 +78,10 @@ const LIBS: { name: string; artifact: string }[] = [
     name: "MovingFunds",
     artifact: "contracts/bridge/MovingFunds.sol:MovingFunds",
   },
-  { name: "Redemption", artifact: "contracts/bridge/Redemption.sol:Redemption" },
+  {
+    name: "Redemption",
+    artifact: "contracts/bridge/Redemption.sol:Redemption",
+  },
   { name: "Wallets", artifact: "contracts/bridge/Wallets.sol:Wallets" },
 ]
 
@@ -147,9 +150,10 @@ const PANIC_SELECTOR = "0x4e487b71"
  * carries no `code` at all, so a classifier that keyed on `code` alone
  * would call every real revert a non-revert.
  */
-export function classifyRevert(
-  error: unknown
-): { kind: RevertKind; data?: string } {
+export function classifyRevert(error: unknown): {
+  kind: RevertKind
+  data?: string
+} {
   // A string carries no shape: every error stringifies the same way, so a
   // message alone cannot prove that the EVM ran the transaction. The caller
   // passes the error object, not `String(error)`.
@@ -183,7 +187,10 @@ export function classifyRevert(
   // Non-empty return data: the revert carried a payload, so it is not the
   // bare revert the missing selector produces.
   if (data !== undefined && data !== "0x") {
-    if (data.startsWith(ERROR_STRING_SELECTOR) || data.startsWith(PANIC_SELECTOR)) {
+    if (
+      data.startsWith(ERROR_STRING_SELECTOR) ||
+      data.startsWith(PANIC_SELECTOR)
+    ) {
       return { kind: "reason", data }
     }
     return { kind: "custom-error", data }
@@ -251,7 +258,8 @@ async function deployLinked(
       const hex = address.toLowerCase().replace(/^0x/, "")
       for (const ref of refs) {
         const start = ref.start * 2
-        content = content.slice(0, start) + hex + content.slice(start + ref.length * 2)
+        content =
+          content.slice(0, start) + hex + content.slice(start + ref.length * 2)
       }
     }
   }
@@ -259,7 +267,8 @@ async function deployLinked(
   const contract = await factory.deploy()
   await contract.waitForDeployment()
   const pending = await contract.deploymentTransaction()
-  if (pending === null) throw new Error(`${artifactName}: no deploy transaction`)
+  if (pending === null)
+    throw new Error(`${artifactName}: no deploy transaction`)
   const receipt = await pending.wait()
   if (receipt === null) throw new Error(`${artifactName}: deploy not mined`)
   return { contract, receipt }
@@ -346,7 +355,11 @@ async function main(): Promise<void> {
     libAddresses[name] = await contract.getAddress()
     console.log(`    ${name} -> ${libAddresses[name]}`)
   }
-  const bridgeBuild = await deployLinked(BRIDGE_ARTIFACT, deployer, libAddresses)
+  const bridgeBuild = await deployLinked(
+    BRIDGE_ARTIFACT,
+    deployer,
+    libAddresses
+  )
   const newBridgeImpl = await bridgeBuild.contract.getAddress()
   const stakingBuild = await deployLinked(STAKING_ARTIFACT, deployer, {})
   const newStakingImpl = await stakingBuild.contract.getAddress()
@@ -392,7 +405,9 @@ async function main(): Promise<void> {
     }
     const redemptionLibrary = identity.libraries.Redemption
     if (redemptionLibrary === undefined) {
-      throw new Error("the deployed Bridge build does not link a Redemption library")
+      throw new Error(
+        "the deployed Bridge build does not link a Redemption library"
+      )
     }
     const redemptionCode = await ethers.provider.getCode(redemptionLibrary)
     if (scanSelectors(redemptionCode)["0x96253dad"] !== true) {
@@ -461,8 +476,11 @@ async function main(): Promise<void> {
     )
     assertSelectorPresence(
       "head Redemption library build",
-      (await artifacts.readArtifact("contracts/bridge/Redemption.sol:Redemption"))
-        .deployedBytecode,
+      (
+        await artifacts.readArtifact(
+          "contracts/bridge/Redemption.sol:Redemption"
+        )
+      ).deployedBytecode,
       plan.newRedemption
     )
     const installedFound = scanSelectors(installedCode)
@@ -496,11 +514,7 @@ async function main(): Promise<void> {
   if (walletState !== 1) {
     throw new Error(`active wallet state is ${walletState}, expected Live (1)`)
   }
-  const mappingSlot = await findRegisteredWalletsSlot(
-    bridge,
-    pk,
-    ecdsaWalletID
-  )
+  const mappingSlot = await findRegisteredWalletsSlot(bridge, pk, ecdsaWalletID)
   const coder = eth.AbiCoder.defaultAbiCoder()
   const walletBase = eth.keccak256(
     coder.encode(["bytes20", "uint256"], [pk, BigInt(mappingSlot)])
@@ -508,7 +522,8 @@ async function main(): Promise<void> {
   const mainUtxoHashSlot = eth.toBeHex(BigInt(walletBase) + 1n, 32)
 
   // Positional tuple: dust threshold, treasury fee divisor, tx max fee, ...
-  const redemptionParameters = (await bridgeContract.redemptionParameters()) as unknown[]
+  const redemptionParameters =
+    (await bridgeContract.redemptionParameters()) as unknown[]
   const dustThreshold = BigInt(redemptionParameters[0] as bigint)
   // 1% treasury fee on this amount; non-zero, so the gate is reached.
   const amount = dustThreshold + BigInt(100_000)
@@ -555,7 +570,12 @@ async function main(): Promise<void> {
   const runRedemption = async (
     label: string,
     expect: "success" | "revert"
-  ): Promise<{ ok: boolean; bareRevert?: boolean; error?: string; txHash?: string }> => {
+  ): Promise<{
+    ok: boolean
+    bareRevert?: boolean
+    error?: string
+    txHash?: string
+  }> => {
     attempt += 1
     // A fresh P2WPKH output script per attempt, so each attempt uses its own
     // redemption key and can never trip the "pending redemption" guard. The
@@ -593,11 +613,7 @@ async function main(): Promise<void> {
       const revert = classifyRevert(e)
       const bareRevert = revert.kind === "bare"
       const status =
-        expect === "revert"
-          ? bareRevert
-            ? "PASS"
-            : "FAIL"
-          : "FAIL"
+        expect === "revert" ? (bareRevert ? "PASS" : "FAIL") : "FAIL"
       record({
         name,
         status,
@@ -773,7 +789,11 @@ async function main(): Promise<void> {
       bridgeProxy: bridge,
       bridgeImplementation: newBridgeImpl,
     })
-    record({ name: "B3-post-execution-check", status: "PASS", values: postCheck })
+    record({
+      name: "B3-post-execution-check",
+      status: "PASS",
+      values: postCheck,
+    })
   } catch (e) {
     record({
       name: "B3-post-execution-check",
@@ -786,7 +806,9 @@ async function main(): Promise<void> {
   console.log(`  reversed order redemption reverted: ${reversedReverted}`)
   console.log(`  reversed order retry after upgrade: ${afterReversed.ok}`)
   console.log(`  batch order redemption succeeded:   ${batched.ok}`)
-  console.log(`  post-execution check:               ${postCheck !== undefined}`)
+  console.log(
+    `  post-execution check:               ${postCheck !== undefined}`
+  )
 
   // `writeArtifact` sets the exit status from the recorded steps, so the
   // run fails here exactly when a step failed, on this path and on every
