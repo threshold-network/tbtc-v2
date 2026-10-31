@@ -1,0 +1,610 @@
+import fs from "fs"
+import path from "path"
+import { ContractFactory, ethers as eth } from "ethers"
+import type { Contract, TransactionReceipt } from "ethers"
+import { artifacts, ethers, network } from "hardhat"
+import {
+  EIP_1967_ADMIN_SLOT,
+  EIP_1967_IMPLEMENTATION_SLOT,
+  KNOWN_COUNCIL_SAFE,
+  KNOWN_PROXY_ADMIN,
+  KNOWN_TIMELOCK,
+} from "../deploy/85_deploy_tip109_governance_upgrade"
+import {
+  REBATE_SELECTORS,
+  assertSelectorPresence,
+  buildRebateBatch,
+  encodeExecuteBatch,
+  encodeScheduleBatch,
+  hashOperationBatch,
+  postExecutionCheck,
+  rebateSelectorPlan,
+  scanSelectors,
+} from "../deploy/99_deploy_rebate_staking_reservation_implementation"
+
+/**
+ * rebate-batch-fork-rehearsal.ts
+ *
+ * Proves, on a mainnet fork, why the RebateStaking upgrade has to sit at
+ * action `[0]` of the same Timelock batch as the Bridge upgrade.
+ *
+ * Case A, reversed order (what two separate `schedule` calls produce):
+ *   upgrade the Bridge proxy alone, then run a callback redemption. The head
+ *   `Redemption` library calls `RebateStaking.isRebateAuthorized`, the
+ *   installed staking implementation has no such function and no fallback,
+ *   so `requestRedemption` reverts with empty return data. Installs the new
+ *   staking implementation afterwards and re-runs the same redemption to
+ *   show it now succeeds.
+ *
+ * Case B, batch order (what this release commits to):
+ *   one `scheduleBatch` with the staking upgrade first and the Bridge
+ *   upgrade second, `getMinDelay()` advanced, one `executeBatch`, then the
+ *   same redemption. Succeeds, and `postExecutionCheck` confirms both
+ *   implementation slots moved and that `isRebateAuthorized` answers false
+ *   instead of reverting.
+ *
+ * The wallet's main UTXO is seeded with a labelled storage write, and Bank
+ * balance is minted through the Bank's own `onlyBridge` entry point from an
+ * impersonated Bridge proxy. Both are labelled in the output so the run is
+ * not mistaken for a real lifecycle run.
+ *
+ * Usage (heavy: run on the fuzz lab, nice -n 19):
+ *   FORKING_URL=<archival-rpc> FORKING_BLOCK=<block> \
+ *     npx hardhat run scripts/rebate-batch-fork-rehearsal.ts --network fork
+ */
+
+// Pinned fork block; override with FORKING_BLOCK and the script checks it.
+const FORKING_BLOCK = Number(process.env.FORKING_BLOCK ?? "0")
+
+const PROPOSER_ROLE = eth.id("PROPOSER_ROLE")
+const EXECUTOR_ROLE = eth.id("EXECUTOR_ROLE")
+
+const LIBS: { name: string; artifact: string }[] = [
+  { name: "EcdsaLib", artifact: "contracts/bridge/EcdsaLib.sol:EcdsaLib" },
+  { name: "Deposit", artifact: "contracts/bridge/Deposit.sol:Deposit" },
+  {
+    name: "DepositSweep",
+    artifact: "contracts/bridge/DepositSweep.sol:DepositSweep",
+  },
+  { name: "Fraud", artifact: "contracts/bridge/Fraud.sol:Fraud" },
+  {
+    name: "MovingFunds",
+    artifact: "contracts/bridge/MovingFunds.sol:MovingFunds",
+  },
+  { name: "Redemption", artifact: "contracts/bridge/Redemption.sol:Redemption" },
+  { name: "Wallets", artifact: "contracts/bridge/Wallets.sol:Wallets" },
+]
+
+const BRIDGE_ARTIFACT = "contracts/bridge/Bridge.sol:Bridge"
+const STAKING_ARTIFACT = "contracts/bridge/RebateStaking.sol:RebateStaking"
+
+interface Step {
+  name: string
+  status: "PASS" | "FAIL" | "SKIP"
+  txHash?: string
+  gasUsed?: number
+  values?: Record<string, unknown>
+  error?: string
+}
+
+const steps: Step[] = []
+
+function record(step: Step): void {
+  steps.push(step)
+  const suffix =
+    step.txHash === undefined ? "" : ` tx=${step.txHash.slice(0, 18)}...`
+  const error = step.error === undefined ? "" : `\n          ${step.error}`
+  console.log(`  [${step.status}] ${step.name}${suffix}${error}`)
+}
+
+function readMainnetAddress(file: string): string {
+  const p = path.join(__dirname, "..", "deployments", "mainnet", `${file}.json`)
+  const parsed: unknown = JSON.parse(fs.readFileSync(p, "utf8"))
+  if (
+    typeof parsed !== "object" ||
+    parsed === null ||
+    !("address" in parsed) ||
+    typeof parsed.address !== "string"
+  ) {
+    throw new Error(`${file}.json has no address`)
+  }
+  return parsed.address
+}
+
+/**
+ * Deploys a contract with its libraries linked in manually. Same shape as
+ * the reservations fork scripts: neither hardhat-deploy nor this ethers
+ * build can link at run time, so the solc `linkReferences` offsets are
+ * patched into the creation code.
+ */
+async function deployLinked(
+  artifactName: string,
+  signer: eth.Signer,
+  libAddresses: Record<string, string>
+): Promise<{ contract: Contract; receipt: TransactionReceipt }> {
+  const artifact = await artifacts.readArtifact(artifactName)
+  let content = artifact.bytecode.slice(2)
+  for (const libs of Object.values(artifact.linkReferences)) {
+    for (const [libName, refs] of Object.entries(libs)) {
+      const address = libAddresses[libName]
+      if (address === undefined) {
+        throw new Error(`${artifactName}: no address for library ${libName}`)
+      }
+      const hex = address.toLowerCase().replace(/^0x/, "")
+      for (const ref of refs) {
+        const start = ref.start * 2
+        content = content.slice(0, start) + hex + content.slice(start + ref.length * 2)
+      }
+    }
+  }
+  const factory = new ContractFactory(artifact.abi, `0x${content}`, signer)
+  const contract = await factory.deploy()
+  await contract.waitForDeployment()
+  const pending = await contract.deploymentTransaction()
+  if (pending === null) throw new Error(`${artifactName}: no deploy transaction`)
+  const receipt = await pending.wait()
+  if (receipt === null) throw new Error(`${artifactName}: deploy not mined`)
+  return { contract, receipt }
+}
+
+/**
+ * Locates the `registeredWallets` mapping slot in the live Bridge layout by
+ * probing candidate struct offsets and comparing the entry's
+ * `ecdsaWalletID` against the value the public `wallets()` getter returns.
+ * The deployed record does not expand the `self` struct, so the offset is
+ * discovered rather than assumed.
+ */
+async function findRegisteredWalletsSlot(
+  bridge: string,
+  pk: string,
+  ecdsaWalletID: string
+): Promise<number> {
+  const coder = eth.AbiCoder.defaultAbiCoder()
+  for (let slot = 51; slot <= 160; slot += 1) {
+    const base = eth.keccak256(
+      coder.encode(["bytes20", "uint256"], [pk, BigInt(slot)])
+    )
+    const word = await ethers.provider.getStorage(bridge, base)
+    // `ecdsaWalletID` is the struct's first field, so it is the first word.
+    if (word.toLowerCase() === ecdsaWalletID.toLowerCase()) {
+      return slot
+    }
+  }
+  throw new Error(
+    "registeredWallets mapping slot not found in Bridge storage (51..160)"
+  )
+}
+
+async function main(): Promise<void> {
+  const block = await ethers.provider.getBlockNumber()
+  if (FORKING_BLOCK === 0 || block !== FORKING_BLOCK) {
+    throw new Error(
+      `Fork block is ${block}, expected pinned ${FORKING_BLOCK}; set FORKING_BLOCK=${block}`
+    )
+  }
+  console.log(`Fork block: ${block}`)
+
+  const bridge = readMainnetAddress("Bridge")
+  const rebateStaking = readMainnetAddress("RebateStaking")
+  const bank = readMainnetAddress("Bank")
+  const deployerAddress = (await ethers.getSigners())[0].address
+
+  // Addresses that sign nothing but must hold ETH to be impersonated.
+  const balanceOwner = "0x00000000000000000000000000000000000Ba1a0" // balance 0xa1a0
+  const redeemer = "0x00000000000000000000000000000000000Feed5" // balance 0xfeed5
+  const actors = [
+    deployerAddress,
+    KNOWN_TIMELOCK,
+    KNOWN_COUNCIL_SAFE,
+    balanceOwner,
+    redeemer,
+    bridge,
+  ]
+
+  console.log("\n=== Step 1: impersonate actors ===")
+  for (const actor of actors) {
+    await network.provider.send("hardhat_impersonateAccount", [actor])
+    await network.provider.send("hardhat_setBalance", [
+      actor,
+      "0x8AC7230489E80000",
+    ])
+  }
+  const deployer = await ethers.getSigner(deployerAddress)
+  const timelock = await ethers.getSigner(KNOWN_TIMELOCK)
+  const council = await ethers.getSigner(KNOWN_COUNCIL_SAFE)
+  const ownerSigner = await ethers.getSigner(balanceOwner)
+  const bridgeSigner = await ethers.getSigner(bridge)
+  record({ name: "01-impersonate-actors", status: "PASS", values: { actors } })
+
+  console.log("\n=== Step 2: deploy the release builds on the fork ===")
+  const libAddresses: Record<string, string> = {}
+  for (const { name, artifact } of LIBS) {
+    const { contract } = await deployLinked(artifact, deployer, {})
+    libAddresses[name] = await contract.getAddress()
+    console.log(`    ${name} -> ${libAddresses[name]}`)
+  }
+  const bridgeBuild = await deployLinked(BRIDGE_ARTIFACT, deployer, libAddresses)
+  const newBridgeImpl = await bridgeBuild.contract.getAddress()
+  const stakingBuild = await deployLinked(STAKING_ARTIFACT, deployer, {})
+  const newStakingImpl = await stakingBuild.contract.getAddress()
+  record({
+    name: "02-deploy-release-builds",
+    status: "PASS",
+    values: { newBridgeImpl, newStakingImpl, libraries: libAddresses },
+  })
+
+  console.log("\n=== Step 3: pre-flight selector scan ===")
+  const plan = rebateSelectorPlan()
+  const implWord = await ethers.provider.getStorage(
+    rebateStaking,
+    EIP_1967_IMPLEMENTATION_SLOT
+  )
+  const installedImpl = eth.getAddress(`0x${implWord.slice(26)}`)
+  const installedCode = await ethers.provider.getCode(installedImpl)
+  // The runtime code of a locally deployed build is only reachable through
+  // the deployment transaction, so the scan uses the artifact the deploy
+  // script writes. Read it from disk to check exactly what was installed.
+  const stakingArtifact = await artifacts.readArtifact(STAKING_ARTIFACT)
+  try {
+    assertSelectorPresence(
+      `installed RebateStaking ${installedImpl}`,
+      installedCode,
+      plan.installedStaking
+    )
+    assertSelectorPresence(
+      "head RebateStaking build",
+      stakingArtifact.deployedBytecode,
+      plan.newStaking
+    )
+    assertSelectorPresence(
+      "head Redemption library build",
+      (await artifacts.readArtifact("contracts/bridge/Redemption.sol:Redemption"))
+        .deployedBytecode,
+      plan.newRedemption
+    )
+    const installedFound = scanSelectors(installedCode)
+    record({
+      name: "03-selector-scan",
+      status: "PASS",
+      values: { installedImpl, installedFound },
+    })
+  } catch (e) {
+    record({ name: "03-selector-scan", status: "FAIL", error: String(e) })
+    return writeArtifact(block, { bridge, rebateStaking })
+  }
+
+  console.log("\n=== Step 4: seed the redemption path ===")
+  const bridgeContract = await ethers.getContractAt(BRIDGE_ARTIFACT, bridge)
+  const pk = (await bridgeContract.activeWalletPubKeyHash()) as string
+  // `wallets` is a generated getter over a struct, so the result is a
+  // positional tuple. Field order matches Wallets.Wallet:
+  // 0 ecdsaWalletID, 1 mainUtxoHash, 2 pendingRedemptionsValue,
+  // 7 state.
+  const bridgeWallets = await ethers.getContractAt(
+    [
+      "function wallets(bytes20) view returns (tuple(bytes32 ecdsaWalletID, bytes32 mainUtxoHash, uint64 pendingRedemptionsValue, uint32 createdAt, uint32 movingFundsRequestedAt, uint32 closingStartedAt, uint32 pendingMovedFundsSweepRequestsCount, uint8 state, bytes32 movingFundsTargetWalletsCommitmentHash))",
+    ],
+    bridge
+  )
+  const walletTuple = (await bridgeWallets.wallets(pk)) as unknown[]
+  const ecdsaWalletID = String(walletTuple[0])
+  const pendingRedemptionsValue = BigInt(walletTuple[2] as bigint)
+  const walletState = Number(walletTuple[7])
+  if (walletState !== 1) {
+    throw new Error(`active wallet state is ${walletState}, expected Live (1)`)
+  }
+  const mappingSlot = await findRegisteredWalletsSlot(
+    bridge,
+    pk,
+    ecdsaWalletID
+  )
+  const coder = eth.AbiCoder.defaultAbiCoder()
+  const walletBase = eth.keccak256(
+    coder.encode(["bytes20", "uint256"], [pk, BigInt(mappingSlot)])
+  )
+  const mainUtxoHashSlot = eth.toBeHex(BigInt(walletBase) + 1n, 32)
+
+  // Positional tuple: dust threshold, treasury fee divisor, tx max fee, ...
+  const redemptionParameters = (await bridgeContract.redemptionParameters()) as unknown[]
+  const dustThreshold = BigInt(redemptionParameters[0] as bigint)
+  // 1% treasury fee on this amount; non-zero, so the gate is reached.
+  const amount = dustThreshold + BigInt(100_000)
+  const txHash = eth.hexlify(eth.randomBytes(32))
+  const txOutputIndex = 0
+  const txOutputValue = pendingRedemptionsValue + amount + BigInt(1_000_000)
+  const newMainUtxoHash = eth.keccak256(
+    eth.solidityPacked(
+      ["bytes32", "uint32", "uint64"],
+      [txHash, txOutputIndex, txOutputValue]
+    )
+  )
+  // SEEDED: the real main UTXO preimage is not recoverable from chain data,
+  // so the wallet's main UTXO hash is pointed at a constructed UTXO. This
+  // changes nothing about which code path the redemption takes; it only
+  // satisfies the main-UTXO consistency check that precedes the rebate gate.
+  await network.provider.send("hardhat_setStorageAt", [
+    bridge,
+    mainUtxoHashSlot,
+    newMainUtxoHash,
+  ])
+  // SEEDED: Bank balance is minted through Bank.increaseBalance, which is
+  // `onlyBridge`, from an impersonated Bridge proxy. No T-token supply is
+  // fabricated and no storage is written directly.
+  const bankContract = await ethers.getContractAt("Bank", bank)
+  const mint = await bankContract
+    .connect(bridgeSigner)
+    .increaseBalance(balanceOwner, amount)
+  await mint.wait()
+  record({
+    name: "04-seed-redemption-path",
+    status: "PASS",
+    values: {
+      pk,
+      mappingSlot,
+      mainUtxoHashSlot,
+      amount: amount.toString(),
+      pendingRedemptionsValue: pendingRedemptionsValue.toString(),
+      seededMainUtxoHash: newMainUtxoHash,
+    },
+  })
+
+  let attempt = 0
+  const runRedemption = async (
+    label: string,
+    expect: "success" | "revert"
+  ): Promise<{ ok: boolean; error?: string; txHash?: string }> => {
+    attempt += 1
+    // A fresh P2WPKH output script per attempt, so each attempt uses its own
+    // redemption key and can never trip the "pending redemption" guard.
+    const script = `0x0014${eth.hexlify(eth.randomBytes(20)).slice(2)}`
+    const data = coder.encode(
+      ["address", "bytes20", "bytes32", "uint32", "uint64", "bytes"],
+      [redeemer, pk, txHash, txOutputIndex, txOutputValue, script]
+    )
+    const name = `redemption-${label}-${attempt}`
+    try {
+      const tx = await bankContract
+        .connect(ownerSigner)
+        .approveBalanceAndCall(bridge, amount, data)
+      const receipt = await tx.wait()
+      if (receipt === null) throw new Error("no receipt")
+      record({
+        name,
+        status: expect === "success" ? "PASS" : "FAIL",
+        txHash: receipt.hash,
+        gasUsed: Number(receipt.gasUsed),
+        error:
+          expect === "success"
+            ? undefined
+            : "redemption SUCCEEDED where a revert was expected",
+      })
+      return { ok: true, txHash: receipt.hash }
+    } catch (e) {
+      record({
+        name,
+        status: expect === "revert" ? "PASS" : "FAIL",
+        error: String(e),
+      })
+      return { ok: false, error: String(e) }
+    }
+  }
+
+  // =========================================================================
+  // Case A: reversed order (Bridge upgraded alone, staking later)
+  // =========================================================================
+  console.log("\n=== Case A: reversed order ===")
+  const snapshot = await network.provider.send("evm_snapshot", [])
+  const proxyAdmin = await ethers.getContractAt(
+    ["function upgrade(address proxy, address implementation)"],
+    KNOWN_PROXY_ADMIN,
+    timelock
+  )
+  const timelockContract = await ethers.getContractAt(
+    [
+      "function scheduleBatch(address[],uint256[],bytes[],bytes32,bytes32,uint256) returns (bytes32)",
+      "function executeBatch(address[],uint256[],bytes[],bytes32,bytes32)",
+      "function getMinDelay() view returns (uint256)",
+      "function hasRole(bytes32,address) view returns (bool)",
+    ],
+    KNOWN_TIMELOCK
+  )
+  const delay = (await timelockContract.getMinDelay()) as bigint
+
+  const bridgeUpgrade = await proxyAdmin.upgrade(bridge, newBridgeImpl)
+  const bridgeUpgradeReceipt = await bridgeUpgrade.wait()
+  record({
+    name: "A1-bridge-upgrade-alone",
+    status: "PASS",
+    txHash: bridgeUpgradeReceipt?.hash,
+    gasUsed: Number(bridgeUpgradeReceipt?.gasUsed ?? 0),
+    values: { note: "what a separate first schedule would do" },
+  })
+
+  const reversed = await runRedemption("reversed", "revert")
+  const reversedReverted = !reversed.ok
+  if (!reversedReverted) {
+    record({
+      name: "A2-reversed-order-revert",
+      status: "FAIL",
+      error:
+        "callback redemption SUCCEEDED with the old staking implementation; the hazard would be theoretical",
+    })
+  }
+
+  const stakingUpgrade = await proxyAdmin.upgrade(rebateStaking, newStakingImpl)
+  const stakingUpgradeReceipt = await stakingUpgrade.wait()
+  record({
+    name: "A3-staking-upgrade-after",
+    status: "PASS",
+    txHash: stakingUpgradeReceipt?.hash,
+    gasUsed: Number(stakingUpgradeReceipt?.gasUsed ?? 0),
+  })
+  const afterReversed = await runRedemption("after-staking", "success")
+
+  // Back to the pre-Case-A state: both proxies on their installed builds,
+  // no pending redemption, wallet seed intact.
+  await network.provider.send("evm_revert", [snapshot])
+
+  // =========================================================================
+  // Case B: one batch, staking upgrade first
+  // =========================================================================
+  console.log("\n=== Case B: single batch, staking first ===")
+  const batch = buildRebateBatch({
+    proxyAdmin: KNOWN_PROXY_ADMIN,
+    rebateStakingProxy: rebateStaking,
+    rebateStakingImplementation: newStakingImpl,
+    bridgeProxy: bridge,
+    bridgeImplementation: newBridgeImpl,
+    salt: eth.id("rebase-rehearsal/salt"),
+  })
+  const operationId = hashOperationBatch(batch)
+
+  // The proposer must hold PROPOSER_ROLE; the executor is whichever of the
+  // open role, the Council Safe or the Timelock itself can execute.
+  const proposerIsCouncil = (await timelockContract.hasRole(
+    PROPOSER_ROLE,
+    KNOWN_COUNCIL_SAFE
+  )) as boolean
+  if (!proposerIsCouncil) {
+    record({
+      name: "B0-role-probe",
+      status: "FAIL",
+      error: `Council Safe ${KNOWN_COUNCIL_SAFE} does not hold PROPOSER_ROLE`,
+    })
+    return writeArtifact(block, { bridge, rebateStaking })
+  }
+  let executorSigner = await ethers.getSigner(deployerAddress)
+  let executorLabel = "open-executor-role"
+  const executorOpen = (await timelockContract.hasRole(
+    EXECUTOR_ROLE,
+    "0x0000000000000000000000000000000000000000"
+  )) as boolean
+  if (!executorOpen) {
+    const councilHasExecutor = (await timelockContract.hasRole(
+      EXECUTOR_ROLE,
+      KNOWN_COUNCIL_SAFE
+    )) as boolean
+    if (councilHasExecutor) {
+      executorSigner = council
+      executorLabel = "council-safe"
+    } else {
+      const timelockHasExecutor = (await timelockContract.hasRole(
+        EXECUTOR_ROLE,
+        KNOWN_TIMELOCK
+      )) as boolean
+      if (!timelockHasExecutor) {
+        record({
+          name: "B0-role-probe",
+          status: "FAIL",
+          error: "no actor holds EXECUTOR_ROLE and the role is not open",
+        })
+        return writeArtifact(block, { bridge, rebateStaking })
+      }
+      executorSigner = timelock
+      executorLabel = "timelock-self"
+    }
+  }
+  record({
+    name: "B0-role-probe",
+    status: "PASS",
+    values: { executor: executorLabel, delay: delay.toString(), operationId },
+  })
+
+  const scheduleCalldata = encodeScheduleBatch(batch, delay)
+  const scheduleTx = await council.sendTransaction({
+    to: KNOWN_TIMELOCK,
+    data: scheduleCalldata,
+  })
+  const scheduleReceipt = await scheduleTx.wait()
+  record({
+    name: "B1-scheduleBatch",
+    status: "PASS",
+    txHash: scheduleReceipt?.hash,
+    gasUsed: Number(scheduleReceipt?.gasUsed ?? 0),
+    values: { operationId },
+  })
+
+  // OZ TimelockController: executeBatch requires the full delay to elapse.
+  await network.provider.send("evm_increaseTime", [Number(delay) + 1])
+  await network.provider.send("evm_mine", [])
+
+  const executeCalldata = encodeExecuteBatch(batch)
+  const executeTx = await executorSigner.sendTransaction({
+    to: KNOWN_TIMELOCK,
+    data: executeCalldata,
+  })
+  const executeReceipt = await executeTx.wait()
+  record({
+    name: "B2-executeBatch",
+    status: "PASS",
+    txHash: executeReceipt?.hash,
+    gasUsed: Number(executeReceipt?.gasUsed ?? 0),
+    values: { actions: batch.actions.map((action) => action.description) },
+  })
+
+  const batched = await runRedemption("batch-order", "success")
+  let postCheck: Record<string, string> | undefined
+  try {
+    postCheck = await postExecutionCheck({
+      provider: ethers.provider,
+      rebateStakingProxy: rebateStaking,
+      rebateStakingImplementation: newStakingImpl,
+      bridgeProxy: bridge,
+      bridgeImplementation: newBridgeImpl,
+    })
+    record({ name: "B3-post-execution-check", status: "PASS", values: postCheck })
+  } catch (e) {
+    record({
+      name: "B3-post-execution-check",
+      status: "FAIL",
+      error: String(e),
+    })
+  }
+
+  console.log(`\n=== result ===`)
+  console.log(`  reversed order redemption reverted: ${reversedReverted}`)
+  console.log(`  reversed order retry after upgrade: ${afterReversed.ok}`)
+  console.log(`  batch order redemption succeeded:   ${batched.ok}`)
+  console.log(`  post-execution check:               ${postCheck !== undefined}`)
+
+  writeArtifact(
+    block,
+    { bridge, rebateStaking, newBridgeImpl, newStakingImpl, operationId },
+    {
+      reversedReverted,
+      afterReversedOk: afterReversed.ok,
+      batchOk: batched.ok,
+      postCheck,
+    }
+  )
+}
+
+function writeArtifact(
+  block: number,
+  addresses: Record<string, string | undefined>,
+  verdict?: Record<string, unknown>
+): void {
+  const dir = path.join(__dirname, "..", "dryrun-artifacts")
+  fs.mkdirSync(dir, { recursive: true })
+  const file = path.join(dir, `rebate-batch-fork-${block}.json`)
+  fs.writeFileSync(
+    file,
+    JSON.stringify(
+      {
+        forkBlock: block,
+        runAt: new Date().toISOString(),
+        addresses,
+        verdict,
+        steps,
+      },
+      null,
+      2
+    )
+  )
+  console.log(`\nArtifact: ${file}`)
+}
+
+main().catch((error: unknown) => {
+  console.error(error)
+  process.exitCode = 1
+})
