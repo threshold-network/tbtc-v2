@@ -10,6 +10,12 @@ solc = "0.8.17"
 evm_version = "london"
 optimizer = true
 optimizer_runs = 1000
+# Foundry denies filesystem access to the cheatcodes by default. The
+# reservation unit test reads the shared cross-repo satoshi-to-base-unit
+# vector from `test/data/reservations/satoshi-units.json`, so that one file
+# gets a read grant. The grant is scoped to the single file: the suite gets
+# no blanket filesystem access.
+fs_permissions = [{ access = "read", path = "out" }, { access = "read", path = "./test/data/reservations/satoshi-units.json" }]
 # Match Hardhat's compiler settings, including solc 0.8.17's default EVM target.
 # Context-scoped remappings for nested @openzeppelin/contracts(-upgradeable) versions that
 # genuinely differ from the workspace's top-level 4.8.1: @keep-network/ecdsa pins 4.9.1
