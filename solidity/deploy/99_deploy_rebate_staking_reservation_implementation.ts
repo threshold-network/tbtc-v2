@@ -672,7 +672,9 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   }
 
   console.log("=".repeat(80))
-  console.log("Reservations release: RebateStaking + Bridge in ONE Timelock batch")
+  console.log(
+    "Next Bridge upgrade: RebateStaking + Bridge in ONE Timelock batch"
+  )
   console.log("RebateStaking upgrade is action [0], the Bridge upgrade action [1]")
   console.log("=".repeat(80))
   console.log(`Network: ${hre.network.name}`)
