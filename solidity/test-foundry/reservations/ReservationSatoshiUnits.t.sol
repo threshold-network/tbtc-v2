@@ -357,6 +357,87 @@ contract ReservationSatoshiUnitsTest is Test {
     }
 
     // ---------------------------------------------------------------------
+    // The vector reader's failure mode
+    // ---------------------------------------------------------------------
+
+    /// @notice A malformed element is not the end of the array: the reader
+    ///         counts it and the missing required field then fails the
+    ///         parse.
+    /// @dev The reader used to probe for the `satoshis` FIELD of each
+    ///      element and treat a failed field parse as the end of the
+    ///      array. An element missing that field was therefore counted as
+    ///      absent, so the vector was silently truncated and every
+    ///      remaining element went unchecked.
+    ///
+    ///      NEGATIVE CONTROL: revert this reader to the field-level probe
+    ///      (`vm.parseJsonUint` on `arrayKey[i].satoshis`) and this test
+    ///      fails: the length would be 1 instead of 2.
+    function test_arrayLengthDoesNotTreatAMalformedElementAsTheEnd() public {
+        // The second element is missing its required `satoshis` field.
+        // The document is still valid JSON.
+        string memory json = string.concat(
+            '{"pairs":[',
+            '{"satoshis":1,"tbtcBaseUnits":"10000000000"},',
+            '{"tbtcBaseUnits":"15000000000000"}',
+            "]}"
+        );
+
+        assertEq(
+            _arrayLength(json, ".pairs"),
+            2,
+            "a malformed element must still be counted"
+        );
+
+        // The malformed element is not silently skipped either: reading its
+        // missing required field fails.
+        bool parsed = true;
+        try vm.parseJsonUint(json, _elementKey(".pairs", 1, "satoshis")) {
+            parsed = true;
+        } catch {
+            parsed = false;
+        }
+        assertFalse(
+            parsed,
+            "a malformed element must fail the field parse, not be skipped"
+        );
+    }
+
+    /// @notice The shared vector's arrays are complete: every element
+    ///         carries every required field, and the reader sees them all.
+    /// @dev NEGATIVE CONTROL: delete the `satoshis` field from the LAST
+    ///      element of `roundingCases` in the vector file and this test
+    ///      fails, because the reader counts the malformed element and the
+    ///      field parse then fails. Under the old field-level probe the
+    ///      same deletion truncated the array silently and this test
+    ///      passed.
+    function test_vectorArraysAreCompleteAndFullyRead() public {
+        (uint256[] memory satoshis, uint256[] memory baseUnits) = _readPairs();
+        assertEq(satoshis.length, 5, "the vector must list five pairs");
+        assertEq(baseUnits.length, 5, "the vector must list five pairs");
+
+        (
+            uint256[] memory roundingBaseUnits,
+            uint256[] memory roundingSatoshis,
+            uint256[] memory remainders
+        ) = _readRoundingCases();
+        assertEq(
+            roundingBaseUnits.length,
+            4,
+            "the vector must list four rounding cases"
+        );
+        assertEq(
+            roundingSatoshis.length,
+            4,
+            "the vector must list four rounding cases"
+        );
+        assertEq(
+            remainders.length,
+            4,
+            "the vector must list four rounding cases"
+        );
+    }
+
+    // ---------------------------------------------------------------------
     // Helpers
     // ---------------------------------------------------------------------
 

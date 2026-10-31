@@ -1455,6 +1455,50 @@ describe("ReservationsService", () => {
       ).to.be.rejectedWith("Acceptance authorization has no signing window")
     })
 
+    it("should read the refund window state at request time, so the refund-overlap rejection is not the action-timeout one", async () => {
+      // NEGATIVE CONTROL for the guard routing: with only the refund
+      // window closed, the request must NOT report the action-timeout
+      // message. If the mock routed the closed refund window to the
+      // action-timeout guard, this case would fail.
+      mockReservations.refundWindowClosed = true
+
+      await expect(
+        service.requestAcceptance(fundingTxHash, 1, WALLET_A_PKH)
+      ).to.not.be.rejectedWith("Acceptance authorization has no signing window")
+
+      await expect(
+        service.requestAcceptance(fundingTxHash, 1, WALLET_A_PKH)
+      ).to.be.rejectedWith(
+        "Authorization window would overlap the deposit refund window"
+      )
+    })
+
+    it("should read the preflight fresh, so the closed window is not reported by a stale result", async () => {
+      // NEGATIVE CONTROL for the fresh read: a preflight read AFTER the
+      // closure is a different object from the one read before it, and it
+      // is the fresh one that carries the verdict. If the case under test
+      // asserted on the STALE object, this case would still pass while
+      // the fresh-read claim stayed unproven.
+      const before = await service.checkAcceptancePreflight(
+        depositKey,
+        WALLET_A_PKH
+      )
+      expect(before.ok).to.be.true
+
+      mockReservations.refundWindowClosed = true
+
+      const after = await service.checkAcceptancePreflight(
+        depositKey,
+        WALLET_A_PKH
+      )
+
+      // The fresh read is a distinct result object.
+      expect(after).to.not.equal(before)
+      // And it carries its own verdict, unaffected by the closure.
+      expect(after.ok).to.be.true
+      expect(after.failures).to.have.length(0)
+    })
+
     it("should report the acceptance rules it can see but not the signing window, so the preflight is a partial prediction", async () => {
       // The rules the SDK CAN evaluate are reported: the wallet Live state.
       mockReservations.setWalletState(WALLET_A_PKH, WalletState.Closing)
