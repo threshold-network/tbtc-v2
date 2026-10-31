@@ -22,6 +22,7 @@ import {
   encodeExecuteBatch,
   encodeScheduleBatch,
   encodeUpgrade,
+  expectedLibraryRuntime,
   hashOperationBatch,
   isSelfReferencingLibrary,
   proveBridgeIdentity,
@@ -747,6 +748,58 @@ describe("deploy/99 deploy_rebate_staking_reservation_implementation", () => {
       expect(result.reason).to.match(/is not the Deposit build/)
     })
 
+    it("rejects a library that put its address in another zero region", async () => {
+      // The counterexample the review named. A library artifact holds other
+      // zero regions: a `PUSH20 0x0` constant, or a padded selector. A
+      // candidate runtime that leaves its real self-reference zero and
+      // writes its address into one of those other regions carries the
+      // address exactly once, so a check that takes the offset from the
+      // candidate accepts it. That runtime is not the release library, and
+      // it has lost the direct-call guard, because the direct-call guard
+      // *is* the self-reference.
+      const deposit = await artifacts.readArtifact("Deposit")
+      const address = "0x4444444444444444444444444444444444444444"
+      const artifact = deposit.deployedBytecode.toLowerCase().replace(/^0x/, "")
+
+      // Find a zero region in the artifact that is not the head
+      // self-reference, so the address goes somewhere the release build
+      // has zeros.
+      const otherZeroRegion = findZeroRegion(artifact, 42)
+      if (otherZeroRegion === undefined) {
+        throw new Error("fixture: no other zero region in the artifact")
+      }
+
+      // The candidate: the real self-reference left as zeros, and the
+      // address written into the other zero region instead.
+      const candidate =
+        `0x${artifact.slice(0, otherZeroRegion)}${address}` +
+        `${artifact.slice(otherZeroRegion + 40)}`
+
+      const result = proveLibraryIdentity({
+        name: "Deposit",
+        address,
+        onChainRuntime: candidate,
+        artifactRuntime: deposit.deployedBytecode,
+      })
+      expect(result.matches).to.equal(false)
+    })
+
+    it("pins the self-reference at the head of the runtime", async () => {
+      // The expected runtime is built from the artifact with the address
+      // behind the leading `PUSH20`, not from wherever the candidate
+      // happens to carry it. This pins that shape.
+      const deposit = await artifacts.readArtifact("Deposit")
+      const address = "0x4444444444444444444444444444444444444444"
+      const artifact = deposit.deployedBytecode.toLowerCase().replace(/^0x/, "")
+      expect(artifact.slice(0, 42)).to.equal(`73${"0".repeat(40)}`)
+      const expected = expectedLibraryRuntime(
+        deposit.deployedBytecode,
+        deployedLibraryRuntime(deposit.deployedBytecode, address),
+        address
+      )
+      expect(expected.slice(2, 44)).to.equal(`73${address.slice(2)}`)
+    })
+
     it("rejects a library address with no code", async () => {
       // An address with no code is not a library, and the check has to say
       // so rather than pass it through.
@@ -952,6 +1005,23 @@ function stakingSource(): string {
     ),
     "utf8"
   )
+}
+
+/**
+ * The offset of a 20-byte zero region in a runtime, other than the head
+ * self-reference.
+ *
+ * A library artifact holds zero regions besides its self-reference: a
+ * `PUSH20 0x0` constant, or a padded selector. Those are where a forged
+ * runtime can hide its address, so the negative test needs one of them.
+ *
+ * @param artifact the artifact runtime, as hex without the `0x`.
+ * @param after the offset to search past, so the head self-reference is
+ * not returned.
+ */
+function findZeroRegion(artifact: string, after: number): number | undefined {
+  const offset = artifact.indexOf("0".repeat(40), after)
+  return offset === -1 ? undefined : offset
 }
 
 /** Bytecode carrying all four rebate selectors, for scan unit tests. */

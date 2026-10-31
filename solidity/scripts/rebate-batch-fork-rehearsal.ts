@@ -11,9 +11,8 @@ import {
 } from "../deploy/85_deploy_tip109_governance_upgrade"
 import {
   assertBridgeImplementationChanges,
-  assertLayoutAppendOnly,
-  assertLayoutCompatible,
   assertSelectorPresence,
+  assertStorageGate,
   artifactLinkSites,
   buildRebateBatch,
   compiledStorageLayout,
@@ -23,6 +22,7 @@ import {
   postExecutionCheck,
   proveBridgeIdentity,
   proveLibraryIdentity,
+  REBATE_TREASURY_FEE_MODE_ORDER,
   rebateSelectorPlan,
   readStorageLayoutFile,
   scanSelectors,
@@ -560,6 +560,15 @@ async function main(): Promise<void> {
   // succeed. The deploy script would reject that build; the rehearsal has
   // to as well, or the rehearsal proves less than the ceremony.
   //
+  // The gate is the same function the deploy script calls, so it is the
+  // same three checks: the semantic layout comparison, the append-only
+  // check, and the fee-mode enum order pin. The enum pin matters here
+  // because the layout comparison cannot see it: the pinned solc writes no
+  // enum members into the deployed layout, so a reorder of
+  // `DepositOnly` and `RedemptionOnly` leaves the stored width, the
+  // labels and the top-level slots unchanged. The rehearsal's actors are
+  // unstaked, so their calls never exercise a persisted fee mode either.
+  //
   // The head layout comes out of the build info of the exact contract that
   // was deployed above, and the deployed layout out of the record of the
   // implementation the proxy delegates to on the fork.
@@ -575,10 +584,14 @@ async function main(): Promise<void> {
       )
     )
     const headLayout = await compiledStorageLayout(STAKING_ARTIFACT)
-    assertLayoutCompatible(deployedLayout, headLayout)
-    assertLayoutAppendOnly(deployedLayout.storage, headLayout.storage, {
+    const stakingSource = fs.readFileSync(
+      path.join(__dirname, "..", "contracts", "bridge", "RebateStaking.sol"),
+      "utf8"
+    )
+    assertStorageGate({
       deployed: deployedLayout,
       head: headLayout,
+      stakingSource,
     })
     record({
       name: "03b-storage-layout-gate",
@@ -586,6 +599,7 @@ async function main(): Promise<void> {
       values: {
         deployedFields: deployedLayout.storage.length,
         headFields: headLayout.storage.length,
+        feeModeOrder: REBATE_TREASURY_FEE_MODE_ORDER.join(", "),
       },
     })
   } catch (e) {

@@ -1,6 +1,11 @@
 import assert from "assert"
 import fs from "fs"
 import path from "path"
+import {
+  assertStorageGate,
+  compiledStorageLayout,
+  readStorageLayoutFile,
+} from "../../deploy/99_deploy_rebate_staking_reservation_implementation"
 import { classifyRevert } from "../../scripts/rebate-batch-fork-rehearsal"
 
 const test = it
@@ -126,6 +131,86 @@ describe("rebate-batch-fork-rehearsal (revert classification)", () => {
         "not-a-revert"
       )
     })
+  })
+})
+
+describe("rebate-batch-fork-rehearsal (storage-layout gate)", () => {
+  test("the gate the rehearsal calls rejects a swapped fee-mode enum", async () => {
+    // The counterexample the review named. The semantic layout comparison
+    // cannot see a reorder of `DepositOnly` and `RedemptionOnly`: the
+    // pinned solc writes no enum members into the deployed layout, so the
+    // comparison is relaxed for custom types. A reorder leaves the stored
+    // byte width, the labels and the top-level slots unchanged, and the
+    // rehearsal's actors are unstaked, so their calls never exercise a
+    // persisted fee mode either. The rehearsal therefore has to apply the
+    // enum-order pin itself, through the same gate the deploy script uses.
+    const source = fs.readFileSync(
+      path.join(
+        __dirname,
+        "..",
+        "..",
+        "contracts",
+        "bridge",
+        "RebateStaking.sol"
+      ),
+      "utf8"
+    )
+    const swapped = source.replace(
+      "enum RebateTreasuryFeeMode {\n        Both,\n        DepositOnly,\n        RedemptionOnly\n    }",
+      "enum RebateTreasuryFeeMode {\n        Both,\n        RedemptionOnly,\n        DepositOnly\n    }"
+    )
+    assert.notEqual(swapped, source, "the enum in the source did not swap")
+
+    const deployed = readStorageLayoutFile(
+      path.join(
+        __dirname,
+        "..",
+        "..",
+        "deployments",
+        "mainnet",
+        "RebateStakingTIP109HotfixImplementation.json"
+      )
+    )
+    const head = await compiledStorageLayout(
+      "contracts/bridge/RebateStaking.sol:RebateStaking"
+    )
+
+    // The real source passes the whole gate.
+    assertStorageGate({ deployed, head, stakingSource: source })
+
+    // The swapped source fails it, at the enum pin.
+    assert.throws(
+      () => assertStorageGate({ deployed, head, stakingSource: swapped }),
+      /declares \[Both, RedemptionOnly, DepositOnly\]/
+    )
+  })
+
+  test("the rehearsal applies the whole gate, not only the layout parts", () => {
+    // The rehearsal has to call the one gate that includes the enum pin.
+    // Calling the two layout assertions on their own is what left the
+    // reorder undetected.
+    const source = fs.readFileSync(
+      path.join(
+        __dirname,
+        "..",
+        "..",
+        "scripts",
+        "rebate-batch-fork-rehearsal.ts"
+      ),
+      "utf8"
+    )
+    assert.ok(
+      source.includes("assertStorageGate({"),
+      "the rehearsal must call the shared storage gate"
+    )
+    assert.ok(
+      !source.includes("assertLayoutCompatible("),
+      "the rehearsal must not compare the layouts outside the shared gate"
+    )
+    assert.ok(
+      !source.includes("assertLayoutAppendOnly("),
+      "the rehearsal must not check append-only outside the shared gate"
+    )
   })
 })
 

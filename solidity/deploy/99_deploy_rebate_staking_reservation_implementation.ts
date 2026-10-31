@@ -786,6 +786,54 @@ export function assertLayoutAppendOnly(
 }
 
 /**
+ * The complete storage gate, in one place.
+ *
+ * The gate has three parts and they only stand together:
+ *
+ *  1. `assertLayoutCompatible` compares the two layouts by what they store.
+ *  2. `assertLayoutAppendOnly` checks that every named field keeps its
+ *     slot and that the shrinking `__gap` gave up only to named fields.
+ *  3. `assertEnumMemberOrder` pins the member order of the fee-mode enum.
+ *
+ * Part 3 is not optional. The comparison in part 1 is relaxed
+ * (`unsafeAllowCustomTypes`) because the pinned solc 0.8.17 writes no enum
+ * members into the deployed layout, so the library cannot compare
+ * `RebateTreasuryFeeMode` and would otherwise refuse the whole layout. That
+ * relaxation is only safe while the enum's order is pinned by something the
+ * comparison cannot see.
+ *
+ * A reorder of `DepositOnly` and `RedemptionOnly` leaves the stored byte
+ * width, the labels, the top-level slots and the selector plan unchanged,
+ * and every persisted value of 1 or 2 would silently decode as the
+ * opposite fee policy.
+ *
+ * The rehearsal and the deploy script both call this, so the rehearsal
+ * proves at least what the ceremony enforces: it cannot pass a build the
+ * ceremony would reject.
+ *
+ * @param deployed the layout of the implementation the proxy delegates to.
+ * @param head the layout of the implementation the ceremony would install.
+ * @param stakingSource the staking contract's source text.
+ */
+export function assertStorageGate(params: {
+  deployed: StorageLayout
+  head: StorageLayout
+  stakingSource: string
+}): void {
+  const { deployed, head, stakingSource } = params
+  assertLayoutCompatible(deployed, head)
+  assertLayoutAppendOnly(deployed.storage, head.storage, {
+    deployed,
+    head,
+  })
+  assertEnumMemberOrder({
+    source: stakingSource,
+    enumName: "RebateTreasuryFeeMode",
+    expected: REBATE_TREASURY_FEE_MODE_ORDER,
+  })
+}
+
+/**
  * Reads and validates `storageLayout.storage` out of a hardhat-deploy
  * record. Records are files on disk, so the shape is parsed rather than
  * asserted: a missing or malformed layout must fail loudly, not read as an
@@ -1116,13 +1164,19 @@ export interface LibraryIdentity {
  * that slot as zeros, because the address is not known at compile time.
  * Every other byte is the same.
  *
- * The self-reference slot is found rather than guessed: it is the one
- * place where the on-chain runtime carries the library's own address. The
- * artifact has to hold zeros there, and the rest of the two runtimes has
- * to be byte for byte the same. A library artifact may hold other zero
- * address literals elsewhere in its code - a `PUSH20 0x0` that is a
- * constant, not a self-reference - so the self-reference cannot be
- * located by counting zero slots.
+ * The self-reference slot is *pinned*, not taken from the candidate: solc
+ * always writes it at the head of the deployed runtime, right behind the
+ * `PUSH20` opcode, so the expected runtime is the artifact with the
+ * library's address written into that one fixed prefix. The artifact is the
+ * trusted side of the comparison, and it decides where the address goes.
+ *
+ * The earlier version of this function let the candidate choose: it took
+ * the offset from wherever the address appeared in the on-chain runtime.
+ * That admitted a runtime which kept its real self-reference zero and put
+ * the address in some other zero region of the artifact - a `PUSH20 0x0`
+ * constant, or a padded selector - and that runtime is not the release
+ * library: it has lost the direct-call guard, because the direct-call
+ * guard *is* the self-reference.
  *
  * @param artifactRuntime the release build's runtime for this library.
  * @param onChainRuntime the runtime at the linked address, as deployed.
@@ -1154,14 +1208,10 @@ export function expectedLibraryRuntime(
         "so the code at this address was not deployed at this address"
     )
   }
-  const offset = onChain.indexOf(address)
-  if (artifact.slice(offset, offset + 40) !== "0".repeat(40)) {
-    throw new Error(
-      "the build does not hold zeros where the runtime carries the library's own address, " +
-        "so this is not the build that was deployed"
-    )
-  }
-  return `0x${artifact.slice(0, offset)}${address}${artifact.slice(offset + 40)}`
+  // The expected runtime is built from the artifact, with the address in
+  // the one place solc puts it. The candidate is never asked where its own
+  // address sits.
+  return deployedLibraryRuntime(artifact, address)
 }
 
 /**
@@ -1172,9 +1222,10 @@ export function expectedLibraryRuntime(
  * the address is not known at compile time. The deployed runtime is the
  * artifact's runtime with that slot filled in.
  *
- * This is the constructive counterpart of `expectedLibraryRuntime`: the
- * check compares an on-chain runtime against this shape, and this function
- * builds the shape from the artifact.
+ * This is where the self-reference slot is decided. The address goes
+ * behind the leading `PUSH20` opcode, because that is where solc puts it,
+ * and the artifact is the trusted side of the comparison: the candidate
+ * runtime is never asked where its own address sits.
  */
 export function deployedLibraryRuntime(
   artifactRuntime: string,
@@ -1720,6 +1771,9 @@ const func: DeployFunction =
     // compilation-local type ids solc hands out. The two builds of this same
     // source differ in those ids and agree in everything else, so an
     // id-by-id comparison would reject the intended upgrade.
+    //
+    // The gate is the one function, so the rehearsal enforces the same
+    // three checks this script does.
     console.log("\n--- Storage layout gate ---")
     const deployedLayout = readStorageLayoutFile(
       recordPath("RebateStakingTIP109HotfixImplementation")
@@ -1727,33 +1781,17 @@ const func: DeployFunction =
     const headLayout = readStorageLayoutFile(
       recordPath("RebateStakingReservationImplementation")
     )
-    assertLayoutCompatible(deployedLayout, headLayout)
-    console.log("  storage layout compatible (semantic comparison): OK")
-    assertLayoutAppendOnly(deployedLayout.storage, headLayout.storage, {
-      deployed: deployedLayout,
-      head: headLayout,
-    })
-    console.log("  append-only, same end slot: OK")
-
-    // The comparison above is relaxed (`unsafeAllowCustomTypes`) because the
-    // pinned solc 0.8.17 writes no enum members into the deployed layout, so
-    // the library cannot compare the `RebateTreasuryFeeMode` enum and would
-    // otherwise refuse the whole layout. That relaxation is only safe while
-    // the enum's order is pinned by something the comparison cannot see, so
-    // the order is pinned here, against the source, before the gate stands.
-    //
-    // A reorder would leave the stored byte width, the top-level slots and
-    // the selector plan unchanged, and every persisted value of 1 or 2 would
-    // silently decode as the opposite fee policy.
     const stakingSource = fs.readFileSync(
       path.join(__dirname, "..", "contracts", "bridge", "RebateStaking.sol"),
       "utf8"
     )
-    assertEnumMemberOrder({
-      source: stakingSource,
-      enumName: "RebateTreasuryFeeMode",
-      expected: REBATE_TREASURY_FEE_MODE_ORDER,
+    assertStorageGate({
+      deployed: deployedLayout,
+      head: headLayout,
+      stakingSource,
     })
+    console.log("  storage layout compatible (semantic comparison): OK")
+    console.log("  append-only, same end slot: OK")
     console.log(
       `  RebateTreasuryFeeMode order pinned: [${REBATE_TREASURY_FEE_MODE_ORDER.join(", ")}]`
     )
