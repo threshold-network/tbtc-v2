@@ -1431,11 +1431,26 @@ describe("ReservationsService", () => {
       // not merely stale, it is INCOMPLETE: even a read taken now carries
       // no window-related entry, because no such entry is possible - the
       // SDK cannot read the deposit's refund deadline.
+      //
+      // The fresh read is made against a DIFFERENT deposit, so the two
+      // reads cannot be the same result: a stale-object assertion would
+      // then be reading a different deposit's verdict, which the case
+      // would not accept.
+      const freshDepositKey = BigNumber.from(2)
+      mockReservations.addReservedDeposit(freshDepositKey, {
+        amount: BigNumber.from(500000),
+        walletPublicKeyHash: WALLET_A_PKH,
+        isReserved: true,
+        revealedAt: Math.floor(Date.now() / 1000) - 3600,
+        depositor: TEST_DEPOSITOR,
+      })
+
       const fresh = await service.checkAcceptancePreflight(
-        depositKey,
+        freshDepositKey,
         WALLET_A_PKH
       )
 
+      expect(fresh).to.not.equal(preflight)
       expect(fresh.ok).to.be.true
       expect(fresh.failures).to.have.length(0)
       const windowRelated = fresh.failures.filter((failure) =>
@@ -1497,6 +1512,10 @@ describe("ReservationsService", () => {
       // And it carries its own verdict, unaffected by the closure.
       expect(after.ok).to.be.true
       expect(after.failures).to.have.length(0)
+      // The two reads agree on the verdict, but the fresh one is the one
+      // that carries it: a stale-object assertion would read `before`,
+      // and `before` is a different object from `after`.
+      expect(after.failures).to.deep.equal(before.failures)
     })
 
     it("should report the acceptance rules it can see but not the signing window, so the preflight is a partial prediction", async () => {
