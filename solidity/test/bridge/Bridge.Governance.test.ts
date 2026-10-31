@@ -5061,6 +5061,173 @@ describe("Bridge - Governance", () => {
     })
   })
 
+  // The staged reservation-caps slot has no cancel and no expiry: a second
+  // `begin` overwrites it in place and restarts the delay, and validity is
+  // checked only at finalize. These cases pin the three consequences that
+  // were untested: the restarted delay, a reverting finalize that leaves the
+  // bad tuple staged, and a finalize long after the delay elapsed.
+  describe("reservation caps staging: overwrite, reverting finalize, late finalize", () => {
+    // An admissible tuple: every cap is at least the Bridge's 1,000,000-sat
+    // dust threshold (required while a vault is configured), the product of
+    // the position cap and the single-amount cap stays above the standing
+    // total amount cap, and the values differ from each other so a
+    // transposed write is observable.
+    const admissibleMaxReservationsAmountPerWallet = 2_500_000
+    const admissibleReservationMaxSingleAmount = 1_500_000
+    const admissibleMaxActiveReservations = 200
+    const admissibleMaxThirdPartyReanchorHoldsPerWallet = 3
+    const admissibleHandoffReserveWallets = 1
+
+    // A tuple the Bridge-side setter must refuse: `maxActiveReservations`
+    // must be greater than zero. `begin` validates nothing, so this tuple
+    // stages successfully and only fails at finalize.
+    const invalidMaxActiveReservations = 0
+
+    async function stage(
+      maxActiveReservations: number,
+      maxReservationsAmountPerWallet = admissibleMaxReservationsAmountPerWallet,
+      reservationMaxSingleAmount = admissibleReservationMaxSingleAmount
+    ) {
+      await bridgeGovernance
+        .connect(governance)
+        .beginReservationCapsUpdate(
+          maxReservationsAmountPerWallet,
+          reservationMaxSingleAmount,
+          maxActiveReservations,
+          admissibleMaxThirdPartyReanchorHoldsPerWallet,
+          admissibleHandoffReserveWallets
+        )
+    }
+
+    context("when the staged tuple is overwritten", () => {
+      beforeEach(async () => {
+        await createSnapshot()
+      })
+
+      afterEach(async () => {
+        await restoreSnapshot()
+      })
+
+      it("restarts the governance delay, so the first tuple's deadline no longer authorizes a finalize", async () => {
+        await stage(admissibleMaxActiveReservations)
+
+        // Let the FIRST tuple's delay almost elapse. The overwrite below
+        // lands a new timestamp, which is what must restart the clock.
+        await helpers.time.increaseTime(constants.governanceDelay - 60)
+
+        await stage(admissibleMaxActiveReservations - 1)
+
+        // The second begin's own timestamp is the one the delay is
+        // measured from.
+        const overwriteTimestamp = await helpers.time.lastBlockTime()
+
+        // Immediately after the overwrite the new tuple's delay has not
+        // elapsed, so the finalize is refused even though the first
+        // tuple's delay nearly had.
+        await expect(
+          bridgeGovernance.connect(governance).finalizeReservationCapsUpdate()
+        ).to.be.revertedWith("Governance delay has not elapsed")
+
+        // Move past the FIRST tuple's original deadline. The overwritten
+        // tuple is still not finalizable: the deadline belongs to the
+        // latest begin, not to the one it replaced.
+        await helpers.time.increaseTime(120)
+
+        await expect(
+          bridgeGovernance.connect(governance).finalizeReservationCapsUpdate()
+        ).to.be.revertedWith("Governance delay has not elapsed")
+
+        // The staged slot still holds the SECOND tuple, with the second
+        // tuple's own timestamp.
+        const staged = await bridgeGovernance.pendingReservationCapsUpdate()
+        expect(staged.newMaxActiveReservations).to.be.equal(
+          admissibleMaxActiveReservations - 1
+        )
+        expect(staged.changeInitiated).to.be.equal(overwriteTimestamp)
+
+        // Once the SECOND tuple's own delay elapses, that tuple is the one
+        // that lands.
+        await helpers.time.increaseTime(constants.governanceDelay)
+
+        await bridgeGovernance
+          .connect(governance)
+          .finalizeReservationCapsUpdate()
+
+        const { maxActive } = await reservationRouter.activeReservationsCount()
+        expect(maxActive).to.be.equal(admissibleMaxActiveReservations - 1)
+      })
+    })
+
+    context("when the staged tuple is refused by the Bridge", () => {
+      beforeEach(async () => {
+        await createSnapshot()
+      })
+
+      afterEach(async () => {
+        await restoreSnapshot()
+      })
+
+      it("leaves the bad tuple staged after a reverting finalize", async () => {
+        await stage(invalidMaxActiveReservations)
+
+        await helpers.time.increaseTime(constants.governanceDelay)
+
+        await expect(
+          bridgeGovernance.connect(governance).finalizeReservationCapsUpdate()
+        ).to.be.revertedWith(
+          "Active reservations cap must be greater than zero"
+        )
+
+        // The whole transaction reverted, so the staged tuple survives
+        // intact: nothing clears the slot on a failed finalize, and the
+        // operator can read the offending values back from the view.
+        const staged = await bridgeGovernance.pendingReservationCapsUpdate()
+        expect(staged.newMaxActiveReservations).to.be.equal(
+          invalidMaxActiveReservations
+        )
+        expect(staged.newMaxReservationsAmountPerWallet).to.be.equal(
+          admissibleMaxReservationsAmountPerWallet
+        )
+        expect(staged.newReservationMaxSingleAmount).to.be.equal(
+          admissibleReservationMaxSingleAmount
+        )
+        expect(staged.changeInitiated).to.be.greaterThan(0)
+
+        // The on-chain caps are untouched by the refused finalize.
+        const caps = await reservationRouter.reservationCaps()
+        expect(caps.maxActiveReservations).to.be.greaterThan(0)
+      })
+
+      it("accepts the finalize once the delay has long elapsed", async () => {
+        await stage(admissibleMaxActiveReservations)
+
+        // Far past the delay: the staged change does not expire, so a
+        // finalize long after the window opened still applies the tuple.
+        await helpers.time.increaseTime(constants.governanceDelay * 10)
+
+        await bridgeGovernance
+          .connect(governance)
+          .finalizeReservationCapsUpdate()
+
+        const caps = await reservationRouter.reservationCaps()
+        expect(caps.maxActiveReservations).to.be.equal(
+          admissibleMaxActiveReservations
+        )
+        expect(caps.maxReservationsAmountPerWallet).to.be.equal(
+          admissibleMaxReservationsAmountPerWallet
+        )
+        expect(caps.reservationMaxSingleAmount).to.be.equal(
+          admissibleReservationMaxSingleAmount
+        )
+
+        // The slot is cleared once the finalize succeeds.
+        const staged = await bridgeGovernance.pendingReservationCapsUpdate()
+        expect(staged.changeInitiated).to.be.equal(0)
+        expect(staged.newMaxActiveReservations).to.be.equal(0)
+      })
+    })
+  })
+
   describe("setVaultStatus", () => {
     context("when the caller is not the owner", () => {
       it("should revert", async () => {

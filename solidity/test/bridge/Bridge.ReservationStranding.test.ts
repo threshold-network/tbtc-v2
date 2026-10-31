@@ -33,6 +33,10 @@
  *     (`refundDeadlineValidated = true`).
  *   - Rejects when an acceptance authorization is still pending
  *     (`ActionState.Pending`).
+ *   - `BridgeGovernance.forceStaleReservedDeposit` forwarder: the owner's
+ *     call force-clears a pending deposit before its deadline, and a
+ *     non-owner call is refused. Added with the coverage close on
+ *     2026-10-30; the forwarder had no caller in any test before it.
  *
  * The fixture mirrors `Bridge.ReservationSettlement.test.ts` exactly so
  * the test runs against the same deployed bridge/reservation-router pair;
@@ -75,6 +79,7 @@ import type {
   Bank,
   BankStub,
   Bridge,
+  BridgeGovernance,
   BridgeStub,
   IWalletRegistry,
   IRelay,
@@ -829,6 +834,54 @@ describe("Bridge - Reservation stranding", () => {
       await expect(
         reservationRouter.notifyStaleReservedDeposit(depositKey)
       ).to.be.revertedWith("Acceptance authorization pending")
+    })
+  })
+
+  // `Reservation.forceStaleReservedDeposit` is reachable only through
+  // `Bridge.forceStaleReservedDeposit`, which is `onlyGovernance`, and
+  // `BridgeGovernance` is the governance address on every network. The
+  // forwarder is what the incident-response runbook calls, so it is pinned
+  // here rather than left to the impersonated-governance calls above, which
+  // skip it.
+  describe("forceStaleReservedDeposit forwarder", () => {
+    let bridgeGovernance: BridgeGovernance
+
+    beforeEach(async () => {
+      await createSnapshot()
+      bridgeGovernance = await helpers.contracts.getContract("BridgeGovernance")
+    })
+
+    afterEach(async () => {
+      await restoreSnapshot()
+    })
+
+    it("force-clears the reserved deposit when the owner calls, before its deadline", async () => {
+      const { depositKey } = await revealReservedDeposit()
+      expect(await reservationRouter.pendingReservedDeposits()).to.equal(1)
+
+      // No clock movement: the whole point of the governance escape hatch is
+      // that it works before the self-chosen refund deadline elapses.
+      await expect(
+        bridgeGovernance
+          .connect(governance)
+          .forceStaleReservedDeposit(depositKey)
+      )
+        .to.emit(reservationRouter, "ReservedDepositMarkedStale")
+        .withArgs(depositKey)
+
+      expect(await reservationRouter.pendingReservedDeposits()).to.equal(0)
+    })
+
+    it("refuses a non-owner and leaves the deposit pending", async () => {
+      const { depositKey } = await revealReservedDeposit()
+
+      await expect(
+        bridgeGovernance
+          .connect(thirdParty)
+          .forceStaleReservedDeposit(depositKey)
+      ).to.be.revertedWith("Ownable: caller is not the owner")
+
+      expect(await reservationRouter.pendingReservedDeposits()).to.equal(1)
     })
   })
 })

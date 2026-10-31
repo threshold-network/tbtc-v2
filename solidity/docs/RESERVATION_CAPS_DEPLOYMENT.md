@@ -65,7 +65,7 @@ require(self.reservationTotalAmount == 0, "Active reservations exist");
 require(self.pendingReservedDeposits == 0, "Pending reserved deposits exist");
 ```
 
-That is `Reservation.sol:1643-1650`, inside the `reservationVault != self.reservationVault` branch at `Reservation.sol:1636-1653`. Once the first reservation is accepted, `reservationTotalAmount` is non-zero and the Bridge refuses **any** new vault address: neither a different non-zero address nor the zero address can be written until both counters are back to zero. In milestone 1 that cleared state is reachable only through wallet termination, stranding and acceptance timeouts (see "Irreversible Vault Activation Warning" below), so the accepted vault is fixed for the lifetime of every live reservation.
+That is `Reservation.sol:1671-1678`, inside the `reservationVault != self.reservationVault` branch at `Reservation.sol:1664-1681`. Once the first reservation is accepted, `reservationTotalAmount` is non-zero and the Bridge refuses **any** new vault address: neither a different non-zero address nor the zero address can be written until both counters are back to zero. In milestone 1 that cleared state is reachable only through wallet termination, stranding and acceptance timeouts (see "Irreversible Vault Activation Warning" below), so the accepted vault is fixed for the lifetime of every live reservation.
 
 The lock starts earlier than the acceptance. A revealed reserved deposit that is still awaiting acceptance already holds `pendingReservedDeposits` above zero (`Deposit.sol:395`), and either counter alone blocks the write, so the vault is effectively frozen from the first reserved deposit reveal onwards, not from its settlement.
 
@@ -233,7 +233,7 @@ Record the authorized addresses, the Safe transaction hash for each, and the blo
 
 ### Stage 4 — Launch values are a human decision
 
-No launch value is fixed by this document, and `deploy/98_generate_reservation_mainnet_calldata.ts` deliberately has **no defaults**: every value is a required environment variable, and a missing or malformed one hard-fails rather than silently generating example calldata. Governance must supply and sign off on each of `RESERVATION_PER_WALLET_CAP_SATS`, `RESERVATION_SINGLE_AMOUNT_CAP_SATS`, `RESERVATION_MAX_ACTIVE`, `RESERVATION_MIN_AMOUNT_SATS`, `RESERVATION_TX_MAX_FEE_SATS`, `RESERVATION_TERM_SECONDS`, `RESERVATION_DISSOLUTION_DELAY_SECONDS`, `RESERVATION_MAX_TOTAL_AMOUNT_SATS`, `RESERVATION_MAX_PER_WALLET`, `RESERVATION_ACTION_TIMEOUT_SECONDS`, `RESERVATION_RENEWAL_WINDOW_SECONDS`.
+No launch value is fixed by this document, and `deploy/98_generate_reservation_mainnet_calldata.ts` deliberately has **no defaults**: every value is a required environment variable, and a missing or malformed one hard-fails rather than silently generating example calldata. Governance must supply and sign off on each of `RESERVATION_PER_WALLET_CAP_SATS`, `RESERVATION_SINGLE_AMOUNT_CAP_SATS`, `RESERVATION_MAX_ACTIVE`, `RESERVATION_MAX_THIRD_PARTY_REANCHOR_HOLDS`, `RESERVATION_HANDOFF_RESERVE_WALLETS`, `RESERVATION_MIN_AMOUNT_SATS`, `RESERVATION_TX_MAX_FEE_SATS`, `RESERVATION_TERM_SECONDS`, `RESERVATION_DISSOLUTION_DELAY_SECONDS`, `RESERVATION_MAX_TOTAL_AMOUNT_SATS`, `RESERVATION_MAX_PER_WALLET`, `RESERVATION_ACTION_TIMEOUT_SECONDS`, `RESERVATION_RENEWAL_WINDOW_SECONDS`.
 
 The script hard-fails on the launch-posture values that are already decided, and on every remaining on-chain `require` it mirrors:
 
@@ -291,7 +291,8 @@ cast call "$BRIDGE" "getReservationRouter()(address)"
 cast call "$BRIDGE" "isVaultTrusted(address)(bool)" "$RESERVATION_VAULT"
 cast call "$BRIDGE" "reservationParameters()(address,uint64,uint64,uint32,uint32,uint64,uint64,uint32,uint32,uint32)"
 # Caps, occupancy and pending-deposit counters.
-cast call "$BRIDGE" "reservationCaps()(uint64,uint64,uint32)"
+cast call "$BRIDGE" "reservationCaps()(uint64,uint64,uint32,uint32)"
+cast call "$BRIDGE" "reservationHandoffReserveWallets()(uint32)"
 cast call "$BRIDGE" "activeReservationsCount()(uint32,uint32)"
 cast call "$BRIDGE" "pendingReservedDeposits()(uint64)"
 ```

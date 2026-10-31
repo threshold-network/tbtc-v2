@@ -19,3 +19,4 @@
 # reservations specification.
 
 EX-001 | contracts/bridge/Reservation.sol | closeReservation | coverage,mutation | The helper closes a reservation position on the milestone 2 settlement paths. It ships in this release as decided scaffolding, so it has no caller here: no contract, test or script can reach it, and a mutant of it cannot be killed. The milestone 2 settlement work brings the call sites with it. | PD-3, D-8
+EX-002 | contracts/bridge/Reservation.sol | R22 | mutation | The mutant is equivalent, not a test gap. `Reservation.sol:1087` reads `liveWalletsCount > handoffReserveWallets ? liveWalletsCount - handoffReserveWallets : 0`, and the `>=` mutant differs from it only at equality, where the original returns 0 and the mutant returns `liveWalletsCount - handoffReserveWallets`, which is also 0. For every other input the two expressions are identical, so no test can distinguish them. | INV-113, PAR-F1

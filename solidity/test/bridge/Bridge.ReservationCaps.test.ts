@@ -13,6 +13,8 @@ import bridgeFixture from "../fixtures/bridge"
 
 // `Reservation.MIN_RESERVATION_TERM`.
 const MIN_RESERVATION_TERM = 90 * 24 * 60 * 60
+// `Reservation.MAX_RESERVATION_TERM`.
+const MAX_RESERVATION_TERM = 730 * 24 * 60 * 60
 // `WalletProposalValidatorConstants.REQUEST_TIMEOUT_SAFETY_MARGIN`.
 const REQUEST_TIMEOUT_SAFETY_MARGIN = 2 * 60 * 60
 
@@ -186,6 +188,30 @@ describe("Reservation - amount cap versus slot capacity", () => {
         ).to.be.revertedWith("Reservation term out of protocol bounds")
       })
 
+      // The upper half of the `[MIN_RESERVATION_TERM, MAX_RESERVATION_TERM]`
+      // rule. Only the floor was covered before, so a widened ceiling, or a
+      // narrowed one that refused an admissible term, would have passed
+      // every test in this file.
+      it("rejects a term above the protocol ceiling", async () => {
+        await expect(
+          setParams({ reservationTermSeconds: MAX_RESERVATION_TERM + 1 })
+        ).to.be.revertedWith("Reservation term out of protocol bounds")
+      })
+
+      it("accepts a term exactly at the protocol ceiling", async () => {
+        await setParams({ reservationTermSeconds: MAX_RESERVATION_TERM })
+
+        const [, term] = await testReservation.reservationVaultAndTerm()
+        expect(term).to.equal(MAX_RESERVATION_TERM)
+      })
+
+      it("accepts a term exactly at the protocol floor", async () => {
+        await setParams({ reservationTermSeconds: MIN_RESERVATION_TERM })
+
+        const [, term] = await testReservation.reservationVaultAndTerm()
+        expect(term).to.equal(MIN_RESERVATION_TERM)
+      })
+
       it("rejects a renewal window as long as the term", async () => {
         await expect(
           setParams({
@@ -193,6 +219,29 @@ describe("Reservation - amount cap versus slot capacity", () => {
           })
         ).to.be.revertedWith("Renewal window must be shorter than the term")
       })
+
+      // PAR-8's rule has two sides: the window must be strictly shorter
+      // than the term and strictly greater than zero. Only the first side
+      // was covered, so a zero window, which closes the renewal window
+      // entirely, was accepted untested.
+      it("rejects a zero renewal window", async () => {
+        await expect(
+          setParams({ reservationRenewalWindowSeconds: 0 })
+        ).to.be.revertedWith("Renewal window must be shorter than the term")
+      })
+
+      it("accepts a renewal window one second shorter than the term", async () => {
+        await setParams({
+          reservationRenewalWindowSeconds:
+            baseParams.reservationTermSeconds - 1,
+        })
+      })
+
+      // PAR-1 and PAR-2 are two halves of one rule:
+      // `reservationMinAmount > reservationTxMaxFee`, with the fee bound
+      // itself strictly positive. The rejecting side was covered above; the
+      // accepting side is covered against the real Bridge further down in
+      // this file ("direct reservation parameter setters").
 
       it("rejects a per-wallet position cap of zero", async () => {
         await expect(
@@ -516,5 +565,199 @@ describe("Reservation - governance ceremony argument forwarding", () => {
         routerContract.target
       )
     })
+  })
+})
+
+// PAR-1 (`reservationMinAmount > reservationTxMaxFee`) and PAR-2
+// (`reservationTxMaxFee > 0`) are the two halves of one rule. The
+// `TestReservation` harness above covers the rejecting side of both, but
+// only against the library layer. These cases drive the same setter through
+// the real Bridge, with the governance ceremony in between, so the accepting
+// side is pinned on the deployed path too: a rule that refused every value
+// would still have passed the harness tests.
+describe("Reservation - direct reservation parameter setters", () => {
+  let governance: HardhatEthersSigner
+  let bridgeGovernance: BridgeGovernance
+  let reservationRouter: ReservationRouter
+
+  const { createSnapshot, restoreSnapshot } = helpers.snapshot
+
+  // The deploy-time ceremony (`97_set_reservation_parameters.ts`) leaves the
+  // Bridge with a vault configured, so every amount cap must stay at or
+  // above the 1,000,000-sat dust threshold, and the total amount cap must
+  // stay under `maxActiveReservations * reservationMaxSingleAmount`
+  // (100 * 1,000,000). These values satisfy both.
+  const MAX_RESERVATIONS_AMOUNT_PER_WALLET = 2_500_000
+  const RESERVATION_MAX_SINGLE_AMOUNT = 1_500_000
+  const MAX_ACTIVE_RESERVATIONS = 100
+  const MAX_THIRD_PARTY_REANCHOR_HOLDS = 1
+  const HANDOFF_RESERVE_WALLETS = 1
+
+  before(async () => {
+    const fixture = await bridgeFixture()
+    governance = fixture.governance
+    bridgeGovernance = fixture.bridgeGovernance
+
+    reservationRouter = await ethers.getContractAt(
+      "ReservationRouter",
+      fixture.bridge.target
+    )
+  })
+
+  // Each case writes the Bridge's parameters, so every case starts from the
+  // same state: the deploy-time ceremony's values.
+  beforeEach(async () => {
+    await createSnapshot()
+  })
+
+  afterEach(async () => {
+    await restoreSnapshot()
+  })
+
+  // Writes the reservation parameters through the governance ceremony:
+  // stage, wait out the delay, finalize. The staged tuple is checked by the
+  // Bridge at finalize, so a rule that rejects the write shows up there.
+  async function setParameters(
+    reservationMinAmount: number,
+    reservationTxMaxFee: number
+  ) {
+    const parameters = await reservationRouter.reservationParameters()
+
+    await bridgeGovernance
+      .connect(governance)
+      .beginReservationParametersUpdate(
+        parameters.reservationVault,
+        reservationMinAmount,
+        reservationTxMaxFee,
+        parameters.reservationTermSeconds,
+        parameters.reservationDissolutionDelay,
+        parameters.reservationMaxTotalAmount,
+        parameters.maxReservationsPerWallet,
+        parameters.reservationActionTimeout,
+        parameters.reservationRenewalWindowSeconds
+      )
+
+    await helpers.time.increaseTime(constants.governanceDelay)
+
+    await bridgeGovernance
+      .connect(governance)
+      .finalizeReservationParametersUpdate()
+  }
+
+  it("rejects a minimum amount equal to the fee bound", async () => {
+    await expect(setParameters(2000, 2000)).to.be.revertedWith(
+      "Reservation minimum amount must be greater than the reservation TX max fee"
+    )
+  })
+
+  it("rejects a zero fee bound", async () => {
+    await expect(setParameters(2000, 0)).to.be.revertedWith(
+      "Reservation transaction max fee must be greater than zero"
+    )
+  })
+
+  it("accepts a minimum amount one satoshi above the fee bound", async () => {
+    await setParameters(2001, 2000)
+
+    const parameters = await reservationRouter.reservationParameters()
+    expect(parameters.reservationMinAmount).to.equal(2001)
+    expect(parameters.reservationTxMaxFee).to.equal(2000)
+  })
+
+  it("accepts the smallest admissible pair", async () => {
+    await setParameters(2, 1)
+
+    const parameters = await reservationRouter.reservationParameters()
+    expect(parameters.reservationMinAmount).to.equal(2)
+    expect(parameters.reservationTxMaxFee).to.equal(1)
+  })
+
+  // The single-position cap and the per-wallet amount cap are owned by
+  // `updateReservationCaps`, and PAR-3's term bounds by
+  // `updateReservationParameters`. The setter's own relational check reads
+  // the two caps, so this case pins that the setter reads the CAPS the
+  // Bridge actually holds, not the ones it is being handed.
+  it("rejects a total amount cap above the slot capacity of the caps on record", async () => {
+    await bridgeGovernance
+      .connect(governance)
+      .beginReservationCapsUpdate(
+        MAX_RESERVATIONS_AMOUNT_PER_WALLET,
+        RESERVATION_MAX_SINGLE_AMOUNT,
+        MAX_ACTIVE_RESERVATIONS,
+        MAX_THIRD_PARTY_REANCHOR_HOLDS,
+        HANDOFF_RESERVE_WALLETS
+      )
+    await helpers.time.increaseTime(constants.governanceDelay)
+    await bridgeGovernance.connect(governance).finalizeReservationCapsUpdate()
+
+    const parameters = await reservationRouter.reservationParameters()
+
+    await bridgeGovernance.connect(governance).beginReservationParametersUpdate(
+      parameters.reservationVault,
+      parameters.reservationMinAmount,
+      parameters.reservationTxMaxFee,
+      parameters.reservationTermSeconds,
+      parameters.reservationDissolutionDelay,
+      // One satoshi above 100 * 1,500,000.
+      MAX_ACTIVE_RESERVATIONS * RESERVATION_MAX_SINGLE_AMOUNT + 1,
+      parameters.maxReservationsPerWallet,
+      parameters.reservationActionTimeout,
+      parameters.reservationRenewalWindowSeconds
+    )
+    await helpers.time.increaseTime(constants.governanceDelay)
+
+    await expect(
+      bridgeGovernance.connect(governance).finalizeReservationParametersUpdate()
+    ).to.be.revertedWith("Amount cap exceeds slot capacity")
+  })
+
+  // The term's upper bound, on the deployed path. The harness covers the
+  // library; this one covers the same rule as governance actually writes it.
+  it("rejects a term above the protocol ceiling", async () => {
+    const parameters = await reservationRouter.reservationParameters()
+
+    await bridgeGovernance
+      .connect(governance)
+      .beginReservationParametersUpdate(
+        parameters.reservationVault,
+        parameters.reservationMinAmount,
+        parameters.reservationTxMaxFee,
+        MAX_RESERVATION_TERM + 1,
+        parameters.reservationDissolutionDelay,
+        parameters.reservationMaxTotalAmount,
+        parameters.maxReservationsPerWallet,
+        parameters.reservationActionTimeout,
+        parameters.reservationRenewalWindowSeconds
+      )
+    await helpers.time.increaseTime(constants.governanceDelay)
+
+    await expect(
+      bridgeGovernance.connect(governance).finalizeReservationParametersUpdate()
+    ).to.be.revertedWith("Reservation term out of protocol bounds")
+  })
+
+  it("accepts a term exactly at the protocol ceiling", async () => {
+    const parameters = await reservationRouter.reservationParameters()
+
+    await bridgeGovernance
+      .connect(governance)
+      .beginReservationParametersUpdate(
+        parameters.reservationVault,
+        parameters.reservationMinAmount,
+        parameters.reservationTxMaxFee,
+        MAX_RESERVATION_TERM,
+        parameters.reservationDissolutionDelay,
+        parameters.reservationMaxTotalAmount,
+        parameters.maxReservationsPerWallet,
+        parameters.reservationActionTimeout,
+        parameters.reservationRenewalWindowSeconds
+      )
+    await helpers.time.increaseTime(constants.governanceDelay)
+    await bridgeGovernance
+      .connect(governance)
+      .finalizeReservationParametersUpdate()
+
+    const after = await reservationRouter.reservationParameters()
+    expect(after.reservationTermSeconds).to.equal(MAX_RESERVATION_TERM)
   })
 })

@@ -57,6 +57,34 @@ export class MockReservations implements Reservations {
   }
   liveWallets: number
   handoffReserveWallets: number
+  /**
+   * Whether the on-chain authorization window of a new acceptance request
+   * is still open. The SDK cannot evaluate this rule: the snapshotted
+   * refund deadline of the deposit is not exposed as a public view, so the
+   * off-chain preflight never reads this flag.
+   *
+   * This flag models the ACTION-TIMEOUT guard of `Reservation.sol`:
+   * `require(earliestSigningAt < actionSigningDeadline, "Acceptance
+   * authorization has no signing window")`.
+   */
+  signingWindowOpen = true
+
+  /**
+   * Whether the deposit's snapshotted refund deadline has passed, so the
+   * authorization window would overlap it. This models the REFUND-OVERLAP
+   * guard of `Reservation.sol`: `require(timeoutAt +
+   * DEPOSIT_REFUND_SAFETY_MARGIN <= reservedDeposit.refundDeadline,
+   * "Authorization window would overlap the deposit refund window")`.
+   *
+   * It is a separate flag from `signingWindowOpen` because the two
+   * production guards are separate: the action-timeout window is computed
+   * from the CURRENT block timestamp plus the configured action timeout,
+   * so it stays open at ordinary timestamps, while the refund deadline is
+   * snapshotted at reveal and expires on its own. A deposit whose refund
+   * deadline has passed therefore fails the refund-overlap require, not
+   * the action-timeout one.
+   */
+  refundWindowClosed = false
 
   // --- recorded interactions ----------------------------------------
   releaseCalls: Array<{ depositKey: BigNumber; vault: ChainIdentifier }> = []
@@ -160,6 +188,25 @@ export class MockReservations implements Reservations {
 
   // --- Reservations interface ---------------------------------------
 
+  /**
+   * Submits an acceptance request. Like the on-chain contract, it re-checks
+   * the rules it can observe against the mock's live state at the moment of
+   * the call, and reverts with the contract's own revert strings when one of
+   * them no longer holds. This mirrors the production semantics: the
+   * contract re-checks every rule on-chain, so a request can revert even
+   * when an earlier off-chain read of the same rules reported them as
+   * satisfied.
+   *
+   * The re-checked rules are the wallet Live state, the global
+   * active-reservations cap, the action-timeout signing window, and the
+   * refund-overlap window. The deposit-keyed rules cannot be re-checked
+   * here: the contract entry point does not receive the deposit key.
+   * @param fundingTx The funding transaction.
+   * @param fundingProof The SPV proof of the funding transaction.
+   * @param fundingOutputIndex Index of the deposit output.
+   * @param walletPublicKeyHash The designated wallet's 20-byte pkh.
+   * @returns The mock transaction hash.
+   */
   async requestReservationAcceptance(
     fundingTx: BitcoinRawTxVectors,
     fundingProof: BitcoinSpvProof,
@@ -172,6 +219,23 @@ export class MockReservations implements Reservations {
       fundingOutputIndex,
       walletPublicKeyHash,
     })
+
+    const walletState = this.walletStates.get(walletPublicKeyHash.toString())
+    if (walletState !== WalletState.Live) {
+      throw new Error("Wallet must be in Live state")
+    }
+    if (this.occupancy.count + 1 > this.occupancy.maxActive) {
+      throw new Error("Active reservations cap exceeded")
+    }
+    if (!this.signingWindowOpen) {
+      throw new Error("Acceptance authorization has no signing window")
+    }
+    if (this.refundWindowClosed) {
+      throw new Error(
+        "Authorization window would overlap the deposit refund window"
+      )
+    }
+
     return Hex.from("0xdeadbeef")
   }
 

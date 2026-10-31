@@ -688,6 +688,34 @@ describe("Bridge - reservation third-party re-anchor holds (per-target cap)", ()
       ).to.be.revertedWith("Wallet reservations cap exceeded")
     })
 
+    it("governance (privileged) from a Live source into a target over its amount cap still reverts", async () => {
+      // The count cap had its own Live-source case above, but the amount
+      // cap is a separate require reading the same `skipTargetCaps` flag.
+      // A governance rotation off a Live source is privileged, yet the
+      // target's amount cap still binds it: privilege only relaxes the
+      // caps for a RETIRING source, where the hand-off must stay possible.
+      // Without this case, a change that relaxed the amount cap for every
+      // privileged caller would pass the count-cap case untouched.
+      await fillTargetAmount(1_500_000)
+      await seedCallerReanchorable(walletStateEnum.Live)
+
+      await expect(
+        executor.requestReservationReanchor(
+          callerKey,
+          targetWallet,
+          true,
+          [],
+          0
+        )
+      ).to.be.revertedWith("Wallet reserved amount cap exceeded")
+
+      // The target's counters are untouched by the refused request.
+      expect(await executor.walletReservationsAmount(targetWallet)).to.equal(
+        1_000_000
+      )
+      expect(await executor.walletReservationsCount(targetWallet)).to.equal(1)
+    })
+
     it("a privileged MovingFunds re-anchor may exceed the target's amount cap", async () => {
       await fillTargetAmount(1_500_000)
       await seedCallerReanchorable()
