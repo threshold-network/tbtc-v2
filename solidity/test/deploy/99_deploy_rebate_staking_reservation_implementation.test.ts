@@ -2,7 +2,7 @@ import { expect } from "chai"
 import fs from "fs"
 import path from "path"
 import { artifacts, ethers } from "hardhat"
-import {
+import func, {
   REBATE_SELECTORS,
   REBATE_TREASURY_FEE_MODE_ORDER,
   assertBridgeImplementationChanges,
@@ -13,6 +13,8 @@ import {
   requireBridgeImplementationInput,
   TRAP_SELECTOR_UINT256_AMOUNT,
   assertBatchOrder,
+  assertBridgeRebateStakingPointer,
+  assertRecordAddressMatchesImplementation,
   assertLayoutAppendOnly,
   assertLayoutCompatible,
   assertSelectorPresence,
@@ -29,6 +31,7 @@ import {
   proveLibraryIdentity,
   readDeployedBytecode,
   readEnumMemberOrder,
+  readRecordAddress,
   readStorageLayout,
   readStorageLayoutFile,
   rebateSelectorPlan,
@@ -333,6 +336,38 @@ describe("deploy/99 deploy_rebate_staking_reservation_implementation", () => {
       expect(scanSelectors(trapCode)[REBATE_SELECTORS.applyForRebate]).to.equal(
         false
       )
+    })
+
+    it("rejects a build that carries the trap selector, not only one that lacks a required one", () => {
+      // 0xed6321ad is applyForRebate(address,uint256,uint8): the wrong-arity
+      // selector. The guard against it was inert because the scan only
+      // covered the expected selectors, so the trap key was always
+      // `undefined` and a `!== undefined` test could never fire.
+      const code = `0x${Object.values(REBATE_SELECTORS)
+        .map((selector) => selector.slice(2))
+        .join("6000")}6000${TRAP_SELECTOR_UINT256_AMOUNT.slice(2)}`
+      expect(() =>
+        assertSelectorPresence("forged head", code, {
+          [REBATE_SELECTORS.isRebateAuthorized]: true,
+          [REBATE_SELECTORS.setRebateAuthorization]: true,
+          [REBATE_SELECTORS.applyForRebate]: true,
+          [REBATE_SELECTORS.cancelRebate]: true,
+        })
+      ).to.throw(/trap selector 0xed6321ad is present/)
+    })
+
+    it("does not reject the release build now that the trap selector is scanned", () => {
+      // Scanning the trap selector makes `found[trap]` a boolean. A guard
+      // that tested it with `!== undefined` would be true for every build
+      // and would refuse the correct one.
+      expect(() =>
+        assertSelectorPresence("synthetic head", syntheticStakingCode(), {
+          [REBATE_SELECTORS.isRebateAuthorized]: true,
+          [REBATE_SELECTORS.setRebateAuthorization]: true,
+          [REBATE_SELECTORS.applyForRebate]: true,
+          [REBATE_SELECTORS.cancelRebate]: true,
+        })
+      ).to.not.throw()
     })
 
     it("states a plan where the installed build lacks both authorization selectors", () => {
@@ -958,6 +993,87 @@ describe("deploy/99 deploy_rebate_staking_reservation_implementation", () => {
         "RebateTreasuryFeeMode"
       )
       expect(order).to.deep.equal(["Both", "DepositOnly", "RedemptionOnly"])
+    })
+  })
+
+  describe("the script runs no deploy script of its own (finding: the Bridge dependency ran 06 on mainnet)", () => {
+    it("declares no dependencies at all", () => {
+      // hardhat-deploy resolves dependencies before `skip`, so a "Bridge"
+      // dependency here runs `06_deploy_bridge.ts` on mainnet even with
+      // DEPLOY_REBATE_BATCH unset -- re-deploying Deposit, DepositSweep and
+      // Wallets and rewriting their mainnet records.
+      expect(func.dependencies ?? []).to.deep.equal([])
+    })
+  })
+
+  describe("the storage gate's baseline is the installed implementation (finding: it validated a file, not the chain)", () => {
+    it("accepts the shipped baseline record when its address is the installed implementation", () => {
+      const baseline = recordPath("RebateStakingTIP109HotfixImplementation")
+      const recordAddress = readRecordAddress(baseline)
+      expect(recordAddress).to.be.a("string")
+      expect(() =>
+        assertRecordAddressMatchesImplementation({
+          name: "RebateStakingTIP109HotfixImplementation",
+          recordAddress,
+          // The chain returns a checksummed address; the record's case is
+          // not part of the comparison.
+          installedImplementation: String(recordAddress).toLowerCase(),
+        })
+      ).to.not.throw()
+    })
+
+    it("refuses the shipped baseline record when the proxy holds another implementation", () => {
+      expect(() =>
+        assertRecordAddressMatchesImplementation({
+          name: "RebateStakingTIP109HotfixImplementation",
+          recordAddress: readRecordAddress(
+            recordPath("RebateStakingTIP109HotfixImplementation")
+          ),
+          installedImplementation: STAKING_IMPL,
+        })
+      ).to.throw(/is not the build the proxy delegates to/)
+    })
+
+    it("refuses a record with no address", () => {
+      expect(() =>
+        assertRecordAddressMatchesImplementation({
+          name: "RebateStakingTIP109HotfixImplementation",
+          recordAddress: undefined,
+          installedImplementation: STAKING_IMPL,
+        })
+      ).to.throw(/carries no address/)
+    })
+  })
+
+  describe("the Bridge's rebate-staking pointer is the upgraded proxy (finding: never compared)", () => {
+    it("accepts the proxy the batch upgrades, in any case", () => {
+      expect(
+        assertBridgeRebateStakingPointer({
+          bridgePointer: STAKING_PROXY,
+          rebateStakingProxy: STAKING_PROXY.toLowerCase(),
+        })
+      ).to.equal("matches")
+    })
+
+    it("throws on a non-zero pointer to any other address", () => {
+      expect(() =>
+        assertBridgeRebateStakingPointer({
+          bridgePointer: STAKING_IMPL,
+          rebateStakingProxy: STAKING_PROXY,
+        })
+      ).to.throw(/Bridge.getRebateStaking\(\) is/)
+    })
+
+    it("reports a zero pointer as unset, not as a match", () => {
+      // A zero pointer soft-fails to `false` in Redemption, so it cannot
+      // break a redemption -- but the batch would not restore the path
+      // either, and the operator has to see that.
+      expect(
+        assertBridgeRebateStakingPointer({
+          bridgePointer: ethers.ZeroAddress,
+          rebateStakingProxy: STAKING_PROXY,
+        })
+      ).to.equal("unset")
     })
   })
 })
