@@ -1,22 +1,23 @@
 import fs from "fs"
 import path from "path"
 import { ContractFactory, ethers as eth } from "ethers"
-import type { Contract, TransactionReceipt } from "ethers"
+import type { TransactionReceipt } from "ethers"
 import { artifacts, ethers, network } from "hardhat"
 import {
-  EIP_1967_ADMIN_SLOT,
   EIP_1967_IMPLEMENTATION_SLOT,
   KNOWN_COUNCIL_SAFE,
   KNOWN_PROXY_ADMIN,
   KNOWN_TIMELOCK,
 } from "../deploy/85_deploy_tip109_governance_upgrade"
 import {
-  REBATE_SELECTORS,
+  assertBridgeImplementationChanges,
   assertSelectorPresence,
   buildRebateBatch,
   encodeExecuteBatch,
   encodeScheduleBatch,
+  extractPushedAddresses,
   hashOperationBatch,
+  linkedLibraryAddresses,
   postExecutionCheck,
   rebateSelectorPlan,
   scanSelectors,
@@ -55,6 +56,12 @@ import {
 
 // Pinned fork block; override with FORKING_BLOCK and the script checks it.
 const FORKING_BLOCK = Number(process.env.FORKING_BLOCK ?? "0")
+
+// The 85 constants are lowercase for readability; ethers validates checksums,
+// so normalise once here rather than at every use.
+const COUNCIL_SAFE = eth.getAddress(KNOWN_COUNCIL_SAFE.toLowerCase())
+const TIMELOCK = eth.getAddress(KNOWN_TIMELOCK.toLowerCase())
+const PROXY_ADMIN = eth.getAddress(KNOWN_PROXY_ADMIN.toLowerCase())
 
 const PROPOSER_ROLE = eth.id("PROPOSER_ROLE")
 const EXECUTOR_ROLE = eth.id("EXECUTOR_ROLE")
@@ -121,7 +128,7 @@ async function deployLinked(
   artifactName: string,
   signer: eth.Signer,
   libAddresses: Record<string, string>
-): Promise<{ contract: Contract; receipt: TransactionReceipt }> {
+) {
   const artifact = await artifacts.readArtifact(artifactName)
   let content = artifact.bytecode.slice(2)
   for (const libs of Object.values(artifact.linkReferences)) {
@@ -190,12 +197,14 @@ async function main(): Promise<void> {
   const deployerAddress = (await ethers.getSigners())[0].address
 
   // Addresses that sign nothing but must hold ETH to be impersonated.
-  const balanceOwner = "0x00000000000000000000000000000000000Ba1a0" // balance 0xa1a0
-  const redeemer = "0x00000000000000000000000000000000000Feed5" // balance 0xfeed5
+  const balanceOwner = eth.getAddress(
+    "0x00000000000000000000000000000000000ba1a0"
+  )
+  const redeemer = eth.getAddress("0x00000000000000000000000000000000000feed5")
   const actors = [
     deployerAddress,
-    KNOWN_TIMELOCK,
-    KNOWN_COUNCIL_SAFE,
+    TIMELOCK,
+    COUNCIL_SAFE,
     balanceOwner,
     redeemer,
     bridge,
@@ -210,13 +219,16 @@ async function main(): Promise<void> {
     ])
   }
   const deployer = await ethers.getSigner(deployerAddress)
-  const timelock = await ethers.getSigner(KNOWN_TIMELOCK)
-  const council = await ethers.getSigner(KNOWN_COUNCIL_SAFE)
+  const timelock = await ethers.getSigner(TIMELOCK)
+  const council = await ethers.getSigner(COUNCIL_SAFE)
   const ownerSigner = await ethers.getSigner(balanceOwner)
   const bridgeSigner = await ethers.getSigner(bridge)
   record({ name: "01-impersonate-actors", status: "PASS", values: { actors } })
 
-  console.log("\n=== Step 2: deploy the release builds on the fork ===")
+  console.log(
+    "\n=== Step 2: deploy the release builds on the fork (the rehearsal " +
+      "stands in for the release pipeline, which owns the Bridge deployment) ==="
+  )
   const libAddresses: Record<string, string> = {}
   for (const { name, artifact } of LIBS) {
     const { contract } = await deployLinked(artifact, deployer, {})
@@ -232,6 +244,62 @@ async function main(): Promise<void> {
     status: "PASS",
     values: { newBridgeImpl, newStakingImpl, libraries: libAddresses },
   })
+
+  // The deployed Bridge build is now the input the deploy script would be
+  // given, so the same rules apply to it: it must differ from the installed
+  // one, and it must link a Redemption library that calls the rebate
+  // selector. The rehearsal checks both through the same helpers the deploy
+  // script uses, so the rehearsal and the ceremony agree on what "the
+  // release build" means.
+  const currentBridgeImplWord = await ethers.provider.getStorage(
+    bridge,
+    EIP_1967_IMPLEMENTATION_SLOT
+  )
+  const currentBridgeImpl = eth.getAddress(
+    `0x${currentBridgeImplWord.slice(26)}`
+  )
+  try {
+    assertBridgeImplementationChanges(currentBridgeImpl, newBridgeImpl)
+    const bridgeCode = await ethers.provider.getCode(newBridgeImpl)
+    const libraryCandidates = linkedLibraryAddresses(bridgeCode, [
+      bridge,
+      rebateStaking,
+      KNOWN_PROXY_ADMIN,
+      KNOWN_TIMELOCK,
+      KNOWN_COUNCIL_SAFE,
+    ])
+    const redemptionLibraries: string[] = []
+    for (const candidate of libraryCandidates) {
+      const code = await ethers.provider.getCode(candidate)
+      if (code === "0x") continue
+      if (scanSelectors(code)["0x96253dad"] === true) {
+        redemptionLibraries.push(candidate)
+      }
+    }
+    if (redemptionLibraries.length === 0) {
+      throw new Error(
+        "no library linked by the deployed Bridge build carries 0x96253dad"
+      )
+    }
+    record({
+      name: "02b-bridge-build-matches-the-input-rules",
+      status: "PASS",
+      values: {
+        currentBridgeImpl,
+        newBridgeImpl,
+        redemptionLibrary: redemptionLibraries[0],
+        libraryCandidates: libraryCandidates.length,
+        pushedAddresses: extractPushedAddresses(bridgeCode).length,
+      },
+    })
+  } catch (e) {
+    record({
+      name: "02b-bridge-build-matches-the-input-rules",
+      status: "FAIL",
+      error: String(e),
+    })
+    return writeArtifact(block, { bridge, rebateStaking })
+  }
 
   console.log("\n=== Step 3: pre-flight selector scan ===")
   const plan = rebateSelectorPlan()
@@ -352,11 +420,13 @@ async function main(): Promise<void> {
   const runRedemption = async (
     label: string,
     expect: "success" | "revert"
-  ): Promise<{ ok: boolean; error?: string; txHash?: string }> => {
+  ): Promise<{ ok: boolean; bareRevert?: boolean; error?: string; txHash?: string }> => {
     attempt += 1
     // A fresh P2WPKH output script per attempt, so each attempt uses its own
-    // redemption key and can never trip the "pending redemption" guard.
-    const script = `0x0014${eth.hexlify(eth.randomBytes(20)).slice(2)}`
+    // redemption key and can never trip the "pending redemption" guard. The
+    // leading byte is the script's own length (0x16 = 22), which is the
+    // length-prefixed form `Redemption.requestRedemption` expects.
+    const script = `0x160014${eth.hexlify(eth.randomBytes(20)).slice(2)}`
     const data = coder.encode(
       ["address", "bytes20", "bytes32", "uint32", "uint64", "bytes"],
       [redeemer, pk, txHash, txOutputIndex, txOutputValue, script]
@@ -380,12 +450,26 @@ async function main(): Promise<void> {
       })
       return { ok: true, txHash: receipt.hash }
     } catch (e) {
+      const message = String(e)
+      // The missing-selector revert is bare: `RebateStaking` has no fallback,
+      // so the call returns no data. A revert carrying a reason string or a
+      // custom error came from an input or state check instead, which would
+      // make a "reverted" verdict a false positive.
+      const bareRevert =
+        message.includes("without a reason") ||
+        (!message.includes("reverted with reason string") &&
+          !message.includes("reverted with custom error"))
+      const status =
+        expect === "revert" ? (bareRevert ? "PASS" : "FAIL") : "FAIL"
       record({
         name,
-        status: expect === "revert" ? "PASS" : "FAIL",
-        error: String(e),
+        status,
+        error:
+          expect === "revert" && !bareRevert
+            ? `reverted for the wrong reason (expected the bare missing-selector revert): ${message}`
+            : message,
       })
-      return { ok: false, error: String(e) }
+      return { ok: false, error: message, bareRevert }
     }
   }
 
@@ -396,7 +480,7 @@ async function main(): Promise<void> {
   const snapshot = await network.provider.send("evm_snapshot", [])
   const proxyAdmin = await ethers.getContractAt(
     ["function upgrade(address proxy, address implementation)"],
-    KNOWN_PROXY_ADMIN,
+    PROXY_ADMIN,
     timelock
   )
   const timelockContract = await ethers.getContractAt(
@@ -406,7 +490,7 @@ async function main(): Promise<void> {
       "function getMinDelay() view returns (uint256)",
       "function hasRole(bytes32,address) view returns (bool)",
     ],
-    KNOWN_TIMELOCK
+    TIMELOCK
   )
   const delay = (await timelockContract.getMinDelay()) as bigint
 
@@ -450,7 +534,7 @@ async function main(): Promise<void> {
   // =========================================================================
   console.log("\n=== Case B: single batch, staking first ===")
   const batch = buildRebateBatch({
-    proxyAdmin: KNOWN_PROXY_ADMIN,
+    proxyAdmin: PROXY_ADMIN,
     rebateStakingProxy: rebateStaking,
     rebateStakingImplementation: newStakingImpl,
     bridgeProxy: bridge,
@@ -463,13 +547,13 @@ async function main(): Promise<void> {
   // open role, the Council Safe or the Timelock itself can execute.
   const proposerIsCouncil = (await timelockContract.hasRole(
     PROPOSER_ROLE,
-    KNOWN_COUNCIL_SAFE
+    COUNCIL_SAFE
   )) as boolean
   if (!proposerIsCouncil) {
     record({
       name: "B0-role-probe",
       status: "FAIL",
-      error: `Council Safe ${KNOWN_COUNCIL_SAFE} does not hold PROPOSER_ROLE`,
+      error: `Council Safe ${COUNCIL_SAFE} does not hold PROPOSER_ROLE`,
     })
     return writeArtifact(block, { bridge, rebateStaking })
   }
@@ -482,7 +566,7 @@ async function main(): Promise<void> {
   if (!executorOpen) {
     const councilHasExecutor = (await timelockContract.hasRole(
       EXECUTOR_ROLE,
-      KNOWN_COUNCIL_SAFE
+      COUNCIL_SAFE
     )) as boolean
     if (councilHasExecutor) {
       executorSigner = council
@@ -490,7 +574,7 @@ async function main(): Promise<void> {
     } else {
       const timelockHasExecutor = (await timelockContract.hasRole(
         EXECUTOR_ROLE,
-        KNOWN_TIMELOCK
+        TIMELOCK
       )) as boolean
       if (!timelockHasExecutor) {
         record({
@@ -512,7 +596,7 @@ async function main(): Promise<void> {
 
   const scheduleCalldata = encodeScheduleBatch(batch, delay)
   const scheduleTx = await council.sendTransaction({
-    to: KNOWN_TIMELOCK,
+    to: TIMELOCK,
     data: scheduleCalldata,
   })
   const scheduleReceipt = await scheduleTx.wait()
@@ -530,7 +614,7 @@ async function main(): Promise<void> {
 
   const executeCalldata = encodeExecuteBatch(batch)
   const executeTx = await executorSigner.sendTransaction({
-    to: KNOWN_TIMELOCK,
+    to: TIMELOCK,
     data: executeCalldata,
   })
   const executeReceipt = await executeTx.wait()
@@ -567,6 +651,7 @@ async function main(): Promise<void> {
   console.log(`  batch order redemption succeeded:   ${batched.ok}`)
   console.log(`  post-execution check:               ${postCheck !== undefined}`)
 
+  const failed = steps.some((step) => step.status === "FAIL")
   writeArtifact(
     block,
     { bridge, rebateStaking, newBridgeImpl, newStakingImpl, operationId },
@@ -577,6 +662,10 @@ async function main(): Promise<void> {
       postCheck,
     }
   )
+  if (failed) {
+    console.log("\nFAIL: at least one step failed; see the artifact")
+    process.exitCode = 1
+  }
 }
 
 function writeArtifact(

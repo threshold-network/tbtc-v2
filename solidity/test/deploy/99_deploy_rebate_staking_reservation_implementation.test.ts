@@ -3,6 +3,10 @@ import path from "path"
 import { ethers } from "hardhat"
 import {
   REBATE_SELECTORS,
+  assertBridgeImplementationChanges,
+  extractPushedAddresses,
+  linkedLibraryAddresses,
+  requireBridgeImplementationInput,
   TRAP_SELECTOR_UINT256_AMOUNT,
   assertBatchOrder,
   assertLayoutAppendOnly,
@@ -57,6 +61,62 @@ const EXPECTED = {
 }
 
 describe("deploy/99 deploy_rebate_staking_reservation_implementation", () => {
+  describe("the Bridge implementation is an input, not a deployment", () => {
+    it("refuses to run without BRIDGE_RESERVATION_IMPLEMENTATION", () => {
+      expect(() => requireBridgeImplementationInput(undefined)).to.throw(
+        /BRIDGE_RESERVATION_IMPLEMENTATION is required/
+      )
+      expect(() => requireBridgeImplementationInput("   ")).to.throw(
+        /BRIDGE_RESERVATION_IMPLEMENTATION is required/
+      )
+    })
+
+    it("says why the script does not deploy a Bridge implementation", () => {
+      expect(() => requireBridgeImplementationInput(undefined)).to.throw(
+        /does not deploy a Bridge implementation/
+      )
+    })
+
+    it("accepts a named implementation and checksums it", () => {
+      expect(requireBridgeImplementationInput(BRIDGE_IMPL.toLowerCase())).to.equal(
+        BRIDGE_IMPL
+      )
+    })
+
+    it("refuses an implementation the Bridge proxy already delegates to", () => {
+      expect(() =>
+        assertBridgeImplementationChanges(BRIDGE_IMPL, BRIDGE_IMPL)
+      ).to.throw(/would be a no-op/)
+      expect(() =>
+        assertBridgeImplementationChanges(BRIDGE_IMPL, BRIDGE_IMPL.toLowerCase())
+      ).to.throw(/would be a no-op/)
+    })
+
+    it("accepts an implementation that differs from the installed one", () => {
+      expect(() =>
+        assertBridgeImplementationChanges(BRIDGE_IMPL, STAKING_IMPL)
+      ).to.not.throw()
+    })
+
+    it("finds the libraries a Bridge build links in its PUSH20 literals", () => {
+      const code = `0x73${BRIDGE_IMPL.slice(2)}600173${STAKING_IMPL.slice(2)}`
+      const found = extractPushedAddresses(code)
+      expect(found).to.have.members([BRIDGE_IMPL, STAKING_IMPL])
+    })
+
+    it("ignores a 20-byte value that is not pushed as an address", () => {
+      // PUSH32 with the address inside it is data, not a library link.
+      const code = `0x7f${BRIDGE_IMPL.slice(2).padEnd(64, "0")}`
+      expect(extractPushedAddresses(code)).to.deep.equal([])
+    })
+
+    it("leaves the proxy, the admin and the timelock out of the library list", () => {
+      const code = `0x73${BRIDGE_IMPL.slice(2)}73${PROXY_ADMIN.slice(2)}`
+      const libraries = linkedLibraryAddresses(code, [PROXY_ADMIN])
+      expect(libraries).to.deep.equal([BRIDGE_IMPL])
+    })
+  })
+
   describe("batch shape", () => {
     it("emits exactly two actions, both to the ProxyAdmin at zero value", () => {
       const batch = goodBatch()
@@ -146,7 +206,7 @@ describe("deploy/99 deploy_rebate_staking_reservation_implementation", () => {
 
   describe("Timelock calldata", () => {
     const scheduleSelector = "0x8f2a0bb0"
-    const executeSelector = "0x34c8a0d0"
+    const executeSelector = "0xe38335e5"
 
     it("encodes scheduleBatch with the batch and the delay", () => {
       const batch = goodBatch()
@@ -245,9 +305,11 @@ describe("deploy/99 deploy_rebate_staking_reservation_implementation", () => {
       // 0xed6321ad is applyForRebate(address,uint256,uint8). Head uses
       // uint64 for the amount and TreasuryFeeType for the third argument.
       const trapCode = `0x6000${TRAP_SELECTOR_UINT256_AMOUNT.slice(2)}6000`
-      expect(scanSelectors(trapCode)[TRAP_SELECTOR_UINT256_AMOUNT]).to.equal(
-        true
-      )
+      expect(
+        scanSelectors(trapCode, [TRAP_SELECTOR_UINT256_AMOUNT])[
+          TRAP_SELECTOR_UINT256_AMOUNT
+        ]
+      ).to.equal(true)
       expect(scanSelectors(trapCode)[REBATE_SELECTORS.applyForRebate]).to.equal(
         false
       )
@@ -274,7 +336,7 @@ describe("deploy/99 deploy_rebate_staking_reservation_implementation", () => {
         recordPath("RebateStakingTIP109HotfixImplementation")
       )
       expect(deployed.find((e) => e.label === "delegates")?.slot).to.equal("107")
-      expect(deployed.find((e) => e.label === "__gap")?.slot).to.equal("108")
+      expect(trailingGap(deployed)?.slot).to.equal("108")
       expect(() =>
         assertLayoutAppendOnly(deployed, appendRebateAuthorizations(deployed))
       ).to.not.throw()
@@ -287,7 +349,7 @@ describe("deploy/99 deploy_rebate_staking_reservation_implementation", () => {
       expect(head.find((e) => e.label === "rebateAuthorizations")?.slot).to.equal(
         "108"
       )
-      const gap = head.find((e) => e.label === "__gap")
+      const gap = trailingGap(head)
       expect(gap?.slot).to.equal("109")
       expect(gap?.type).to.equal("t_array(t_uint256)48_storage")
     })
@@ -296,8 +358,9 @@ describe("deploy/99 deploy_rebate_staking_reservation_implementation", () => {
       const deployed = readStorageLayout(
         recordPath("RebateStakingTIP109HotfixImplementation")
       )
+      const gap = trailingGap(deployed)
       const head = deployed.map((entry) =>
-        entry.label === "__gap"
+        entry === gap
           ? { ...entry, slot: "109", type: "t_array(t_uint256)48_storage" }
           : entry
       )
@@ -323,11 +386,11 @@ describe("deploy/99 deploy_rebate_staking_reservation_implementation", () => {
         recordPath("RebateStakingTIP109HotfixImplementation")
       )
       const head = appendRebateAuthorizations(deployed)
-        .filter((entry) => entry.label !== "__gap")
-        .map((entry) => entry)
+        .filter((entry) => entry !== trailingGap(appendRebateAuthorizations(deployed)))
       expect(() => assertLayoutAppendOnly(deployed, head)).to.not.throw()
+      const trailing = trailingGap(head)
       const shortGap = head.map((entry) =>
-        entry.label === "__gap"
+        entry === trailing
           ? { ...entry, type: "t_array(t_uint256)40_storage" }
           : entry
       )
@@ -352,6 +415,16 @@ describe("deploy/99 deploy_rebate_staking_reservation_implementation", () => {
   })
 })
 
+/** The `__gap` that reserves the tail: the one with the highest slot. */
+function trailingGap(
+  entries: StorageEntry[]
+): StorageEntry | undefined {
+  return entries
+    .filter((entry) => entry.label === "__gap")
+    .sort((a, b) => Number(a.slot) - Number(b.slot))
+    .pop()
+}
+
 /** Bytecode carrying all four rebate selectors, for scan unit tests. */
 function syntheticStakingCode(): string {
   return `0x6000${Object.values(REBATE_SELECTORS)
@@ -366,7 +439,7 @@ function syntheticStakingCode(): string {
 function appendRebateAuthorizations(
   deployed: StorageEntry[]
 ) {
-  const gap = deployed.find((entry) => entry.label === "__gap")
+  const gap = trailingGap(deployed)
   if (gap === undefined) throw new Error("fixture: no __gap in deployed layout")
   const inserted = {
     label: "rebateAuthorizations",
@@ -375,7 +448,7 @@ function appendRebateAuthorizations(
     type: "t_mapping(t_address,t_mapping(t_address,t_bool))",
   }
   return deployed.flatMap((entry) =>
-    entry.label === "__gap"
+    entry === gap
       ? [
           inserted,
           { ...entry, slot: String(Number(entry.slot) + 1), type: "t_array(t_uint256)48_storage" },

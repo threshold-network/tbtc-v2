@@ -14,10 +14,19 @@ import {
 /**
  * 99_deploy_rebate_staking_reservation_implementation.ts
  *
- * Deploys the freeze-head `RebateStaking` and the Bridge implementation the
- * reservations release installs, and emits ONE Timelock `scheduleBatch` /
- * `executeBatch` pair that upgrades the RebateStaking proxy at action `[0]`
- * and the Bridge proxy at action `[1]`.
+ * Deploys the freeze-head `RebateStaking` and emits ONE Timelock
+ * `scheduleBatch` / `executeBatch` pair that upgrades the RebateStaking proxy
+ * at action `[0]` and the Bridge proxy at action `[1]`.
+ *
+ * The Bridge implementation is an INPUT, never deployed here (human decision
+ * R16-2): the release pipeline owns that deployment, so this script reads the
+ * address from `BRIDGE_RESERVATION_IMPLEMENTATION`, refuses to run without
+ * it, and refuses to run if it has no code on the target network. Deploying
+ * a second Bridge implementation here is the failure mode R16-2 names: the
+ * batch would then point action [1] at a build that is not the one the
+ * pipeline deployed, and the pre-flight scan would happily certify that
+ * other build. The script therefore has no `deploy` call for the Bridge and
+ * no path that produces one.
  *
  * Why the order is loaded into the batch and not left to the operator:
  * the head `Redemption` library calls `RebateStaking.isRebateAuthorized`
@@ -510,6 +519,92 @@ export function readDeployedBytecode(recordPath: string): string {
 }
 
 /**
+ * The Bridge implementation this batch upgrades to, as an input.
+ *
+ * Human decision R16-2: the release pipeline deploys the Bridge
+ * implementation, so this script only reads its address. The value is
+ * required, and a missing one is an error rather than a default, because a
+ * default would silently point action [1] at a build nobody deployed.
+ */
+export function requireBridgeImplementationInput(
+  value: string | undefined
+): string {
+  if (value === undefined || value.trim() === "") {
+    throw new Error(
+      "BRIDGE_RESERVATION_IMPLEMENTATION is required: name the Bridge " +
+        "implementation the release pipeline deployed. This script does not " +
+        "deploy a Bridge implementation (human decision R16-2), because a " +
+        "batch pointing at a build other than the deployed one is the exact " +
+        "failure the ordering work exists to prevent."
+    )
+  }
+  return utils.getAddress(value.trim())
+}
+
+/**
+ * The batch is pointless if action [1] installs the implementation the
+ * Bridge proxy already delegates to, so that case is refused.
+ */
+export function assertBridgeImplementationChanges(
+  currentImplementation: string,
+  candidateImplementation: string
+): void {
+  if (
+    currentImplementation.toLowerCase() === candidateImplementation.toLowerCase()
+  ) {
+    throw new Error(
+      `the Bridge implementation ${candidateImplementation} is the one the Bridge proxy already delegates to. ` +
+        "Action [1] would be a no-op."
+    )
+  }
+}
+
+/**
+ * Every 20-byte address literal in a runtime bytecode, read from the
+ * `PUSH20` immediates. The Bridge implementation embeds the addresses of the
+ * libraries it links, so this is how the pre-flight finds the `Redemption`
+ * library a given Bridge build actually calls, without trusting a record.
+ */
+export function extractPushedAddresses(bytecode: string): string[] {
+  const hex = bytecode.toLowerCase().replace(/^0x/, "")
+  if (hex.length % 2 !== 0) {
+    throw new Error("bytecode has an odd number of hex digits")
+  }
+  const bytes = Buffer.from(hex, "hex")
+  const found: string[] = []
+  for (let index = 0; index < bytes.length; ) {
+    const opcode = bytes[index]
+    if (opcode === 0x73) {
+      found.push(Buffer.from(bytes.subarray(index + 1, index + 21)).toString("hex"))
+      index += 21
+      continue
+    }
+    if (opcode >= 0x60 && opcode <= 0x7f) {
+      index += 1 + (opcode - 0x5f)
+      continue
+    }
+    index += 1
+  }
+  return [...new Set(found)].map((address) => utils.getAddress(`0x${address}`))
+}
+
+/**
+ * The libraries the Bridge implementation links, read from its bytecode.
+ * A library address is one that carries code and is not the proxy, the
+ * admin, the implementation or a known system contract; the pre-flight uses
+ * this to find the `Redemption` library and scan it.
+ */
+export function linkedLibraryAddresses(
+  bridgeImplCode: string,
+  knownNonLibraries: readonly string[]
+): string[] {
+  const excluded = new Set(knownNonLibraries.map((address) => address.toLowerCase()))
+  return extractPushedAddresses(bridgeImplCode).filter(
+    (address) => !excluded.has(address.toLowerCase())
+  )
+}
+
+/**
  * Post-execution check, to run after `executeBatch` mines.
  *
  * Reads both EIP-1967 implementation slots and asserts they moved to the
@@ -583,73 +678,43 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   console.log(`Network: ${hre.network.name}`)
   console.log(`Deployer: ${deployer}`)
 
-  // --- Step 1: Reuse existing Deposit library ---
-  // Neither the rebate surface nor the Redemption rewrite touches
-  // Deposit.sol, so the deployed library stays linked as is.
-  console.log("\n--- Reusing existing Deposit library ---")
-  const Deposit = await get("Deposit")
-  console.log(`  Deposit (existing): ${Deposit.address}`)
+  // --- Step 1: Resolve the proxies ---
+  const Bridge = await get("Bridge")
+  const RebateStaking = await get("RebateStaking")
+  console.log(`  Bridge proxy:    ${Bridge.address}`)
+  console.log(`  RebateStaking proxy: ${RebateStaking.address}`)
 
-  // --- Step 2: The Bridge implementation the batch installs ---
-  // The release pipeline owns the Bridge build, so an already-deployed one
-  // can be named with BRIDGE_RESERVATION_IMPLEMENTATION and the batch points
-  // action [1] at it. Without that variable the script deploys the pair it
-  // needs (a fresh Redemption library and the Bridge implementation linked to
-  // it), which is the shape script 86 uses.
-  const bridgeImplOverride = process.env.BRIDGE_RESERVATION_IMPLEMENTATION
-  let bridgeImplAddress: string
-  let redemptionLibraryAddress: string | undefined
-  let bridgeLibraries: Record<string, string> | undefined
-  if (bridgeImplOverride !== undefined && bridgeImplOverride !== "") {
-    bridgeImplAddress = ethers.getAddress(bridgeImplOverride)
-    const code = await ethers.provider.getCode(bridgeImplAddress)
-    if (code === "0x") {
-      throw new Error(
-        `BRIDGE_RESERVATION_IMPLEMENTATION ${bridgeImplAddress} has no code on ${hre.network.name}`
-      )
-    }
-    console.log(`\n--- Using the release Bridge implementation ${bridgeImplAddress} ---`)
-  } else {
-    console.log("\n--- Deploying head Redemption library ---")
-    const Redemption = await deploy("RedemptionReservation", {
-      ...deployOptions,
-      contract: "Redemption",
-      skipIfAlreadyDeployed: false,
-    })
-    redemptionLibraryAddress = Redemption.address
-    console.log(`  Redemption (NEW): ${Redemption.address}`)
-
-    console.log("\n--- Resolving existing libraries ---")
-    const Deposit = await get("Deposit")
-    const DepositSweep = await get("DepositSweep")
-    const Wallets = await get("Wallets")
-    const Fraud = await get("Fraud")
-    const MovingFunds = await get("MovingFunds")
-    console.log(`  Deposit (existing): ${Deposit.address}`)
-
-    // Only the Redemption library changes in this upgrade; Deposit is
-    // untouched by the rebate surface, so it stays linked as is.
-    bridgeLibraries = {
-      Deposit: Deposit.address,
-      DepositSweep: DepositSweep.address,
-      Redemption: Redemption.address,
-      Wallets: Wallets.address,
-      Fraud: Fraud.address,
-      MovingFunds: MovingFunds.address,
-    }
-
-    console.log("\n--- Deploying Bridge implementation ---")
-      const bridgeImpl = await deploy("BridgeReservationImplementation", {
-      ...deployOptions,
-      contract: "Bridge",
-      skipIfAlreadyDeployed: false,
-      libraries: bridgeLibraries,
-    })
-    bridgeImplAddress = bridgeImpl.address
-    console.log(`  Bridge implementation (NEW): ${bridgeImplAddress}`)
+  // --- Step 2: The Bridge implementation, an input ---
+  // Human decision R16-2: the release pipeline deploys the Bridge
+  // implementation, this script does not. The address is required, and a
+  // missing one stops the script rather than falling back to a default.
+  const bridgeImplAddress = requireBridgeImplementationInput(
+    process.env.BRIDGE_RESERVATION_IMPLEMENTATION
+  )
+  const bridgeImplCode = await ethers.provider.getCode(bridgeImplAddress)
+  if (bridgeImplCode === "0x") {
+    throw new Error(
+      `BRIDGE_RESERVATION_IMPLEMENTATION ${bridgeImplAddress} has no code on ${hre.network.name}`
+    )
   }
+  console.log("\n--- Bridge implementation (input, not deployed here) ---")
+  console.log(`  ${bridgeImplAddress}`)
+  console.log(`  runtime bytes: ${(bridgeImplCode.length - 2) / 2}`)
 
-  // --- Step 5: Deploy the freeze-head RebateStaking implementation ---
+  // The Bridge build must not be the one already installed: a batch that
+  // upgrades the Bridge proxy to the implementation it already delegates to
+  // would silently do nothing on action [1].
+  const currentBridgeImplWord = await ethers.provider.getStorage(
+    (await get("Bridge")).address,
+    EIP_1967_IMPLEMENTATION_SLOT
+  )
+  const currentBridgeImpl = ethers.getAddress(
+    `0x${currentBridgeImplWord.slice(26)}`
+  )
+  assertBridgeImplementationChanges(currentBridgeImpl, bridgeImplAddress)
+  console.log(`  current Bridge implementation: ${currentBridgeImpl} (action [1] changes it)`)
+
+  // --- Step 3: Deploy the freeze-head RebateStaking implementation ---
   console.log("\n--- Deploying RebateStaking implementation ---")
   const rebateImpl = await deploy("RebateStakingReservationImplementation", {
     ...deployOptions,
@@ -658,10 +723,8 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   })
   console.log(`  RebateStaking implementation (NEW): ${rebateImpl.address}`)
 
-  // --- Step 6: Resolve the proxies and the ProxyAdmin ---
+  // --- Step 4: Discover the ProxyAdmin ---
   console.log("\n--- Discovering ProxyAdmin ---")
-  const Bridge = await get("Bridge")
-  const RebateStaking = await get("RebateStaking")
 
   const adminData = await ethers.provider.getStorage(
     RebateStaking.address,
@@ -700,10 +763,18 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   }
   console.log(`  ProxyAdmin owner: ${proxyAdminOwner} (Timelock)`)
 
-  // --- Step 7: Pre-flight selector scan ---
-  // Scan the artefacts this ceremony installs, and the installed staking
-  // implementation that the batch replaces. Pure string scans on compiled
-  // or on-chain bytecode; no eth_call.
+  // --- Step 5: Pre-flight selector scan ---
+  // Three artefacts, three jobs:
+  //   the installed staking implementation, which must lack the two
+  //   authorization selectors (that absence is the hazard the batch closes),
+  //   the head `RebateStaking` build, which must carry all four,
+  //   and the `Redemption` library that the INPUT Bridge build actually
+  //   links, which must call `isRebateAuthorized`.
+  //
+  // The Bridge implementation is a thin dispatcher and its libraries are
+  // reached by delegatecall, so a scan of the Bridge bytecode alone reports
+  // a false all-clear. The library is found in the Bridge build's own
+  // bytecode, by its PUSH20 literals, and then scanned.
   console.log("\n--- Pre-flight selector scan ---")
   const plan = rebateSelectorPlan()
   const installedImplWord = await ethers.provider.getStorage(
@@ -718,10 +789,6 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const newStakingCode = readDeployedBytecode(
     recordPath("RebateStakingReservationImplementation")
   )
-  const newBridgeCode =
-    bridgeImplOverride === undefined || bridgeImplOverride === ""
-      ? readDeployedBytecode(recordPath("BridgeReservationImplementation"))
-      : await ethers.provider.getCode(bridgeImplAddress)
 
   assertSelectorPresence(
     `installed RebateStaking ${installedImpl}`,
@@ -737,23 +804,42 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     plan.newStaking
   )
   console.log("  head RebateStaking: all four rebate selectors present")
-  if (redemptionLibraryAddress !== undefined) {
-    assertSelectorPresence(
-      `head Redemption library ${redemptionLibraryAddress}`,
-      readDeployedBytecode(recordPath("RedemptionReservation")),
-      plan.newRedemption
-    )
-    console.log("  head Redemption library: calls isRebateAuthorized")
-  } else {
-    console.log(
-      "  Redemption library: owned by the release pipeline, not scanned here"
+
+  const libraryCandidates = linkedLibraryAddresses(bridgeImplCode, [
+    Bridge.address,
+    RebateStaking.address,
+    proxyAdmin,
+    KNOWN_TIMELOCK,
+    KNOWN_COUNCIL_SAFE,
+  ])
+  const redemptionLibraries: string[] = []
+  for (const candidate of libraryCandidates) {
+    const code = await ethers.provider.getCode(candidate)
+    if (code === "0x") continue
+    const found = scanSelectors(code)
+    if (found[REBATE_SELECTORS.isRebateAuthorized] === true) {
+      redemptionLibraries.push(candidate)
+    }
+  }
+  if (redemptionLibraries.length === 0) {
+    throw new Error(
+      `no library linked by the Bridge implementation ${bridgeImplAddress} carries ${REBATE_SELECTORS.isRebateAuthorized}. ` +
+        "The batch would install a Bridge that cannot call the rebate gate, so the build is not the release build."
     )
   }
+  for (const library of redemptionLibraries) {
+    assertSelectorPresence(
+      `Redemption library ${library}`,
+      await ethers.provider.getCode(library),
+      plan.newRedemption
+    )
+    console.log(`  Redemption library ${library}: calls isRebateAuthorized`)
+  }
   console.log(
-    `  Bridge implementation selectors: ${JSON.stringify(scanSelectors(newBridgeCode))}`
+    `  Bridge implementation selectors: ${JSON.stringify(scanSelectors(bridgeImplCode))}`
   )
 
-  // --- Step 8: Storage layout gate ---
+  // --- Step 6: Storage layout gate ---
   // Deployed layout comes from the record of the implementation the proxy
   // delegates to today; the head layout from the record just written. Both
   // are files, parsed rather than trusted.
@@ -764,7 +850,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   )
   console.log("  append-only, same end slot: OK")
 
-  // --- Step 9: Build the single batch ---
+  // --- Step 7: Build the single batch ---
   console.log("\n--- Building the Timelock batch ---")
   const timelock = new ethers.Contract(
     KNOWN_TIMELOCK,
@@ -801,7 +887,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   console.log(`\n  scheduleBatch calldata: ${scheduleCalldata}`)
   console.log(`  executeBatch calldata:  ${executeCalldata}`)
 
-  // --- Step 10: Save the ceremony record ---
+  // --- Step 8: Save the ceremony record ---
   const chainId = await hre.getChainId()
   const record = {
     network: hre.network.name,
@@ -809,16 +895,20 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     chainId,
     deployer,
     purpose:
-      "Reservations M1: install the freeze-head RebateStaking ahead of the Bridge " +
-      "in one Timelock batch so callback redemptions never see a missing selector",
+      "Install the freeze-head RebateStaking ahead of the Bridge in one Timelock " +
+      "batch, so the next Bridge upgrade does not break vault redemptions. The " +
+      "Bridge implementation is an input deployed by the release pipeline " +
+      "(human decision R16-2), not by this script.",
     deployedContracts: {
-      RedemptionReservation: redemptionLibraryAddress,
-      BridgeReservationImplementation: bridgeImplAddress,
       RebateStakingReservationImplementation: rebateImpl.address,
     },
-    reusedContracts: { Deposit: Deposit.address },
+    inputContracts: {
+      BridgeReservationImplementation: bridgeImplAddress,
+      RedemptionLibrary: redemptionLibraries[0],
+    },
     existingContracts: {
       Bridge: Bridge.address,
+      BridgeCurrentImplementation: currentBridgeImpl,
       RebateStaking: RebateStaking.address,
       RebateStakingInstalledImplementation: installedImpl,
       ProxyAdmin: proxyAdmin,
@@ -826,7 +916,6 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
       Timelock: KNOWN_TIMELOCK,
       CouncilSafe: KNOWN_COUNCIL_SAFE,
     },
-    libraries: bridgeLibraries,
     timelock: {
       delay: delay.toString(),
       operationId,
@@ -844,12 +933,10 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
       scanned: plan,
       installedRebateStakingHas: scanSelectors(installedCode),
       headRebateStakingHas: scanSelectors(newStakingCode),
-      headRedemptionHas:
-        redemptionLibraryAddress === undefined
-          ? null
-          : scanSelectors(
-              readDeployedBytecode(recordPath("RedemptionReservation"))
-            ),
+      redemptionLibraryHas: scanSelectors(
+        await ethers.provider.getCode(redemptionLibraries[0])
+      ),
+      bridgeImplementationHas: scanSelectors(bridgeImplCode),
     },
     // Recorded next to the address so a later reader can tell which build
     // the proxy was pointed at without recompiling the source.
@@ -857,14 +944,9 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
       RebateStakingReservationImplementation: ethers.keccak256(
         readDeployedBytecode(recordPath("RebateStakingReservationImplementation"))
       ),
-      RedemptionReservation:
-        redemptionLibraryAddress === undefined
-          ? null
-          : ethers.keccak256(
-              readDeployedBytecode(recordPath("RedemptionReservation"))
-            ),
-      BridgeReservationImplementation: ethers.keccak256(
-        readDeployedBytecode(recordPath("BridgeReservationImplementation"))
+      BridgeReservationImplementation: ethers.keccak256(bridgeImplCode),
+      RedemptionLibrary: ethers.keccak256(
+        await ethers.provider.getCode(redemptionLibraries[0])
       ),
     },
   }
@@ -889,7 +971,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   console.log(`      new impl: ${rebateImpl.address}`)
   console.log("  [1] Bridge upgrade (plain ProxyAdmin.upgrade)")
   console.log(`      proxy: ${Bridge.address}`)
-  console.log(`      new impl: ${bridgeImplAddress}`)
+  console.log(`      new impl: ${bridgeImplAddress} (input, deployed by the release pipeline)`)
   console.log("  Reversed order reverts redemptions; see the fork rehearsal.")
   console.log("=".repeat(80))
 }
