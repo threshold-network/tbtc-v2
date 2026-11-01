@@ -5,7 +5,12 @@
 > This document is superseded by the current milestone-1 runbooks:
 > `solidity/docs/RESERVATION_CAPS_DEPLOYMENT.md` (the mainnet activation
 > ceremony) and `solidity/docs/RESERVATION_SEPOLIA_DEPLOYMENT.md` (the Sepolia
-> deployment). Both live in `solidity/docs/` on the milestone-1 release branch.
+> deployment). Both live in `solidity/docs/` on the `reservations-upgrade`
+> branch, which is the milestone-1 release branch, and not on this branch:
+>
+> - <https://github.com/threshold-network/tbtc-v2/blob/reservations-upgrade/solidity/docs/RESERVATION_CAPS_DEPLOYMENT.md>
+> - <https://github.com/threshold-network/tbtc-v2/blob/reservations-upgrade/solidity/docs/RESERVATION_SEPOLIA_DEPLOYMENT.md>
+>
 > This file is kept for historical reference only.
 >
 > It is not safe to follow as written, for two reasons.
@@ -23,6 +28,11 @@
 >   companion documents `docs/rfc/rfc-13.adoc` and
 >   `docs/utxo-reservation-frozen-spec.md` are not part of milestone 1. None of
 >   those selectors exist on the milestone-1 contracts.
+>
+> Note that those two points describe the milestone-1 contracts on
+> `reservations-upgrade`. This branch is the pre-milestone-1 tree, and it does
+> have the contracts and the companion documents named above: the banner marks
+> this runbook as superseded, it does not describe this branch.
 
 Status: release engineering reference for the settlement-rework stack
 (RFC 13). Companion: `docs/rfc/rfc-13.adoc` (architecture),
