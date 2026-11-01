@@ -31,6 +31,8 @@ import func, {
   proveLibraryIdentity,
   proveLinkedRuntimeIdentity,
   assertReservationRouterRuntime,
+  compiledStorageLayout,
+  readReservationRouterPointer,
   readDeployedBytecode,
   readEnumMemberOrder,
   readRecordAddress,
@@ -1099,6 +1101,54 @@ describe("deploy/99 deploy_rebate_staking_reservation_implementation", () => {
       ).to.equal("matches")
     })
 
+    // The linked library addresses, so the tests can seed the runtime at
+    // each of them.
+    async function linkedRouterRuntimeWithLibraries(): Promise<{
+      artifact: { deployedBytecode: string }
+      linkSites: LinkSite[]
+      runtime: string
+      libraries: Record<string, string>
+    }> {
+      const { artifact, linkSites, runtime } = await linkedRouterRuntime()
+      const libraries: Record<string, string> = {}
+      let counter = 0x51
+      linkSites.forEach((site) => {
+        if (libraries[site.library] === undefined) {
+          libraries[site.library] = ethers.getAddress(
+            `0x${counter.toString(16).padStart(2, "0").repeat(20)}`
+          )
+          counter += 1
+        }
+      })
+      return { artifact, linkSites, runtime, libraries }
+    }
+
+    // The release build's runtime for each library the router links.
+    async function routerLibraryRuntimes(): Promise<Record<string, string>> {
+      const runtimes: Record<string, string> = {}
+      // eslint-disable-next-line no-restricted-syntax
+      for (const library of ["Reservation", "ReservationProofs"]) {
+        // eslint-disable-next-line no-await-in-loop
+        const libraryArtifact = await artifacts.readArtifact(
+          `contracts/bridge/${library}.sol:${library}`
+        )
+        runtimes[library] = libraryArtifact.deployedBytecode
+      }
+      return runtimes
+    }
+
+    // The runtime a library build has on chain: the artifact's runtime with
+    // the library's own address written in, which is what solc deploys.
+    async function libraryRuntime(
+      library: string,
+      address: string
+    ): Promise<string> {
+      const artifact = await artifacts.readArtifact(
+        `contracts/bridge/${library}.sol:${library}`
+      )
+      return deployedLibraryRuntime(artifact.deployedBytecode, address)
+    }
+
     it("rejects a router that is not the release build", async () => {
       const { artifact, linkSites } = await linkedRouterRuntime()
       // A runtime of the right length that is not the router: the rejection
@@ -1128,6 +1178,100 @@ describe("deploy/99 deploy_rebate_staking_reservation_implementation", () => {
       ).to.throw(/has no code on chain/)
     })
 
+    // The wrapper proof ignores the bytes at the link sites -- that is how
+    // it learns which library the router links -- so it cannot say anything
+    // about the code behind those addresses. The router's control plane
+    // lives in the `Reservation` and `ReservationProofs` libraries, so those
+    // have to be proven separately. The cases below fail without that proof:
+    // a router linked to a library that is not the release build, and a
+    // router linked to an address that carries no code at all.
+
+    it("rejects a router whose linked library is not the release build", async () => {
+      const { artifact, linkSites, runtime, libraries } =
+        await linkedRouterRuntimeWithLibraries()
+      // The linked `Reservation` address carries the release
+      // `ReservationProofs` runtime instead: the runtime is a real library
+      // runtime with its own address written in, so the only thing wrong
+      // with it is which library it is.
+      // A runtime of the release `Reservation` build with one byte
+      // corrupted in the middle: same length, and it still carries the
+      // library's own address exactly once, so the rejection is about the
+      // code and not about the shape.
+      const releaseAtReservationAddress = await libraryRuntime(
+        "Reservation",
+        libraries.Reservation
+      )
+      const corrupted = `${releaseAtReservationAddress.slice(0, 200)}ff${releaseAtReservationAddress.slice(202)}`
+      const libraryRuntimes = await routerLibraryRuntimes()
+      const proofsAtProofsAddress = await libraryRuntime(
+        "ReservationProofs",
+        libraries.ReservationProofs
+      )
+      expect(() =>
+        assertReservationRouterRuntime({
+          routerAddress: "0x5555555555555555555555555555555555555555",
+          onChainRuntime: runtime,
+          artifactRuntime: artifact.deployedBytecode,
+          linkSites,
+          libraryRuntimes,
+          onChainLibraryRuntimes: {
+            Reservation: corrupted,
+            ReservationProofs: proofsAtProofsAddress,
+          },
+        })
+      ).to.throw(/is not the Reservation build/)
+    })
+
+    it("rejects a router whose linked library carries no code", async () => {
+      const { artifact, linkSites, runtime, libraries } =
+        await linkedRouterRuntimeWithLibraries()
+      const libraryRuntimes = await routerLibraryRuntimes()
+      const proofsAtProofsAddress = await libraryRuntime(
+        "ReservationProofs",
+        libraries.ReservationProofs
+      )
+      expect(() =>
+        assertReservationRouterRuntime({
+          routerAddress: "0x5555555555555555555555555555555555555555",
+          onChainRuntime: runtime,
+          artifactRuntime: artifact.deployedBytecode,
+          linkSites,
+          libraryRuntimes,
+          onChainLibraryRuntimes: {
+            Reservation: "0x",
+            ReservationProofs: proofsAtProofsAddress,
+          },
+        })
+      ).to.throw(/links Reservation at .* has no code on chain/)
+    })
+
+    it("accepts the release router with its release libraries", async () => {
+      const { artifact, linkSites, runtime, libraries } =
+        await linkedRouterRuntimeWithLibraries()
+      const libraryRuntimes = await routerLibraryRuntimes()
+      const reservationAtReservationAddress = await libraryRuntime(
+        "Reservation",
+        libraries.Reservation
+      )
+      const proofsAtProofsAddress = await libraryRuntime(
+        "ReservationProofs",
+        libraries.ReservationProofs
+      )
+      expect(
+        assertReservationRouterRuntime({
+          routerAddress: "0x5555555555555555555555555555555555555555",
+          onChainRuntime: runtime,
+          artifactRuntime: artifact.deployedBytecode,
+          linkSites,
+          libraryRuntimes,
+          onChainLibraryRuntimes: {
+            Reservation: reservationAtReservationAddress,
+            ReservationProofs: proofsAtProofsAddress,
+          },
+        })
+      ).to.equal("matches")
+    })
+
     it("reports a zero pointer as unset, not as a mismatch", async () => {
       // The reservation bootstrap (98) installs the router, and it runs
       // before the upgrade ceremony this script prepares. A zero pointer is
@@ -1141,6 +1285,93 @@ describe("deploy/99 deploy_rebate_staking_reservation_implementation", () => {
           linkSites,
         })
       ).to.equal("unset")
+    })
+  })
+
+  describe("the reservation router pointer is read from storage (finding: the getter does not exist yet)", () => {
+    // The ceremony runs before the reservation-capable Bridge implementation
+    // is installed, so `Bridge.getReservationRouter()` cannot be called: the
+    // deployed Bridge has no such selector and the call reverts. The pointer
+    // is read from the proxy's storage instead, at the slot the validated
+    // layout puts it in.
+
+    const PROXY = "0x5e4861a80B55f035D899f66772117F00FA0E8e7B"
+
+    it("reads the pointer out of the slot the layout gives it", async () => {
+      const router = "0x46b142DD1E924FAb83eCc3c08e4D46E82f005e0E"
+      const layout = await compiledStorageLayout(
+        "contracts/bridge/Bridge.sol:Bridge"
+      )
+      const readSlots: string[] = []
+      const address = await readReservationRouterPointer({
+        proxyAddress: PROXY,
+        layout,
+        provider: {
+          getStorage: async (_address: string, position: string) => {
+            readSlots.push(position)
+            return ethers.zeroPadValue(router, 32)
+          },
+        },
+      })
+      expect(address).to.equal(router)
+      // `self` is at slot 51 and `reservationRouter` at slot 32 inside
+      // `BridgeState.Storage`, so the pointer lives at absolute slot 83.
+      expect(readSlots).to.deep.equal([ethers.toBeHex(83, 32)])
+    })
+
+    it("reads the zero pointer when the router is not installed", async () => {
+      const layout = await compiledStorageLayout(
+        "contracts/bridge/Bridge.sol:Bridge"
+      )
+      const address = await readReservationRouterPointer({
+        proxyAddress: PROXY,
+        layout,
+        provider: {
+          getStorage: async () => ethers.zeroPadValue(ethers.ZeroAddress, 32),
+        },
+      })
+      expect(address).to.equal(ethers.ZeroAddress)
+    })
+
+    it("refuses when the layout has no reservation router member", async () => {
+      const layout = await compiledStorageLayout(
+        "contracts/bridge/Bridge.sol:Bridge"
+      )
+      const stripped = {
+        ...layout,
+        types: Object.fromEntries(
+          Object.entries(layout.types).map(([key, type]) => {
+            if (
+              typeof type !== "object" ||
+              type === null ||
+              (type as { label?: unknown }).label !==
+                "struct BridgeState.Storage"
+            ) {
+              return [key, type]
+            }
+            const { members } = type as { members?: unknown }
+            return [
+              key,
+              {
+                ...(type as object),
+                members: Array.isArray(members)
+                  ? members.filter(
+                      (member) =>
+                        (member as StorageEntry).label !== "reservationRouter"
+                    )
+                  : members,
+              },
+            ]
+          })
+        ),
+      }
+      await expect(
+        readReservationRouterPointer({
+          proxyAddress: PROXY,
+          layout: stripped,
+          provider: { getStorage: async () => ethers.zeroPadValue("0x", 32) },
+        })
+      ).to.be.rejectedWith(/has no `reservationRouter` member/)
     })
   })
 

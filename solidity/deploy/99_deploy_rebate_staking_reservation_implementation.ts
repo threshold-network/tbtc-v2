@@ -1069,6 +1069,15 @@ export function assertBridgeRebateStakingPointer(params: {
  * upgrade could replace it. That is exactly why the drift has to be caught
  * before the ceremony rather than after it.
  *
+ * The check covers the router's libraries as well as its wrapper. The
+ * router's control plane - the caps, the re-anchor cooldown, the
+ * reservation state machine - lives in the `Reservation` and
+ * `ReservationProofs` libraries it delegatecalls, and the wrapper proof
+ * deliberately ignores the bytes at the link sites (that is how it learns
+ * which library the router links). Without a separate proof of the
+ * libraries, a byte-identical router linked against an older library
+ * build would be certified while dispatching into different code.
+ *
  * A zero pointer is the bootstrap ordering, not a mismatch: the router is
  * installed by the reservation bootstrap (`98`), which runs before the
  * upgrade ceremony this script prepares. The caller reports it so the
@@ -1083,8 +1092,26 @@ export function assertReservationRouterRuntime(params: {
   artifactRuntime: string
   /** The artifact's `deployedLinkReferences`, as link sites. */
   linkSites: LinkSite[]
+  /**
+   * The release build's artifact runtime for each library the router links,
+   * keyed by library name. The router's control plane lives in these
+   * libraries, so their code is what the Bridge actually executes.
+   */
+  libraryRuntimes?: Record<string, string>
+  /**
+   * The runtime at each linked library address, as deployed, keyed by
+   * library name. Omitted only when `libraryRuntimes` is omitted.
+   */
+  onChainLibraryRuntimes?: Record<string, string>
 }): "unset" | "matches" {
-  const { routerAddress, onChainRuntime, artifactRuntime, linkSites } = params
+  const {
+    routerAddress,
+    onChainRuntime,
+    artifactRuntime,
+    linkSites,
+    libraryRuntimes,
+    onChainLibraryRuntimes,
+  } = params
   if (routerAddress.toLowerCase() === utils.ZeroAddress.toLowerCase()) {
     return "unset"
   }
@@ -1119,7 +1146,205 @@ export function assertReservationRouterRuntime(params: {
         "refusing to run the ceremony."
     )
   }
+
+  // The wrapper is only half of what the Bridge executes. The router
+  // delegatecalls the `Reservation` and `ReservationProofs` libraries, and
+  // those libraries hold the reservation control plane - the caps, the
+  // cooldown, the state machine. `proveLinkedRuntimeIdentity` deliberately
+  // excludes the link-site bytes from its comparison (that is how it learns
+  // which library the candidate links), so a byte-identical wrapper linked
+  // against an older or unrelated library passes the check above while
+  // dispatching into different code.
+  //
+  // The libraries are therefore proven separately, the way Step 2b proves
+  // the Bridge's own libraries: the runtime at the linked address has to be
+  // the release build's runtime, with the library's own address written in.
+  const linkedLibraries = Object.keys(identity.libraries).sort()
+  const expectedLibraries = ["Reservation", "ReservationProofs"]
+  if (
+    linkedLibraries.length !== expectedLibraries.length ||
+    expectedLibraries.some((name) => !linkedLibraries.includes(name))
+  ) {
+    throw new Error(
+      `the Bridge's reservation router at ${routerAddress} links ` +
+        `[${linkedLibraries.join(", ")}], but the release ReservationRouter ` +
+        `build links [${expectedLibraries.join(", ")}]. The reservation ` +
+        "control plane lives in those libraries, so the router would " +
+        "dispatch into code that is not the release build; refusing to run " +
+        "the ceremony."
+    )
+  }
+  if (libraryRuntimes !== undefined) {
+    // The libraries are checked one after another, in a fixed order, so the
+    // first rejection is the one reported.
+    // eslint-disable-next-line no-restricted-syntax
+    for (const library of linkedLibraries) {
+      const address = identity.libraries[library]
+      const onChainLibraryRuntime = onChainLibraryRuntimes?.[library]
+      if (onChainLibraryRuntime === undefined) {
+        throw new Error(
+          `the Bridge's reservation router at ${routerAddress} links ${library} ` +
+            `at ${address}, but the runtime at that address was not read, so ` +
+            "the library cannot be proven; refusing to run the ceremony."
+        )
+      }
+      if (onChainLibraryRuntime === "0x" || onChainLibraryRuntime === "0x0") {
+        throw new Error(
+          `the Bridge's reservation router at ${routerAddress} links ${library} ` +
+            `at ${address}, but that address has no code on chain. Every ` +
+            "reservation call the Bridge dispatches would revert; refusing " +
+            "to run the ceremony."
+        )
+      }
+      const artifactLibraryRuntime = libraryRuntimes[library]
+      if (artifactLibraryRuntime === undefined) {
+        throw new Error(
+          `the Bridge's reservation router at ${routerAddress} links ${library} ` +
+            `at ${address}, but there is no release build of ${library} to ` +
+            "compare it against; refusing to run the ceremony."
+        )
+      }
+      const result = proveLibraryIdentity({
+        name: library,
+        address,
+        onChainRuntime: onChainLibraryRuntime,
+        artifactRuntime: artifactLibraryRuntime,
+      })
+      if (!result.matches) {
+        throw new Error(
+          `the Bridge's reservation router at ${routerAddress} links ${library} ` +
+            `at ${address}, but ${result.reason}. The Bridge dispatches every ` +
+            "reservation call through the router into these libraries, and " +
+            "the router is write-once, so the batch this script emits cannot " +
+            "repair it; refusing to run the ceremony."
+        )
+      }
+    }
+  }
   return "matches"
+}
+
+/**
+ * Reads the runtime at each address the router links, keyed by library name.
+ *
+ * The addresses are read out of the router's own on-chain runtime, at the
+ * link sites the release artifact declares: the artifact carries a
+ * placeholder there and the deployed router carries the address it was
+ * linked against. Reading them from the deployed runtime - rather than from
+ * a deployment record - is what makes the library proof independent of any
+ * record an operator could rewrite.
+ *
+ * A router whose runtime does not carry an address at a link site is
+ * rejected here, the same way `proveLinkedRuntimeIdentity` rejects it.
+ */
+export async function readRouterLibraryRuntimes(
+  routerAddress: string,
+  routerArtifact: {
+    deployedBytecode: string
+    deployedLinkReferences: Record<
+      string,
+      Record<string, { start: number; length: number }[]>
+    >
+  },
+  provider: { getCode: (address: string) => Promise<string> }
+): Promise<Record<string, string>> {
+  const runtimes: Record<string, string> = {}
+  const runtime = await provider.getCode(routerAddress)
+  const candidate = runtime.toLowerCase().replace(/^0x/, "")
+  // eslint-disable-next-line no-restricted-syntax
+  for (const site of artifactLinkSites(routerArtifact.deployedLinkReferences)) {
+    const from = site.start * 2
+    const to = from + site.length * 2
+    const linked = candidate.slice(from, to)
+    if (linked.length !== site.length * 2 || !/^[0-9a-f]+$/.test(linked)) {
+      throw new Error(
+        `the Bridge's reservation router at ${routerAddress} carries no ` +
+          `address at the ${site.library} link site, so the library it ` +
+          "dispatches into cannot be identified; refusing to run the ceremony."
+      )
+    }
+    // eslint-disable-next-line no-await-in-loop
+    runtimes[site.library] = await provider.getCode(
+      utils.getAddress(`0x${linked}`)
+    )
+  }
+  return runtimes
+}
+
+/**
+ * The reservation router the Bridge dispatches into, read from the proxy's
+ * storage rather than through a getter.
+ *
+ * The getter cannot be used here. `Bridge.getReservationRouter()` belongs to
+ * the reservation-capable Bridge implementation, and this ceremony runs
+ * BEFORE that implementation is installed: it is the script that installs
+ * it. The deployed Bridge has no such selector, so an `eth_call` for it
+ * reverts with empty data - and installing the router first cannot fix that,
+ * because the router's setter lives on the same implementation the ceremony
+ * has not installed yet.
+ *
+ * The pointer is a plain storage word, so it is read from the slot the
+ * validated layout puts it in. That works on any implementation, including
+ * the one currently deployed, and it reads the same bytes the getter would
+ * return.
+ */
+export async function readReservationRouterPointer(params: {
+  /** The Bridge proxy. */
+  proxyAddress: string
+  /** The validated storage layout of the Bridge's state. */
+  layout: StorageLayout
+  provider: { getStorage(address: string, position: string): Promise<string> }
+}): Promise<string> {
+  const { proxyAddress, layout, provider } = params
+  const stateType = Object.values(layout.types ?? {}).find((type) => {
+    if (typeof type !== "object" || type === null) return false
+    return (type as { label?: unknown }).label === "struct BridgeState.Storage"
+  })
+  const stateMembers =
+    stateType !== undefined &&
+    typeof stateType === "object" &&
+    stateType !== null
+      ? (stateType as { members?: unknown }).members
+      : undefined
+  if (!Array.isArray(stateMembers)) {
+    throw new Error(
+      "the Bridge storage layout has no `struct BridgeState.Storage` members, " +
+        "so the reservation router's slot cannot be determined; refusing to " +
+        "run the ceremony."
+    )
+  }
+  const pointer = stateMembers.find(
+    (member) => member.label === "reservationRouter"
+  )
+  if (pointer === undefined) {
+    throw new Error(
+      "the Bridge storage layout has no `reservationRouter` member, so the " +
+        "reservation router's slot cannot be determined; refusing to run the " +
+        "ceremony."
+    )
+  }
+  if (Number(pointer.offset) !== 0) {
+    throw new Error(
+      `the Bridge storage layout puts \`reservationRouter\` at offset ` +
+        `${pointer.offset}, so it does not occupy a whole word and cannot be ` +
+        "read on its own; refusing to run the ceremony."
+    )
+  }
+  // `BridgeState.Storage` lives inside the Bridge's own `self` variable, so
+  // the pointer's absolute slot is the `self` slot plus the pointer's slot
+  // inside the struct. Both are read out of the layout, so nothing here is
+  // pinned by hand.
+  const self = layout.storage.find((entry) => entry.label === "self")
+  if (self === undefined) {
+    throw new Error(
+      "the Bridge storage layout has no `self` entry, so the reservation " +
+        "router's absolute slot cannot be determined; refusing to run the " +
+        "ceremony."
+    )
+  }
+  const slot = Number(self.slot) + Number(pointer.slot)
+  const word = await provider.getStorage(proxyAddress, utils.toBeHex(slot, 32))
+  return utils.getAddress(`0x${word.slice(-40)}`)
 }
 
 /**
@@ -1876,10 +2101,24 @@ const func: DeployFunction =
     const routerArtifact = await artifacts.readArtifact(
       "contracts/bridge/ReservationRouter.sol:ReservationRouter"
     )
-    const routerAddress: string = await hre.deployments.read(
-      "Bridge",
-      "getReservationRouter"
-    )
+    const routerAddress: string = await readReservationRouterPointer({
+      proxyAddress: Bridge.address,
+      layout: await compiledStorageLayout("contracts/bridge/Bridge.sol:Bridge"),
+      provider: ethers.provider,
+    })
+    // The router's control plane lives in the two libraries it links, so
+    // their release builds are read too: the wrapper proof below deliberately
+    // ignores the link-site bytes, and without the libraries' own proof the
+    // check would certify a wrapper whose dispatch target is unchecked.
+    const routerLibraryArtifacts: Record<string, string> = {}
+    // eslint-disable-next-line no-restricted-syntax
+    for (const library of ["Reservation", "ReservationProofs"]) {
+      // eslint-disable-next-line no-await-in-loop
+      const libraryArtifact = await artifacts.readArtifact(
+        `contracts/bridge/${library}.sol:${library}`
+      )
+      routerLibraryArtifacts[library] = libraryArtifact.deployedBytecode
+    }
     if (
       assertReservationRouterRuntime({
         routerAddress,
@@ -1889,6 +2128,12 @@ const func: DeployFunction =
             : await ethers.provider.getCode(routerAddress),
         artifactRuntime: routerArtifact.deployedBytecode,
         linkSites: artifactLinkSites(routerArtifact.deployedLinkReferences),
+        libraryRuntimes: routerLibraryArtifacts,
+        onChainLibraryRuntimes: await readRouterLibraryRuntimes(
+          routerAddress,
+          routerArtifact,
+          ethers.provider
+        ),
       }) === "unset"
     ) {
       console.log(
