@@ -1,0 +1,9 @@
+version = 1
+gitignore = true
+agents = ["claude"]
+
+# Authored here so it ships with the deployment artifacts it reads (solidity/deployments/,
+# cross-chain/*/deployments/). In-place path source: tracked in git, not gitignored.
+[[skills]]
+name = "production-baseline"
+source = "path:.agents/skills/production-baseline"
