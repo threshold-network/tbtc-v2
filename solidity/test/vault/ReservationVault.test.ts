@@ -81,15 +81,14 @@ describe("ReservationVault", () => {
       await loadFixture(fixture))
   })
 
-  /** Impersonates the Bank so `onlyBank`-gated functions can be called
-   *  directly, bypassing Bank's own array-length check. */
-  async function impersonateBank(): Promise<HardhatEthersSigner> {
-    await ethers.provider.send("hardhat_impersonateAccount", [bank.target])
+  /** Impersonates `address` so calls can be issued from it. */
+  async function impersonate(address: string): Promise<HardhatEthersSigner> {
+    await ethers.provider.send("hardhat_impersonateAccount", [address])
     await ethers.provider.send("hardhat_setBalance", [
-      bank.target,
+      address,
       "0x56BC75E2D63100000", // 100 ETH
     ])
-    return ethers.getSigner(bank.target as string)
+    return ethers.getSigner(address)
   }
 
   describe("constructor", () => {
@@ -151,7 +150,7 @@ describe("ReservationVault", () => {
       it("should revert", async () => {
         // Called directly as the Bank (bypassing Bank's own identical
         // check) to prove the vault enforces this invariant itself.
-        const bankSigner = await impersonateBank()
+        const bankSigner = await impersonate(bank.target as string)
         await expect(
           vault
             .connect(bankSigner)
@@ -255,6 +254,131 @@ describe("ReservationVault", () => {
           .to.emit(vault, "ReservationCreditProcessed")
           .withArgs(account2.address, depositedAmounts[1], fees[1])
       })
+    })
+  })
+
+  describe("after the TBTC vault is replaced", () => {
+    const depositedAmountSat = 100_000
+
+    let oldTbtcVault: TBTCVault
+    let newTbtcVault: TBTCVault
+
+    before(async () => {
+      await createSnapshot()
+
+      // Deploy a replacement TBTC vault and run the TBTCVault upgrade: the
+      // governance of the old vault initiates it, waits out the governance
+      // delay and finalizes it, which hands TBTC token ownership to the
+      // replacement.
+      const TBTCVault = await ethers.getContractFactory("TBTCVault")
+      newTbtcVault = await TBTCVault.deploy(
+        bank.target,
+        tbtc.target,
+        bridge.address
+      )
+      await newTbtcVault.waitForDeployment()
+
+      oldTbtcVault = tbtcVault
+      await oldTbtcVault.initiateUpgrade(newTbtcVault.target)
+      await helpers.time.increaseTime(
+        Number(await oldTbtcVault.GOVERNANCE_DELAY())
+      )
+      await oldTbtcVault.finalizeUpgrade()
+    })
+
+    after(async () => {
+      await restoreSnapshot()
+    })
+
+    beforeEach(async () => {
+      await createSnapshot()
+    })
+
+    afterEach(async () => {
+      await restoreSnapshot()
+    })
+
+    it("should resolve the TBTC vault from TBTC token ownership", async () => {
+      expect(await tbtc.owner()).to.equal(newTbtcVault.target)
+      expect(await vault.tbtcVault()).to.equal(newTbtcVault.target)
+    })
+
+    it("should settle a reservation credit through the replacement vault", async () => {
+      const initiationFeeBps = await vault.initiationFeeBps()
+      const gross = satsToTbtc(depositedAmountSat)
+      const fee = (gross * initiationFeeBps) / 10000n
+
+      const tx = await bank
+        .connect(bridge.wallet)
+        .increaseBalanceAndCall(
+          vault.target,
+          [account1.address],
+          [depositedAmountSat]
+        )
+
+      expect(await tbtc.balanceOf(account1.address)).to.equal(gross - fee)
+      expect(await tbtc.balanceOf(vault.target)).to.equal(fee)
+      // The mint moved the credited Bank balance into the replacement vault,
+      // not into the retired one.
+      expect(await bank.balanceOf(vault.target)).to.equal(0)
+      expect(await bank.balanceOf(newTbtcVault.target)).to.equal(
+        depositedAmountSat
+      )
+      expect(await bank.balanceOf(oldTbtcVault.target)).to.equal(0)
+      await expect(tx)
+        .to.emit(vault, "ReservationCreditProcessed")
+        .withArgs(account1.address, depositedAmountSat, fee)
+    })
+
+    it("should burn an in-kind fee through the replacement vault", async () => {
+      const reserveDepositSat = 100_000_000
+      const feeSat = 100_000
+
+      await bank
+        .connect(bridge.wallet)
+        .increaseBalanceAndCall(
+          vault.target,
+          [account1.address],
+          [reserveDepositSat]
+        )
+
+      const reserveBefore = await tbtc.balanceOf(vault.target)
+      const supplyBefore = await tbtc.totalSupply()
+
+      await vault.connect(bridge.wallet).financeInKindFee(feeSat)
+
+      expect(reserveBefore - (await tbtc.balanceOf(vault.target))).to.equal(
+        satsToTbtc(feeSat)
+      )
+      expect(supplyBefore - (await tbtc.totalSupply())).to.equal(
+        satsToTbtc(feeSat)
+      )
+      expect(await vault.inKindFeeDebtSat()).to.equal(0)
+      expect(await bank.balanceOf(vault.target)).to.equal(0)
+    })
+  })
+
+  describe("when the TBTC token owner is not a contract", () => {
+    before(async () => {
+      await createSnapshot()
+
+      // Hand TBTC ownership to a plain account. The vault must refuse the
+      // settlement rather than route minting to an address with no TBTC vault
+      // behind it.
+      const tbtcOwner = await impersonate(tbtcVault.target as string)
+      await tbtc.connect(tbtcOwner).transferOwnership(account1.address)
+    })
+
+    after(async () => {
+      await restoreSnapshot()
+    })
+
+    it("should revert the settlement", async () => {
+      await expect(
+        bank
+          .connect(bridge.wallet)
+          .increaseBalanceAndCall(vault.target, [account2.address], [1000])
+      ).to.be.revertedWith("TBTC token owner is not a contract")
     })
   })
 
