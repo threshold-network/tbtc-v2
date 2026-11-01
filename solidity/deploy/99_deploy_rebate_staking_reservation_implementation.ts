@@ -1348,6 +1348,55 @@ export async function readReservationRouterPointer(params: {
 }
 
 /**
+ * The reservation router check, as the ceremony runs it.
+ *
+ * The unset case has to be settled before anything is read from the chain.
+ * A Bridge with no router installed has a zero pointer, and reading the
+ * router's code or its libraries at that address yields no code at all, so
+ * a loader that runs first would fail on the zero address and abort the
+ * ceremony before the warning branch could run. The pre-bootstrap ceremony
+ * is a supported state - the reservation bootstrap (`98`) installs the
+ * router - so it has to reach the warning, not throw.
+ *
+ * This is the whole Step 2c in one place so that the unset path is
+ * exercised through the same code the ceremony runs, rather than through
+ * the assertion alone.
+ */
+export async function verifyReservationRouter(params: {
+  /** The router pointer, as read from the Bridge proxy's storage. */
+  routerAddress: string
+  /** The release build's artifact for the router. */
+  routerArtifact: {
+    deployedBytecode: string
+    deployedLinkReferences: Record<
+      string,
+      Record<string, { start: number; length: number }[]>
+    >
+  }
+  /** The release build's artifact runtime for each linked library. */
+  libraryArtifacts: Record<string, string>
+  provider: { getCode: (address: string) => Promise<string> }
+}): Promise<"unset" | "matches"> {
+  const { routerAddress, routerArtifact, libraryArtifacts, provider } = params
+  if (routerAddress.toLowerCase() === utils.ZeroAddress.toLowerCase()) {
+    // Nothing is read from the chain: there is no router to read.
+    return "unset"
+  }
+  return assertReservationRouterRuntime({
+    routerAddress,
+    onChainRuntime: await provider.getCode(routerAddress),
+    artifactRuntime: routerArtifact.deployedBytecode,
+    linkSites: artifactLinkSites(routerArtifact.deployedLinkReferences),
+    libraryRuntimes: libraryArtifacts,
+    onChainLibraryRuntimes: await readRouterLibraryRuntimes(
+      routerAddress,
+      routerArtifact,
+      provider
+    ),
+  })
+}
+
+/**
  * The Bridge implementation this batch upgrades to, as an input.
  *
  * Human decision R16-2: the release pipeline deploys the Bridge
@@ -2120,21 +2169,12 @@ const func: DeployFunction =
       routerLibraryArtifacts[library] = libraryArtifact.deployedBytecode
     }
     if (
-      assertReservationRouterRuntime({
+      (await verifyReservationRouter({
         routerAddress,
-        onChainRuntime:
-          routerAddress === ethers.ZeroAddress
-            ? "0x"
-            : await ethers.provider.getCode(routerAddress),
-        artifactRuntime: routerArtifact.deployedBytecode,
-        linkSites: artifactLinkSites(routerArtifact.deployedLinkReferences),
-        libraryRuntimes: routerLibraryArtifacts,
-        onChainLibraryRuntimes: await readRouterLibraryRuntimes(
-          routerAddress,
-          routerArtifact,
-          ethers.provider
-        ),
-      }) === "unset"
+        routerArtifact,
+        libraryArtifacts: routerLibraryArtifacts,
+        provider: ethers.provider,
+      })) === "unset"
     ) {
       console.log(
         `  WARNING: Bridge.getReservationRouter() is ${ethers.ZeroAddress}: the ` +

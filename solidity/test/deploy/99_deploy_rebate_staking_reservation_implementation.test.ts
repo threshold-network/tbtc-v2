@@ -32,6 +32,7 @@ import func, {
   proveLinkedRuntimeIdentity,
   assertReservationRouterRuntime,
   compiledStorageLayout,
+  verifyReservationRouter,
   readReservationRouterPointer,
   readDeployedBytecode,
   readEnumMemberOrder,
@@ -1285,6 +1286,164 @@ describe("deploy/99 deploy_rebate_staking_reservation_implementation", () => {
           linkSites,
         })
       ).to.equal("unset")
+    })
+  })
+
+  describe("the reservation router check is wired the way the ceremony runs it (finding: the unset router aborted the ceremony)", () => {
+    // The ceremony used to load the router's libraries before it settled
+    // the unset case. With no router installed the pointer is zero, the
+    // load reads code at the zero address, gets nothing, and throws - so
+    // the ceremony aborted instead of reaching the warning branch, and the
+    // pre-bootstrap ceremony could not emit its batches at all.
+    //
+    // These cases run the whole Step 2c, the same way the ceremony does.
+
+    const ROUTER = "0x46b142DD1E924FAb83eCc3c08e4D46E82f005e0E"
+
+    async function routerArtifactAndLibraries(): Promise<{
+      routerArtifact: {
+        deployedBytecode: string
+        deployedLinkReferences: Record<
+          string,
+          Record<string, { start: number; length: number }[]>
+        >
+      }
+      libraryArtifacts: Record<string, string>
+    }> {
+      const routerArtifact = await artifacts.readArtifact(
+        "contracts/bridge/ReservationRouter.sol:ReservationRouter"
+      )
+      const libraryArtifacts: Record<string, string> = {}
+      // eslint-disable-next-line no-restricted-syntax
+      for (const library of ["Reservation", "ReservationProofs"]) {
+        // eslint-disable-next-line no-await-in-loop
+        const libraryArtifact = await artifacts.readArtifact(
+          `contracts/bridge/${library}.sol:${library}`
+        )
+        libraryArtifacts[library] = libraryArtifact.deployedBytecode
+      }
+      return { routerArtifact, libraryArtifacts }
+    }
+
+    it("reports an unset router without reading any code from the chain", async () => {
+      const { routerArtifact, libraryArtifacts } =
+        await routerArtifactAndLibraries()
+      const readAddresses: string[] = []
+      const result = await verifyReservationRouter({
+        routerAddress: ethers.ZeroAddress,
+        routerArtifact,
+        libraryArtifacts,
+        provider: {
+          getCode: async (address: string) => {
+            readAddresses.push(address)
+            return "0x"
+          },
+        },
+      })
+      expect(result).to.equal("unset")
+      // The point of the case: nothing is read at all, so nothing can
+      // throw on the zero address.
+      expect(readAddresses).to.deep.equal([])
+    })
+
+    it("proves an installed router and its libraries", async () => {
+      const { routerArtifact, libraryArtifacts } =
+        await routerArtifactAndLibraries()
+      const linkSites = artifactLinkSites(routerArtifact.deployedLinkReferences)
+      const libraries: Record<string, string> = {}
+      let counter = 0x51
+      linkSites.forEach((site) => {
+        if (libraries[site.library] === undefined) {
+          libraries[site.library] = ethers.getAddress(
+            `0x${counter.toString(16).padStart(2, "0").repeat(20)}`
+          )
+          counter += 1
+        }
+      })
+      const routerRuntime = bridgeRuntimeWithLibraries(
+        routerArtifact.deployedBytecode,
+        linkSites,
+        libraries
+      )
+      const code: Record<string, string> = {
+        [ROUTER]: routerRuntime,
+      }
+      // Each linked library carries its own address in its runtime, which is
+      // what solc deploys.
+      // eslint-disable-next-line no-restricted-syntax
+      for (const library of ["Reservation", "ReservationProofs"]) {
+        // eslint-disable-next-line no-await-in-loop
+        const libraryArtifact = await artifacts.readArtifact(
+          `contracts/bridge/${library}.sol:${library}`
+        )
+        code[libraries[library]] = deployedLibraryRuntime(
+          libraryArtifact.deployedBytecode,
+          libraries[library]
+        )
+      }
+      const result = await verifyReservationRouter({
+        routerAddress: ROUTER,
+        routerArtifact,
+        libraryArtifacts,
+        provider: {
+          getCode: async (address: string) => code[address] ?? "0x",
+        },
+      })
+      expect(result).to.equal("matches")
+    })
+
+    it("rejects an installed router whose library is not the release build", async () => {
+      const { routerArtifact, libraryArtifacts } =
+        await routerArtifactAndLibraries()
+      const linkSites = artifactLinkSites(routerArtifact.deployedLinkReferences)
+      const libraries: Record<string, string> = {}
+      let counter = 0x51
+      linkSites.forEach((site) => {
+        if (libraries[site.library] === undefined) {
+          libraries[site.library] = ethers.getAddress(
+            `0x${counter.toString(16).padStart(2, "0").repeat(20)}`
+          )
+          counter += 1
+        }
+      })
+      const routerRuntime = bridgeRuntimeWithLibraries(
+        routerArtifact.deployedBytecode,
+        linkSites,
+        libraries
+      )
+      const reservationArtifact = await artifacts.readArtifact(
+        "contracts/bridge/Reservation.sol:Reservation"
+      )
+      const proofsArtifact = await artifacts.readArtifact(
+        "contracts/bridge/ReservationProofs.sol:ReservationProofs"
+      )
+      // The `Reservation` address carries the release `Reservation` runtime
+      // with one byte corrupted: same length, and it still carries the
+      // library's own address exactly once, so the rejection is about the
+      // code and not about the shape.
+      const releaseReservation = deployedLibraryRuntime(
+        reservationArtifact.deployedBytecode,
+        libraries.Reservation
+      )
+      const corrupted = `${releaseReservation.slice(0, 200)}ff${releaseReservation.slice(202)}`
+      const code: Record<string, string> = {
+        [ROUTER]: routerRuntime,
+        [libraries.Reservation]: corrupted,
+        [libraries.ReservationProofs]: deployedLibraryRuntime(
+          proofsArtifact.deployedBytecode,
+          libraries.ReservationProofs
+        ),
+      }
+      await expect(
+        verifyReservationRouter({
+          routerAddress: ROUTER,
+          routerArtifact,
+          libraryArtifacts,
+          provider: {
+            getCode: async (address: string) => code[address] ?? "0x",
+          },
+        })
+      ).to.be.rejectedWith(/is not the Reservation build/)
     })
   })
 
