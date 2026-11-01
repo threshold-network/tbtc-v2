@@ -1,13 +1,19 @@
 // Manual mutation harness for the new reservation logic.
 // usage: node mutate.cjs <worktree> <shardIndex> <shardCount> <outJson>
 //        node mutate.cjs <worktree> --self-test
+//        node mutate.cjs --classify <saved-run.log>
 // env: KILLSET (test files, relative to solidity/), ONLY (comma list of mutant ids), RES_INDENT (12 or 16)
 const fs = require("fs")
 const cp = require("child_process")
 const crypto = require("crypto")
 const args = process.argv.slice(2)
+const value = (flag) => {
+  const i = args.indexOf(flag)
+  return i < 0 ? null : args[i + 1] || null
+}
+const classifyLog = value("--classify")
 const [wt, shardIndexArg, shardCountArg, outPath] = args.filter(
-  (a) => !a.startsWith("--")
+  (a) => !a.startsWith("--") && a !== classifyLog
 )
 const shardIndex = Number(shardIndexArg)
 const shardCount = Number(shardCountArg)
@@ -326,51 +332,67 @@ const count = (out, word) => {
   const m = new RegExp(`^\\s+(\\d+) ${word}`, "m").exec(out)
   return m ? Number(m[1]) : 0
 }
-// A failure block that belongs to a hook means the suite never reached the tests it guards.
-const HOOK_FAILURE = /"(?:before|after) (?:all|each)" hook/
-// Every numbered failure block, as its header plus the title lines under it.
+// A failure block that names a hook (or an uncaught error with no test) is a setup failure: the
+// suite never reached the tests it guards.
+const SETUP_FAILURE =
+  /"(?:before|after) (?:all|each)" hook|Uncaught error outside test suite/
+// Mocha prints every element of a failed title path on one line each and closes the path with a
+// colon, so a hook under five describes is six lines. Only the blocks that follow the "N failing"
+// summary carry that path: the numbered markers printed beside the running suite carry no path.
 const failureBlocks = (out) => {
   const lines = out.split("\n")
-  const blocks = []
-  for (let i = 0; i < lines.length; i++) {
-    const m = /^\s{2,}\d+\) (\S.*)$/.exec(lines[i])
-    if (!m) continue
-    const title = [m[1].trim()]
-    for (let j = i + 1; j < lines.length && title.length < 4; j++) {
-      const line = lines[j].trim()
-      if (line === "") continue
-      // The thrown error, its stack and the run summary end the title.
-      if (
-        /^[A-Za-z_$][\w.$]*(Error|Exception)\b/.test(line) ||
-        line.startsWith("at ") ||
-        /^[\u2714\u2717]/.test(line) ||
-        /^\d+ (passing|failing|pending)\b/.test(line) ||
-        /^\d+\) /.test(line)
-      )
-        break
-      title.push(line)
+  let start = -1
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (/^\s+\d+ failing\b/.test(lines[i])) {
+      start = i
+      break
     }
-    blocks.push(title.join(" "))
+  }
+  if (start < 0) return null
+  const blocks = []
+  let cur = null
+  for (let i = start + 1; i < lines.length; i++) {
+    const header = /^\s{2,}(\d+)\) (\S.*)$/.exec(lines[i])
+    if (header) {
+      cur = { number: Number(header[1]), lines: [header[2].trim()] }
+      blocks.push(cur)
+      continue
+    }
+    if (!cur) continue
+    const text = lines[i].trim()
+    if (text !== "") cur.lines.push(text)
+  }
+  for (const block of blocks) {
+    // The path ends at the deepest line that carries the trailing colon; what follows is the
+    // thrown error and its stack. A block with no such line has no title we can trust.
+    let end = -1
+    for (let i = block.lines.length - 1; i >= 0; i--) {
+      if (block.lines[i].endsWith(":")) {
+        end = i
+        break
+      }
+    }
+    block.title =
+      end < 0
+        ? ""
+        : block.lines
+            .slice(0, end + 1)
+            .join(" ")
+            .trim()
   }
   return blocks
 }
-// The first failing test's name; a KILLED verdict has to cite one.
-const firstFailingTest = (out) => {
-  const m = /^\s+\d+ failing[\s\S]*?^\s+1\) ([^\n]+)\n\s*([^\n]*)/m.exec(out)
-  return m ? `${m[1].trim()} ${m[2].trim()}`.trim().slice(0, 200) : ""
-}
 
-// Score one run. A kill needs both halves of the experiment: tests that still pass, and at
-// least one test that fails on an assertion. A run that dies in a setup hook, or one where
-// nothing passed, shows nothing about the mutant, so it is NOT_VIABLE and is counted apart
-// from the mutants that the tests actually caught.
+// Score one run. A kill needs both halves of the experiment: tests that still pass, and at least
+// one positively identified, named failing test that is not a setup hook. A run that dies in a
+// hook, one where nothing passed, and one whose failure detail cannot be read in full are
+// NOT_VIABLE: they say nothing about the mutant, and none of them may borrow a kill.
 const classify = (out, r) => {
   const passing = count(out, "passing")
   const failing = count(out, "failing")
-  const blocks = failureBlocks(out)
-  const hooks = blocks.filter((b) => HOOK_FAILURE.test(b))
-  const assertions = blocks.filter((b) => !HOOK_FAILURE.test(b))
-  const base = { passing, failing, hookFailures: hooks.length }
+  const blocks = failing > 0 ? failureBlocks(out) : []
+  const setup = (blocks || []).filter((b) => SETUP_FAILURE.test(b.title))
+  const base = { passing, failing, hookFailures: setup.length }
   if (
     /HH600|Compilation failed|CompilerError|TypeError:|DeclarationError|ParserError/.test(
       out
@@ -389,33 +411,36 @@ const classify = (out, r) => {
       ...base,
       verdict: "NOT_VIABLE",
       note: `no test passed (${failing} failing; first: ${
-        blocks[0] || "unnamed"
+        (blocks && blocks[0] && blocks[0].title) || "unnamed"
       })`,
     }
-  if (
-    failing > 0 &&
-    hooks.length > 0 &&
-    assertions.length === 0 &&
-    blocks.length >= failing
-  )
-    return {
-      ...base,
-      verdict: "NOT_VIABLE",
-      note: `setup failed, no assertion ran (${passing} passing, ${failing} failing; first: ${hooks[0]})`,
-    }
-  const failedTest = firstFailingTest(out)
-  if (failing > 0 && failedTest)
+  if (failing > 0) {
+    if (!blocks)
+      return {
+        ...base,
+        verdict: "NOT_VIABLE",
+        note: `${failing} failing and no failure detail in the output, so a test failure cannot be told from a setup hook`,
+      }
+    const untitled = blocks.filter((b) => b.title === "")
+    if (blocks.length !== failing || untitled.length > 0)
+      return {
+        ...base,
+        verdict: "NOT_VIABLE",
+        note: `could not read ${failing} failure(s) in full: ${blocks.length} block(s) found, ${untitled.length} with no complete title`,
+      }
+    const tests = blocks.filter((b) => !SETUP_FAILURE.test(b.title))
+    if (tests.length === 0)
+      return {
+        ...base,
+        verdict: "NOT_VIABLE",
+        note: `setup failed, no assertion ran (${passing} passing, ${failing} failing; first: ${blocks[0].title})`,
+      }
     return {
       ...base,
       verdict: "KILLED",
-      note: `${failing} failing; first: ${failedTest}`,
+      note: `${failing} failing; first: ${tests[0].title}`,
     }
-  if (failing > 0)
-    return {
-      ...base,
-      verdict: "UNCONFIRMED",
-      note: `${failing} failing but no failing test name found in the output`,
-    }
+  }
   if (passing > 0 && r.status === 0)
     return { ...base, verdict: "SURVIVED", note: `${passing} passing` }
   return {
@@ -556,6 +581,35 @@ const SELF_TEST_CASES = [
     "NOT_VIABLE",
   ],
   [
+    "hook under five describes",
+    `  1 passing
+  1 failing
+
+  1) level one
+       level two
+         level three
+           level four
+             level five
+               "before all" hook for "is never reached":
+     Error: planted deep setup failure`,
+    "NOT_VIABLE",
+  ],
+  [
+    "failure count with no failure detail",
+    `  4 passing
+  1 failing`,
+    "NOT_VIABLE",
+  ],
+  [
+    "failure block with no title",
+    `  1 passing
+  1 failing
+
+  1) level one
+     Error: something with no title line`,
+    "NOT_VIABLE",
+  ],
+  [
     "compile error",
     `An unexpected error occurred:
 
@@ -582,6 +636,38 @@ describe("mutation harness self-test", () => {
 })
 
 describe("mutation harness self-test control", () => {
+  it("passes so the run is not total red", () => {
+    expect(1).to.equal(1)
+  })
+})
+`,
+    "NOT_VIABLE",
+  ],
+  [
+    "MutationHarnessSelfTestDeepHook.test.ts",
+    `import { expect } from "chai"
+
+// Planted by mutate.cjs --self-test: the before() hook throws five describes down, so Mocha
+// prints its title path as six lines.
+describe("mutation harness self-test level 1", () => {
+  describe("level 2", () => {
+    describe("level 3", () => {
+      describe("level 4", () => {
+        describe("level 5", () => {
+          before(() => {
+            throw new Error("planted deep setup failure")
+          })
+
+          it("is never reached", () => {
+            expect(1).to.equal(1)
+          })
+        })
+      })
+    })
+  })
+})
+
+describe("mutation harness self-test deep control", () => {
   it("passes so the run is not total red", () => {
     expect(1).to.equal(1)
   })
@@ -650,5 +736,16 @@ const selfTest = () => {
   process.exit(failed === 0 ? 0 : 1)
 }
 
+// Recompute a verdict from a saved run's log, so a result can be re-checked without a test run.
+// The exit status is not in the log, so SURVIVED and ERROR are what the log alone can say.
+const reportLog = (file) => {
+  const scored = classify(fs.readFileSync(file, "utf8"), { status: 0 })
+  console.log(scored.verdict, scored.note)
+  console.log(
+    `passing ${scored.passing} failing ${scored.failing} hookFailures ${scored.hookFailures}`
+  )
+}
+
 if (args.includes("--self-test")) selfTest()
+else if (classifyLog) reportLog(classifyLog)
 else runShard()
