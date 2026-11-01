@@ -18,7 +18,8 @@ const [wt, shardIndexArg, shardCountArg, outPath] = args.filter(
 const shardIndex = Number(shardIndexArg)
 const shardCount = Number(shardCountArg)
 const sol = `${wt}/solidity`
-const killset =
+// Read on first use: --self-test and --classify do not need the list.
+const killset = () =>
   process.env.KILLSET ||
   fs.readFileSync(`${__dirname}/killset.txt`, "utf8").trim()
 const only = process.env.ONLY ? new Set(process.env.ONLY.split(",")) : null
@@ -336,9 +337,11 @@ const count = (out, word) => {
 // suite never reached the tests it guards.
 const SETUP_FAILURE =
   /"(?:before|after) (?:all|each)" hook|Uncaught error outside test suite/
-// Mocha prints every element of a failed title path on one line each and closes the path with a
-// colon, so a hook under five describes is six lines. Only the blocks that follow the "N failing"
-// summary carry that path: the numbered markers printed beside the running suite carry no path.
+// Mocha's spec reporter prints a failure as "  N) " plus the title path, one element per line: the
+// first element on the header line, each later one indented 5 + 2*(index-1) spaces, and the colon
+// it appends after the last element closes the path. The thrown error follows at indent 5 and the
+// stack after it. So a title is the run of lines at 2, 7, 9, 11... and it is complete only when the
+// last of them ends with that colon. Anything after the run is diagnostic, and is never a title.
 const failureBlocks = (out) => {
   const lines = out.split("\n")
   let start = -1
@@ -350,35 +353,29 @@ const failureBlocks = (out) => {
   }
   if (start < 0) return null
   const blocks = []
-  let cur = null
-  for (let i = start + 1; i < lines.length; i++) {
-    const header = /^\s{2,}(\d+)\) (\S.*)$/.exec(lines[i])
-    if (header) {
-      cur = { number: Number(header[1]), lines: [header[2].trim()] }
-      blocks.push(cur)
+  let i = start + 1
+  while (i < lines.length) {
+    const header = /^ {2}(\d+)\) (\S.*)$/.exec(lines[i])
+    if (!header) {
+      i++
       continue
     }
-    if (!cur) continue
-    const text = lines[i].trim()
-    if (text !== "") cur.lines.push(text)
-  }
-  for (const block of blocks) {
-    // The path ends at the deepest line that carries the trailing colon; what follows is the
-    // thrown error and its stack. A block with no such line has no title we can trust.
-    let end = -1
-    for (let i = block.lines.length - 1; i >= 0; i--) {
-      if (block.lines[i].endsWith(":")) {
-        end = i
-        break
-      }
+    const block = { number: Number(header[1]), lines: [header[2].trim()] }
+    i++
+    let indent = 7
+    while (i < lines.length) {
+      const lead = /^( *)\S/.exec(lines[i])
+      if (!lead || lead[1].length !== indent) break
+      const text = lines[i].trim()
+      // A diagnostic line that happens to sit at title indent is not part of the title.
+      if (/^[A-Za-z_$][\w.$]*(Error|Exception)\b/.test(text)) break
+      block.lines.push(text)
+      indent += 2
+      i++
     }
-    block.title =
-      end < 0
-        ? ""
-        : block.lines
-            .slice(0, end + 1)
-            .join(" ")
-            .trim()
+    block.title = block.lines.join(" ").trim()
+    block.complete = block.title.endsWith(":")
+    blocks.push(block)
   }
   return blocks
 }
@@ -421,12 +418,12 @@ const classify = (out, r) => {
         verdict: "NOT_VIABLE",
         note: `${failing} failing and no failure detail in the output, so a test failure cannot be told from a setup hook`,
       }
-    const untitled = blocks.filter((b) => b.title === "")
-    if (blocks.length !== failing || untitled.length > 0)
+    const incomplete = blocks.filter((b) => !b.complete)
+    if (blocks.length !== failing || incomplete.length > 0)
       return {
         ...base,
         verdict: "NOT_VIABLE",
-        note: `could not read ${failing} failure(s) in full: ${blocks.length} block(s) found, ${untitled.length} with no complete title`,
+        note: `could not read ${failing} failure(s) in full: ${blocks.length} block(s) found, ${incomplete.length} without a complete title`,
       }
     const tests = blocks.filter((b) => !SETUP_FAILURE.test(b.title))
     if (tests.length === 0)
@@ -474,7 +471,7 @@ const runShard = () => {
   // An unmutated run first. If it is not green with at least one passing test, every mutant
   // would score KILLED for the wrong reason, so stop here.
   if (mine.length > 0) {
-    const base = runTests(killset)
+    const base = runTests(killset())
     fs.writeFileSync(`${outPath}.baseline.log`, base.out)
     const p = count(base.out, "passing")
     const f = count(base.out, "failing")
@@ -508,7 +505,7 @@ const runShard = () => {
         path,
         original.slice(0, first) + replace + original.slice(first + find.length)
       )
-      const { r, out } = runTests(killset)
+      const { r, out } = runTests(killset())
       scored = classify(out, r)
       // The whole output, so a verdict can be recomputed from the log alone.
       fs.writeFileSync(`${outPath}.${id}.log`, out)
@@ -607,6 +604,35 @@ const SELF_TEST_CASES = [
 
   1) level one
      Error: something with no title line`,
+    "NOT_VIABLE",
+  ],
+  [
+    "assertion error text that names a hook",
+    `  1 passing
+  1 failing
+
+  1) suite
+       fails on an assertion:
+     AssertionError: bad "before all" hook:`,
+    "KILLED",
+  ],
+  [
+    "no title, and the error message ends with a colon",
+    `  1 passing
+  1 failing
+
+  1) level one
+     Error: something with no title line:`,
+    "NOT_VIABLE",
+  ],
+  [
+    "suite name ends with a colon, hook line follows",
+    `  1 passing
+  1 failing
+
+  1) hook suite:
+       "before all" hook for "is never reached":
+     Error: planted setup failure`,
     "NOT_VIABLE",
   ],
   [
