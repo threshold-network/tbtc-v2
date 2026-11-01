@@ -1052,6 +1052,351 @@ export function assertBridgeRebateStakingPointer(params: {
 }
 
 /**
+ * Asserts that the reservation router the Bridge dispatches into is the
+ * release build, when one is installed.
+ *
+ * The Bridge's `fallback()` delegatecalls `self.reservationRouter` for every
+ * unmatched selector, so every reservation entry point -- acceptance
+ * requests, re-anchor requests, the proof submissions, the parameter
+ * setters -- runs *the router's* code, in the Bridge's storage context.
+ * The rest of this script certifies the Bridge wrapper and every library it
+ * links; without this check the router, the one contract every reservation
+ * call actually executes, is never certified at all.
+ *
+ * The router is write-once (`BridgeState.setReservationRouter`), so a
+ * mismatch here cannot be repaired by the batch this script emits: the
+ * router's code is fixed at install time, and only a Bridge implementation
+ * upgrade could replace it. That is exactly why the drift has to be caught
+ * before the ceremony rather than after it.
+ *
+ * The check covers the router's libraries as well as its wrapper. The
+ * router's control plane - the caps, the re-anchor cooldown, the
+ * reservation state machine - lives in the `Reservation` and
+ * `ReservationProofs` libraries it delegatecalls, and the wrapper proof
+ * deliberately ignores the bytes at the link sites (that is how it learns
+ * which library the router links). Without a separate proof of the
+ * libraries, a byte-identical router linked against an older library
+ * build would be certified while dispatching into different code.
+ *
+ * A zero pointer is the bootstrap ordering, not a mismatch: the router is
+ * installed by the reservation bootstrap (`98`), which runs before the
+ * upgrade ceremony this script prepares. The caller reports it so the
+ * operator sees it, and the ceremony proceeds.
+ */
+export function assertReservationRouterRuntime(params: {
+  /** `Bridge.getReservationRouter()`, as read from the chain. */
+  routerAddress: string
+  /** The runtime at that address, as deployed. */
+  onChainRuntime: string
+  /** The release build's artifact runtime for the router. */
+  artifactRuntime: string
+  /** The artifact's `deployedLinkReferences`, as link sites. */
+  linkSites: LinkSite[]
+  /**
+   * The release build's artifact runtime for each library the router links,
+   * keyed by library name. The router's control plane lives in these
+   * libraries, so their code is what the Bridge actually executes.
+   */
+  libraryRuntimes?: Record<string, string>
+  /**
+   * The runtime at each linked library address, as deployed, keyed by
+   * library name. Omitted only when `libraryRuntimes` is omitted.
+   */
+  onChainLibraryRuntimes?: Record<string, string>
+}): "unset" | "matches" {
+  const {
+    routerAddress,
+    onChainRuntime,
+    artifactRuntime,
+    linkSites,
+    libraryRuntimes,
+    onChainLibraryRuntimes,
+  } = params
+  if (routerAddress.toLowerCase() === utils.ZeroAddress.toLowerCase()) {
+    return "unset"
+  }
+  if (onChainRuntime === "0x" || onChainRuntime === "0x0") {
+    throw new Error(
+      `the Bridge's reservation router is ${routerAddress}, but that address has ` +
+        "no code on chain. Every reservation call the Bridge dispatches would " +
+        "revert; refusing to run the ceremony."
+    )
+  }
+  // The router links the `Reservation` and `ReservationProofs` libraries, so
+  // its runtime carries placeholders where the artifact leaves the library
+  // addresses. `proveLinkedRuntimeIdentity` reads the candidate's own
+  // address at every link site to learn which library it links, then
+  // compares the rest of the runtime byte for byte against the release
+  // build. No deployment record is consulted, so a rewritten record cannot
+  // make the check pass.
+  const identity = proveLinkedRuntimeIdentity({
+    candidateAddress: routerAddress,
+    candidateRuntime: onChainRuntime,
+    artifactRuntime,
+    linkSites,
+    label: "ReservationRouter",
+    artifactLabel: "ReservationRouter",
+  })
+  if (!identity.isBridge) {
+    throw new Error(
+      `the Bridge's reservation router at ${routerAddress} is not the release ` +
+        `build of the ReservationRouter: ${identity.reason}. The Bridge ` +
+        "dispatches every reservation call into it, and the router is " +
+        "write-once, so the batch this script emits cannot repair it; " +
+        "refusing to run the ceremony."
+    )
+  }
+
+  // The wrapper is only half of what the Bridge executes. The router
+  // delegatecalls the `Reservation` and `ReservationProofs` libraries, and
+  // those libraries hold the reservation control plane - the caps, the
+  // cooldown, the state machine. `proveLinkedRuntimeIdentity` deliberately
+  // excludes the link-site bytes from its comparison (that is how it learns
+  // which library the candidate links), so a byte-identical wrapper linked
+  // against an older or unrelated library passes the check above while
+  // dispatching into different code.
+  //
+  // The libraries are therefore proven separately, the way Step 2b proves
+  // the Bridge's own libraries: the runtime at the linked address has to be
+  // the release build's runtime, with the library's own address written in.
+  const linkedLibraries = Object.keys(identity.libraries).sort()
+  const expectedLibraries = ["Reservation", "ReservationProofs"]
+  if (
+    linkedLibraries.length !== expectedLibraries.length ||
+    expectedLibraries.some((name) => !linkedLibraries.includes(name))
+  ) {
+    throw new Error(
+      `the Bridge's reservation router at ${routerAddress} links ` +
+        `[${linkedLibraries.join(", ")}], but the release ReservationRouter ` +
+        `build links [${expectedLibraries.join(", ")}]. The reservation ` +
+        "control plane lives in those libraries, so the router would " +
+        "dispatch into code that is not the release build; refusing to run " +
+        "the ceremony."
+    )
+  }
+  if (libraryRuntimes !== undefined) {
+    // The libraries are checked one after another, in a fixed order, so the
+    // first rejection is the one reported.
+    // eslint-disable-next-line no-restricted-syntax
+    for (const library of linkedLibraries) {
+      const address = identity.libraries[library]
+      const onChainLibraryRuntime = onChainLibraryRuntimes?.[library]
+      if (onChainLibraryRuntime === undefined) {
+        throw new Error(
+          `the Bridge's reservation router at ${routerAddress} links ${library} ` +
+            `at ${address}, but the runtime at that address was not read, so ` +
+            "the library cannot be proven; refusing to run the ceremony."
+        )
+      }
+      if (onChainLibraryRuntime === "0x" || onChainLibraryRuntime === "0x0") {
+        throw new Error(
+          `the Bridge's reservation router at ${routerAddress} links ${library} ` +
+            `at ${address}, but that address has no code on chain. Every ` +
+            "reservation call the Bridge dispatches would revert; refusing " +
+            "to run the ceremony."
+        )
+      }
+      const artifactLibraryRuntime = libraryRuntimes[library]
+      if (artifactLibraryRuntime === undefined) {
+        throw new Error(
+          `the Bridge's reservation router at ${routerAddress} links ${library} ` +
+            `at ${address}, but there is no release build of ${library} to ` +
+            "compare it against; refusing to run the ceremony."
+        )
+      }
+      const result = proveLibraryIdentity({
+        name: library,
+        address,
+        onChainRuntime: onChainLibraryRuntime,
+        artifactRuntime: artifactLibraryRuntime,
+      })
+      if (!result.matches) {
+        throw new Error(
+          `the Bridge's reservation router at ${routerAddress} links ${library} ` +
+            `at ${address}, but ${result.reason}. The Bridge dispatches every ` +
+            "reservation call through the router into these libraries, and " +
+            "the router is write-once, so the batch this script emits cannot " +
+            "repair it; refusing to run the ceremony."
+        )
+      }
+    }
+  }
+  return "matches"
+}
+
+/**
+ * Reads the runtime at each address the router links, keyed by library name.
+ *
+ * The addresses are read out of the router's own on-chain runtime, at the
+ * link sites the release artifact declares: the artifact carries a
+ * placeholder there and the deployed router carries the address it was
+ * linked against. Reading them from the deployed runtime - rather than from
+ * a deployment record - is what makes the library proof independent of any
+ * record an operator could rewrite.
+ *
+ * A router whose runtime does not carry an address at a link site is
+ * rejected here, the same way `proveLinkedRuntimeIdentity` rejects it.
+ */
+export async function readRouterLibraryRuntimes(
+  routerAddress: string,
+  routerArtifact: {
+    deployedBytecode: string
+    deployedLinkReferences: Record<
+      string,
+      Record<string, { start: number; length: number }[]>
+    >
+  },
+  provider: { getCode: (address: string) => Promise<string> }
+): Promise<Record<string, string>> {
+  const runtimes: Record<string, string> = {}
+  const runtime = await provider.getCode(routerAddress)
+  const candidate = runtime.toLowerCase().replace(/^0x/, "")
+  // eslint-disable-next-line no-restricted-syntax
+  for (const site of artifactLinkSites(routerArtifact.deployedLinkReferences)) {
+    const from = site.start * 2
+    const to = from + site.length * 2
+    const linked = candidate.slice(from, to)
+    if (linked.length !== site.length * 2 || !/^[0-9a-f]+$/.test(linked)) {
+      throw new Error(
+        `the Bridge's reservation router at ${routerAddress} carries no ` +
+          `address at the ${site.library} link site, so the library it ` +
+          "dispatches into cannot be identified; refusing to run the ceremony."
+      )
+    }
+    // eslint-disable-next-line no-await-in-loop
+    runtimes[site.library] = await provider.getCode(
+      utils.getAddress(`0x${linked}`)
+    )
+  }
+  return runtimes
+}
+
+/**
+ * The reservation router the Bridge dispatches into, read from the proxy's
+ * storage rather than through a getter.
+ *
+ * The getter cannot be used here. `Bridge.getReservationRouter()` belongs to
+ * the reservation-capable Bridge implementation, and this ceremony runs
+ * BEFORE that implementation is installed: it is the script that installs
+ * it. The deployed Bridge has no such selector, so an `eth_call` for it
+ * reverts with empty data - and installing the router first cannot fix that,
+ * because the router's setter lives on the same implementation the ceremony
+ * has not installed yet.
+ *
+ * The pointer is a plain storage word, so it is read from the slot the
+ * validated layout puts it in. That works on any implementation, including
+ * the one currently deployed, and it reads the same bytes the getter would
+ * return.
+ */
+export async function readReservationRouterPointer(params: {
+  /** The Bridge proxy. */
+  proxyAddress: string
+  /** The validated storage layout of the Bridge's state. */
+  layout: StorageLayout
+  provider: { getStorage(address: string, position: string): Promise<string> }
+}): Promise<string> {
+  const { proxyAddress, layout, provider } = params
+  const stateType = Object.values(layout.types ?? {}).find((type) => {
+    if (typeof type !== "object" || type === null) return false
+    return (type as { label?: unknown }).label === "struct BridgeState.Storage"
+  })
+  const stateMembers =
+    stateType !== undefined &&
+    typeof stateType === "object" &&
+    stateType !== null
+      ? (stateType as { members?: unknown }).members
+      : undefined
+  if (!Array.isArray(stateMembers)) {
+    throw new Error(
+      "the Bridge storage layout has no `struct BridgeState.Storage` members, " +
+        "so the reservation router's slot cannot be determined; refusing to " +
+        "run the ceremony."
+    )
+  }
+  const pointer = stateMembers.find(
+    (member) => member.label === "reservationRouter"
+  )
+  if (pointer === undefined) {
+    throw new Error(
+      "the Bridge storage layout has no `reservationRouter` member, so the " +
+        "reservation router's slot cannot be determined; refusing to run the " +
+        "ceremony."
+    )
+  }
+  if (Number(pointer.offset) !== 0) {
+    throw new Error(
+      `the Bridge storage layout puts \`reservationRouter\` at offset ` +
+        `${pointer.offset}, so it does not occupy a whole word and cannot be ` +
+        "read on its own; refusing to run the ceremony."
+    )
+  }
+  // `BridgeState.Storage` lives inside the Bridge's own `self` variable, so
+  // the pointer's absolute slot is the `self` slot plus the pointer's slot
+  // inside the struct. Both are read out of the layout, so nothing here is
+  // pinned by hand.
+  const self = layout.storage.find((entry) => entry.label === "self")
+  if (self === undefined) {
+    throw new Error(
+      "the Bridge storage layout has no `self` entry, so the reservation " +
+        "router's absolute slot cannot be determined; refusing to run the " +
+        "ceremony."
+    )
+  }
+  const slot = Number(self.slot) + Number(pointer.slot)
+  const word = await provider.getStorage(proxyAddress, utils.toBeHex(slot, 32))
+  return utils.getAddress(`0x${word.slice(-40)}`)
+}
+
+/**
+ * The reservation router check, as the ceremony runs it.
+ *
+ * The unset case has to be settled before anything is read from the chain.
+ * A Bridge with no router installed has a zero pointer, and reading the
+ * router's code or its libraries at that address yields no code at all, so
+ * a loader that runs first would fail on the zero address and abort the
+ * ceremony before the warning branch could run. The pre-bootstrap ceremony
+ * is a supported state - the reservation bootstrap (`98`) installs the
+ * router - so it has to reach the warning, not throw.
+ *
+ * This is the whole Step 2c in one place so that the unset path is
+ * exercised through the same code the ceremony runs, rather than through
+ * the assertion alone.
+ */
+export async function verifyReservationRouter(params: {
+  /** The router pointer, as read from the Bridge proxy's storage. */
+  routerAddress: string
+  /** The release build's artifact for the router. */
+  routerArtifact: {
+    deployedBytecode: string
+    deployedLinkReferences: Record<
+      string,
+      Record<string, { start: number; length: number }[]>
+    >
+  }
+  /** The release build's artifact runtime for each linked library. */
+  libraryArtifacts: Record<string, string>
+  provider: { getCode: (address: string) => Promise<string> }
+}): Promise<"unset" | "matches"> {
+  const { routerAddress, routerArtifact, libraryArtifacts, provider } = params
+  if (routerAddress.toLowerCase() === utils.ZeroAddress.toLowerCase()) {
+    // Nothing is read from the chain: there is no router to read.
+    return "unset"
+  }
+  return assertReservationRouterRuntime({
+    routerAddress,
+    onChainRuntime: await provider.getCode(routerAddress),
+    artifactRuntime: routerArtifact.deployedBytecode,
+    linkSites: artifactLinkSites(routerArtifact.deployedLinkReferences),
+    libraryRuntimes: libraryArtifacts,
+    onChainLibraryRuntimes: await readRouterLibraryRuntimes(
+      routerAddress,
+      routerArtifact,
+      provider
+    ),
+  })
+}
+
+/**
  * The Bridge implementation this batch upgrades to, as an input.
  *
  * Human decision R16-2: the release pipeline deploys the Bridge
@@ -1423,43 +1768,57 @@ export function isSelfReferencingLibrary(
 }
 
 /**
- * Proves that a candidate runtime is the Bridge implementation.
+ * Proves that a candidate runtime is the build described by an artifact.
  *
  * The proof is a bytecode identity, not a heuristic:
  *
  *  1. A candidate that refers to itself is rejected: it is a library, and
- *    the Bridge implementation is not a library.
- *  2. The candidate's runtime is compared against the Bridge artifact's own
- *     runtime with the link sites filled in. Everything except the library
- *     addresses has to match byte for byte, so a candidate that is not this
- *     Bridge does not pass, whatever its address literals look like.
+ *    the Bridge and the ReservationRouter are not libraries.
+ *  2. The candidate's runtime is compared against the artifact's own runtime
+ *     with the link sites filled in. Everything except the library addresses
+ *     has to match byte for byte, so a candidate that is not this build does
+ *     not pass, whatever its address literals look like.
  *  3. The library addresses the candidate links are read from the
  *     artifact's link map, so the `Redemption` library is *named*, not
  *     guessed from a PUSH20 scan.
+ *
+ * No deployment record is consulted: the candidate's own bytes say which
+ * library it links at each site, so a rewritten or stale record cannot make
+ * the check pass.
  */
-export function proveBridgeIdentity(params: {
+export function proveLinkedRuntimeIdentity(params: {
   /** The candidate's address on chain. */
   candidateAddress: string
   /** The candidate's runtime bytecode, as deployed. */
   candidateRuntime: string
-  /** The Bridge artifact's deployed bytecode, with link placeholders. */
+  /** The artifact's deployed bytecode, with link placeholders. */
   artifactRuntime: string
-  /** The Bridge artifact's deployed link references. */
+  /** The artifact's deployed link references. */
   linkSites: LinkSite[]
+  /** What the candidate is, for the "it is a library" message. */
+  label: string
+  /** What the artifact describes, for the "differs from" message. */
+  artifactLabel: string
 }): BridgeIdentity {
-  const { candidateAddress, candidateRuntime, artifactRuntime, linkSites } =
-    params
+  const {
+    candidateAddress,
+    candidateRuntime,
+    artifactRuntime,
+    linkSites,
+    label,
+    artifactLabel,
+  } = params
   const candidate = candidateRuntime.toLowerCase().replace(/^0x/, "")
   const artifact = artifactRuntime.toLowerCase().replace(/^0x/, "")
 
-  // Step 1: a library is not the Bridge implementation.
+  // Step 1: a library is not the implementation.
   if (isSelfReferencingLibrary(candidateAddress, candidateRuntime)) {
     return {
       isBridge: false,
       libraries: {},
       reason:
         `the candidate ${candidateAddress} refers to itself in its own runtime, ` +
-        "so it is a library and not the Bridge implementation",
+        `so it is a library and not the ${label}`,
     }
   }
 
@@ -1483,7 +1842,7 @@ export function proveBridgeIdentity(params: {
       )
     }
     if (linked.length !== site.length * 2) {
-      rejection = `the candidate runtime is shorter than the Bridge artifact's link site for ${site.library}`
+      rejection = `the candidate runtime is shorter than the ${artifactLabel} artifact's link site for ${site.library}`
       return
     }
     if (!/^[0-9a-f]+$/.test(linked)) {
@@ -1512,12 +1871,43 @@ export function proveBridgeIdentity(params: {
     return {
       isBridge: false,
       libraries,
-      reason:
-        "the candidate runtime differs from the Bridge artifact outside the library link sites",
+      reason: `the candidate runtime differs from the ${artifactLabel} artifact outside the library link sites`,
     }
   }
 
   return { isBridge: true, libraries }
+}
+
+/**
+ * Proves that a candidate runtime is the Bridge implementation.
+ *
+ * The proof is a bytecode identity, not a heuristic:
+ *
+ *  1. A candidate that refers to itself is rejected: it is a library, and
+ *    the Bridge implementation is not a library.
+ *  2. The candidate's runtime is compared against the Bridge artifact's own
+ *     runtime with the link sites filled in. Everything except the library
+ *     addresses has to match byte for byte, so a candidate that is not this
+ *    Bridge does not pass, whatever its address literals look like.
+ *  3. The library addresses the candidate links are read from the
+ *    artifact's link map, so the `Redemption` library is *named*, not
+ *    guessed from a PUSH20 scan.
+ */
+export function proveBridgeIdentity(params: {
+  /** The candidate's address on chain. */
+  candidateAddress: string
+  /** The candidate's runtime bytecode, as deployed. */
+  candidateRuntime: string
+  /** The Bridge artifact's deployed bytecode, with link placeholders. */
+  artifactRuntime: string
+  /** The Bridge artifact's deployed link references. */
+  linkSites: LinkSite[]
+}): BridgeIdentity {
+  return proveLinkedRuntimeIdentity({
+    ...params,
+    label: "Bridge implementation",
+    artifactLabel: "Bridge",
+  })
 }
 
 /**
@@ -1736,6 +2126,65 @@ const func: DeployFunction =
         )
       }
       console.log(`  ${library} at ${address}: release build OK`)
+    }
+
+    // --- Step 2c: the reservation router the Bridge dispatches into ---
+    // The Bridge's `fallback()` delegatecalls `self.reservationRouter` for
+    // every unmatched selector, so every reservation entry point -- the
+    // acceptance and re-anchor requests, the proof submissions, the
+    // parameter setters -- runs the router's code in the Bridge's storage
+    // context. The checks above certify the Bridge wrapper and the
+    // libraries it links; without this one the router, the contract every
+    // reservation call actually executes, is never certified at all.
+    //
+    // The router is write-once (`BridgeState.setReservationRouter`), so a
+    // mismatch cannot be repaired by the batch this script emits: only a
+    // Bridge implementation upgrade could replace it. Catching the drift
+    // before the ceremony is the point.
+    //
+    // A zero pointer is the bootstrap ordering, not a mismatch: the
+    // reservation bootstrap (`98`) installs the router, and it runs before
+    // the upgrade ceremony this script prepares. The operator sees the
+    // warning and the ceremony proceeds.
+    console.log("\n--- Reservation router verification ---")
+    const routerArtifact = await artifacts.readArtifact(
+      "contracts/bridge/ReservationRouter.sol:ReservationRouter"
+    )
+    const routerAddress: string = await readReservationRouterPointer({
+      proxyAddress: Bridge.address,
+      layout: await compiledStorageLayout("contracts/bridge/Bridge.sol:Bridge"),
+      provider: ethers.provider,
+    })
+    // The router's control plane lives in the two libraries it links, so
+    // their release builds are read too: the wrapper proof below deliberately
+    // ignores the link-site bytes, and without the libraries' own proof the
+    // check would certify a wrapper whose dispatch target is unchecked.
+    const routerLibraryArtifacts: Record<string, string> = {}
+    // eslint-disable-next-line no-restricted-syntax
+    for (const library of ["Reservation", "ReservationProofs"]) {
+      // eslint-disable-next-line no-await-in-loop
+      const libraryArtifact = await artifacts.readArtifact(
+        `contracts/bridge/${library}.sol:${library}`
+      )
+      routerLibraryArtifacts[library] = libraryArtifact.deployedBytecode
+    }
+    if (
+      (await verifyReservationRouter({
+        routerAddress,
+        routerArtifact,
+        libraryArtifacts: routerLibraryArtifacts,
+        provider: ethers.provider,
+      })) === "unset"
+    ) {
+      console.log(
+        `  WARNING: Bridge.getReservationRouter() is ${ethers.ZeroAddress}: the ` +
+          "reservation router is not installed yet. Every reservation call the " +
+          "Bridge dispatches would revert until the bootstrap installs it."
+      )
+    } else {
+      console.log(
+        `  ${routerAddress}: matches the release ReservationRouter build: OK`
+      )
     }
 
     // --- Step 3: Deploy the freeze-head RebateStaking implementation ---

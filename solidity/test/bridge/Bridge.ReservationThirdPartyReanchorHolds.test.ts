@@ -1316,8 +1316,7 @@ describe("Bridge - reservation third-party re-anchor holds (per-target cap)", ()
       await executor.seedPendingReservedDepositBasic(
         acceptanceKey,
         custodyTarget,
-        (await lastBlockTime()) + 89 * 24 * 60 * 60,
-        true
+        (await lastBlockTime()) + 89 * 24 * 60 * 60
       )
       // The on-time acceptance path requires the position's current
       // generation to be the one being proven.
@@ -1353,6 +1352,181 @@ describe("Bridge - reservation third-party re-anchor holds (per-target cap)", ()
         1,
         custodyNewAnchorValue,
       ])
+    })
+  })
+
+  describe("re-anchor cooldown is keyed on the caller's privilege", () => {
+    // The cooldown is a grief-prevention bound on *third-party* re-anchor
+    // requests. Before the fix it was keyed on the `privileged` flag the
+    // router passes in, which is set only for `msg.sender == governance`
+    // (`ReservationRouter.requestReservationReanchor`). The reservation
+    // owner, an SPV maintainer and a proven source-wallet member are
+    // privileged callers too -- `IReservationBridge.requestReservationReanchor`
+    // documents them as such -- but they were held by the cooldown, so a
+    // third-party request that ran into its action timeout could block the
+    // position's own owner from re-anchoring it for one action timeout.
+
+    // A reservation owned by the caller, on a MovingFunds source wallet, with
+    // a cooldown that has not elapsed.
+    async function seedOwnedReservationWithCooldown(
+      owner: string,
+      key: string
+    ): Promise<void> {
+      // The target must be a Live wallet for the re-anchor to be admissible.
+      await executor.seedWallet(
+        targetWallet,
+        ZERO_BYTES32,
+        walletStateEnum.Live
+      )
+      await executor.seedWallet(
+        secondSourceWallet,
+        ZERO_BYTES32,
+        walletStateEnum.MovingFunds
+      )
+      await executor.seedReservation(
+        key,
+        owner,
+        secondSourceWallet,
+        1_000_000,
+        `0x${"38".repeat(32)}`,
+        0,
+        1 // Active
+      )
+      const futureTimestamp =
+        Number(
+          await ethers.provider
+            .getBlock("latest")
+            .then((b) => b?.timestamp ?? 0)
+        ) + 3600
+      await executor.seedReservationCooldown(key, futureTimestamp)
+    }
+
+    beforeEach(async () => {
+      // One hold of headroom, so the third-party paths below are stopped by
+      // the cooldown rather than by the per-target hold cap.
+      await executor.setMaxThirdPartyReanchorHoldsPerWallet(1)
+    })
+
+    it("rejects an unprivileged caller while the cooldown runs", async () => {
+      await seedOwnedReservationWithCooldown(
+        randomOwner,
+        `0x${"c0".repeat(32)}`
+      )
+
+      // The caller is neither the owner nor a maintainer nor a member: a
+      // third party, and therefore subject to the cooldown.
+      await expect(
+        executor.requestReservationReanchor(
+          `0x${"c0".repeat(32)}`,
+          targetWallet,
+          false,
+          [],
+          0
+        )
+      ).to.be.revertedWith("Reanchor cooldown in effect")
+    })
+
+    it("lets the reservation owner request past a running cooldown", async () => {
+      await seedOwnedReservationWithCooldown(caller, `0x${"c1".repeat(32)}`)
+
+      await expect(
+        executor.requestReservationReanchor(
+          `0x${"c1".repeat(32)}`,
+          targetWallet,
+          false,
+          [],
+          0
+        )
+      ).to.not.be.reverted
+    })
+
+    it("lets an SPV maintainer request past a running cooldown", async () => {
+      await executor.setSpvMaintainer(caller, true)
+      await seedOwnedReservationWithCooldown(
+        randomOwner,
+        `0x${"c2".repeat(32)}`
+      )
+
+      await expect(
+        executor.requestReservationReanchor(
+          `0x${"c2".repeat(32)}`,
+          targetWallet,
+          false,
+          [],
+          0
+        )
+      ).to.not.be.reverted
+    })
+
+    it("lets a proven source-wallet member request past a running cooldown", async () => {
+      const registry = await createMock<IWalletRegistry>("IWalletRegistry")
+      await executor.setEcdsaWalletRegistry(registry.address)
+      await registry.isWalletMember
+        .whenCalledWith(sourceEcdsaId, [1, 2, 3], caller, 2)
+        .returns(true)
+
+      // The target must be a Live wallet for the re-anchor to be admissible.
+      await executor.seedWallet(
+        targetWallet,
+        ZERO_BYTES32,
+        walletStateEnum.Live
+      )
+      await executor.seedWallet(
+        secondSourceWallet,
+        sourceEcdsaId,
+        walletStateEnum.MovingFunds
+      )
+      await executor.seedReservation(
+        `0x${"c3".repeat(32)}`,
+        randomOwner,
+        secondSourceWallet,
+        1_000_000,
+        `0x${"39".repeat(32)}`,
+        0,
+        1
+      )
+      const futureTimestamp =
+        Number(
+          await ethers.provider
+            .getBlock("latest")
+            .then((b) => b?.timestamp ?? 0)
+        ) + 3600
+      await executor.seedReservationCooldown(
+        `0x${"c3".repeat(32)}`,
+        futureTimestamp
+      )
+
+      await expect(
+        executor.requestReservationReanchor(
+          `0x${"c3".repeat(32)}`,
+          targetWallet,
+          false,
+          [1, 2, 3],
+          2
+        )
+      ).to.not.be.reverted
+    })
+
+    it("admits an unprivileged caller once the cooldown has elapsed", async () => {
+      await seedOwnedReservationWithCooldown(
+        randomOwner,
+        `0x${"c4".repeat(32)}`
+      )
+
+      // The seeded cooldown is one hour out; jump past it and the third-party
+      // request succeeds.
+      await ethers.provider.send("evm_increaseTime", [3601])
+      await ethers.provider.send("evm_mine", [])
+
+      await expect(
+        executor.requestReservationReanchor(
+          `0x${"c4".repeat(32)}`,
+          targetWallet,
+          false,
+          [],
+          0
+        )
+      ).to.not.be.reverted
     })
   })
 

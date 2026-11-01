@@ -2027,7 +2027,6 @@ describe("ReservationProofs", () => {
         isReserved: true,
         walletPubKeyHash: `0x${"00".repeat(20)}`,
         refundDeadline: 1000,
-        refundDeadlineValidated: true,
       })
       await testReservationProofs.setPendingReservedDeposits(1)
 

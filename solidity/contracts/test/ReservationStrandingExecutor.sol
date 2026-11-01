@@ -316,26 +316,22 @@ contract ReservationStrandingExecutor is TestReservation {
         deposit.sweptAt = uint32(block.timestamp); // solhint-disable-line not-rely-on-time
     }
 
-    /// @notice Inserts a pending reserved deposit with both the
-    ///         reveal-ahead-validated and unvalidated shapes.
-    ///         `refundDeadlineValidated` is reveal-time provenance metadata
-    ///         only; `notifyStaleReservedDeposit` does not branch on it, but
-    ///         both shapes are seeded here for parity with reveal-time state.
+    /// @notice Inserts a pending reserved deposit, so the
+    ///         `notifyStaleReservedDeposit` paths can be exercised without
+    ///         a full reveal.
     // Named distinctly from the inherited `seedPendingReservedDeposit`
     // (uint256,bool,bytes20,uint32) so the harness surface has no overloads
     // (typechain emits overloaded methods under quoted signature names only).
     function seedPendingReservedDepositBasic(
         uint256 depositKey,
         bytes20 walletPubKeyHash,
-        uint32 refundDeadline,
-        bool refundDeadlineValidated
+        uint32 refundDeadline
     ) external {
         BridgeState.PendingReservedDeposit storage pending = state
             .pendingReservedDeposit[depositKey];
         pending.isReserved = true;
         pending.walletPubKeyHash = walletPubKeyHash;
         pending.refundDeadline = refundDeadline;
-        pending.refundDeadlineValidated = refundDeadlineValidated;
         state.pendingReservedDeposits += 1;
     }
 
@@ -468,11 +464,5 @@ contract ReservationStrandingExecutor is TestReservation {
         uint256 depositKey
     ) external view returns (uint32) {
         return state.pendingReservedDeposit[depositKey].refundDeadline;
-    }
-
-    function pendingReservedDepositValidated(
-        uint256 depositKey
-    ) external view returns (bool) {
-        return state.pendingReservedDeposit[depositKey].refundDeadlineValidated;
     }
 }

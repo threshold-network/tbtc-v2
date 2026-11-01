@@ -180,8 +180,7 @@ contract Tm11Harness {
             .PendingReservedDeposit({
                 isReserved: true,
                 walletPubKeyHash: walletPubKeyHash,
-                refundDeadline: refundDeadline,
-                refundDeadlineValidated: true
+                refundDeadline: refundDeadline
             });
         self.pendingReservedDeposits += 1;
         self.reservations[depositKey].owner = depositor;
