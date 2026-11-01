@@ -1,5 +1,39 @@
 # UTXO Reservation — Release and Upgrade Runbook
 
+> **Superseded. Do not execute this runbook.**
+>
+> This document is superseded by the current milestone-1 runbooks:
+> `solidity/docs/RESERVATION_CAPS_DEPLOYMENT.md` (the mainnet activation
+> ceremony) and `solidity/docs/RESERVATION_SEPOLIA_DEPLOYMENT.md` (the Sepolia
+> deployment). Both live in `solidity/docs/` on the `reservations-upgrade`
+> branch, which is the milestone-1 release branch, and not on this branch:
+>
+> - <https://github.com/threshold-network/tbtc-v2/blob/reservations-upgrade/solidity/docs/RESERVATION_CAPS_DEPLOYMENT.md>
+> - <https://github.com/threshold-network/tbtc-v2/blob/reservations-upgrade/solidity/docs/RESERVATION_SEPOLIA_DEPLOYMENT.md>
+>
+> This file is kept for historical reference only.
+>
+> It is not safe to follow as written, for two reasons.
+>
+> - **It reverses the caps and parameters order.** Its step 8.2 sets the
+>   reservation parameters, which also wires the vault, and only its step 8.3
+>   sets the caps. Milestone 1 requires the opposite order: the caps write must
+>   land first, because wiring the vault reverts with
+>   `Max active reservations must be greater than zero` while the active
+>   reservation cap is still zero. Following this document mid-ceremony
+>   reverts.
+> - **It assumes contracts milestone 1 does not have.** Its steps call
+>   `MaintainerProxyV2`, `ReservationVault.redeemReservation`, `extendCustody`,
+>   `pauseRenewals`, `unpauseRenewals` and `setRenewalGuardian`, and its
+>   companion documents `docs/rfc/rfc-13.adoc` and
+>   `docs/utxo-reservation-frozen-spec.md` are not part of milestone 1. None of
+>   those selectors exist on the milestone-1 contracts.
+>
+> Note that those two points describe the milestone-1 contracts on
+> `reservations-upgrade`. This branch is the pre-milestone-1 tree, and it does
+> have the contracts and the companion documents named above: the banner marks
+> this runbook as superseded, it does not describe this branch.
+
 Status: release engineering reference for the settlement-rework stack
 (RFC 13). Companion: `docs/rfc/rfc-13.adoc` (architecture),
 `docs/utxo-reservation-frozen-spec.md` (frozen parameters/economics),
