@@ -5228,6 +5228,195 @@ describe("Bridge - Governance", () => {
     })
   })
 
+  // The parameters slot holds the vault address, the min amount, the term
+  // and the rest of the position parameters, and
+  // `beginReservationParametersUpdate` overwrites it in place with no
+  // prompt, no revert and no cancel. The caps slot got
+  // `pendingReservationCapsUpdate` for exactly that hazard; the parameters
+  // slot is the more consequential of the two, because the vault it stages
+  // is wired into the Bridge permanently once the first reservation is
+  // accepted.
+  describe("pendingReservationParametersUpdate", () => {
+    let currentReservationVault: string
+
+    const newReservationMinAmount = 20000
+    const newReservationTxMaxFee = 2000
+    const newReservationTermSeconds = 8640000 // 100 days
+    const newReservationDissolutionDelay = 172800 // 2 days
+    const newReservationMaxTotalAmount = 4000000 // under the deploy-fixture slot capacity: maxActiveReservations(100) * reservationMaxSingleAmount(1,000,000)
+    const newMaxReservationsPerWallet = 10
+    const newReservationActionTimeout = 172800 // 2 days
+    const newReservationRenewalWindowSeconds = 172800 // 2 days
+
+    // Pinned so that a rename, or a change to any return type, fails this
+    // test: the runbook's preflight before the parameters begin encodes
+    // this exact signature, and a silent change would make the documented
+    // read hit a different function.
+    const PENDING_RESERVATION_PARAMETERS_UPDATE_SELECTOR = "0x3bb727d9"
+
+    const PENDING_RESERVATION_PARAMETERS_UPDATE_OUTPUT_TYPES = [
+      "address",
+      "uint64",
+      "uint64",
+      "uint32",
+      "uint32",
+      "uint64",
+      "uint32",
+      "uint32",
+      "uint32",
+      "uint256",
+    ]
+
+    before(async () => {
+      const parameters = await reservationRouter.reservationParameters()
+      currentReservationVault = parameters.reservationVault
+    })
+
+    /** Stages one parameters update, with `vault` in place of the live one. */
+    async function beginParametersUpdate(
+      vault: string,
+      minAmount = newReservationMinAmount
+    ): Promise<void> {
+      await bridgeGovernance
+        .connect(governance)
+        .beginReservationParametersUpdate(
+          vault,
+          minAmount,
+          newReservationTxMaxFee,
+          newReservationTermSeconds,
+          newReservationDissolutionDelay,
+          newReservationMaxTotalAmount,
+          newMaxReservationsPerWallet,
+          newReservationActionTimeout,
+          newReservationRenewalWindowSeconds
+        )
+    }
+
+    context("when no update is staged", () => {
+      before(async () => {
+        await createSnapshot()
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should return zeros", async () => {
+        const staged =
+          await bridgeGovernance.pendingReservationParametersUpdate()
+        expect(staged.newReservationVault).to.be.equal(ethers.ZeroAddress)
+        expect(staged.newReservationMinAmount).to.be.equal(0)
+        expect(staged.newReservationTxMaxFee).to.be.equal(0)
+        expect(staged.newReservationTermSeconds).to.be.equal(0)
+        expect(staged.newReservationDissolutionDelay).to.be.equal(0)
+        expect(staged.newReservationMaxTotalAmount).to.be.equal(0)
+        expect(staged.newMaxReservationsPerWallet).to.be.equal(0)
+        expect(staged.newReservationActionTimeout).to.be.equal(0)
+        expect(staged.newReservationRenewalWindowSeconds).to.be.equal(0)
+        expect(staged.changeInitiated).to.be.equal(0)
+      })
+    })
+
+    context("when an update is staged", () => {
+      let beginBlockTimestamp: number
+
+      before(async () => {
+        await createSnapshot()
+
+        await beginParametersUpdate(currentReservationVault)
+        beginBlockTimestamp = await helpers.time.lastBlockTime()
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should return the staged tuple and its initiation timestamp", async () => {
+        const staged =
+          await bridgeGovernance.pendingReservationParametersUpdate()
+        expect(
+          bridgeGovernance.interface.getFunction(
+            "pendingReservationParametersUpdate"
+          ).selector
+        ).to.be.equal(PENDING_RESERVATION_PARAMETERS_UPDATE_SELECTOR)
+        expect(
+          bridgeGovernance.interface
+            .getFunction("pendingReservationParametersUpdate")
+            .outputs.map((o) => o.type)
+        ).to.deep.equal(PENDING_RESERVATION_PARAMETERS_UPDATE_OUTPUT_TYPES)
+        expect(staged.newReservationVault).to.be.equal(currentReservationVault)
+        expect(staged.newReservationMinAmount).to.be.equal(
+          newReservationMinAmount
+        )
+        expect(staged.newReservationTxMaxFee).to.be.equal(
+          newReservationTxMaxFee
+        )
+        expect(staged.newReservationTermSeconds).to.be.equal(
+          newReservationTermSeconds
+        )
+        expect(staged.newReservationDissolutionDelay).to.be.equal(
+          newReservationDissolutionDelay
+        )
+        expect(staged.newReservationMaxTotalAmount).to.be.equal(
+          newReservationMaxTotalAmount
+        )
+        expect(staged.newMaxReservationsPerWallet).to.be.equal(
+          newMaxReservationsPerWallet
+        )
+        expect(staged.newReservationActionTimeout).to.be.equal(
+          newReservationActionTimeout
+        )
+        expect(staged.newReservationRenewalWindowSeconds).to.be.equal(
+          newReservationRenewalWindowSeconds
+        )
+        expect(staged.changeInitiated).to.be.equal(beginBlockTimestamp)
+      })
+
+      it("should show a second begin as an overwrite, vault included", async () => {
+        // As in the caps overwrite case: mine a block first so the second
+        // begin's timestamp differs from the staged one by construction,
+        // which keeps the gas estimate and the execution in agreement.
+        await helpers.time.increaseTime(1)
+
+        // A different vault, and a different min amount, so a tuple that was
+        // appended to rather than replaced would be visible.
+        const replacementVault = thirdParty.address
+        await beginParametersUpdate(replacementVault, 30000)
+
+        const staged =
+          await bridgeGovernance.pendingReservationParametersUpdate()
+        expect(staged.newReservationVault).to.be.equal(replacementVault)
+        expect(staged.newReservationMinAmount).to.be.equal(30000)
+        // The values the second begin repeated are the second begin's.
+        expect(staged.newReservationMaxTotalAmount).to.be.equal(
+          newReservationMaxTotalAmount
+        )
+        expect(staged.changeInitiated).to.be.equal(
+          await helpers.time.lastBlockTime()
+        )
+      })
+
+      it("should return zeros again after the update is finalized", async () => {
+        // Restage the live vault before finalizing: the overwrite case above
+        // left a placeholder address staged, and this case is about the slot
+        // being cleared, not about what was in it.
+        await beginParametersUpdate(currentReservationVault)
+        await helpers.time.increaseTime(constants.governanceDelay)
+        await bridgeGovernance
+          .connect(governance)
+          .finalizeReservationParametersUpdate()
+
+        const staged =
+          await bridgeGovernance.pendingReservationParametersUpdate()
+        expect(staged.newReservationVault).to.be.equal(ethers.ZeroAddress)
+        expect(staged.newReservationMinAmount).to.be.equal(0)
+        expect(staged.newReservationMaxTotalAmount).to.be.equal(0)
+        expect(staged.newReservationActionTimeout).to.be.equal(0)
+        expect(staged.changeInitiated).to.be.equal(0)
+      })
+    })
+  })
+
   describe("setVaultStatus", () => {
     context("when the caller is not the owner", () => {
       it("should revert", async () => {

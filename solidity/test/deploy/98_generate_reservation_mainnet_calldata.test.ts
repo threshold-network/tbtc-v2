@@ -9,9 +9,12 @@ import path from "path"
 import func, {
   buildReservationActionDefinitions,
   assertDissolutionDelayWithinScriptPolicy,
+  assertFinalizeAcceptsReservationValues,
+  decision1Assessment,
   assertHandoffAwareFleetFit,
   handoffAwareSlotCapacity,
   linkedRecordRuntime,
+  RESERVATION_SURFACE_METHODS,
   KNOWN_TIMELOCK,
   KNOWN_COUNCIL_SAFE,
 } from "../../deploy/98_generate_reservation_mainnet_calldata"
@@ -92,6 +95,60 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
   let routerLibraries: Record<string, string>
   /** The runtime the router has on chain when linked as `routerLibraries`. */
   let routerLinkedRuntime: string
+  /** The compiled ReservationVault artifact, and the runtime it deploys. */
+  let vaultArtifact: any
+  let vaultRuntime: string
+  /** The vault's build info and the immutable ranges it reports. */
+  let vaultBuildInfo: any
+  let vaultImmutables: Record<string, { start: number; length: number }[]>
+
+  /**
+   * The runtime a deploy of the vault artifact leaves at its address: the
+   * artifact's code with the constructor's immutable values written into the
+   * slots the compiler reserved for them. This suite mocks the HRE and
+   * deploys no contracts, and the vault's constructor calls into `TBTCVault`,
+   * so this is the shape `getCode` returns without a live deploy.
+   */
+  function deployedStyleRuntime(): string {
+    const bytes = vaultArtifact.deployedBytecode
+      .toLowerCase()
+      .replace(/^0x/, "")
+      .split("")
+    const references = Object.values(vaultImmutables)
+    // A build with no immutables would make the masking assertions vacuous.
+    expect(references.length).to.be.greaterThan(0)
+    references
+      .flat()
+      .forEach(
+        ({ start, length }: { start: number; length: number }, index) => {
+          // A distinct, obviously non-zero word per immutable, so a slot left
+          // zero-filled by the artifact is visible.
+          const word = (index + 0xa1)
+            .toString(16)
+            .repeat(64)
+            .slice(0, length * 2)
+          for (let offset = 0; offset < length * 2; offset += 1) {
+            bytes[2 * start + offset] = word[offset]
+          }
+        }
+      )
+    return `0x${bytes.join("")}`
+  }
+
+  /**
+   * The vault's build info as a different compilation would produce it: the
+   * same shape, different runtime bytes. Its immutable ranges therefore
+   * describe a contract this artifact could not have deployed, and using
+   * them would mask the wrong offsets.
+   */
+  function mismatchedBuildInfo(): any {
+    const copy = JSON.parse(JSON.stringify(vaultBuildInfo))
+    const runtime =
+      copy.output.contracts["contracts/vault/ReservationVault.sol"]
+        .ReservationVault.evm.deployedBytecode
+    runtime.object = `${runtime.object.slice(0, -2)}ff`
+    return copy
+  }
 
   before(async () => {
     bridgeGovernanceArtifact =
@@ -112,6 +169,14 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
       linkSites,
       libraries: routerLibraries,
     })
+    vaultArtifact = await hre.artifacts.readArtifact("ReservationVault")
+    vaultBuildInfo = await hre.artifacts.getBuildInfo(
+      "contracts/vault/ReservationVault.sol:ReservationVault"
+    )
+    vaultImmutables =
+      vaultBuildInfo.output.contracts["contracts/vault/ReservationVault.sol"]
+        .ReservationVault.evm.deployedBytecode.immutableReferences ?? {}
+    vaultRuntime = deployedStyleRuntime()
   })
 
   // A complete set of env vars that satisfies every validation the script
@@ -132,6 +197,9 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
     RESERVATION_MAX_PER_WALLET: "1",
     RESERVATION_ACTION_TIMEOUT_SECONDS: "86400",
     RESERVATION_RENEWAL_WINDOW_SECONDS: "86400",
+    // The address the irreversibility sign-off names; the mock's
+    // ReservationVault record points at the same one.
+    RESERVATION_VAULT: RESERVATION_VAULT_ADDRESS,
   }
   const ENV_KEYS = Object.keys(VALID_ENV)
 
@@ -179,6 +247,14 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
     proxyAdminOwner?: string
     bridgeGovernanceOwner?: string
     depositDustThreshold?: bigint
+    /** What `Bridge.governance()` returns: the handoff's postcondition. */
+    bridgeGovernanceOnChain?: string
+    /** Code at the BridgeGovernance record's address. */
+    bridgeGovernanceOnChainCode?: string
+    /** Code at the ReservationVault record's address. */
+    vaultOnChainCode?: string
+    /** How `artifacts.getBuildInfo` answers for the vault. */
+    buildInfoMode?: "present" | "missing" | "mismatched"
   }): { mockHre: any } {
     const liveWalletsCount = overrides?.liveWalletsCount ?? 10
     const liveWalletsCountAtFinalize =
@@ -196,12 +272,26 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
       overrides?.depositDustThreshold ?? BigInt(100000)
     const depositRevealAheadPeriod =
       overrides?.depositRevealAheadPeriod ?? 7776000
+    const bridgeGovernanceOnChain =
+      overrides?.bridgeGovernanceOnChain ?? BRIDGE_GOVERNANCE_ADDRESS
+    // The compiled artifact's own runtime: it carries every reservation
+    // selector, so the surface check passes on the happy path.
+    const bridgeGovernanceOnChainCode =
+      overrides?.bridgeGovernanceOnChainCode ??
+      bridgeGovernanceArtifact.deployedBytecode
+    const vaultOnChainCode = overrides?.vaultOnChainCode ?? vaultRuntime
 
     const addressMap: Record<string, string> = {
       Bridge: BRIDGE_ADDRESS,
       BridgeGovernance: BRIDGE_GOVERNANCE_ADDRESS,
       ReservationVault: RESERVATION_VAULT_ADDRESS,
       ReservationRouter: RESERVATION_ROUTER_ADDRESS,
+    }
+
+    const codeByAddress: Record<string, string> = {
+      [BRIDGE_GOVERNANCE_ADDRESS.toLowerCase()]: bridgeGovernanceOnChainCode,
+      [RESERVATION_VAULT_ADDRESS.toLowerCase()]: vaultOnChainCode,
+      [RESERVATION_ROUTER_ADDRESS.toLowerCase()]: routerOnChainCode,
     }
 
     let liveWalletsCountReadCalls = 0
@@ -222,14 +312,30 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
           if (name === "ReservationRouter") {
             return routerArtifact
           }
+          if (name === "ReservationVault") {
+            return vaultArtifact
+          }
           throw new Error(`Unexpected artifact request: ${name}`)
+        },
+        getBuildInfo: async (name: string) => {
+          if (
+            name === "contracts/vault/ReservationVault.sol:ReservationVault"
+          ) {
+            if (overrides?.buildInfoMode === "missing") return undefined
+            if (overrides?.buildInfoMode === "mismatched") {
+              return mismatchedBuildInfo()
+            }
+            return vaultBuildInfo
+          }
+          throw new Error(`Unexpected build info request: ${name}`)
         },
       },
       ethers: {
         provider: {
           getStorage: async () =>
             `0x${"0".repeat(24)}${PROXY_ADMIN_ADDRESS.slice(2).toLowerCase()}`,
-          getCode: async () => routerOnChainCode,
+          getCode: async (address: string) =>
+            codeByAddress[address.toLowerCase()] ?? "0x",
         },
         getContractAt: async (_abi: any, address: string) => ({
           owner: async () => ownerByAddress[address.toLowerCase()],
@@ -248,6 +354,15 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
               address,
               deployedBytecode: routerArtifact.deployedBytecode,
               libraries: routerLibraries,
+            }
+          }
+          if (name === "ReservationVault") {
+            // The vault links no library, so its record carries the
+            // artifact's own runtime.
+            return {
+              address,
+              deployedBytecode: vaultArtifact.deployedBytecode,
+              libraries: {},
             }
           }
           return { address }
@@ -279,6 +394,9 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
           }
           if (name === "Bridge" && method === "getReservationRouter") {
             return reservationRouterOnChain
+          }
+          if (name === "Bridge" && method === "governance") {
+            return bridgeGovernanceOnChain
           }
           throw new Error(`Unexpected read: ${name}.${method}`)
         },
@@ -622,6 +740,341 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
       process.env.RESERVATION_HANDOFF_RESERVE_WALLETS = "0"
       const { mockHre } = createMockHre()
       await expectRejection(func(mockHre), /HANDOFF_RESERVE_WALLETS/)
+    })
+  })
+
+  // --- A05-01: the vault the ceremony stages is the vault the Bridge keeps
+  // for the lifetime of every live reservation, and the pre-flight sign-off
+  // binds that address in writing. The deployment record is not that
+  // address: a re-run of 95_deploy_reservation_vault.ts after a recompile
+  // rewrites it. So the script has to be told the signed-off address, and
+  // has to prove the code at the record is the code this build deploys.
+  describe("reservation vault sign-off binding (finding: the record decided the vault)", () => {
+    it("should throw when RESERVATION_VAULT is not the deployment record's address", async () => {
+      process.env.RESERVATION_VAULT =
+        "0x0000000000000000000000000000000000000099"
+      const { mockHre } = createMockHre()
+      await expectRejection(func(mockHre), /RESERVATION_VAULT/)
+    })
+
+    it("should throw when RESERVATION_VAULT is not an address", async () => {
+      process.env.RESERVATION_VAULT = "not-an-address"
+      const { mockHre } = createMockHre()
+      await expectRejection(func(mockHre), /is not an Ethereum address/)
+    })
+
+    it("should throw when the code at the recorded vault does not match the artifact", async () => {
+      const { mockHre } = createMockHre({
+        vaultOnChainCode: `${vaultRuntime}00`,
+      })
+      await expectRejection(func(mockHre), /keccak256 of the code at/)
+    })
+
+    it("should report an empty account as carrying no code", async () => {
+      const { mockHre } = createMockHre({ vaultOnChainCode: "0x" })
+      await expectRejection(func(mockHre), /carries no code/)
+    })
+
+    it("should generate calldata when the address and the code hash match", async () => {
+      const { mockHre } = createMockHre()
+      await func(mockHre)
+    })
+
+    it("should accept a runtime whose immutable slots carry values, not the artifact's zeros", async () => {
+      // The artifact's `deployedBytecode` leaves the constructor's immutable
+      // slots zero-filled; the chain does not. `vaultRuntime` is the
+      // populated form, so the happy path above and this case only pass if
+      // the guard masks those slots on both sides.
+      expect(vaultRuntime).to.not.equal(vaultArtifact.deployedBytecode)
+      const { mockHre } = createMockHre({ vaultOnChainCode: vaultRuntime })
+      await func(mockHre)
+    })
+
+    it("should throw when a byte outside the immutable slots differs", async () => {
+      // Byte 8 is in the dispatcher prologue, far from any immutable slot;
+      // the immutable references are asserted non-empty above.
+      const tampered = `${vaultRuntime.slice(0, 2 + 16)}ff${vaultRuntime.slice(2 + 18)}`
+      expect(tampered).to.not.equal(vaultRuntime)
+      expect(tampered).to.have.lengthOf(vaultRuntime.length)
+      const { mockHre } = createMockHre({ vaultOnChainCode: tampered })
+      await expectRejection(func(mockHre), /keccak256 of the code at/)
+    })
+
+    it("should throw when the runtime is shorter than the artifact", async () => {
+      // Masking replaces the immutable bytes by offset, so a shorter runtime
+      // must not be accepted by the hash comparison: the offsets the artifact
+      // reports no longer line up, and a zero-filled slot cannot be told from
+      // the artifact's own template, so length is the only discriminator left.
+      const truncated = vaultRuntime.slice(0, -2)
+      const { mockHre } = createMockHre({ vaultOnChainCode: truncated })
+      await expectRejection(func(mockHre), /keccak256 of the code at/)
+    })
+
+    it("should refuse when no build info covers the vault", async () => {
+      // Fail-closed: without build info the immutable ranges are unknown, and
+      // comparing the raw templates would reject every correct deployment.
+      const { mockHre } = createMockHre({ buildInfoMode: "missing" })
+      await expectRejection(func(mockHre), /No build info covers/)
+    })
+
+    it("should refuse build info whose runtime differs from the artifact's", async () => {
+      // Ranges from another compilation would mask the wrong offsets, so the
+      // compared hash could hide a byte that actually differs.
+      const { mockHre } = createMockHre({ buildInfoMode: "mismatched" })
+      await expectRejection(func(mockHre), /describes a different runtime/)
+    })
+  })
+
+  // --- A05-02: `owner()` alone cannot tell a handed-over,
+  // reservation-capable BridgeGovernance from one the Council Safe owns but
+  // never handed to the Bridge, or from a build that predates the
+  // reservation surface. Both make every action below revert on arrival.
+  describe("BridgeGovernance ceremony target (finding: only owner() was checked)", () => {
+    const PRE_RESERVATION_GOVERNANCE = "0x6080604052348015600f57600080fd5b50"
+
+    it("should throw when Bridge.governance() is the old governance", async () => {
+      const { mockHre } = createMockHre({
+        bridgeGovernanceOnChain: "0x6b3E0e4b0b6C63c7C1c1B1a1C1D1E1F1a1B1C1D1",
+      })
+      await expectRejection(func(mockHre), /Bridge\.governance\(\) is/)
+    })
+
+    it("should name Stage 1 as what the mismatch is missing", async () => {
+      const { mockHre } = createMockHre({
+        bridgeGovernanceOnChain: "0x6b3E0e4b0b6C63c7C1c1B1a1C1D1E1F1a1B1C1D1",
+      })
+      await expectRejection(func(mockHre), /Stage 1/)
+    })
+
+    it("should throw when the target address carries no code", async () => {
+      const { mockHre } = createMockHre({
+        bridgeGovernanceOnChainCode: "0x",
+      })
+      await expectRejection(func(mockHre), /no code at/)
+    })
+
+    it("should throw, naming the missing methods, when the target lacks the reservation selectors", async () => {
+      const { mockHre } = createMockHre({
+        bridgeGovernanceOnChainCode: PRE_RESERVATION_GOVERNANCE,
+      })
+      let rejection: unknown
+      try {
+        await func(mockHre)
+      } catch (error) {
+        rejection = error
+      }
+      expect(rejection, "func should throw").to.be.instanceOf(Error)
+      const { message } = rejection as Error
+      expect(message).to.include("does not expose")
+      // The whole surface, not just the first missing selector.
+      expect(message).to.include("beginReservationCapsUpdate")
+      expect(message).to.include("pendingReservationParametersUpdate")
+      expect(message).to.include("setVaultStatus")
+    })
+
+    it("should require every method the actions encode, plus both pending views", () => {
+      const encoded = buildReservationActionDefinitions({
+        reservationRouter: RESERVATION_ROUTER_ADDRESS,
+        reservationVault: RESERVATION_VAULT_ADDRESS,
+        perWalletCap: BigInt(1_000_000),
+        singleAmountCap: BigInt(100_000),
+        maxActive: 5,
+        maxThirdPartyReanchorHolds: 1,
+        handoffReserveWallets: 1,
+        minAmount: BigInt(10_000),
+        txMaxFee: BigInt(1_000),
+        termSeconds: 7_776_000,
+        dissolutionDelay: 86_400,
+        maxTotalAmount: BigInt(500_000),
+        maxReservationsPerWallet: 1,
+        actionTimeout: 86_400,
+        renewalWindowSeconds: 86_400,
+      }).map((action) => action.method)
+
+      encoded.forEach((method) => {
+        expect(RESERVATION_SURFACE_METHODS).to.include(method)
+      })
+      expect(RESERVATION_SURFACE_METHODS).to.include(
+        "pendingReservationCapsUpdate"
+      )
+      expect(RESERVATION_SURFACE_METHODS).to.include(
+        "pendingReservationParametersUpdate"
+      )
+    })
+  })
+
+  // --- A05-03: `beginReservationCapsUpdate` validates none of its five
+  // values and `beginReservationParametersUpdate` validates only the
+  // dissolution delay and the action-timeout ceiling, so a value outside the
+  // finalize rules used to stage cleanly and be rejected 48h later, with no
+  // cancel left.
+  describe("finalize-time value acceptance (finding: caps lower bounds missing)", () => {
+    const acceptedValues = {
+      perWalletCap: BigInt(1_000_000),
+      singleAmountCap: BigInt(100_000),
+      maxActive: 5,
+      maxThirdPartyReanchorHolds: 1,
+      handoffReserveWallets: 1,
+      minAmount: BigInt(10_000),
+      txMaxFee: BigInt(1_000),
+      termSeconds: 7_776_000,
+      dissolutionDelay: 86_400,
+      maxTotalAmount: BigInt(500_000),
+      maxReservationsPerWallet: 1,
+      actionTimeout: 86_400,
+      renewalWindowSeconds: 86_400,
+    }
+
+    it("should accept the launch values", () => {
+      expect(() =>
+        assertFinalizeAcceptsReservationValues(acceptedValues)
+      ).to.not.throw()
+    })
+
+    it("should reject a zero maxActiveReservations with the on-chain require text", () => {
+      expect(() =>
+        assertFinalizeAcceptsReservationValues({
+          ...acceptedValues,
+          maxActive: 0,
+        })
+      ).to.throw(/Active reservations cap must be greater than zero/)
+    })
+
+    it("should reject a negative maxActiveReservations", () => {
+      expect(() =>
+        assertFinalizeAcceptsReservationValues({
+          ...acceptedValues,
+          maxActive: -1,
+        })
+      ).to.throw(/RESERVATION_MAX_ACTIVE \(-1\)/)
+    })
+
+    it("should reject a zero hand-off reserve with the on-chain require text", () => {
+      expect(() =>
+        assertFinalizeAcceptsReservationValues({
+          ...acceptedValues,
+          handoffReserveWallets: 0,
+        })
+      ).to.throw(/Hand-off reserve must be greater than zero/)
+    })
+
+    it("should reject a zero tx max fee", () => {
+      expect(() =>
+        assertFinalizeAcceptsReservationValues({
+          ...acceptedValues,
+          txMaxFee: BigInt(0),
+        })
+      ).to.throw(/Reservation transaction max fee must be greater than zero/)
+    })
+
+    it("should reject a min amount that does not exceed the tx max fee", () => {
+      expect(() =>
+        assertFinalizeAcceptsReservationValues({
+          ...acceptedValues,
+          minAmount: acceptedValues.txMaxFee,
+        })
+      ).to.throw(/Reservation minimum amount must be greater/)
+    })
+
+    it("should reject a term below the protocol minimum", () => {
+      expect(() =>
+        assertFinalizeAcceptsReservationValues({
+          ...acceptedValues,
+          termSeconds: 7_775_999,
+        })
+      ).to.throw(/Reservation term out of protocol bounds/)
+    })
+
+    it("should reject an action timeout above the protocol maximum", () => {
+      expect(() =>
+        assertFinalizeAcceptsReservationValues({
+          ...acceptedValues,
+          actionTimeout: 63_072_001,
+        })
+      ).to.throw(/Reservation action timeout out of protocol bounds/)
+    })
+
+    it("should reject a zero max-reservations-per-wallet", () => {
+      expect(() =>
+        assertFinalizeAcceptsReservationValues({
+          ...acceptedValues,
+          maxReservationsPerWallet: 0,
+        })
+      ).to.throw(/Max reservations per wallet must be greater than zero/)
+    })
+
+    it("should accept a zero single-amount cap, which the contract reads as disabled", () => {
+      // `Reservation.validateReservationCapsInvariant` short-circuits when
+      // `reservationMaxSingleAmount == 0`: zero is how governance disables
+      // that amount cap, and the relational ceiling disappears with it. A
+      // mirror that rejected the total here would refuse calldata the
+      // contract accepts.
+      expect(() =>
+        assertFinalizeAcceptsReservationValues({
+          ...acceptedValues,
+          singleAmountCap: BigInt(0),
+          maxTotalAmount: BigInt(500_000),
+        })
+      ).to.not.throw()
+    })
+
+    it("should report a zero single-amount cap as skipped, not as satisfied", () => {
+      // The report is the ceremony's evidence: calling a disabled cap
+      // "satisfied" would claim a check ran that the contract never ran.
+      const assessment = decision1Assessment(10, BigInt(0), BigInt(500_000))
+      expect(assessment.skipped).to.equal(true)
+      expect(assessment.satisfied).to.equal(true)
+      expect(assessment.slotCapacity).to.equal(BigInt(0))
+    })
+
+    it("should still reject a total above capacity when the single-amount cap is set", () => {
+      expect(() =>
+        assertFinalizeAcceptsReservationValues({
+          ...acceptedValues,
+          singleAmountCap: BigInt(1_000),
+          maxTotalAmount: BigInt(5_001),
+        })
+      ).to.throw(/Amount cap exceeds slot capacity/)
+    })
+
+    it("should throw from the deploy function when MAX_ACTIVE and MAX_TOTAL_AMOUNT are both zero", async () => {
+      // The case the finding used: every guard on MAX_ACTIVE in this script
+      // was an upper bound, so 0 sailed through, staged, and was rejected by
+      // the caps finalize 48h later.
+      process.env.RESERVATION_MAX_ACTIVE = "0"
+      process.env.RESERVATION_MAX_TOTAL_AMOUNT_SATS = "0"
+      const { mockHre } = createMockHre()
+      await expectRejection(
+        func(mockHre),
+        /Active reservations cap must be greater than zero/
+      )
+    })
+
+    it("should write a skipped, satisfied Decision 1 into the summary for a disabled single-amount cap", async () => {
+      // The guard admits a zero single-amount cap, so the generated report
+      // must not then mark the same calldata as violating the invariant: the
+      // summary is what the ceremony review reads after the fact.
+      process.env.RESERVATION_SINGLE_AMOUNT_CAP_SATS = "0"
+      process.env.RESERVATION_MAX_TOTAL_AMOUNT_SATS = "500000"
+      removeSummaryFiles()
+      const { mockHre } = createMockHre()
+      const capture = captureConsoleLog()
+      let output: string
+      try {
+        await func(mockHre)
+      } finally {
+        output = capture.restore()
+      }
+      expect(output).to.include("Decision 1 invariant skipped")
+      const files = findSummaryFiles()
+      expect(files.length).to.equal(1)
+      const summary = JSON.parse(fs.readFileSync(files[0], "utf-8"))
+      expect(summary.decision1Invariant.skipped).to.equal(true)
+      expect(summary.decision1Invariant.satisfied).to.equal(true)
+      expect(summary.decision1Invariant.slotCapacity).to.equal("0")
+      expect(summary.decision1Invariant.maxTotalAmount).to.equal("500000")
+      expect(summary.decision1Invariant.description).to.include("disables")
+      removeSummaryFiles()
     })
   })
 
