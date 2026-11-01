@@ -384,7 +384,7 @@ async function immutableReferencesOf(
   artifactBytecode: string
 ): Promise<Record<string, ImmutableReference[]>> {
   const buildInfo = await artifacts.getBuildInfo(fullyQualifiedName)
-  if (buildInfo === null) {
+  if (!buildInfo) {
     throw new Error(
       `No build info covers ${fullyQualifiedName}, so its immutable ranges ` +
         "are unknown and its runtime cannot be compared. Recompile without " +

@@ -158,9 +158,8 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
       "contracts/vault/ReservationVault.sol:ReservationVault"
     )
     vaultImmutables =
-      vaultBuildInfo.output.contracts["contracts/vault/ReservationVault.sol"][
-        "ReservationVault"
-      ].evm.deployedBytecode.immutableReferences ?? {}
+      vaultBuildInfo.output.contracts["contracts/vault/ReservationVault.sol"]
+        .ReservationVault.evm.deployedBytecode.immutableReferences ?? {}
     vaultRuntime = deployedStyleRuntime()
   })
 
