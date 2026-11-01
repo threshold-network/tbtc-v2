@@ -149,7 +149,7 @@ const mutants = [
   [
     "R18 cooldown applies to nobody",
     RES,
-    `if (!privileged) {\n${ind(12)}require(\n${ind(
+    `if (!isPrivileged) {\n${ind(12)}require(\n${ind(
       16
     )}block.timestamp >= reservation.reanchorCooldownUntil`,
     `if (false) {\n${ind(12)}require(\n${ind(
