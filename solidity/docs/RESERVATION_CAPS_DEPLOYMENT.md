@@ -350,6 +350,83 @@ Tooling note: under the repository's Node version, `npx hardhat run` does not ca
 >
 > Setting a non-zero `reservationVault` in `updateReservationParameters` and accepting the first reservation permanently locks in that vault contract for the entire lifetime of live reservations. Explicit governance and deployer sign-off acknowledging this irreversibility is **required** prior to the activation ceremony. The executable form of that sign-off is the "Pre-flight — Irreversibility sign-off (before Stage 0)" step of the Activation Runbook, which must be complete before any reservation call is submitted.
 
+## WalletProposalValidator Deployment (M1)
+
+M1 ships a **new** `WalletProposalValidator`. The deployed mainnet validator
+(`0x30019D85a86ABD3cDA1167F4C052690c32FBDEc2`) predates the reservation
+feature: its runtime carries neither the reserved-deposit check nor
+`validateReservationAnchorProposal` / `validateReservationReanchorProposal`, so
+it cannot validate a reservation proposal at all, and it accepts a deposit sweep
+that spends a reserved deposit.
+
+**Deploy it with `scripts/deploy-reservation-validator.ts`, not with
+`hardhat deploy --tags WalletProposalValidator`.** The tag path resolves the
+`Bridge` dependency and re-runs the deployment graph in front of it; measured on
+a mainnet fork at block 26320694 it starts redeploying `Bank`, `LightRelay` and
+the bridge libraries, and would finish by deploying a new Bridge proxy with new
+storage. The script performs the single `deploy("WalletProposalValidator",
+[Bridge])` call of `deploy/39_deploy_wallet_proposal_validator.ts` after a
+preflight, archives the previous record as
+`deployments/mainnet/WalletProposalValidator.pre-m1.json`, and verifies the
+deployed runtime.
+
+### Ordering against the Bridge upgrade
+
+The validator's reserved-deposit rule calls `bridge.isReservedDeposit(key)` for
+**every** deposit in a sweep proposal. A pre-reservation Bridge has no such
+function, so a client pointed at the M1 validator before the Bridge carries the
+reservation implementation fails validation of every sweep proposal - a
+protocol-wide deposit-sweep halt, not a reservation-only failure. The deploy
+itself is inert (the contract holds no state); what must not precede the Bridge
+upgrade is the **client cut-over** to the new address. The script refuses to run
+while the Bridge cannot answer `isReservedDeposit`; `PRE_UPGRADE=1` overrides
+that for an early, inert deployment.
+
+### How the address reaches the client
+
+The validator address is not governance state: keep-core resolves it from
+`pkg/chain/ethereum/tbtc/gen/_address/WalletProposalValidator`, which `make`
+fills from `deployments/mainnet/WalletProposalValidator.json` of the published
+`@keep-network/tbtc-v2` npm package. The chain is therefore:
+
+1. run `scripts/deploy-reservation-validator.ts` on mainnet,
+2. publish the npm package carrying that record,
+3. `make` in `pkg/chain/ethereum/tbtc/gen` (`environment=mainnet`) and build the
+   release binary,
+4. run the gate below against the release's activation block.
+
+A release built before step 2 keeps naming the pre-M1 validator, which is the
+one failure mode in which the on-chain reserved-deposit guard is absent while
+everything else looks wired.
+
+### Release gate
+
+`scripts/check-reservation-activation-gate.ts` is the executable form of the
+validator and activation-block gate. It reads the validator and Bridge addresses
+from the deployment records (or `BRIDGE_ADDRESS` / `VALIDATOR_ADDRESS`) and
+asserts:
+
+- the validator's **deployed** runtime calls `isReservedDeposit` and exposes both
+  reservation proposal entry points. A substring search for
+  `"Reserved deposits must not be swept"` is not a valid check: solc stores a
+  revert message as a run of 32-byte words carrying 31 payload bytes each, so
+  the message never appears contiguously, and the search reports a correct build
+  as missing;
+- the Bridge answers `isReservedDeposit(0)`;
+- `RELEASE_BLOCK < ACTIVATION_BLOCK <= SET_VAULT_STATUS_BLOCK`, with the two
+  heights recorded by the "Client Activation Ordering Gate" above.
+
+```bash
+CHAIN_API_URL=[MAINNET_RPC] \
+  ACTIVATION_BLOCK=[CLIENT_ACTIVATION_BLOCK] \
+  RELEASE_BLOCK=[RELEASE_ROLLOUT_BLOCK] \
+  SET_VAULT_STATUS_BLOCK=[SET_VAULT_STATUS_BLOCK] \
+  npx hardhat run --network mainnet scripts/check-reservation-activation-gate.ts
+```
+
+Exit code 0 means every check passed; 1 means a check failed; 2 means an input
+was missing. Run it before Call 6 of the Activation Runbook.
+
 ## Client Activation Ordering Gate
 
 On-chain activation (`setVaultStatus(vault, true)`) and client activation (keep-core's reservation task scheduling) are two independent axes that MUST be coupled in this order:
