@@ -502,7 +502,7 @@ describe("deploy/99 the ceremony, end to end", () => {
     // The order is the whole point of the batch, so the payloads are
     // decoded and checked rather than merely counted: action [0] upgrades
     // the RebateStaking proxy, action [1] the Bridge proxy. The addresses
-    // are compared case-insensitively: the decoded ones are checksummed,
+    // are compared ignoring letter case: the decoded ones are checksummed,
     // the fixtures are not.
     const proxyAdminInterface = new ethers.Interface([
       "function upgrade(address,address)",
