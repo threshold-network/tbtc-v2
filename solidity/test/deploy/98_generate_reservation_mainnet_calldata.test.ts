@@ -97,6 +97,42 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
   /** The compiled ReservationVault artifact, and the runtime it deploys. */
   let vaultArtifact: any
   let vaultRuntime: string
+  /** The vault's build info and the immutable ranges it reports. */
+  let vaultBuildInfo: any
+  let vaultImmutables: Record<string, { start: number; length: number }[]>
+
+  /**
+   * The runtime a deploy of the vault artifact leaves at its address: the
+   * artifact's code with the constructor's immutable values written into the
+   * slots the compiler reserved for them. This suite mocks the HRE and
+   * deploys no contracts, and the vault's constructor calls into `TBTCVault`,
+   * so this is the shape `getCode` returns without a live deploy.
+   */
+  function deployedStyleRuntime(): string {
+    const bytes = vaultArtifact.deployedBytecode
+      .toLowerCase()
+      .replace(/^0x/, "")
+      .split("")
+    const references = Object.values(vaultImmutables)
+    // A build with no immutables would make the masking assertions vacuous.
+    expect(references.length).to.be.greaterThan(0)
+    references
+      .flat()
+      .forEach(
+        ({ start, length }: { start: number; length: number }, index) => {
+          // A distinct, obviously non-zero word per immutable, so a slot left
+          // zero-filled by the artifact is visible.
+          const word = (index + 0xa1)
+            .toString(16)
+            .repeat(64)
+            .slice(0, length * 2)
+          for (let offset = 0; offset < length * 2; offset += 1) {
+            bytes[2 * start + offset] = word[offset]
+          }
+        }
+      )
+    return `0x${bytes.join("")}`
+  }
 
   before(async () => {
     bridgeGovernanceArtifact =
@@ -118,7 +154,14 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
       libraries: routerLibraries,
     })
     vaultArtifact = await hre.artifacts.readArtifact("ReservationVault")
-    vaultRuntime = vaultArtifact.deployedBytecode
+    vaultBuildInfo = await hre.artifacts.getBuildInfo(
+      "contracts/vault/ReservationVault.sol:ReservationVault"
+    )
+    vaultImmutables =
+      vaultBuildInfo.output.contracts["contracts/vault/ReservationVault.sol"][
+        "ReservationVault"
+      ].evm.deployedBytecode.immutableReferences ?? {}
+    vaultRuntime = deployedStyleRuntime()
   })
 
   // A complete set of env vars that satisfies every validation the script
@@ -256,6 +299,14 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
             return vaultArtifact
           }
           throw new Error(`Unexpected artifact request: ${name}`)
+        },
+        getBuildInfo: async (name: string) => {
+          if (
+            name === "contracts/vault/ReservationVault.sol:ReservationVault"
+          ) {
+            return vaultBuildInfo
+          }
+          throw new Error(`Unexpected build info request: ${name}`)
         },
       },
       ethers: {
@@ -707,6 +758,36 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
       const { mockHre } = createMockHre()
       await func(mockHre)
     })
+
+    it("should accept a runtime whose immutable slots carry values, not the artifact's zeros", async () => {
+      // The artifact's `deployedBytecode` leaves the constructor's immutable
+      // slots zero-filled; the chain does not. `vaultRuntime` is the
+      // populated form, so the happy path above and this case only pass if
+      // the guard masks those slots on both sides.
+      expect(vaultRuntime).to.not.equal(vaultArtifact.deployedBytecode)
+      const { mockHre } = createMockHre({ vaultOnChainCode: vaultRuntime })
+      await func(mockHre)
+    })
+
+    it("should throw when a byte outside the immutable slots differs", async () => {
+      // Byte 8 is in the dispatcher prologue, far from any immutable slot;
+      // the immutable references are asserted non-empty above.
+      const tampered = `${vaultRuntime.slice(0, 2 + 16)}ff${vaultRuntime.slice(2 + 20)}`
+      expect(tampered).to.not.equal(vaultRuntime)
+      const { mockHre } = createMockHre({ vaultOnChainCode: tampered })
+      await expectRejection(func(mockHre), /keccak256 of the code at/)
+    })
+
+    it("should throw when an immutable slot is left zero-filled", async () => {
+      // A runtime that claims the artifact's own bytes is not enough: the
+      // record must describe a deployed vault, and a zero-filled immutable
+      // slot is the artifact, not a deployment. Masking cannot hide a wrong
+      // address, but an untouched slot is still worth rejecting evidence
+      // for, and this pins that the mask does not accept a different length.
+      const truncated = vaultRuntime.slice(0, -2)
+      const { mockHre } = createMockHre({ vaultOnChainCode: truncated })
+      await expectRejection(func(mockHre), /keccak256 of the code at/)
+    })
   })
 
   // --- A05-02: `owner()` alone cannot tell a handed-over,
@@ -887,11 +968,27 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
       ).to.throw(/Max reservations per wallet must be greater than zero/)
     })
 
-    it("should reject a total above this update's slot capacity", () => {
+    it("should accept a zero single-amount cap, which the contract reads as disabled", () => {
+      // `Reservation.validateReservationCapsInvariant` short-circuits when
+      // `reservationMaxSingleAmount == 0`: zero is how governance disables
+      // that amount cap, and the relational ceiling disappears with it. A
+      // mirror that rejected the total here would refuse calldata the
+      // contract accepts.
       expect(() =>
         assertFinalizeAcceptsReservationValues({
           ...acceptedValues,
-          maxTotalAmount: BigInt(500_001),
+          singleAmountCap: BigInt(0),
+          maxTotalAmount: BigInt(500_000),
+        })
+      ).to.not.throw()
+    })
+
+    it("should still reject a total above capacity when the single-amount cap is set", () => {
+      expect(() =>
+        assertFinalizeAcceptsReservationValues({
+          ...acceptedValues,
+          singleAmountCap: BigInt(1_000),
+          maxTotalAmount: BigInt(5_001),
         })
       ).to.throw(/Amount cap exceeds slot capacity/)
     })

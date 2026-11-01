@@ -326,6 +326,89 @@ export function assertReservationGovernanceTarget(params: {
   }
 }
 
+/** One immutable value's byte range in the deployed runtime. */
+export interface ImmutableReference {
+  /** Byte offset into the deployed bytecode, excluding the 0x prefix. */
+  start: number
+  length: number
+}
+
+/**
+ * Zero-fills every immutable position in a runtime blob.
+ *
+ * `deployedBytecode` in an artifact keeps zeros at the offsets the
+ * constructor writes immutable values to; the code at a deployed address
+ * keeps the values instead. A byte-for-byte comparison of the two can only
+ * ever differ, however correct the deployment is, so both sides are masked
+ * to the emitted code. The ranges come from the artifact's own
+ * `immutableReferences`, keyed by AST id.
+ */
+export function maskImmutableRanges(
+  bytecode: string,
+  immutableReferences: Record<string, ImmutableReference[]>
+): string {
+  const hex = bytecode.toLowerCase().replace(/^0x/, "")
+  if (hex.length === 0) return bytecode
+  const masked = hex.split("")
+  Object.values(immutableReferences)
+    .flat()
+    .forEach(({ start, length }) => {
+      for (let offset = 0; offset < length; offset += 1) {
+        const first = 2 * (start + offset)
+        if (first + 1 >= masked.length) {
+          throw new Error(
+            `The artifact's immutable reference at byte ${start} runs past ` +
+              `the end of the ${hex.length / 2}-byte runtime, so the two ` +
+              "sides cannot be compared. Recompile and re-read the artifact."
+          )
+        }
+        masked[first] = "0"
+        masked[first + 1] = "0"
+      }
+    })
+  return `0x${masked.join("")}`
+}
+
+/**
+ * The immutable byte ranges of a compiled contract's runtime.
+ *
+ * The Hardhat artifact carries bytecode but not the immutable ranges, so the
+ * ranges come from the build info whose deployed bytecode is byte-identical
+ * to the artifact's: the compilation that produced it. A build info from a
+ * different compilation has different bytes, and its offsets would describe
+ * a runtime nobody deployed, so that case is refused rather than guessed at.
+ */
+async function immutableReferencesOf(
+  artifacts: HardhatRuntimeEnvironment["artifacts"],
+  fullyQualifiedName: string,
+  artifactBytecode: string
+): Promise<Record<string, ImmutableReference[]>> {
+  const buildInfo = await artifacts.getBuildInfo(fullyQualifiedName)
+  if (buildInfo === null) {
+    throw new Error(
+      `No build info covers ${fullyQualifiedName}, so its immutable ranges ` +
+        "are unknown and its runtime cannot be compared. Recompile without " +
+        "pruning build info."
+    )
+  }
+  const [sourceName, contractName] = fullyQualifiedName.split(":")
+  const compiled =
+    buildInfo.output.contracts?.[sourceName]?.[contractName]?.evm
+      ?.deployedBytecode
+  const object = compiled?.object ?? ""
+  if (
+    object.toLowerCase().replace(/^0x/, "") !==
+    artifactBytecode.toLowerCase().replace(/^0x/, "")
+  ) {
+    throw new Error(
+      `The build info for ${fullyQualifiedName} describes a different ` +
+        "runtime than the artifact, so its immutable ranges do not apply. " +
+        "Recompile before generating calldata."
+    )
+  }
+  return compiled?.immutableReferences ?? {}
+}
+
 /**
  * Refuses to generate calldata for a reservation vault other than the one
  * the sign-off names.
@@ -351,6 +434,8 @@ export function assertExpectedReservationVault(params: {
   onChainRuntime: string
   /** The runtime the record describes, its libraries linked. */
   expectedRuntime: string
+  /** The artifact's `immutableReferences`, as compiled. */
+  immutableReferences: Record<string, ImmutableReference[]>
 }): void {
   if (params.expected.toLowerCase() !== params.recorded.toLowerCase()) {
     throw new Error(
@@ -365,8 +450,20 @@ export function assertExpectedReservationVault(params: {
         "rewrote it."
     )
   }
-  const onChainHash = keccak256(params.onChainRuntime)
-  const expectedHash = keccak256(params.expectedRuntime)
+  // The artifact's runtime carries zeros where the constructor's immutables
+  // land; the deployed code carries their values. Masking those positions on
+  // both sides compares the code the compiler emitted rather than the
+  // constructor's arguments, which the address under test already fixes.
+  const onChainMasked = maskImmutableRanges(
+    params.onChainRuntime,
+    params.immutableReferences
+  )
+  const expectedMasked = maskImmutableRanges(
+    params.expectedRuntime,
+    params.immutableReferences
+  )
+  const onChainHash = keccak256(onChainMasked)
+  const expectedHash = keccak256(expectedMasked)
   if (onChainHash !== expectedHash) {
     throw new Error(
       `keccak256 of the code at ${params.recorded} is ${onChainHash}, but ` +
@@ -510,8 +607,16 @@ export function assertFinalizeAcceptsReservationValues(
 
   // Decision 1's relational check as `updateReservationCaps` evaluates it:
   // the staged total against this update's own slot-capacity operands.
+  // `validateReservationCapsInvariant` short-circuits when either operand is
+  // zero, because a zero amount cap is how governance disables that cap --
+  // so a zero single-amount cap leaves the total unbounded and must not be
+  // rejected here. `maxActive` cannot be zero at this point: the branch
+  // above already rejected it.
   const slotCapacity = BigInt(values.maxActive) * values.singleAmountCap
-  if (values.maxTotalAmount > slotCapacity) {
+  if (
+    values.singleAmountCap !== BigInt(0) &&
+    values.maxTotalAmount > slotCapacity
+  ) {
     throw new Error(
       `Decision 1 invariant violated: reservationMaxTotalAmount ` +
         `(${values.maxTotalAmount}) > maxActiveReservations * ` +
@@ -993,10 +1098,15 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     recorded: ReservationVault.address,
     onChainRuntime: await ethers.provider.getCode(ReservationVault.address),
     expectedRuntime: expectedReservationVaultRuntime,
+    immutableReferences: await immutableReferencesOf(
+      artifacts,
+      "contracts/vault/ReservationVault.sol:ReservationVault",
+      reservationVaultArtifact.deployedBytecode
+    ),
   })
   console.log(
     `  RESERVATION_VAULT (${expectedReservationVault}) matches the record and ` +
-      "its code hash matches the compiled artifact"
+      "its code matches the compiled artifact outside the immutable slots"
   )
 
   // --- Verify the reservation router on-chain before embedding its address
