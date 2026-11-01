@@ -16,8 +16,8 @@ pragma solidity 0.8.17;
 //                                  pending marker, an unswept deposit and no
 //                                  pending acceptance action; it does NOT
 //                                  check the refund deadline. It wipes
-//                                  walletPubKeyHash, refundDeadline and
-//                                  refundDeadlineValidated, decrements
+//                                  walletPubKeyHash and refundDeadline,
+//                                  decrements
 //                                  pendingReservedDeposits and emits
 //                                  ReservedDepositMarkedStale(depositKey)
 //   Reservation.sol:1301-1318      vault change guard in

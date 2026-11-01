@@ -94,6 +94,7 @@ const NEW_STAKING_IMPL = "0x5555555555555555555555555555555555555555"
 const DEPLOYER = "0x6666666666666666666666666666666666666666"
 const OTHER_STAKING_IMPL = "0x7777777777777777777777777777777777777777"
 const OTHER_POINTER = "0x9999999999999999999999999999999999999999"
+const ROUTER_PROXY = "0x8888888888888888888888888888888888888888"
 
 const BASELINE_NAME = "RebateStakingTIP109HotfixImplementation"
 const HEAD_NAME = "RebateStakingReservationImplementation"
@@ -110,6 +111,13 @@ interface CeremonyOverrides {
   bridgePointer?: string
   /** The head layout the ceremony reads out of the record it wrote. */
   headLayout?: StorageLayout
+  /** The reservation router the Bridge proxy's storage names. */
+  routerPointer?: string
+  /**
+   * The runtime to serve at a reservation library the router links, keyed
+   * by the library name. The release build is served by default.
+   */
+  routerLibraryRuntimes?: Record<string, string>
 }
 
 interface CeremonyFixture {
@@ -189,6 +197,73 @@ async function createCeremony(
     code[address] = runtime
   })
 
+  // The reservation router the Bridge dispatches into, and the two
+  // libraries it links. The router is certified by its own runtime and by
+  // the runtime at each linked library address, so the mock serves the real
+  // compiled ReservationRouter artifact with its link sites substituted
+  // with the two fake library addresses, and each library address with
+  // that library's own release runtime.
+  const routerArtifact = await artifacts.readArtifact(
+    "contracts/bridge/ReservationRouter.sol:ReservationRouter"
+  )
+  const routerLinkSites = artifactLinkSites(
+    routerArtifact.deployedLinkReferences
+  )
+  const routerLibraryAddresses: Record<string, string> = {}
+  let routerCounter = 0xb01
+  routerLinkSites.forEach((site) => {
+    if (routerLibraryAddresses[site.library] === undefined) {
+      routerLibraryAddresses[site.library] = ethers.getAddress(
+        `0x${routerCounter.toString(16).padStart(40, "0")}`
+      )
+      routerCounter += 1
+    }
+  })
+  const routerRuntime = bridgeRuntimeWithLibraries(
+    routerArtifact.deployedBytecode,
+    routerLinkSites,
+    routerLibraryAddresses
+  )
+  const routerPointer = overrides.routerPointer ?? ROUTER_PROXY
+  code[routerPointer.toLowerCase()] = routerRuntime
+  const routerLibraryRuntimes = await Promise.all(
+    Object.entries(routerLibraryAddresses).map(async ([name, address]) => {
+      const libraryArtifact = await artifacts.readArtifact(
+        `contracts/bridge/${name}.sol:${name}`
+      )
+      const runtime =
+        overrides.routerLibraryRuntimes?.[name] ??
+        deployedLibraryRuntime(libraryArtifact.deployedBytecode, address)
+      return [address.toLowerCase(), runtime] as const
+    })
+  )
+  routerLibraryRuntimes.forEach(([address, runtime]) => {
+    code[address] = runtime
+  })
+
+  // The router pointer lives in the Bridge proxy's storage. The ceremony
+  // computes the absolute slot from the compiled layout (the `self` slot
+  // plus the `reservationRouter` slot inside `BridgeState.Storage`), so
+  // the mock computes it the same way rather than pinning it by hand.
+  const bridgeLayout = await compiledStorageLayout(
+    "contracts/bridge/Bridge.sol:Bridge"
+  )
+  const stateType = Object.values(bridgeLayout.types ?? {}).find((type) => {
+    if (typeof type !== "object" || type === null) return false
+    return (type as { label?: unknown }).label === "struct BridgeState.Storage"
+  }) as
+    { members?: { label: string; slot: string; offset: string }[] } | undefined
+  const routerMember = stateType?.members?.find(
+    (member) => member.label === "reservationRouter"
+  )
+  const selfEntry = bridgeLayout.storage.find((entry) => entry.label === "self")
+  if (routerMember === undefined || selfEntry === undefined) {
+    throw new Error(
+      "the compiled Bridge layout does not name the reservation router's slot"
+    )
+  }
+  const routerSlot = Number(selfEntry.slot) + Number(routerMember.slot)
+
   const storage: Record<string, string> = {
     [`${STAKING_PROXY}:${EIP_1967_IMPLEMENTATION_SLOT}`]: addressWord(
       installedImplementation
@@ -200,6 +275,9 @@ async function createCeremony(
     ),
     [`${BRIDGE_PROXY}:${EIP_1967_ADMIN_SLOT}`]: addressWord(
       KNOWN_PROXY_ADMIN.toLowerCase()
+    ),
+    [`${BRIDGE_PROXY}:${ethers.toBeHex(routerSlot, 32)}`]: addressWord(
+      routerPointer.toLowerCase()
     ),
   }
 
@@ -573,6 +651,27 @@ describe("deploy/99 the ceremony, end to end", () => {
     expect(error, output).to.not.equal(undefined)
     expect(error?.message).to.match(
       /REBATE_STAKING_EXTRA_SOURCE_PATH is set to .* test-only seam/
+    )
+  })
+
+  it("stops when a router library is not the release build", async () => {
+    // The router's control plane lives in the two libraries it links, so
+    // certifying the router wrapper alone would certify a wrapper whose
+    // dispatch target is unchecked. A router linked to a library that is
+    // not the release build has to stop the ceremony.
+    //
+    // The wrong runtime is seeded with the *right* address in it, so the
+    // only thing wrong with it is which library it is: the address
+    // occurrence check still passes, and the failure is the library
+    // identity check.
+    const wrongRuntime = "0x608060405234801561001057600080fd5b50"
+    const { mockHre } = await createCeremony({
+      routerLibraryRuntimes: { Reservation: wrongRuntime },
+    })
+    const { error, output } = await runCeremony(mockHre)
+    expect(error, output).to.not.equal(undefined)
+    expect(error?.message).to.match(
+      /reservation router at .* links Reservation at .*, but /
     )
   })
 

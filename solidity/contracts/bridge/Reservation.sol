@@ -485,7 +485,8 @@ library Reservation {
     ///         authorization for the designated wallet to perform the
     ///         1-input-1-output anchor spend killing the deposit's refund
     ///         path. Checks and reserves capacity so that the anchor, once
-    ///         signed, can always be proven.
+    ///         signed, can be proven while its difficulty epoch is current
+    ///         or previous.
     /// @param reservationKey The deposit key of the revealed reserved
     ///        deposit (`keccak256(fundingTxHash | fundingOutputIndex)`),
     ///        which doubles as the reservation key.
@@ -772,6 +773,12 @@ library Reservation {
     ///        proposal the `WalletProposalValidator` can sign,
     ///      - For a non-privileged caller, the target wallet's pending
     ///        third-party re-anchor hold count must be below the cap,
+    ///      - For a non-privileged caller, the reservation's re-anchor
+    ///        cooldown must have elapsed. The cooldown is keyed on the
+    ///        caller's full privilege -- the governance-discriminated
+    ///        flag, the reservation owner, an SPV maintainer and a proven
+    ///        source-wallet member are all exempt from it, exactly as they
+    ///        are exempt from the hold cap,
     ///      - The target wallet's reservation-count and amount capacity
     ///        must allow the move for third-party requests and for
     ///        governance rotations off a Live source; the capacity is
@@ -799,14 +806,6 @@ library Reservation {
             reservation.state == ReservationState.Active,
             "Reservation is not active"
         );
-        /* solhint-disable not-rely-on-time */
-        if (!privileged) {
-            require(
-                block.timestamp >= reservation.reanchorCooldownUntil,
-                "Reanchor cooldown in effect"
-            );
-        }
-        /* solhint-enable not-rely-on-time */
 
         // Privilege: the governance-discriminated call, the reservation
         // owner, an SPV maintainer, or a proven member of the source wallet
@@ -834,6 +833,26 @@ library Reservation {
                 reservation.owner == msg.sender ||
                 self.isSpvMaintainer[msg.sender] ||
                 walletMembersIDs.length > 0;
+
+        // The cooldown is keyed on the caller's privilege, not on the
+        // governance-only flag the router passes in. The router sets that
+        // flag for `msg.sender == governance` alone, while the owner, an
+        // SPV maintainer and a proven source-wallet member are privileged
+        // callers too, and the interface documents them as exempt from the
+        // cooldown (see `IReservationBridge.requestReservationReanchor`).
+        // Keying the check on the narrower flag held those callers to the
+        // cooldown, so a third-party request that ran into its action
+        // timeout could block the position's own owner from re-anchoring it
+        // for one action timeout -- the grief the cooldown was meant to
+        // prevent, aimed at the wrong party.
+        /* solhint-disable not-rely-on-time */
+        if (!isPrivileged) {
+            require(
+                block.timestamp >= reservation.reanchorCooldownUntil,
+                "Reanchor cooldown in effect"
+            );
+        }
+        /* solhint-enable not-rely-on-time */
 
         {
             Wallets.WalletState sourceState = self
@@ -1389,7 +1408,6 @@ library Reservation {
 
         delete pendingDeposit.walletPubKeyHash;
         delete pendingDeposit.refundDeadline;
-        delete pendingDeposit.refundDeadlineValidated;
         self.pendingReservedDeposits -= 1;
 
         emit ReservedDepositMarkedStale(depositKey);
@@ -1437,7 +1455,6 @@ library Reservation {
 
         delete pendingDeposit.walletPubKeyHash;
         delete pendingDeposit.refundDeadline;
-        delete pendingDeposit.refundDeadlineValidated;
         self.pendingReservedDeposits -= 1;
 
         emit ReservedDepositMarkedStale(depositKey);
@@ -1551,7 +1568,6 @@ library Reservation {
         pendingDeposit.isReserved = false;
         pendingDeposit.walletPubKeyHash = bytes20(0);
         pendingDeposit.refundDeadline = 0;
-        pendingDeposit.refundDeadlineValidated = false;
         self.pendingReservedDeposits -= 1;
         deposit.vault = vault;
 
@@ -1655,6 +1671,21 @@ library Reservation {
                     WalletProposalValidatorConstants.DEPOSIT_MIN_AGE +
                     1,
             "Reservation action timeout leaves no signing window"
+        );
+        // The action timeout is the length of the authorization window a
+        // request opens, and it is snapshotted into the action record as
+        // `timeoutAt = now + reservationActionTimeout` in a uint32. An
+        // unbounded timeout has two consequences: the window (and with it
+        // the reserved capacity) can stay open for an arbitrary time, and
+        // the `uint32` addition can overflow, which reverts the request
+        // outright. The sibling dissolution-delay bound above exists for the
+        // same reason; this is the matching bound for the action timeout.
+        // The ceiling is the protocol's longest reservation term, so an
+        // authorization window can never outlive the position it reserves
+        // capacity for.
+        require(
+            reservationActionTimeout <= MAX_RESERVATION_TERM,
+            "Reservation action timeout out of protocol bounds"
         );
         require(
             maxReservationsPerWallet > 0,

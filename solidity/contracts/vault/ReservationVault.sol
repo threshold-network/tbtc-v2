@@ -150,10 +150,25 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
     ///      trigger this gap. That ordering is enforced by the deploy
     ///      script, not by an on-chain check: governance retains the raw
     ///      ability to call `setVaultStatus(vault, true)` directly through
-    ///      `BridgeGovernance`, bypassing the script's precondition. MUST
-    ///      be resolved (a dedicated Bridge-only credit entry point, or an
-    ///      ordinary-sweep guard in `DepositSweep`) before that direct-call
-    ///      path is treated as acceptable risk.
+    ///      `BridgeGovernance`, bypassing the script's precondition.
+    ///
+    ///      The dangerous path -- a reserved deposit being swept as an
+    ///      ordinary deposit and credited to this vault with a fee
+    ///      deduction -- is closed on chain. `DepositSweep` refuses to
+    ///      sweep any deposit still marked as reserved
+    ///      (`"Reserved deposits must not be swept"`, `DepositSweep.sol`),
+    ///      and `WalletProposalValidator` refuses to sign for one either
+    ///      (`!bridge.isReservedDeposit(depositKey)`). The residual is the
+    ///      ordering path: a deposit revealed to this vault while
+    ///      `reservationVault` was still zero, and swept afterwards as an
+    ///      ordinary deposit. No unbacked TBTC is minted there -- the Bank
+    ///      credits exactly the swept satoshis -- but the vault's fee
+    ///      accounting and the depositor's gross amount are then the
+    ///      ordinary-deposit ones rather than the reservation ones. The
+    ///      remaining fix is a dedicated Bridge-only credit entry point, or
+    ///      a reservationKey-carrying credit record; both are design
+    ///      changes rather than freeze items, so the deploy-97/98 ordering
+    ///      stays the mitigation and this note records what is left.
     function receiveBalanceIncrease(
         address[] calldata depositors,
         uint256[] calldata depositedAmounts

@@ -88,11 +88,29 @@ import "./ReservationProofs.sol";
 ///
 ///      4. UPGRADE MODEL. The Bridge stores the router address in
 ///         `BridgeState.Storage.reservationRouter`, settable exactly once
-///         via `Bridge.setReservationRouter` (present in this diff). Replacing router code
-///         afterwards requires a Bridge implementation upgrade (the same
-///         ceremony as any Bridge logic change), keeping code-change
-///         authority exactly where it is today: with the proxy admin, not
-///         with the parameter governance.
+///         via `Bridge.setReservationRouter` (present in this diff).
+///         Replacing router code afterwards requires a Bridge
+///         implementation upgrade (the same ceremony as any Bridge logic
+///         change).
+///
+///         The one-shot install itself is `onlyOwner` on the
+///         `BridgeGovernance` contract, with no governance delay, by
+///         design: it is a single bootstrap action, not a parameter
+///         change. The owner of `BridgeGovernance` is the Threshold Council
+///         Safe (6/9), and the same owner already holds the stronger power
+///         of replacing the Bridge's own code through `ProxyAdmin.upgrade`
+///         under the Timelock's 24-hour delay. So the one-shot adds
+///         permanence without a delay for a single call; it does not add a
+///         capability the parameter governance did not already have. The
+///         invariant is therefore *not* that code-change authority stays
+///         "exactly where it is today": the router's code is fixed at
+///         install time, and only a Bridge implementation upgrade can
+///         replace it, exactly as with any other Bridge logic. The
+///         authority to *change* that code nevertheless stays with the
+///         proxy admin's owner (the Timelock, whose proposer and executor
+///         are the same Council Safe), not with the parameter governance:
+///         `updateReservationParameters` and `updateReservationCaps`
+///         cannot alter the router's code.
 contract ReservationRouter is Governable, Initializable {
     using BridgeState for BridgeState.Storage;
     using Reservation for BridgeState.Storage;
@@ -210,7 +228,8 @@ contract ReservationRouter is Governable, Initializable {
     /// @notice Requests the acceptance of a revealed reserved deposit: the
     ///         authorization for the designated wallet to perform the
     ///         anchor spend. Checks and reserves reservation capacity so
-    ///         the anchor, once signed, can always be proven. See
+    ///         the anchor, once signed, can be proven while its difficulty
+    ///         epoch is current or previous. See
     ///         `Reservation.requestReservationAcceptance`.
     /// @dev The caller proves that the deposit's funding transaction is
     ///      confirmed on Bitcoin with the same SPV rules as every other
@@ -257,6 +276,13 @@ contract ReservationRouter is Governable, Initializable {
     ///      ever transferred to an EOA (not the case today, and not a
     ///      change made by this contract), the privileged path would
     ///      broaden silently to that address.
+    ///
+    ///      The `privileged` flag this router passes in discriminates the
+    ///      *governance* path only. The library derives the caller's full
+    ///      privilege itself -- governance, the reservation owner, an SPV
+    ///      maintainer and a proven source-wallet member are all privileged
+    ///      -- and keys the re-anchor cooldown on that full privilege, not
+    ///      on this narrower flag.
     /// @param reservationKey The key of the reservation to re-anchor.
     /// @param targetWalletPubKeyHash 20-byte public key hash of the target
     ///        wallet.
@@ -389,7 +415,9 @@ contract ReservationRouter is Governable, Initializable {
     /// @param maxReservationsPerWallet New cap on the number of active
     ///        reservations a single wallet can custody.
     /// @param reservationActionTimeout New value of the reservation action
-    ///        timeout in seconds.
+    ///        timeout in seconds. Must exceed the validator's safety margin
+    ///        plus deposit minimum age, and must not exceed the protocol's
+    ///        MAX_RESERVATION_TERM bound.
     /// @param reservationRenewalWindowSeconds New length of the renewal
     ///        window; must stay strictly shorter than the term.
     /// @dev Requirements:

@@ -440,7 +440,6 @@ library ReservationProofs {
         if (reservedDeposit.walletPubKeyHash != bytes20(0)) {
             delete reservedDeposit.walletPubKeyHash;
             delete reservedDeposit.refundDeadline;
-            delete reservedDeposit.refundDeadlineValidated;
             self.pendingReservedDeposits -= 1;
         }
     }

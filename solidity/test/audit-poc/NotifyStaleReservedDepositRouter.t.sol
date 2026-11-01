@@ -15,8 +15,8 @@ pragma solidity 0.8.17;
 //                                  block.timestamp strictly greater than the
 //                                  snapshotted refund deadline, and no
 //                                  pending acceptance action; then wipes
-//                                  walletPubKeyHash, refundDeadline and
-//                                  refundDeadlineValidated, decrements
+//                                  walletPubKeyHash and refundDeadline,
+//                                  decrements
 //                                  pendingReservedDeposits and emits
 //                                  ReservedDepositMarkedStale(depositKey)
 //   Deposit.sol:215-233            reveal-time refund deadline: for a reserved

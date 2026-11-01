@@ -427,8 +427,7 @@ contract ReservationStackHarness is Governable, Initializable {
                 .PendingReservedDeposit({
                     isReserved: true,
                     walletPubKeyHash: walletPubKeyHash,
-                    refundDeadline: refundDeadline,
-                    refundDeadlineValidated: true
+                    refundDeadline: refundDeadline
                 });
             self.pendingReservedDeposits += 1;
         }

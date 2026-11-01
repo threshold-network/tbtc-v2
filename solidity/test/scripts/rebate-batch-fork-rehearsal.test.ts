@@ -241,7 +241,13 @@ describe("rebate-batch-fork-rehearsal (storage-layout gate)", () => {
 })
 
 describe("rebate-batch-fork-rehearsal (entrypoint)", () => {
-  test("does not run the rehearsal when it is imported", () => {
+  // The check spawns a real node process that loads hardhat and the whole
+  // rehearsal module. That takes tens of seconds on a loaded machine, so
+  // the mocha default of 60s is not enough headroom for it. Mocha takes
+  // the timeout from the function, not from an options argument.
+  // eslint-disable-next-line func-names
+  test("does not run the rehearsal when it is imported", function () {
+    this.timeout(300_000)
     // The counterexample the review named: this test file imports the
     // classifier, and the module's unconditional `main()` call started the
     // whole fork run beside the test suite. The head CI log shows it:
@@ -260,8 +266,14 @@ describe("rebate-batch-fork-rehearsal (entrypoint)", () => {
     // The entry is a file, not `node -e`: with `-e` there is no
     // `require.main`, so `require.main === module` would be false however
     // the script were written and the check would prove nothing.
+    //
+    // The entry lives inside the project, not in the system temp
+    // directory: the rehearsal imports `hardhat`, and hardhat resolves the
+    // project from the *requiring* file's directory, so an entry outside
+    // the project tree fails with "You are not inside a Hardhat project"
+    // before the guard under test is ever reached.
     const entryPath = path.join(
-      os.tmpdir(),
+      __dirname,
       `rebate-rehearsal-entry-${process.pid}.js`
     )
     fs.writeFileSync(

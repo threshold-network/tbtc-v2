@@ -217,7 +217,6 @@ describe("Reservation", () => {
           walletPubKeyHash,
           refundDeadline:
             now + defaultActionTimeout + twentyFourHours + twoHours,
-          refundDeadlineValidated: true,
         })
 
         await expect(

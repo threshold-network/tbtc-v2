@@ -19,18 +19,15 @@
  *     unconditionally require the wallet's reservation count to be zero,
  *     while an Active reservation always keeps its custodian's count at
  *     least 1.
- *   - `notifyStaleReservedDeposit` rejects immediately when
- *     `refundDeadlineValidated = false` (the disabled-validation path)
- *     but the reveal-captured refund deadline has not yet elapsed, and
- *     succeeds once it has: the deadline applies unconditionally,
- *     regardless of the validated flag.
- *   - `notifyStaleReservedDeposit` happy path with `refundDeadlineValidated
- *     = true` (the standard reveal-ahead-enabled path): succeeds once the
- *     refund deadline has elapsed.
+ *   - `notifyStaleReservedDeposit` rejects immediately when the
+ *     reveal-captured refund deadline has not yet elapsed, and succeeds
+ *     once it has: the deadline applies unconditionally.
+ *   - `notifyStaleReservedDeposit` happy path with the standard
+ *     reveal-ahead-enabled path: succeeds once the refund deadline has
+ *     elapsed.
  *   - Rejects when the deposit key is unknown
  *     ("Not a pending reserved deposit").
- *   - Rejects when the refund deadline has not yet elapsed
- *     (`refundDeadlineValidated = true`).
+ *   - Rejects when the refund deadline has not yet elapsed.
  *   - Rejects when an acceptance authorization is still pending
  *     (`ActionState.Pending`).
  *   - `BridgeGovernance.forceStaleReservedDeposit` forwarder: the owner's
@@ -416,8 +413,7 @@ describe("Bridge - Reservation stranding", () => {
   // Reveals a single fresh reserved deposit to the bridge. Does NOT
   // request acceptance. After this returns:
   //   - `pendingReservedDeposit[depositKey]` is populated (refundDeadline
-  //     set, refundDeadlineValidated reflects the current
-  //     `depositRevealAheadPeriod`).
+  //     set to the exact Bitcoin-script deadline captured at reveal).
   //   - `reservations[depositKey].state == Unknown`, `requestNonce == 0`
   //     and no action exists for any generation.
   // This is the right starting point for `notifyStaleReservedDeposit` -
@@ -712,10 +708,9 @@ describe("Bridge - Reservation stranding", () => {
       await restoreSnapshot()
     })
 
-    it("rejects immediately when refundDeadlineValidated is false and the deadline has not elapsed (reveal-ahead disabled)", async () => {
+    it("rejects immediately when the deadline has not elapsed (reveal-ahead disabled)", async () => {
       // Default fixture state: `bridge.setDepositRevealAheadPeriod(0)`
-      // in `before` means `refundDeadlineValidated = false` for any
-      // reserved deposit revealed here. Reserved deposits still capture
+      // in `before`. Reserved deposits still capture
       // the exact Bitcoin-script refund deadline at reveal even when
       // reveal-ahead validation is disabled (see `Deposit._revealDeposit`'s
       // `else if (isReserved)` branch), and `notifyStaleReservedDeposit`
@@ -739,7 +734,7 @@ describe("Bridge - Reservation stranding", () => {
       expect(await reservationRouter.pendingReservedDeposits()).to.equal(1)
     })
 
-    it("succeeds once the deadline has elapsed when refundDeadlineValidated is false (reveal-ahead disabled)", async () => {
+    it("succeeds once the deadline has elapsed (reveal-ahead disabled)", async () => {
       const { depositKey } = await revealReservedDeposit()
 
       expect(await reservationRouter.pendingReservedDeposits()).to.equal(1)
@@ -770,11 +765,11 @@ describe("Bridge - Reservation stranding", () => {
       ).to.be.revertedWith("Not a pending reserved deposit")
     })
 
-    it("rejects when the refund deadline has not yet elapsed (reveal-ahead enabled, validated=true)", async () => {
+    it("rejects when the refund deadline has not yet elapsed (reveal-ahead enabled)", async () => {
       // Switch to a reveal-ahead-enabled regime so a fresh reserved
-      // deposit emerges with `refundDeadlineValidated = true`. Then
-      // call immediately - the deadline is in the future, the
-      // contract must reject.
+      // deposit is revealed against the validated policy. Then call
+      // immediately - the deadline is in the future, the contract must
+      // reject.
       //
       // We still use `revealReservedDeposit` (no acceptance request) so
       // the call does not bounce off the acceptance-pending guard first.
@@ -826,7 +821,7 @@ describe("Bridge - Reservation stranding", () => {
       expect(action.state).to.equal(ActionState.Pending)
 
       // Clear the unconditional refund-deadline check first (see the
-      // `refundDeadlineValidated` tests above) so this test isolates the
+      // refund-deadline tests above) so this test isolates the
       // acceptance-authorization-pending rejection specifically.
       const targetTime = (await lastBlockTime()) + 89 * 24 * 60 * 60 + 2
       await increaseTime(Number(targetTime) - (await lastBlockTime()))

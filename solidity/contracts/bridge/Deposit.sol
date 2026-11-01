@@ -215,13 +215,11 @@ library Deposit {
         bool isReserved =
             reveal.vault != address(0) && reveal.vault == self.reservationVault;
         uint32 refundDeadline = 0;
-        bool refundDeadlineValidated = false;
         if (self.depositRevealAheadPeriod > 0) {
             refundDeadline = validateDepositRefundLocktime(
                 self,
                 reveal.refundLocktime
             );
-            refundDeadlineValidated = true;
         } else if (isReserved) {
             // Ordinary deposits preserve the historical disabled-validation
             // path. Reserved deposits still need the exact script deadline
@@ -389,8 +387,7 @@ library Deposit {
                 .PendingReservedDeposit(
                     true,
                     reveal.walletPubKeyHash,
-                    refundDeadline,
-                    refundDeadlineValidated
+                    refundDeadline
                 );
             self.pendingReservedDeposits += 1;
         }
