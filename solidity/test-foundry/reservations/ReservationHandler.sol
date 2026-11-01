@@ -133,6 +133,10 @@ contract ReservationHandler is ReservationProperties {
         uint64 nonce = 1 + (nonceSeed % latest);
         Reservation.ReservationAction memory a = harness.action(key, nonce);
         uint64 anchorAmount = a.amount - (feeSeed % (a.txMaxFee + 1));
+        // `settleAcceptance` credits the deposit's vault only while that
+        // vault is trusted at settlement time, so the arm this call takes is
+        // decided here, before the call.
+        bool throughVault = harness.isReservationVaultTrusted();
 
         try
             harness.proveAcceptance(
@@ -143,6 +147,9 @@ contract ReservationHandler is ReservationProperties {
             )
         returns (bool late) {
             ghostCreditedSat += anchorAmount;
+            if (throughVault) {
+                ghostTrustedCreditedSat += anchorAmount;
+            }
             successes[late ? "proveAcceptanceLate" : "proveAcceptance"] += 1;
             recordTerminals(key);
         } catch {}
@@ -304,6 +311,16 @@ contract ReservationHandler is ReservationProperties {
 
     function warp(uint32 secondsSeed) external {
         vm.warp(block.timestamp + 1 + (secondsSeed % 3 days));
+    }
+
+    /// @dev Governance revokes or restores the reservation vault's trust.
+    ///      `settleAcceptance` re-reads the flag when the proof settles, so
+    ///      this decides which arm of the acceptance credit the following
+    ///      settlements take: the vault's `increaseBalanceAndCall` or the
+    ///      depositor's `increaseBalances`.
+    function setVaultTrust(bool trusted) external {
+        harness.setVaultTrust(trusted);
+        successes[trusted ? "vaultTrusted" : "vaultTrustRevoked"] += 1;
     }
 
     // ---------------------------------------------------------------------

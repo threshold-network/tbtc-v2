@@ -12,16 +12,47 @@ import {Reservation} from "../../contracts/bridge/Reservation.sol";
 import {ReservationProofs} from "../../contracts/bridge/ReservationProofs.sol";
 import {Wallets} from "../../contracts/bridge/Wallets.sol";
 import {IReservationFeeFinancer} from "../../contracts/vault/IReservationFeeFinancer.sol";
+import {IVault} from "../../contracts/vault/IVault.sol";
 
 import {ReservationHarnessState} from "./ReservationHarnessState.sol";
 
-/// @notice Records the in-kind miner fees the re-anchor settlement finances.
-contract FeeFinancerRecorder is IReservationFeeFinancer {
+/// @notice Records both sides of the acceptance credit: the in-kind miner
+///         fees the re-anchor settlement finances, and the gross anchor
+///         credits `ReservationProofs.settleAcceptance` routes through a
+///         trusted vault instead of the depositor.
+/// @dev `ReservationInvariantHarness` marks this contract trusted, so the
+///      campaign takes the production `increaseBalanceAndCall` arm; the
+///      handler can revoke that trust to take the fallback arm as well.
+contract FeeFinancerRecorder is IReservationFeeFinancer, IVault {
     uint256 public financedSat;
+
+    // Settled acceptances credited through the vault, and their total.
+    uint256 public vaultCreditCalls;
+    uint256 public vaultCreditedSat;
 
     function financeInKindFee(uint64 feeSat) external override {
         financedSat += feeSat;
     }
+
+    function receiveBalanceIncrease(
+        address[] calldata,
+        uint256[] calldata depositedAmounts
+    ) external override {
+        vaultCreditCalls += 1;
+        for (uint256 i = 0; i < depositedAmounts.length; i++) {
+            vaultCreditedSat += depositedAmounts[i];
+        }
+    }
+
+    /// @dev Unused: `settleAcceptance` only ever credits through
+    ///      `Bank.increaseBalanceAndCall`, but `IVault` extends
+    ///      `IReceiveBalanceApproval`, so the interface has to be complete
+    ///      for `Bank` to accept this contract as a vault.
+    function receiveBalanceApproval(
+        address,
+        uint256,
+        bytes calldata
+    ) external override {}
 }
 
 /// @notice Holds one `BridgeState.Storage` and drives the real `Reservation`
@@ -52,6 +83,13 @@ contract ReservationInvariantHarness is ReservationHarnessState {
         bank = newBank;
         state.bank = newBank;
         feeVault = new FeeFinancerRecorder();
+        // Governance marks the reservation vault trusted before any deposit
+        // routes to it, so the campaign starts from the production wiring:
+        // an acceptance settlement credits the vault through
+        // `Bank.increaseBalanceAndCall` instead of the depositor. The
+        // handler's `setVaultTrust` action revokes and restores the flag, so
+        // both arms of the credit branch run.
+        state.isVaultTrusted[address(feeVault)] = true;
     }
 
     // ---------------------------------------------------------------------
@@ -90,6 +128,18 @@ contract ReservationInvariantHarness is ReservationHarnessState {
         return
             state.registeredWallets[walletPubKeyHash].state ==
             Wallets.WalletState.Live;
+    }
+
+    /// @dev The governance trust flag `Bridge.setVaultTrusted` writes and
+    ///      `ReservationProofs.settleAcceptance` reads at settlement time.
+    ///      The reservation vault is this harness's fee vault, so the flag
+    ///      decides which arm of the acceptance credit runs.
+    function setVaultTrust(bool trusted) external {
+        state.isVaultTrusted[address(feeVault)] = trusted;
+    }
+
+    function isReservationVaultTrusted() external view returns (bool) {
+        return state.isVaultTrusted[address(feeVault)];
     }
 
     /// @dev The records `Deposit.revealDeposit` writes for a deposit routed
