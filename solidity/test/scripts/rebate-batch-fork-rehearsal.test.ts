@@ -4,6 +4,7 @@ import os from "os"
 import path from "path"
 import { spawnSync } from "child_process"
 import {
+  additionalStakingSourcePath,
   assertStorageGate,
   compiledStorageLayout,
   readStorageLayoutFile,
@@ -235,6 +236,61 @@ describe("rebate-batch-fork-rehearsal (storage-layout gate)", () => {
         /declares \[Both, RedemptionOnly, DepositOnly\]/
       )
     } finally {
+      fs.rmSync(swappedPath, { force: true })
+    }
+  })
+
+  test("the rehearsal resolves the extra source the way the ceremony does", async () => {
+    // The ceremony and the rehearsal are two entry points to the same
+    // gate. If they read the extra source differently - the ceremony from
+    // the environment, the rehearsal only from an argument - then under
+    // the same environment they can pin different sources, and the
+    // rehearsal could pass a build the ceremony would reject. The shared
+    // gate is supposed to prevent exactly that.
+    //
+    // So the rehearsal has to go through the ceremony's own resolver when
+    // it is given no explicit path. This pins the two together: with the
+    // variable set and a reordered source in it, the rehearsal rejects it
+    // at the enum pin, which is what the ceremony would do.
+    const original = process.env.REBATE_STAKING_EXTRA_SOURCE_PATH
+    const source = fs.readFileSync(
+      path.join(
+        __dirname,
+        "..",
+        "..",
+        "contracts",
+        "bridge",
+        "RebateStaking.sol"
+      ),
+      "utf8"
+    )
+    const swapped = source.replace(
+      "enum RebateTreasuryFeeMode {\n        Both,\n        DepositOnly,\n        RedemptionOnly\n    }",
+      "enum RebateTreasuryFeeMode {\n        Both,\n        RedemptionOnly,\n        DepositOnly\n    }"
+    )
+    assert.notEqual(swapped, source, "the enum in the source did not swap")
+    const swappedPath = path.join(
+      os.tmpdir(),
+      `rebate-rehearsal-env-${process.pid}.sol`
+    )
+    fs.writeFileSync(swappedPath, swapped)
+    try {
+      process.env.REBATE_STAKING_EXTRA_SOURCE_PATH = swappedPath
+
+      // The resolver the ceremony uses picks the variable up...
+      assert.equal(additionalStakingSourcePath("ceremony-mock"), swappedPath)
+      // ...and the rehearsal, given no explicit path, goes through that
+      // same resolver, so it rejects the same source at the same pin.
+      await assert.rejects(
+        applyRehearsalStorageGate(),
+        /declares \[Both, RedemptionOnly, DepositOnly\]/
+      )
+    } finally {
+      if (original === undefined) {
+        delete process.env.REBATE_STAKING_EXTRA_SOURCE_PATH
+      } else {
+        process.env.REBATE_STAKING_EXTRA_SOURCE_PATH = original
+      }
       fs.rmSync(swappedPath, { force: true })
     }
   })

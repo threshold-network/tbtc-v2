@@ -2094,6 +2094,14 @@ const func: DeployFunction =
   async function deployRebateStakingReservationImplementation(
     hre: HardhatRuntimeEnvironment
   ) {
+    // The source override is a test seam and it is refused first, before
+    // anything else happens: before the account lookup, before any record
+    // is read, before any source is resolved. A stray variable in an
+    // operator's environment stops the ceremony immediately, and the
+    // reason they see is the override rather than whatever the run would
+    // have failed on later.
+    assertNoSourceOverrideOffTestNetwork(hre.network.name)
+
     const { deploy, get } = hre.deployments
     const { deployer } = await hre.getNamedAccounts()
     const { ethers } = hre
@@ -2114,12 +2122,6 @@ const func: DeployFunction =
     console.log("=".repeat(80))
     console.log(`Network: ${hre.network.name}`)
     console.log(`Deployer: ${deployer}`)
-
-    // The source override is a test seam and it is refused here, before
-    // any work is done, so a stray variable in an operator's environment
-    // stops the ceremony immediately rather than after it has read the
-    // records and resolved the sources.
-    assertNoSourceOverrideOffTestNetwork(hre.network.name)
 
     // --- Step 1: Resolve the proxies ---
     const Bridge = await get("Bridge")

@@ -114,6 +114,11 @@ interface CeremonyOverrides {
   /** The reservation router the Bridge proxy's storage names. */
   routerPointer?: string
   /**
+   * Makes the account lookup fail, so a test can prove that the ceremony
+   * refuses a source override before it looks any accounts up.
+   */
+  failAccountLookup?: boolean
+  /**
    * The runtime to serve at a reservation library the router links, keyed
    * by the library name. The release build is served by default.
    */
@@ -355,7 +360,12 @@ async function createCeremony(
 
   const mockHre: MockHre = {
     network: { name: NETWORK },
-    getNamedAccounts: async () => ({ deployer: DEPLOYER }),
+    getNamedAccounts: async () => {
+      if (overrides.failAccountLookup === true) {
+        throw new Error("the account lookup failed")
+      }
+      return { deployer: DEPLOYER }
+    },
     getChainId: async () => "31337",
     deployments,
     ethers: {
@@ -645,13 +655,18 @@ describe("deploy/99 the ceremony, end to end", () => {
     // The ceremony refuses it too, and it refuses it before doing any
     // work, so the reason the operator sees is the override and not some
     // later lookup.
-    const { mockHre } = await createCeremony()
+    //
+    // "Before any work" is proved rather than asserted: the account
+    // lookup is made to fail, so if the refusal came after it the run
+    // would fail on the lookup instead, with the wrong reason.
+    const { mockHre } = await createCeremony({ failAccountLookup: true })
     mockHre.network = { name: "mainnet" }
     const { error, output } = await runCeremony(mockHre)
     expect(error, output).to.not.equal(undefined)
     expect(error?.message).to.match(
       /REBATE_STAKING_EXTRA_SOURCE_PATH is set to .* test-only seam/
     )
+    expect(error?.message).to.not.match(/account lookup/)
   })
 
   it("stops when a router library is not the release build", async () => {

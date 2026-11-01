@@ -10,6 +10,7 @@ import {
   KNOWN_TIMELOCK,
 } from "../deploy/85_deploy_tip109_governance_upgrade"
 import {
+  additionalStakingSourcePath,
   assertBridgeImplementationChanges,
   assertSelectorPresence,
   assertStorageGate,
@@ -334,9 +335,14 @@ export async function applyRehearsalStorageGate(options?: {
    *
    * It is pinned *in addition to* the canonical source, never instead of
    * it, exactly as in the ceremony: the canonical source is always pinned,
-   * so an extra source can only make the gate stricter. The ceremony reads
-   * its extra source from the same environment variable, so the two agree
-   * on what is pinned.
+   * so an extra source can only make the gate stricter.
+   *
+   * When it is not given, the extra source is resolved through the same
+   * `additionalStakingSourcePath` the ceremony uses, so both entry points
+   * read the same environment variable, apply the same non-test-network
+   * refusal, and cannot end up pinning different sources under the same
+   * environment. An explicit path still wins, so a caller can pin an extra
+   * source without setting the variable.
    */
   additionalStakingSourcePath?: string
 }): Promise<{
@@ -354,10 +360,13 @@ export async function applyRehearsalStorageGate(options?: {
   )
   const headLayout = await compiledStorageLayout(STAKING_ARTIFACT)
   const stakingSource = fs.readFileSync(stakingSourcePath(), "utf8")
+  const extraSourcePath =
+    options?.additionalStakingSourcePath ??
+    additionalStakingSourcePath(network.name)
   const additionalStakingSources =
-    options?.additionalStakingSourcePath === undefined
+    extraSourcePath === undefined
       ? []
-      : [fs.readFileSync(options.additionalStakingSourcePath, "utf8")]
+      : [fs.readFileSync(extraSourcePath, "utf8")]
   assertStorageGate({
     deployed: deployedLayout,
     head: headLayout,
