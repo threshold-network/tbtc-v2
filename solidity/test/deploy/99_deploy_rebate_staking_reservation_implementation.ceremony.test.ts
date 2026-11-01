@@ -217,6 +217,9 @@ async function createCeremony(
     async call(transaction: { data?: string }): Promise<string> {
       const data = transaction.data ?? "0x"
       const fragment = callInterface.getFunction(data.slice(0, 10))
+      if (fragment === null) {
+        throw new Error(`no such function ${data.slice(0, 10)}`)
+      }
       if (fragment.name === "owner") {
         return ethers.AbiCoder.defaultAbiCoder().encode(
           ["address"],
