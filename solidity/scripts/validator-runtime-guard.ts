@@ -84,7 +84,9 @@ export function revertStringPresent(code: string, message: string): boolean {
   for (let index = 0; index < words.length; index += 1) {
     const at = code.indexOf(words[index], cursor)
     if (at < 0) return false
-    if (index > 0 && at - cursor > MAX_WORD_GAP_BYTES) return false
+    // `code` is a hex string: every byte is two characters, so the bound in
+    // characters is twice the bound in bytes.
+    if (index > 0 && at - cursor > MAX_WORD_GAP_BYTES * 2) return false
     cursor = at + words[index].length
   }
   return true
@@ -229,5 +231,106 @@ export function validatorBridgeCheck(
     name: "validator points at the expected Bridge",
     ok: declared === expectedBridge.toLowerCase(),
     detail: `validator.bridge() ${declaredBridge}, expected ${expectedBridge}`,
+  }
+}
+
+/** What the gate needs from a provider: `eth_call`, nothing else. */
+export interface GateProvider {
+  call: (tx: { to: string; data: string }) => Promise<string>
+}
+
+export interface GateInput {
+  provider: GateProvider
+  chainId: number
+  validatorAddress: string
+  validatorCode: string
+  /** The Bridge the release expects: `BRIDGE_ADDRESS` or the record. */
+  expectedBridge: string
+  activationBlock: number
+  releaseBlock: number
+  setVaultStatusBlock: number
+}
+
+export interface GateResult {
+  checks: CodeCheck[]
+  /** The Bridge the validator calls, when it could be read. */
+  declaredBridge?: string
+  failed: number
+}
+
+/**
+ * The whole 3a/3b verdict, from chain reads and the release's own numbers.
+ * The gate script owns argument parsing and printing; everything that decides
+ * the verdict is here, so a test can drive the consuming path instead of its
+ * helpers.
+ */
+export async function reservationActivationChecks(
+  input: GateInput
+): Promise<GateResult> {
+  const checks: CodeCheck[] = []
+  checks.push({
+    name: "chain id is 1",
+    ok: input.chainId === 1,
+    detail: `chainId ${input.chainId}`,
+  })
+  checks.push({
+    name: "validator has code",
+    ok: input.validatorCode !== "0x",
+    detail: `${input.validatorAddress} (${
+      input.validatorCode === "0x" ? "0" : (input.validatorCode.length - 2) / 2
+    } bytes)`,
+  })
+  checks.push(...validatorRuntimeChecks(input.validatorCode))
+
+  let declaredBridge: string | undefined
+  try {
+    declaredBridge = await validatorDeclaredBridge(
+      input.provider,
+      input.validatorAddress
+    )
+    checks.push(validatorBridgeCheck(declaredBridge, input.expectedBridge))
+  } catch (error) {
+    checks.push({
+      name: "validator points at the expected Bridge",
+      ok: false,
+      detail: error instanceof Error ? error.message : String(error),
+    })
+  }
+
+  if (declaredBridge === undefined) {
+    checks.push({
+      name: "Bridge answers isReservedDeposit",
+      ok: false,
+      detail: "not probed: the validator's bridge() could not be read",
+    })
+  } else {
+    // The validator's own Bridge, not the record or the override: that is the
+    // address its reserved-deposit rule calls for every deposit in a proposal.
+    const probe = await bridgeAnswersIsReservedDeposit(
+      input.provider,
+      declaredBridge
+    )
+    checks.push({
+      name: "Bridge answers isReservedDeposit",
+      ok: probe.ok,
+      detail: probe.detail,
+    })
+  }
+
+  checks.push({
+    name: "activation block is above the release block",
+    ok: input.activationBlock > input.releaseBlock,
+    detail: `activation ${input.activationBlock} > release ${input.releaseBlock}`,
+  })
+  checks.push({
+    name: "activation block is at or below the setVaultStatus block",
+    ok: input.activationBlock <= input.setVaultStatusBlock,
+    detail: `activation ${input.activationBlock} <= setVaultStatus ${input.setVaultStatusBlock}`,
+  })
+
+  return {
+    checks,
+    declaredBridge,
+    failed: checks.filter((check) => !check.ok).length,
   }
 }

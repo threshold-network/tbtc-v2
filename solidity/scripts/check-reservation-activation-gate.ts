@@ -41,17 +41,8 @@
 import { ethers, deployments } from "hardhat"
 import {
   assertNotFixtureMode,
-  bridgeAnswersIsReservedDeposit,
-  validatorBridgeCheck,
-  validatorDeclaredBridge,
-  validatorRuntimeChecks,
+  reservationActivationChecks,
 } from "./validator-runtime-guard"
-
-interface GateCheck {
-  name: string
-  ok: boolean
-  detail: string
-}
 
 function requireBlock(name: string): number {
   const raw = process.env[name]
@@ -78,73 +69,22 @@ async function main(): Promise<void> {
   const setVaultStatusBlock = requireBlock("SET_VAULT_STATUS_BLOCK")
 
   const chainId = Number((await ethers.provider.getNetwork()).chainId)
-  const bridgeAddress =
+  const expectedBridge =
     process.env.BRIDGE_ADDRESS ?? (await deployments.get("Bridge")).address
   const validatorAddress =
     process.env.VALIDATOR_ADDRESS ??
     (await deployments.get("WalletProposalValidator")).address
-
-  const checks: GateCheck[] = []
-  checks.push({
-    name: "chain id is 1",
-    ok: chainId === 1,
-    detail: `chainId ${chainId}`,
-  })
-
   const validatorCode = await ethers.provider.getCode(validatorAddress)
-  checks.push({
-    name: "validator has code",
-    ok: validatorCode !== "0x",
-    detail: `${validatorAddress} (${
-      validatorCode === "0x" ? "0" : (validatorCode.length - 2) / 2
-    } bytes)`,
-  })
-  checks.push(...validatorRuntimeChecks(validatorCode))
 
-  let declaredBridge: string | undefined
-  try {
-    declaredBridge = await validatorDeclaredBridge(
-      ethers.provider,
-      validatorAddress
-    )
-    checks.push(validatorBridgeCheck(declaredBridge, bridgeAddress))
-  } catch (error) {
-    checks.push({
-      name: "validator points at the expected Bridge",
-      ok: false,
-      detail: error instanceof Error ? error.message : String(error),
-    })
-  }
-
-  if (declaredBridge === undefined) {
-    checks.push({
-      name: "Bridge answers isReservedDeposit",
-      ok: false,
-      detail: "not probed: the validator's bridge() could not be read",
-    })
-  } else {
-    // The validator's own Bridge, not the record: that is the address its
-    // reserved-deposit rule calls for every deposit in a proposal.
-    const bridgeProbe = await bridgeAnswersIsReservedDeposit(
-      ethers.provider,
-      declaredBridge
-    )
-    checks.push({
-      name: "Bridge answers isReservedDeposit",
-      ok: bridgeProbe.ok,
-      detail: bridgeProbe.detail,
-    })
-  }
-
-  checks.push({
-    name: "activation block is above the release block",
-    ok: activationBlock > releaseBlock,
-    detail: `activation ${activationBlock} > release ${releaseBlock}`,
-  })
-  checks.push({
-    name: "activation block is at or below the setVaultStatus block",
-    ok: activationBlock <= setVaultStatusBlock,
-    detail: `activation ${activationBlock} <= setVaultStatus ${setVaultStatusBlock}`,
+  const { checks, declaredBridge, failed } = await reservationActivationChecks({
+    provider: ethers.provider,
+    chainId,
+    validatorAddress,
+    validatorCode,
+    expectedBridge,
+    activationBlock,
+    releaseBlock,
+    setVaultStatusBlock,
   })
 
   for (const check of checks) {
@@ -152,15 +92,13 @@ async function main(): Promise<void> {
       `[${check.ok ? "PASS" : "FAIL"}] ${check.name}: ${check.detail}`
     )
   }
-
-  const failures = checks.filter((check) => !check.ok).length
   console.log(
-    `\n${checks.length - failures}/${checks.length} checks passed ` +
+    `\n${checks.length - failed}/${checks.length} checks passed ` +
       `(validator ${validatorAddress}, bridge ${
         declaredBridge ?? "<unreadable>"
-      }, expected ${bridgeAddress})`
+      }, expected ${expectedBridge})`
   )
-  if (failures > 0) {
+  if (failed > 0) {
     process.exit(1)
   }
 }
