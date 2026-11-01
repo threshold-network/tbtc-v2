@@ -10,6 +10,7 @@ import {
   KNOWN_TIMELOCK,
 } from "../deploy/85_deploy_tip109_governance_upgrade"
 import {
+  additionalStakingSourcePath,
   assertBridgeImplementationChanges,
   assertSelectorPresence,
   assertStorageGate,
@@ -26,6 +27,7 @@ import {
   rebateSelectorPlan,
   readStorageLayoutFile,
   scanSelectors,
+  stakingSourcePath,
 } from "../deploy/99_deploy_rebate_staking_reservation_implementation"
 
 /**
@@ -310,6 +312,73 @@ async function findRegisteredWalletsSlot(
   )
 }
 
+/**
+ * The rehearsal's storage-layout gate step, applied.
+ *
+ * The rehearsal has to apply the *whole* gate, not only the layout parts:
+ * the semantic comparison and the append-only check cannot see a reorder of
+ * the fee-mode enum, because the pinned solc writes no enum members into the
+ * deployed layout. Calling the two layout assertions on their own is what
+ * left the reorder undetected.
+ *
+ * This function is the rehearsal's own gate step, not a re-implementation of
+ * the gate: it calls the one shared `assertStorageGate` the deploy script
+ * calls, so the rehearsal cannot pass a build the ceremony would reject.
+ *
+ * It is exported so the step can be exercised on its own: a test can hand it
+ * a reordered source and require the rejection, which a source-text scan of
+ * this file cannot prove.
+ */
+export async function applyRehearsalStorageGate(options?: {
+  /**
+   * A further staking source to pin the enum order against.
+   *
+   * It is pinned *in addition to* the canonical source, never instead of
+   * it, exactly as in the ceremony: the canonical source is always pinned,
+   * so an extra source can only make the gate stricter.
+   *
+   * When it is not given, the extra source is resolved through the same
+   * `additionalStakingSourcePath` the ceremony uses, so both entry points
+   * read the same environment variable, apply the same non-test-network
+   * refusal, and cannot end up pinning different sources under the same
+   * environment. An explicit path still wins, so a caller can pin an extra
+   * source without setting the variable.
+   */
+  additionalStakingSourcePath?: string
+}): Promise<{
+  deployedFields: number
+  headFields: number
+}> {
+  const deployedLayout = readStorageLayoutFile(
+    path.join(
+      __dirname,
+      "..",
+      "deployments",
+      "mainnet",
+      "RebateStakingTIP109HotfixImplementation.json"
+    )
+  )
+  const headLayout = await compiledStorageLayout(STAKING_ARTIFACT)
+  const stakingSource = fs.readFileSync(stakingSourcePath(), "utf8")
+  const extraSourcePath =
+    options?.additionalStakingSourcePath ??
+    additionalStakingSourcePath(network.name)
+  const additionalStakingSources =
+    extraSourcePath === undefined
+      ? []
+      : [fs.readFileSync(extraSourcePath, "utf8")]
+  assertStorageGate({
+    deployed: deployedLayout,
+    head: headLayout,
+    stakingSource,
+    additionalStakingSources,
+  })
+  return {
+    deployedFields: deployedLayout.storage.length,
+    headFields: headLayout.storage.length,
+  }
+}
+
 async function main(): Promise<void> {
   const block = await ethers.provider.getBlockNumber()
   if (FORKING_BLOCK === 0 || block !== FORKING_BLOCK) {
@@ -574,31 +643,13 @@ async function main(): Promise<void> {
   // implementation the proxy delegates to on the fork.
   console.log("\n=== Step 3b: storage-layout gate ===")
   try {
-    const deployedLayout = readStorageLayoutFile(
-      path.join(
-        __dirname,
-        "..",
-        "deployments",
-        "mainnet",
-        "RebateStakingTIP109HotfixImplementation.json"
-      )
-    )
-    const headLayout = await compiledStorageLayout(STAKING_ARTIFACT)
-    const stakingSource = fs.readFileSync(
-      path.join(__dirname, "..", "contracts", "bridge", "RebateStaking.sol"),
-      "utf8"
-    )
-    assertStorageGate({
-      deployed: deployedLayout,
-      head: headLayout,
-      stakingSource,
-    })
+    const gate = await applyRehearsalStorageGate()
     record({
       name: "03b-storage-layout-gate",
       status: "PASS",
       values: {
-        deployedFields: deployedLayout.storage.length,
-        headFields: headLayout.storage.length,
+        deployedFields: gate.deployedFields,
+        headFields: gate.headFields,
         feeModeOrder: REBATE_TREASURY_FEE_MODE_ORDER.join(", "),
       },
     })

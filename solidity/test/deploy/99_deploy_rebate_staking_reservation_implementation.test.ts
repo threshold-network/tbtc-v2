@@ -855,7 +855,9 @@ describe("deploy/99 deploy_rebate_staking_reservation_implementation", () => {
 
     it("rejects a library address with no code", async () => {
       // An address with no code is not a library, and the check has to say
-      // so rather than pass it through.
+      // so rather than pass it through. The reason is asserted, not just
+      // the verdict: a `matches: false` for an unrelated reason (a length
+      // mismatch, say) would satisfy a bare verdict check.
       const deposit = await artifacts.readArtifact("Deposit")
       const address = "0x5555555555555555555555555555555555555555"
       const result = proveLibraryIdentity({
@@ -865,6 +867,8 @@ describe("deploy/99 deploy_rebate_staking_reservation_implementation", () => {
         artifactRuntime: deposit.deployedBytecode,
       })
       expect(result.matches).to.equal(false)
+      expect(result.reason).to.match(/carries no code/)
+      expect(result.reason).to.match(/not the Deposit library/)
     })
 
     it("rejects a library runtime that does not carry its own address", async () => {
