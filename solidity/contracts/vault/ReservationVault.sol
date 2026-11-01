@@ -56,7 +56,6 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
     uint256 public constant MAX_FEE_BASIS_POINTS = 500;
 
     Bank public immutable bank;
-    TBTCVault public immutable tbtcVault;
     TBTC public immutable tbtcToken;
     IReservationBridge public immutable bridge;
 
@@ -104,6 +103,10 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
         _;
     }
 
+    /// @param _tbtcVault The TBTC vault this vault is wired to at deployment.
+    ///        It fixes the TBTC token address, which in turn resolves the
+    ///        live TBTC vault for the mint and burn paths (see `tbtcVault`),
+    ///        so a TBTCVault upgrade needs no action on this contract.
     constructor(Bank _bank, TBTCVault _tbtcVault, IReservationBridge _bridge) {
         require(
             address(_bank) != address(0),
@@ -119,7 +122,6 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
         );
 
         bank = _bank;
-        tbtcVault = _tbtcVault;
         tbtcToken = _tbtcVault.tbtcToken();
         bridge = _bridge;
 
@@ -184,9 +186,12 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
         }
 
         // Convert the whole Bank balance credited by the Bridge into TBTC
-        // minted to this vault in a single mint, then distribute it.
-        bank.approveBalance(address(tbtcVault), totalSat);
-        tbtcVault.mint(totalSat * SATOSHI_MULTIPLIER);
+        // minted to this vault in a single mint, then distribute it. The
+        // vault is resolved once so the Bank approval and the mint call can
+        // never land on different vaults.
+        TBTCVault vault = tbtcVault();
+        bank.approveBalance(address(vault), totalSat);
+        vault.mint(totalSat * SATOSHI_MULTIPLIER);
 
         for (uint256 i = 0; i < depositors.length; i++) {
             uint256 grossTbtc = depositedAmounts[i] * SATOSHI_MULTIPLIER;
@@ -263,8 +268,9 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
             address(this),
             repayTbtc
         );
-        IERC20(tbtcToken).safeIncreaseAllowance(address(tbtcVault), repayTbtc);
-        tbtcVault.unmint(repayTbtc);
+        TBTCVault vault = tbtcVault();
+        IERC20(tbtcToken).safeIncreaseAllowance(address(vault), repayTbtc);
+        vault.unmint(repayTbtc);
         bank.decreaseBalance(repaySat);
 
         // The external calls above touch only trusted protocol contracts
@@ -363,6 +369,23 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
         revert("Balance approvals not supported");
     }
 
+    /// @notice The TBTC vault this vault mints and unmints through.
+    /// @dev Resolved from the TBTC token owner on every call instead of being
+    ///      pinned at construction. `TBTCVault.finalizeUpgrade` hands TBTC
+    ///      token ownership, and with it the only ability to mint and burn
+    ///      TBTC, to the replacement vault, so the token owner is the
+    ///      authoritative on-chain record of the live TBTC vault. Following
+    ///      it keeps the reservation mint and burn paths working across a
+    ///      TBTCVault upgrade; a pointer fixed at construction left those
+    ///      paths calling a vault that could no longer mint until this vault
+    ///      was itself redeployed. `tbtcToken` is immutable here, so the
+    ///      resolution only ever follows ownership of the same token.
+    function tbtcVault() public view returns (TBTCVault) {
+        address vault = address(tbtcToken.owner());
+        require(vault.code.length != 0, "TBTC token owner is not a contract");
+        return TBTCVault(vault);
+    }
+
     /// @dev Burns up to `amountSat` of TBTC from the vault's current balance
     ///      and decreases the corresponding Bank balance. Returns the amount
     ///      of satoshi actually burned.
@@ -376,11 +399,9 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
 
         if (burnedSat > 0) {
             uint256 burnTbtc = uint256(burnedSat) * SATOSHI_MULTIPLIER;
-            IERC20(tbtcToken).safeIncreaseAllowance(
-                address(tbtcVault),
-                burnTbtc
-            );
-            tbtcVault.unmint(burnTbtc);
+            TBTCVault vault = tbtcVault();
+            IERC20(tbtcToken).safeIncreaseAllowance(address(vault), burnTbtc);
+            vault.unmint(burnTbtc);
             bank.decreaseBalance(burnedSat);
         }
     }
