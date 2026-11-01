@@ -5,9 +5,11 @@ import { artifacts } from "hardhat"
 import { ethers } from "ethers"
 import func, {
   artifactLinkSites,
+  assertStorageGate,
   bridgeRuntimeWithLibraries,
   compiledStorageLayout,
   deployedLibraryRuntime,
+  readStorageLayoutFile,
   type StorageLayout,
 } from "../../deploy/99_deploy_rebate_staking_reservation_implementation"
 import {
@@ -357,11 +359,11 @@ function reorderedSource(): string {
 describe("deploy/99 the ceremony, end to end", () => {
   const originalBridgeImplementation =
     process.env.BRIDGE_RESERVATION_IMPLEMENTATION
-  const originalStakingSourcePath = process.env.REBATE_STAKING_SOURCE_PATH
+  const originalExtraSourcePath = process.env.REBATE_STAKING_EXTRA_SOURCE_PATH
 
   beforeEach(() => {
     process.env.BRIDGE_RESERVATION_IMPLEMENTATION = BRIDGE_IMPL_INPUT
-    delete process.env.REBATE_STAKING_SOURCE_PATH
+    delete process.env.REBATE_STAKING_EXTRA_SOURCE_PATH
     fs.rmSync(DEPLOYMENTS_DIR, { recursive: true, force: true })
   })
 
@@ -373,10 +375,10 @@ describe("deploy/99 the ceremony, end to end", () => {
       process.env.BRIDGE_RESERVATION_IMPLEMENTATION =
         originalBridgeImplementation
     }
-    if (originalStakingSourcePath === undefined) {
-      delete process.env.REBATE_STAKING_SOURCE_PATH
+    if (originalExtraSourcePath === undefined) {
+      delete process.env.REBATE_STAKING_EXTRA_SOURCE_PATH
     } else {
-      process.env.REBATE_STAKING_SOURCE_PATH = originalStakingSourcePath
+      process.env.REBATE_STAKING_EXTRA_SOURCE_PATH = originalExtraSourcePath
     }
   })
 
@@ -407,6 +409,30 @@ describe("deploy/99 the ceremony, end to end", () => {
       KNOWN_PROXY_ADMIN,
     ])
     expect(timelock.batch.payloads.length).to.equal(2)
+
+    // The order is the whole point of the batch, so the payloads are
+    // decoded and checked rather than merely counted: action [0] upgrades
+    // the RebateStaking proxy, action [1] the Bridge proxy. The addresses
+    // are compared case-insensitively: the decoded ones are checksummed,
+    // the fixtures are not.
+    const proxyAdminInterface = new ethers.Interface([
+      "function upgrade(address,address)",
+    ])
+    const decoded = timelock.batch.payloads.map((payload) =>
+      proxyAdminInterface.decodeFunctionData("upgrade", payload)
+    )
+    expect(String(decoded[0][0]).toLowerCase()).to.equal(
+      STAKING_PROXY.toLowerCase()
+    )
+    expect(String(decoded[0][1]).toLowerCase()).to.equal(
+      NEW_STAKING_IMPL.toLowerCase()
+    )
+    expect(String(decoded[1][0]).toLowerCase()).to.equal(
+      BRIDGE_PROXY.toLowerCase()
+    )
+    expect(String(decoded[1][1]).toLowerCase()).to.equal(
+      BRIDGE_IMPL_INPUT.toLowerCase()
+    )
   })
 
   it("stops when the head layout is incompatible with the deployed one", async () => {
@@ -431,16 +457,109 @@ describe("deploy/99 the ceremony, end to end", () => {
   it("stops when the fee-mode enum is reordered in the source", async () => {
     // The enum pin is the one part of the gate the layout comparison
     // cannot see. Deleting it from the gate makes this run complete.
+    //
+    // The reordered source is pinned *in addition to* the canonical one,
+    // never instead of it, so it can only make the gate stricter.
     const sourcePath = path.join(DEPLOYMENTS_DIR, "reordered-RebateStaking.sol")
     fs.mkdirSync(DEPLOYMENTS_DIR, { recursive: true })
     fs.writeFileSync(sourcePath, reorderedSource())
-    process.env.REBATE_STAKING_SOURCE_PATH = sourcePath
+    process.env.REBATE_STAKING_EXTRA_SOURCE_PATH = sourcePath
 
     const { mockHre } = await createCeremony()
     const { error, output } = await runCeremony(mockHre)
     expect(error, output).to.not.equal(undefined)
     expect(error?.message).to.match(
       /declares \[Both, RedemptionOnly, DepositOnly\]/
+    )
+  })
+
+  it("pins the canonical source even when an extra source is given", async () => {
+    // The extra source is an *additional* pin, never a replacement. A
+    // source in the right order must not be able to stand in for the
+    // canonical source, and the canonical source is pinned either way.
+    //
+    // This is the property the seam could have got wrong: if the extra
+    // source *replaced* the canonical one, a reordered canonical source
+    // would pass whenever a correct-order extra source was present.
+    const deployed = readStorageLayoutFile(BASELINE_RECORD_PATH)
+    const head = await compiledStorageLayout(
+      "contracts/bridge/RebateStaking.sol:RebateStaking"
+    )
+    const canonical = fs.readFileSync(
+      path.join(
+        __dirname,
+        "..",
+        "..",
+        "contracts",
+        "bridge",
+        "RebateStaking.sol"
+      ),
+      "utf8"
+    )
+
+    // A correct-order extra source does not rescue a reordered canonical
+    // source: the canonical source is pinned in its own right.
+    expect(() =>
+      assertStorageGate({
+        deployed,
+        head,
+        stakingSource: reorderedSource(),
+        additionalStakingSources: [canonical],
+      })
+    ).to.throw(/declares \[Both, RedemptionOnly, DepositOnly\]/)
+
+    // And a correct-order extra source does not rescue a canonical source
+    // that carries no enum at all: the canonical source is not optional.
+    expect(() =>
+      assertStorageGate({
+        deployed,
+        head,
+        stakingSource: "contract Unrelated { uint256 public x; }\n",
+        additionalStakingSources: [canonical],
+      })
+    ).to.throw(/enum RebateTreasuryFeeMode not found/)
+  })
+
+  it("applies the extra source rather than ignoring it", async () => {
+    // The extra source is genuinely pinned: a source that carries no enum
+    // at all is rejected, not silently skipped. An extra source that was
+    // ignored would leave the gate exactly as permissive as before.
+    const sourcePath = path.join(DEPLOYMENTS_DIR, "no-enum.sol")
+    fs.mkdirSync(DEPLOYMENTS_DIR, { recursive: true })
+    fs.writeFileSync(
+      sourcePath,
+      "contract Unrelated { uint256 public x; }\n"
+    )
+    process.env.REBATE_STAKING_EXTRA_SOURCE_PATH = sourcePath
+
+    const { mockHre } = await createCeremony()
+    const { error, output } = await runCeremony(mockHre)
+    expect(error, output).to.not.equal(undefined)
+    expect(error?.message).to.match(/enum RebateTreasuryFeeMode not found/)
+  })
+
+  it("refuses the source override outside a test network", async () => {
+    // The override is a test seam. On a live network it would change which
+    // source the fee-mode enum order is pinned against, so a ceremony there
+    // could certify a build against a source that is not the deployed
+    // contract's. It has to be refused loudly, not silently ignored and
+    // not silently honoured.
+    const { mockHre } = await createCeremony()
+    mockHre.network = { name: "mainnet" }
+    process.env.REBATE_STAKING_EXTRA_SOURCE_PATH = path.join(
+      DEPLOYMENTS_DIR,
+      "reordered-RebateStaking.sol"
+    )
+    fs.mkdirSync(DEPLOYMENTS_DIR, { recursive: true })
+    fs.writeFileSync(
+      process.env.REBATE_STAKING_EXTRA_SOURCE_PATH,
+      reorderedSource()
+    )
+
+    const { error, output } = await runCeremony(mockHre)
+    expect(error, output).to.not.equal(undefined)
+    expect(error?.message).to.match(
+      /REBATE_STAKING_EXTRA_SOURCE_PATH is set to .* test-only seam/
     )
   })
 

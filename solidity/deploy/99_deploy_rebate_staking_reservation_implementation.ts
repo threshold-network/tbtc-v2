@@ -829,6 +829,15 @@ export function assertStorageGate(params: {
   deployed: StorageLayout
   head: StorageLayout
   stakingSource: string
+  /**
+   * Further sources the enum order is pinned against, on top of
+   * `stakingSource`.
+   *
+   * These are *additional* pins, never replacements: the canonical source
+   * is always checked. An extra source can therefore only make the gate
+   * stricter, never let it pass a build the canonical source would reject.
+   */
+  additionalStakingSources?: readonly string[]
 }): void {
   const { deployed, head, stakingSource } = params
   assertLayoutCompatible(deployed, head)
@@ -841,6 +850,13 @@ export function assertStorageGate(params: {
     enumName: "RebateTreasuryFeeMode",
     expected: REBATE_TREASURY_FEE_MODE_ORDER,
   })
+  ;(params.additionalStakingSources ?? []).forEach((source) => {
+    assertEnumMemberOrder({
+      source,
+      enumName: "RebateTreasuryFeeMode",
+      expected: REBATE_TREASURY_FEE_MODE_ORDER,
+    })
+  })
 }
 
 /**
@@ -848,16 +864,67 @@ export function assertStorageGate(params: {
  *
  * The fee-mode enum pin reads the source rather than the layout, because
  * the pinned solc writes no enum members into the deployed layout, so the
- * comparison cannot see a reorder. The path is overridable through
- * `REBATE_STAKING_SOURCE_PATH` so the ceremony's own gate can be exercised
- * end to end against a reordered source; the default is the real contract.
+ * comparison cannot see a reorder. This is the canonical source and it is
+ * always pinned.
  */
 export function stakingSourcePath(): string {
-  const override = process.env.REBATE_STAKING_SOURCE_PATH
-  if (override !== undefined && override.trim() !== "") {
-    return override.trim()
-  }
   return path.join(__dirname, "..", "contracts", "bridge", "RebateStaking.sol")
+}
+
+/**
+ * A further staking source the ceremony pins the enum order against.
+ *
+ * The path comes from `REBATE_STAKING_EXTRA_SOURCE_PATH` and it is
+ * *additional*: the canonical source is pinned either way, so this can only
+ * make the gate stricter. It cannot let a build through that the canonical
+ * source would reject, and it cannot stand in for the canonical source.
+ *
+ * It exists so the ceremony's own gate can be exercised end to end against
+ * a reordered source. Set to a file whose enum order differs, the ceremony
+ * stops with the enum reason; unset, the ceremony pins the real contract
+ * alone.
+ *
+ * The override is refused outside a test network. It is a test seam, and a
+ * seam that silently changes what the ceremony pins on a live network is
+ * exactly the hazard the pin exists to close: an operator with the
+ * variable set in their shell would get a ceremony that certifies a build
+ * against a source that is not the deployed contract's. So the override is
+ * accepted only where there is no live chain to certify, and refused
+ * loudly everywhere else.
+ *
+ * @param networkName the network the ceremony is running against.
+ */
+export function additionalStakingSourcePath(
+  networkName: string
+): string | undefined {
+  const override = process.env.REBATE_STAKING_EXTRA_SOURCE_PATH
+  if (override === undefined || override.trim() === "") {
+    return undefined
+  }
+  if (!isTestNetwork(networkName)) {
+    throw new Error(
+      `REBATE_STAKING_EXTRA_SOURCE_PATH is set to ${override.trim()}, but it is a ` +
+        "test-only seam: it changes which source the fee-mode enum order is " +
+        `pinned against, and a live ceremony must pin the deployed contract's own ` +
+        `source. Refusing to run on network ${networkName}.`
+    )
+  }
+  return override.trim()
+}
+
+/**
+ * The networks on which a test-only seam may be used.
+ *
+ * `hardhat` is the in-process test network; the others are the local
+ * networks of the repo's own tooling. None of them carries a live chain.
+ */
+export function isTestNetwork(networkName: string): boolean {
+  return (
+    networkName === "hardhat" ||
+    networkName === "localhost" ||
+    networkName === "ceremony-mock" ||
+    networkName.startsWith("test")
+  )
 }
 
 /**
@@ -1923,10 +1990,18 @@ const func: DeployFunction =
       recordPath("RebateStakingReservationImplementation")
     )
     const stakingSource = fs.readFileSync(stakingSourcePath(), "utf8")
+    // A further source is pinned *in addition to* the canonical one, never
+    // instead of it, so it can only make the gate stricter.
+    const extraSourcePath = additionalStakingSourcePath(hre.network.name)
+    const additionalStakingSources =
+      extraSourcePath === undefined
+        ? []
+        : [fs.readFileSync(extraSourcePath, "utf8")]
     assertStorageGate({
       deployed: deployedLayout,
       head: headLayout,
       stakingSource,
+      additionalStakingSources,
     })
     console.log("  storage layout compatible (semantic comparison): OK")
     console.log("  append-only, same end slot: OK")

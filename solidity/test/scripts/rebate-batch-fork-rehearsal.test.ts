@@ -229,7 +229,9 @@ describe("rebate-batch-fork-rehearsal (storage-layout gate)", () => {
 
       // The reordered source fails it, at the enum pin.
       await assert.rejects(
-        applyRehearsalStorageGate({ stakingSourcePath: swappedPath }),
+        applyRehearsalStorageGate({
+          additionalStakingSourcePath: swappedPath,
+        }),
         /declares \[Both, RedemptionOnly, DepositOnly\]/
       )
     } finally {

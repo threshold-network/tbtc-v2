@@ -93,13 +93,19 @@ func.tags = ["ReservationRouter"]
 // No `Bridge` dependency: this script reads the `Bridge` *record*, never the
 // deploy script that writes it. hardhat-deploy resolves a script's
 // `dependencies` *before* it consults `skip` (1.0.4,
-// `DeploymentsManager.executeDeployScripts`), so a `"Bridge"` dependency runs
-// `06_deploy_bridge.ts` on every network even when this script then skips
-// itself, and 06 has neither a `skip` nor a mainnet guard. On mainnet the
-// Bridge is already deployed, so the run aborts inside 06 -- after 06 has
-// re-deployed `Deposit`, `DepositSweep` and `Wallets` (their sources change in
-// this release, so hardhat-deploy finds the recorded deployment transaction
-// stale) and rewritten those records to name implementations the live Bridge
-// does not link. A local or rehearsal run that needs the records built first
-// passes the tags explicitly:
-// `--tags Bridge,ReservationRouter`.
+// `DeploymentsManager.executeDeployScripts`), so a `"Bridge"` dependency pulls
+// `06_deploy_bridge.ts` into the run, and 06 has neither a `skip` nor a
+// mainnet guard. On mainnet the Bridge is already deployed, so the run aborts
+// inside 06 -- after 06 has re-deployed `Deposit`, `DepositSweep` and
+// `Wallets` (their sources change in this release, so hardhat-deploy finds the
+// recorded deployment transaction stale) and rewritten those records to name
+// implementations the live Bridge does not link.
+//
+// The ordering this script needs is preserved without the dependency: 06
+// sorts the deploy scripts by path (`06_deploy_bridge.ts` before
+// `06a_deploy_reservation_router.ts`), and `97_set_reservation_parameters.ts`
+// declares `ReservationRouter` in its own `dependencies`, so the router is
+// still deployed before the parameters are set.
+//
+// A local or rehearsal run that needs the Bridge record built first passes
+// the tags explicitly: `--tags Bridge,ReservationRouter`.
