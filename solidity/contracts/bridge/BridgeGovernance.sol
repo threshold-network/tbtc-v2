@@ -2017,4 +2017,52 @@ contract BridgeGovernance is Ownable {
             reservationCapsData.reservationCapsChangeInitiated
         );
     }
+
+    /// @notice Returns the reservation parameters update staged by
+    ///         `beginReservationParametersUpdate`, as the nine values in
+    ///         that function's argument order followed by the initiation
+    ///         timestamp.
+    /// @dev A zero timestamp means nothing is staged; all ten values are
+    ///      zero when the slot is empty. `finalizeReservationParametersUpdate`
+    ///      clears the timestamp along with the staged values.
+    ///      Only one parameters update can be pending: `beginReservationParametersUpdate`
+    ///      overwrites the staged values and the timestamp without a warning,
+    ///      so read this view before every `begin` to see whether a change
+    ///      is already staged -- above all a vault address the
+    ///      irreversibility acknowledgement did not name -- and to record
+    ///      what the call is about to replace. The vault this slot holds is
+    ///      wired into the Bridge permanently once the first reservation is
+    ///      accepted, so a silent overwrite of that field is not
+    ///      recoverable. The view is unrestricted because the same values
+    ///      are already public through the `ReservationParametersUpdateStarted`
+    ///      event.
+    function pendingReservationParametersUpdate()
+        external
+        view
+        returns (
+            address newReservationVault,
+            uint64 newReservationMinAmount,
+            uint64 newReservationTxMaxFee,
+            uint32 newReservationTermSeconds,
+            uint32 newReservationDissolutionDelay,
+            uint64 newReservationMaxTotalAmount,
+            uint32 newMaxReservationsPerWallet,
+            uint32 newReservationActionTimeout,
+            uint32 newReservationRenewalWindowSeconds,
+            uint256 changeInitiated
+        )
+    {
+        return (
+            reservationData.newReservationVault,
+            reservationData.newReservationMinAmount,
+            reservationData.newReservationTxMaxFee,
+            reservationData.newReservationTermSeconds,
+            reservationData.newReservationDissolutionDelay,
+            reservationData.newReservationMaxTotalAmount,
+            reservationData.newMaxReservationsPerWallet,
+            reservationData.newReservationActionTimeout,
+            reservationData.newReservationRenewalWindowSeconds,
+            reservationData.reservationParametersChangeInitiated
+        );
+    }
 }

@@ -3,11 +3,12 @@ import fs from "fs"
 import path from "path"
 import { HardhatRuntimeEnvironment } from "hardhat/types"
 import { DeployFunction } from "hardhat-deploy/types"
-import { getAddress, Interface, ZeroAddress } from "ethers"
+import { getAddress, Interface, keccak256, ZeroAddress } from "ethers"
 import {
   artifactLinkSites,
   bridgeRuntimeWithLibraries,
   LinkSite,
+  scanSelectors,
 } from "./99_deploy_rebate_staking_reservation_implementation"
 
 // Known mainnet Timelock Controller address. Owner of the ProxyAdmin,
@@ -213,6 +214,312 @@ export function assertReservedDepositsFeasible(params: {
       `(${depositRevealAheadPeriod}s) fits the term plus margin, and every ` +
       `non-zero amount cap is at least depositDustThreshold (${depositDustThreshold})`
   )
+}
+
+/**
+ * The `BridgeGovernance` surface the reservation ceremony calls, in the
+ * order the runbook introduces it. The six methods the actions below encode
+ * are required because a target without them reverts on arrival; the two
+ * `pending*` views are required because the runbook's pre-submission
+ * preflights read them, and a candidate that cannot answer them cannot run
+ * the ceremony this script generates.
+ */
+export const RESERVATION_SURFACE_METHODS = [
+  "setReservationRouter",
+  "beginReservationCapsUpdate",
+  "pendingReservationCapsUpdate",
+  "finalizeReservationCapsUpdate",
+  "beginReservationParametersUpdate",
+  "pendingReservationParametersUpdate",
+  "finalizeReservationParametersUpdate",
+  "setVaultStatus",
+] as const
+
+/** One `BridgeGovernance` method and the selector the ceremony calls it by. */
+export interface CeremonySelector {
+  method: string
+  selector: string
+}
+
+/**
+ * Resolves `RESERVATION_SURFACE_METHODS` to selectors off the compiled
+ * artifact's ABI, so the required surface cannot drift from the contract it
+ * is checked against.
+ */
+export function reservationSurfaceSelectors(
+  bridgeGovernanceInterface: Interface
+): CeremonySelector[] {
+  return RESERVATION_SURFACE_METHODS.map((method) => {
+    const fragment = bridgeGovernanceInterface.getFunction(method)
+    if (fragment === null) {
+      throw new Error(
+        `The compiled BridgeGovernance artifact has no ${method} function, ` +
+          "so the reservation ceremony cannot be encoded against it. This " +
+          "script and the contract are out of step."
+      )
+    }
+    return { method, selector: fragment.selector }
+  })
+}
+
+/**
+ * Refuses to generate calldata for a `BridgeGovernance` that is not the
+ * Bridge's governance, or that does not carry the reservation surface.
+ *
+ * Every action below is `onlyOwner` on `BridgeGovernance` and is forwarded
+ * to the Bridge, which accepts the forward only from its own `governance`
+ * slot. A target that has not been handed over, or that was built without
+ * the reservation surface, cannot execute any of the six actions, and an
+ * operator has no on-chain way to tell from the record: the target's
+ * `owner()` is the Council Safe either way.
+ */
+export function assertReservationGovernanceTarget(params: {
+  /** `Bridge.governance()`, read from the Bridge. */
+  bridgeGovernance: string
+  /** The `BridgeGovernance` deployment record the calldata will target. */
+  target: string
+  /** Runtime code at `target`. */
+  targetRuntime: string
+  /** The surface the ceremony needs, from `reservationSurfaceSelectors`. */
+  surface: CeremonySelector[]
+}): void {
+  if (params.bridgeGovernance.toLowerCase() !== params.target.toLowerCase()) {
+    throw new Error(
+      `Bridge.governance() is ${params.bridgeGovernance}, not the ` +
+        `BridgeGovernance deployment record's address (${params.target}). ` +
+        "Every action generated below is forwarded by BridgeGovernance to " +
+        "the Bridge, and the Bridge accepts the forward only from its own " +
+        "governance slot, so the whole Safe transaction would revert on the " +
+        "Bridge's governance check. Complete Stage 1 " +
+        "(beginBridgeGovernanceTransfer then finalizeBridgeGovernanceTransfer " +
+        "on the current governance) and re-run, or point the " +
+        "BridgeGovernance record at the governance the Bridge already has."
+    )
+  }
+  if (params.targetRuntime === "0x") {
+    throw new Error(
+      `There is no code at ${params.target}, the BridgeGovernance address ` +
+        "this calldata targets. Refusing to encode calls that would arrive " +
+        "at an empty account."
+    )
+  }
+  const found = scanSelectors(
+    params.targetRuntime,
+    params.surface.map((entry) => entry.selector)
+  )
+  const missing = params.surface.filter(
+    (entry) => found[entry.selector] !== true
+  )
+  if (missing.length > 0) {
+    const missingList = missing
+      .map((entry) => `${entry.method} (${entry.selector})`)
+      .join(", ")
+    throw new Error(
+      `The code at ${params.target} does not expose ${missingList}. That ` +
+        "address is not a reservation-capable BridgeGovernance build: the " +
+        "actions encoded below would arrive at missing functions, and a " +
+        "begin whose finalize cannot run has no cancel -- the delay window " +
+        "is spent and the ceremony restarts from the begin again. Deploy " +
+        "the BridgeGovernance from this repository (Stage 0) and re-run, or " +
+        "point the record at a candidate that carries the whole surface."
+    )
+  }
+}
+
+/**
+ * Refuses to generate calldata for a reservation vault other than the one
+ * the sign-off names.
+ *
+ * `updateReservationParameters` re-points `reservationVault` only while
+ * `reservationTotalAmount == 0` and `pendingReservedDeposits == 0`, so the
+ * vault staged here is the vault the Bridge keeps for the lifetime of every
+ * live reservation, and the pre-flight acknowledgement binds that address in
+ * writing. The deployment record is not that address: `95_deploy_reservation_vault.ts`
+ * deploys without `skip`, and hardhat-deploy saves a new record whenever the
+ * deployment transaction differs, so a re-run after a recompile rewrites the
+ * record to a fresh, empty vault. Comparing the record against
+ * `RESERVATION_VAULT`, and the code at the record against the artifact's
+ * runtime, is what keeps a rewritten record from silently wiring a vault
+ * nobody signed off on.
+ */
+export function assertExpectedReservationVault(params: {
+  /** `RESERVATION_VAULT`: the address the sign-off names. */
+  expected: string
+  /** The `ReservationVault` deployment record's address. */
+  recorded: string
+  /** Runtime code at `recorded`. */
+  onChainRuntime: string
+  /** The runtime the record describes, its libraries linked. */
+  expectedRuntime: string
+}): void {
+  if (params.expected.toLowerCase() !== params.recorded.toLowerCase()) {
+    throw new Error(
+      `RESERVATION_VAULT (${params.expected}) does not match the ` +
+        `ReservationVault deployment record (${params.recorded}). ` +
+        "updateReservationParameters fixes reservationVault permanently " +
+        "once the first reservation is accepted, and the pre-flight " +
+        "acknowledgement binds the address it names. Refusing to generate " +
+        "calldata that would wire a vault the sign-off does not cover: " +
+        "re-run with RESERVATION_VAULT set to the recorded address, or " +
+        "correct the record if a re-run of 95_deploy_reservation_vault.ts " +
+        "rewrote it."
+    )
+  }
+  const onChainHash = keccak256(params.onChainRuntime)
+  const expectedHash = keccak256(params.expectedRuntime)
+  if (onChainHash !== expectedHash) {
+    throw new Error(
+      `keccak256 of the code at ${params.recorded} is ${onChainHash}, but ` +
+        `the ReservationVault artifact describes ${expectedHash}` +
+        `${params.onChainRuntime === "0x" ? " (the address carries no code)" : ""}. ` +
+        "The record names an address this build did not deploy, so the " +
+        "vault the ceremony would wire is not the reviewed one. Rebuild and " +
+        "re-deploy, or correct the record, before generating calldata."
+    )
+  }
+}
+
+/** The reservation values one begin/finalize pair stages and applies. */
+export interface ReservationValueSet {
+  perWalletCap: bigint
+  singleAmountCap: bigint
+  maxActive: number
+  maxThirdPartyReanchorHolds: number
+  handoffReserveWallets: number
+  minAmount: bigint
+  txMaxFee: bigint
+  termSeconds: number
+  dissolutionDelay: number
+  maxTotalAmount: bigint
+  maxReservationsPerWallet: number
+  actionTimeout: number
+  renewalWindowSeconds: number
+}
+
+/**
+ * Applies every value rule the two finalize calls apply, before any staging
+ * calldata exists.
+ *
+ * `beginReservationCapsUpdate` validates none of its five values and
+ * `beginReservationParametersUpdate` validates only the dissolution delay
+ * and the action-timeout ceiling, so a value outside the finalize rules
+ * stages cleanly and is rejected 48h later by `updateReservationCaps` or
+ * `updateReservationParameters`. There is no cancel: the window is spent and
+ * the ceremony restarts from `begin`. Mirroring the whole finalize rule set
+ * here, instead of one guard per value at each call site, is what makes the
+ * two sides agree; every branch quotes the require string the Bridge would
+ * have reverted with.
+ *
+ * The dissolution delay's on-chain maximum is not repeated here:
+ * `assertDissolutionDelayWithinScriptPolicy` owns that bound, because it
+ * also enforces a zero rule the chain does not have.
+ */
+export function assertFinalizeAcceptsReservationValues(
+  values: ReservationValueSet
+): void {
+  // --- updateReservationCaps ---
+  if (values.maxActive <= 0) {
+    throw new Error(
+      `RESERVATION_MAX_ACTIVE (${values.maxActive}) must be greater than zero ` +
+        "(mirrors updateReservationCaps's 'Active reservations cap must be " +
+        "greater than zero' require). Zero also fails " +
+        "updateReservationParameters, which refuses a non-zero " +
+        "reservationVault while the stored maxActiveReservations is zero."
+    )
+  }
+  if (values.handoffReserveWallets <= 0) {
+    throw new Error(
+      `RESERVATION_HANDOFF_RESERVE_WALLETS (${values.handoffReserveWallets}) ` +
+        "must be greater than zero (mirrors updateReservationCaps's " +
+        "'Hand-off reserve must be greater than zero' require)"
+    )
+  }
+
+  // --- updateReservationParameters ---
+  if (values.txMaxFee <= BigInt(0)) {
+    throw new Error(
+      `RESERVATION_TX_MAX_FEE_SATS (${values.txMaxFee}) must be greater than ` +
+        "zero (mirrors updateReservationParameters's 'Reservation " +
+        "transaction max fee must be greater than zero' require)"
+    )
+  }
+  if (values.minAmount <= values.txMaxFee) {
+    throw new Error(
+      `RESERVATION_MIN_AMOUNT_SATS (${values.minAmount}) must be greater than ` +
+        `RESERVATION_TX_MAX_FEE_SATS (${values.txMaxFee}) (mirrors ` +
+        "updateReservationParameters's 'Reservation minimum amount must be " +
+        "greater than the reservation TX max fee' require)"
+    )
+  }
+  if (values.termSeconds < MIN_RESERVATION_TERM) {
+    throw new Error(
+      `RESERVATION_TERM_SECONDS (${values.termSeconds}) is below the on-chain ` +
+        `MIN_RESERVATION_TERM (${MIN_RESERVATION_TERM}s / 90 days) and would ` +
+        "revert on finalizeReservationParametersUpdate (mirrors 'Reservation " +
+        "term out of protocol bounds')"
+    )
+  }
+  if (values.termSeconds > MAX_RESERVATION_TERM) {
+    throw new Error(
+      `RESERVATION_TERM_SECONDS (${values.termSeconds}) exceeds the on-chain ` +
+        `MAX_RESERVATION_TERM (${MAX_RESERVATION_TERM}s / 730 days) and would ` +
+        "revert on finalizeReservationParametersUpdate (mirrors 'Reservation " +
+        "term out of protocol bounds')"
+    )
+  }
+  if (
+    values.renewalWindowSeconds <= 0 ||
+    values.renewalWindowSeconds >= values.termSeconds
+  ) {
+    throw new Error(
+      `RESERVATION_RENEWAL_WINDOW_SECONDS (${values.renewalWindowSeconds}) ` +
+        "must be greater than zero and strictly shorter than " +
+        `RESERVATION_TERM_SECONDS (${values.termSeconds}) (mirrors ` +
+        "updateReservationParameters's 'Renewal window must be shorter than " +
+        "the term' require)"
+    )
+  }
+  if (
+    values.actionTimeout <=
+    REQUEST_TIMEOUT_SAFETY_MARGIN + DEPOSIT_MIN_AGE + 1
+  ) {
+    throw new Error(
+      `RESERVATION_ACTION_TIMEOUT_SECONDS (${values.actionTimeout}) must ` +
+        "exceed REQUEST_TIMEOUT_SAFETY_MARGIN + DEPOSIT_MIN_AGE + 1 " +
+        `(${REQUEST_TIMEOUT_SAFETY_MARGIN + DEPOSIT_MIN_AGE + 1}s) (mirrors ` +
+        "updateReservationParameters's 'Reservation action timeout leaves no " +
+        "signing window' require)"
+    )
+  }
+  if (values.actionTimeout > MAX_RESERVATION_TERM) {
+    throw new Error(
+      `RESERVATION_ACTION_TIMEOUT_SECONDS (${values.actionTimeout}) exceeds ` +
+        `the on-chain MAX_RESERVATION_TERM (${MAX_RESERVATION_TERM}s / 730 ` +
+        "days) and would revert on finalizeReservationParametersUpdate " +
+        "(mirrors updateReservationParameters's 'Reservation action timeout " +
+        "out of protocol bounds' require)"
+    )
+  }
+  if (values.maxReservationsPerWallet <= 0) {
+    throw new Error(
+      `RESERVATION_MAX_PER_WALLET (${values.maxReservationsPerWallet}) must be ` +
+        "greater than zero (mirrors updateReservationParameters's 'Max " +
+        "reservations per wallet must be greater than zero' require)"
+    )
+  }
+
+  // Decision 1's relational check as `updateReservationCaps` evaluates it:
+  // the staged total against this update's own slot-capacity operands.
+  const slotCapacity = BigInt(values.maxActive) * values.singleAmountCap
+  if (values.maxTotalAmount > slotCapacity) {
+    throw new Error(
+      `Decision 1 invariant violated: reservationMaxTotalAmount ` +
+        `(${values.maxTotalAmount}) > maxActiveReservations * ` +
+        `reservationMaxSingleAmount (${slotCapacity}) (mirrors ` +
+        "updateReservationParameters's 'Amount cap exceeds slot capacity' " +
+        "require); this calldata would revert on finalize"
+    )
+  }
 }
 
 /** A single governance action: an ABI method name plus its call args. */
@@ -476,6 +783,28 @@ function requireEnvNumber(name: string): number {
 }
 
 /**
+ * Reads a required environment variable as a checksummed address. Throws if
+ * absent, empty or not an address, for the same reason the numeric readers
+ * do: a mainnet governance call must never fall back to a placeholder value.
+ */
+function requireEnvAddress(name: string): string {
+  const raw = process.env[name]
+  if (raw === undefined || raw === "") {
+    throw new Error(
+      `Missing required env var ${name} - no default values are permitted for mainnet governance calldata`
+    )
+  }
+  try {
+    return getAddress(raw)
+  } catch {
+    throw new Error(
+      `Env var ${name} (${raw}) is not an Ethereum address; it must be the ` +
+        "RESERVATION_VAULT address the irreversibility sign-off names"
+    )
+  }
+}
+
+/**
  * The runtime a hardhat-deploy record describes, with its libraries linked in.
  *
  * A record stores the *unlinked* deployed bytecode: at every link site solc
@@ -618,6 +947,58 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     `  BridgeGovernance (${BridgeGovernance.address}) owner matches KNOWN_COUNCIL_SAFE`
   )
 
+  // --- Verify the calldata target is the Bridge's governance and carries
+  // the reservation surface. `owner()` above passes on any BridgeGovernance
+  // the Council Safe owns, including one that was never handed to the
+  // Bridge and one built before the reservation surface existed; both make
+  // every action below revert on arrival. `Bridge.governance()` and the
+  // selector scan are the two things that tell those apart.
+  console.log("\n--- Verifying the BridgeGovernance ceremony target ---")
+  // Single ABI source for both the surface check below and the encoding at
+  // the end: the compiled BridgeGovernance artifact, not a hand-maintained
+  // ABI-fragment copy that can silently drift from the real contract.
+  const bridgeGovernanceArtifact =
+    await artifacts.readArtifact("BridgeGovernance")
+  const bridgeGovInterface = new Interface(bridgeGovernanceArtifact.abi)
+  assertReservationGovernanceTarget({
+    bridgeGovernance: await read("Bridge", "governance"),
+    target: BridgeGovernance.address,
+    targetRuntime: await ethers.provider.getCode(BridgeGovernance.address),
+    surface: reservationSurfaceSelectors(bridgeGovInterface),
+  })
+  console.log(
+    `  Bridge.governance() is ${BridgeGovernance.address}, and the code there ` +
+      `exposes all ${RESERVATION_SURFACE_METHODS.length} ceremony selectors`
+  )
+
+  // --- Verify the vault the ceremony would wire against the address the
+  // irreversibility sign-off names. The record is not that address: a
+  // re-run of 95_deploy_reservation_vault.ts rewrites it, and
+  // updateReservationParameters fixes whatever it names permanently.
+  console.log("\n--- Verifying the reservation vault against the sign-off ---")
+  const expectedReservationVault = requireEnvAddress("RESERVATION_VAULT")
+  const reservationVaultArtifact =
+    await artifacts.readArtifact("ReservationVault")
+  const expectedReservationVaultRuntime = linkedRecordRuntime({
+    name: "ReservationVault",
+    recordBytecode: ReservationVault.deployedBytecode,
+    artifactBytecode: reservationVaultArtifact.deployedBytecode,
+    linkSites: artifactLinkSites(
+      reservationVaultArtifact.deployedLinkReferences
+    ),
+    libraries: ReservationVault.libraries ?? {},
+  })
+  assertExpectedReservationVault({
+    expected: expectedReservationVault,
+    recorded: ReservationVault.address,
+    onChainRuntime: await ethers.provider.getCode(ReservationVault.address),
+    expectedRuntime: expectedReservationVaultRuntime,
+  })
+  console.log(
+    `  RESERVATION_VAULT (${expectedReservationVault}) matches the record and ` +
+      "its code hash matches the compiled artifact"
+  )
+
   // --- Verify the reservation router on-chain before embedding its address
   // in calldata: setReservationRouter is write-once and reverts on a
   // second call, and the address itself must actually be live contract
@@ -712,91 +1093,40 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
         `${MAX_RESERVATIONS_PER_WALLET}`
     )
   }
-  if (HANDOFF_RESERVE_WALLETS <= 0) {
-    throw new Error(
-      `RESERVATION_HANDOFF_RESERVE_WALLETS (${HANDOFF_RESERVE_WALLETS}) must ` +
-        "be greater than zero (mirrors updateReservationCaps's 'Hand-off " +
-        "reserve must be greater than zero' require)"
-    )
-  }
   // Deploy-script guard -- mirrors the on-chain MAX_RESERVATION_DISSOLUTION_DELAY
   // bound and catches an operator typo before the calldata is signed.
   assertDissolutionDelayWithinScriptPolicy(RES_DISSOLUTION_DELAY)
-  if (RES_TERM_SECONDS < MIN_RESERVATION_TERM) {
-    throw new Error(
-      `RESERVATION_TERM_SECONDS (${RES_TERM_SECONDS}) is below the on-chain ` +
-        `MIN_RESERVATION_TERM (${MIN_RESERVATION_TERM}s / 90 days) and would ` +
-        "revert on finalizeReservationParametersUpdate"
-    )
-  }
 
-  // Mirror EVERY remaining on-chain require in
-  // Reservation.sol's updateReservationParameters so a bad value fails
-  // fast here rather than reverting on-chain at finalize, up to 48h after
-  // this calldata is generated and staged.
-  if (RES_TX_MAX_FEE <= BigInt(0)) {
-    throw new Error(
-      "RESERVATION_TX_MAX_FEE_SATS must be greater than zero (mirrors " +
-        "updateReservationParameters's 'Reservation transaction max fee " +
-        "must be greater than zero' require)"
-    )
-  }
-  if (RES_MIN_AMOUNT <= RES_TX_MAX_FEE) {
-    throw new Error(
-      `RESERVATION_MIN_AMOUNT_SATS (${RES_MIN_AMOUNT}) must be greater than ` +
-        `RESERVATION_TX_MAX_FEE_SATS (${RES_TX_MAX_FEE}) (mirrors ` +
-        "updateReservationParameters's 'Reservation minimum amount must " +
-        "be greater than the reservation TX max fee' require)"
-    )
-  }
-  if (RES_TERM_SECONDS > MAX_RESERVATION_TERM) {
-    throw new Error(
-      `RESERVATION_TERM_SECONDS (${RES_TERM_SECONDS}) exceeds the on-chain ` +
-        `MAX_RESERVATION_TERM (${MAX_RESERVATION_TERM}s / 730 days) and ` +
-        "would revert on finalizeReservationParametersUpdate"
-    )
-  }
-  if (RES_RENEWAL_WINDOW <= 0 || RES_RENEWAL_WINDOW >= RES_TERM_SECONDS) {
-    throw new Error(
-      `RESERVATION_RENEWAL_WINDOW_SECONDS (${RES_RENEWAL_WINDOW}) must be ` +
-        "greater than zero and strictly shorter than " +
-        `RESERVATION_TERM_SECONDS (${RES_TERM_SECONDS}) (mirrors ` +
-        "updateReservationParameters's 'Renewal window must be shorter " +
-        "than the term' require)"
-    )
-  }
-  if (
-    RES_ACTION_TIMEOUT <=
-    REQUEST_TIMEOUT_SAFETY_MARGIN + DEPOSIT_MIN_AGE + 1
-  ) {
-    throw new Error(
-      `RESERVATION_ACTION_TIMEOUT_SECONDS (${RES_ACTION_TIMEOUT}) must ` +
-        "exceed REQUEST_TIMEOUT_SAFETY_MARGIN + DEPOSIT_MIN_AGE + 1 " +
-        `(${REQUEST_TIMEOUT_SAFETY_MARGIN + DEPOSIT_MIN_AGE + 1}s) (mirrors ` +
-        "updateReservationParameters's 'Reservation action timeout leaves " +
-        "no signing window' require)"
-    )
-  }
-  if (RES_ACTION_TIMEOUT > MAX_RESERVATION_TERM) {
-    throw new Error(
-      `RESERVATION_ACTION_TIMEOUT_SECONDS (${RES_ACTION_TIMEOUT}) exceeds the ` +
-        `on-chain MAX_RESERVATION_TERM (${MAX_RESERVATION_TERM}s / 730 days) ` +
-        "and would revert on finalizeReservationParametersUpdate (mirrors " +
-        "updateReservationParameters's 'Reservation action timeout out of " +
-        "protocol bounds' require)"
-    )
-  }
+  // Every remaining value rule the two finalize* calls apply, in one place.
+  // The begin* calls validate almost nothing -- `beginReservationCapsUpdate`
+  // checks no value at all -- so a value outside the finalize rules stages
+  // cleanly and is rejected 48h later, when there is no cancel left. Each
+  // branch of `assertFinalizeAcceptsReservationValues` quotes the require it
+  // mirrors.
+  assertFinalizeAcceptsReservationValues({
+    perWalletCap: PER_WALLET_CAP,
+    singleAmountCap: SINGLE_AMOUNT_CAP,
+    maxActive: MAX_ACTIVE,
+    maxThirdPartyReanchorHolds: MAX_THIRD_PARTY_REANCHOR_HOLDS,
+    handoffReserveWallets: HANDOFF_RESERVE_WALLETS,
+    minAmount: RES_MIN_AMOUNT,
+    txMaxFee: RES_TX_MAX_FEE,
+    termSeconds: RES_TERM_SECONDS,
+    dissolutionDelay: RES_DISSOLUTION_DELAY,
+    maxTotalAmount: RES_MAX_TOTAL_AMOUNT,
+    maxReservationsPerWallet: MAX_RESERVATIONS_PER_WALLET,
+    actionTimeout: RES_ACTION_TIMEOUT,
+    renewalWindowSeconds: RES_RENEWAL_WINDOW,
+  })
+  console.log(
+    "\nFinalize-time value acceptance OK: every value the begin* calls stage " +
+      "passes the require its finalize* call applies, and Decision 1's " +
+      "relational check holds against this update's own operands"
+  )
 
-  // Verify Decision 1 invariant holds:
-  // reservationMaxTotalAmount <= maxActiveReservations * reservationMaxSingleAmount
+  // The Decision 1 operands, recorded in the summary JSON below. The check
+  // itself ran inside `assertFinalizeAcceptsReservationValues`.
   const slotCapacity = BigInt(MAX_ACTIVE) * SINGLE_AMOUNT_CAP
-  if (RES_MAX_TOTAL_AMOUNT > slotCapacity) {
-    throw new Error(
-      `Decision 1 invariant violated: reservationMaxTotalAmount (${RES_MAX_TOTAL_AMOUNT}) > ` +
-        `maxActiveReservations * reservationMaxSingleAmount (${slotCapacity}); ` +
-        "this calldata would revert on finalize"
-    )
-  }
   console.log(
     `\nDecision 1 invariant OK: ${RES_MAX_TOTAL_AMOUNT} <= ${slotCapacity}`
   )
@@ -983,13 +1313,9 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     "\n--- Generating governance calldata (router, then caps+params begin, then caps+params finalize, then activation) ---"
   )
 
-  // Single ABI source: the compiled BridgeGovernance artifact, not a
-  // hand-maintained ABI-fragment copy that can silently drift from the
-  // real contract.
-  const bridgeGovernanceArtifact =
-    await artifacts.readArtifact("BridgeGovernance")
-  const bridgeGovInterface = new Interface(bridgeGovernanceArtifact.abi)
-
+  // `bridgeGovInterface` was resolved above and its surface checked against
+  // the target's code; the calldata below is encoded from that same
+  // interface.
   const actionDefinitions = buildReservationActionDefinitions({
     reservationRouter: ReservationRouter.address,
     reservationVault: ReservationVault.address,
