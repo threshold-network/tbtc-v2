@@ -527,10 +527,7 @@ describe("deploy/99 the ceremony, end to end", () => {
     // ignored would leave the gate exactly as permissive as before.
     const sourcePath = path.join(DEPLOYMENTS_DIR, "no-enum.sol")
     fs.mkdirSync(DEPLOYMENTS_DIR, { recursive: true })
-    fs.writeFileSync(
-      sourcePath,
-      "contract Unrelated { uint256 public x; }\n"
-    )
+    fs.writeFileSync(sourcePath, "contract Unrelated { uint256 public x; }\n")
     process.env.REBATE_STAKING_EXTRA_SOURCE_PATH = sourcePath
 
     const { mockHre } = await createCeremony()

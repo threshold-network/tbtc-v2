@@ -919,7 +919,9 @@ export function additionalStakingSourcePath(
  *
  * @param networkName the network the ceremony is running against.
  */
-export function assertNoSourceOverrideOffTestNetwork(networkName: string): void {
+export function assertNoSourceOverrideOffTestNetwork(
+  networkName: string
+): void {
   const override = process.env.REBATE_STAKING_EXTRA_SOURCE_PATH
   if (override === undefined || override.trim() === "") {
     return
