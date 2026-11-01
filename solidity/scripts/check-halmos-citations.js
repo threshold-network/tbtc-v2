@@ -18,7 +18,8 @@
  *
  *   - the cited file must exist,
  *   - the cited line range must still exist,
- *   - the expression the harness expects must be present in that range.
+ *   - the expression the harness expects must be present in that range, with
+ *     every comparison operator matched whole (see `expressionPattern`).
  *
  * A missing file, a moved line or a changed expression exits 1 with the
  * offending citation named.
@@ -53,13 +54,13 @@ const CITATIONS = [
       },
       {
         contract: "bridge/Reservation.sol",
-        range: [900, 906],
+        range: [921, 924],
         // The re-anchor request floor.
         expect: ["anchorAmount > txMaxFee + minAmount"],
       },
       {
         contract: "bridge/Reservation.sol",
-        range: [1620, 1627],
+        range: [1636, 1643],
         // The parameter setter rules.
         expect: [
           "reservationTxMaxFee > 0",
@@ -98,6 +99,38 @@ function readLines(file) {
   return fs.readFileSync(file, "utf8").split("\n")
 }
 
+// Two-character operators, matched before their one-character prefixes.
+const TWO_CHAR_OPERATORS = [">=", "<=", "==", "!="]
+// One-character operators. Each is the prefix of a longer operator (`>` of
+// `>=`, `<` of `<=` and `<<`, `=` of `==`, `!` of `!=`), so a plain substring
+// test accepts the very mutation this guard exists to catch: the needle
+// `uint256(deposit.amount) >` is a prefix of `uint256(deposit.amount) >=`.
+const ONE_CHAR_OPERATORS = [">", "<", "=", "!"]
+
+function escapeRegex(text) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+}
+
+// The pattern for one expected expression: the expression literally, with
+// every operator anchored so that it cannot match the prefix of a longer
+// operator. `uint256(deposit.amount) >` therefore matches the strict
+// comparison and rejects `uint256(deposit.amount) >=`.
+function expressionPattern(expression) {
+  let pattern = ""
+  for (let i = 0; i < expression.length; i++) {
+    const twoChar = expression.slice(i, i + 2)
+    if (TWO_CHAR_OPERATORS.includes(twoChar)) {
+      pattern += escapeRegex(twoChar)
+      i += 1
+    } else if (ONE_CHAR_OPERATORS.includes(expression[i])) {
+      pattern += `${escapeRegex(expression[i])}(?![=<])`
+    } else {
+      pattern += escapeRegex(expression[i])
+    }
+  }
+  return new RegExp(pattern)
+}
+
 // Checks one citation and returns a problem object, or null when the
 // citation resolves.
 function checkEntry(harness, entry) {
@@ -126,7 +159,7 @@ function checkEntry(harness, entry) {
 
   const slice = lines.slice(from - 1, to).join("\n")
   const missing = entry.expect.filter(
-    (expression) => !slice.includes(expression)
+    (expression) => !expressionPattern(expression).test(slice)
   )
 
   if (missing.length === 0) {
@@ -202,4 +235,8 @@ function main() {
   process.exit(problems.length === 0 ? 0 : 1)
 }
 
-main()
+if (require.main === module) {
+  main()
+}
+
+module.exports = { expressionPattern }

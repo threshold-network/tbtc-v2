@@ -35,6 +35,9 @@ abstract contract ReservationProperties {
 
     uint256 public ghostCreditedSat;
     uint256 public ghostMinerFeeSat;
+    // The part of `ghostCreditedSat` that a trusted reservation vault took
+    // through `Bank.increaseBalanceAndCall` instead of the depositor.
+    uint256 public ghostTrustedCreditedSat;
 
     struct Expected {
         uint256 active;
@@ -222,11 +225,20 @@ abstract contract ReservationProperties {
         return !reserveGateViolation;
     }
 
-    /// @dev Each settled acceptance credits its anchor value once; each
-    ///      re-anchor finances exactly its miner fee.
+    /// @dev Each settled acceptance credits its anchor value once, through the
+    ///      deposit's vault while that vault is trusted and to the depositor
+    ///      once trust is revoked; each re-anchor finances exactly its miner
+    ///      fee. The credit can land in either place, so the sum is compared
+    ///      against the ghost total and the vault's own record against the
+    ///      part of it that took the trusted arm. Both arms are pinned:
+    ///      a settlement that silently stops calling the vault leaves
+    ///      `vaultCreditedSat` below `ghostTrustedCreditedSat`.
     function property_creditsMatchSettlements() public returns (bool) {
         return
-            harness.bank().balanceOf(address(this)) == ghostCreditedSat &&
+            harness.bank().balanceOf(address(this)) +
+                harness.bank().balanceOf(address(harness.feeVault())) ==
+                ghostCreditedSat &&
+            harness.feeVault().vaultCreditedSat() == ghostTrustedCreditedSat &&
             harness.feeVault().financedSat() == ghostMinerFeeSat;
     }
 

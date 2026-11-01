@@ -26,19 +26,19 @@ pragma solidity 0.8.17;
 //                                   (uint256 arithmetic: no overflow revert)
 //   ReservationProofs.sol:462-465   `action.amount - anchorAmount <= action.txMaxFee`
 //   ReservationProofs.sol:473-476   `anchorAmount >= action.minAmount`
-//   Reservation.sol:900-906         `anchorAmount > txMaxFee + minAmount`
+//   Reservation.sol:921-924         `anchorAmount > txMaxFee + minAmount`
 //                                   (re-anchor request floor; uint64 addition,
 //                                   so it reverts on overflow)
 //   ReservationProofs.sol:700-703   re-anchor settlement: fee <= txMaxFee
 //   ReservationProofs.sol:708-711   re-anchor settlement: new anchor > txMaxFee
-//   Reservation.sol:1620-1627       parameter setter: txMaxFee > 0 and
+//   Reservation.sol:1636-1643       parameter setter: txMaxFee > 0 and
 //                                   minAmount > txMaxFee
 //
 // Scope notes:
 //  - One parameter set is used for acceptance and for the re-anchor request.
 //    In the contracts acceptance uses the snapshot `action.txMaxFee` and
-//    `action.minAmount` (Reservation.sol:674-675) while the re-anchor request
-//    reads the live values (:867, :901). A governance parameter change between
+//    `action.minAmount` (Reservation.sol:675-676) while the re-anchor request
+//    reads the live values (:886, :920). A governance parameter change between
 //    the two is a second, separate way to get stuck and is not modelled.
 //  - The acceptance deposit floor is computed in uint256
 //    (`uint256(minAmount) + 2 * uint256(txMaxFee)`), so it cannot overflow and
@@ -93,7 +93,7 @@ contract ReservationFloorHalmos is Test {
             anchorAmount >= minAmount;
     }
 
-    /// Reservation.sol:900-906 (current code, strict). The right-hand side is
+    /// Reservation.sol:921-924 (current code, strict). The right-hand side is
     /// a uint64 addition in the contract and reverts on overflow, so the
     /// copy keeps the uint64 type and the overflow is excluded upstream.
     function reanchorFloorOk(
@@ -113,7 +113,7 @@ contract ReservationFloorHalmos is Test {
         return anchorAmount >= txMaxFee + minAmount;
     }
 
-    /// Parameter setter rules (Reservation.sol:1620-1627) plus the
+    /// Parameter setter rules (Reservation.sol:1636-1643) plus the
     /// no-overflow exclusions described in the file header.
     function _assumeParams(uint64 txMaxFee, uint64 minAmount) internal pure {
         vm.assume(txMaxFee > 0);
@@ -272,7 +272,7 @@ contract ReservationFloorHalmos is Test {
         assert(!anchorAdmitted(12_001, 11_000, txMaxFee, minAmount));
     }
 
-    /// Why the floor exists (Reservation.sol:890-899): after a re-anchor hop
+    /// Why the floor exists (Reservation.sol:909-918): after a re-anchor hop
     /// that spends up to txMaxFee the anchor stays above minAmount, so the
     /// cumulative grind is capped at (initial anchor - minAmount). Current
     /// strict floor. Expected result: pass.
