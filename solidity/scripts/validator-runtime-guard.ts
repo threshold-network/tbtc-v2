@@ -3,11 +3,11 @@
  *
  * The release gate for step 3a ("the validator address the client config names
  * has deployedBytecode containing `require(!bridge.isReservedDeposit(...))`")
- * cannot be a plain substring search: solc stores a revert message as a run of
- * 32-byte words carrying 31 bytes of payload each, so
- * `"Reserved deposits must not be swept"` never appears contiguously even in a
- * build that carries it. A search for the literal text reports the *correct*
- * build as missing.
+ * cannot be a plain substring search: solc emits a revert string as one
+ * `PUSH32`-and-`MSTORE` per 32-byte word, with the store sequence between
+ * consecutive words, so `"Reserved deposits must not be swept"` never appears
+ * contiguously even in a build that carries it. A search for the literal text
+ * reports the *correct* build as missing.
  *
  * The reliable discriminators are the selectors of the calls a reservations
  * build must be able to make and receive:
@@ -18,11 +18,9 @@
  *     on the validator itself. Absent from the pre-M1 mainnet validator, which
  *     therefore cannot validate a reservation proposal at all.
  *
- * The revert message is still checked, via its 31-byte words, as a second,
+ * The revert message is still checked, as its 32-byte words, as a second,
  * independent signal.
  */
-/* eslint-disable no-restricted-syntax -- walking the message's 31-byte words in order */
-
 import { id } from "ethers"
 
 /**
@@ -53,24 +51,41 @@ export const SELECTOR_VALIDATE_RESERVATION_REANCHOR = selectorOf(
 export const RESERVED_SWEEP_REVERT = "Reserved deposits must not be swept"
 
 /**
- * Reports whether the given message is present in EVM runtime code.
+ * The distance allowed between two consecutive words of a message. solc emits
+ * a `revert("...")` / `require(c, "...")` string as one `PUSH32`-and-`MSTORE`
+ * per 32-byte word, so the payload words are contiguous *within* a word and
+ * separated by the store sequence (`60 44 82 01 52 7f`, six bytes here, more
+ * when the stack offset needs two bytes) *between* them. The message is
+ * therefore never a straight substring of the code, and a gap bound is what
+ * keeps the check from being satisfied by an unrelated literal further down.
+ */
+const MAX_WORD_GAP_BYTES = 16
+
+/**
+ * Reports whether the given message is present in EVM runtime code, as the
+ * 32-byte words solc emits it in.
  *
- * solc emits a long string as a sequence of `PUSH32` words carrying 31 payload
- * bytes each (the 32nd byte is the opcode slot), so the check re-chunks the
- * message the same way and requires its words to appear in order. Opcodes
- * between the words are ignored.
+ * A plain substring search reports a correct build as missing: words are
+ * separated by the store sequence. A 31-byte-chunk search reports it as
+ * present for the wrong reason: `"Reserved deposits must not be swept"` cut
+ * into 31-byte pieces looks for `"...must not be s"` and then `"wept"`, and
+ * `"wept"` occurs inside the unrelated `"Deposit already swept"` literal. Both
+ * words must therefore be 32 bytes wide and close together.
  */
 export function revertStringPresent(code: string, message: string): boolean {
   const bytes = Buffer.from(message, "ascii")
   const words: string[] = []
-  for (let i = 0; i < bytes.length; i += 31) {
-    words.push(bytes.subarray(i, i + 31).toString("hex"))
+  for (let offset = 0; offset < bytes.length; offset += 32) {
+    const word = Buffer.alloc(32)
+    bytes.copy(word, 0, offset, Math.min(offset + 32, bytes.length))
+    words.push(word.toString("hex"))
   }
   let cursor = 0
-  for (const word of words) {
-    const at = code.indexOf(word, cursor)
+  for (let index = 0; index < words.length; index += 1) {
+    const at = code.indexOf(words[index], cursor)
     if (at < 0) return false
-    cursor = at + word.length
+    if (index > 0 && at - cursor > MAX_WORD_GAP_BYTES) return false
+    cursor = at + words[index].length
   }
   return true
 }
@@ -107,7 +122,7 @@ export function validatorRuntimeChecks(code: string): CodeCheck[] {
     {
       name: "validator carries the reserved-deposit revert message",
       ok: revertStringPresent(hex, RESERVED_SWEEP_REVERT),
-      detail: `"${RESERVED_SWEEP_REVERT}" as 31-byte words`,
+      detail: `"${RESERVED_SWEEP_REVERT}" as 32-byte words`,
     },
   ]
 }

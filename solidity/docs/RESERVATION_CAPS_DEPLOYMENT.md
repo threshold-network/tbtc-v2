@@ -408,10 +408,13 @@ asserts:
 
 - the validator's **deployed** runtime calls `isReservedDeposit` and exposes both
   reservation proposal entry points. A substring search for
-  `"Reserved deposits must not be swept"` is not a valid check: solc stores a
-  revert message as a run of 32-byte words carrying 31 payload bytes each, so
-  the message never appears contiguously, and the search reports a correct build
-  as missing;
+  `"Reserved deposits must not be swept"` is not a valid check: solc emits a
+  revert string as one `PUSH32`-and-`MSTORE` per 32-byte word, with the store
+  sequence between consecutive words (`7f <32 bytes> 60 44 82 01 52 7f <next>`),
+  so the message never appears contiguously and the search reports a correct
+  build as missing. The gate therefore looks for the 32-byte words in order, no
+  more than 16 bytes apart; a looser rule is satisfied by unrelated literals
+  (`"Deposit already swept"` contains `"wept"`);
 - the validator's `bridge()` equals the Bridge the release expects, and the
   `isReservedDeposit(0)` probe is made **on that address**, not on the
   deployment record. The reserved-deposit rule calls this Bridge for every
@@ -434,7 +437,8 @@ CHAIN_API_URL=[MAINNET_RPC] \
 ```
 
 Exit code 0 means every check passed; 1 means a check failed; 2 means an input
-was missing. Run it before Call 6 of the Activation Runbook.
+was missing or malformed, or an error escaped the script (a deployment-record
+lookup, a provider error), in which case no verdict was reached. Run it before Call 6 of the Activation Runbook.
 
 ## Client Activation Ordering Gate
 

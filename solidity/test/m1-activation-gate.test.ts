@@ -3,7 +3,9 @@ import path from "path"
 import { expect } from "chai"
 import {
   FIXTURE_ENV,
+  RESERVED_SWEEP_REVERT,
   assertNotFixtureMode,
+  revertStringPresent,
   validatorBridgeCheck,
   validatorDeclaredBridge,
 } from "../scripts/validator-runtime-guard"
@@ -101,6 +103,46 @@ describe("M1 activation gate", () => {
         error = caught as Error
       }
       expect(error?.message).to.contain("did not answer bridge()")
+    })
+  })
+
+  // solc emits the revert string as one PUSH32-and-MSTORE per 32-byte word,
+  // with the store sequence between words. The fixtures below are the bytes
+  // taken from the deployed build at 0xC717f7Ae74836d48d64CBb9349FFa49Ad3E1241A.
+  describe("the reserved-deposit revert message", () => {
+    const store = "6044820152"
+    const word0 = Buffer.from(
+      "Reserved deposits must not be sw",
+      "ascii"
+    ).toString("hex")
+    const word1 = Buffer.concat([
+      Buffer.from("ept", "ascii"),
+      Buffer.alloc(29),
+    ]).toString("hex")
+    const build = `7f${word0}${store}7f${word1}`
+
+    it("is found as the interleaved 32-byte words", () => {
+      expect(revertStringPresent(build, RESERVED_SWEEP_REVERT)).to.equal(true)
+    })
+
+    it("is not a substring of the code that carries it", () => {
+      const literal = Buffer.from(RESERVED_SWEEP_REVERT, "ascii").toString(
+        "hex"
+      )
+      expect(build.includes(literal)).to.equal(false)
+    })
+
+    it("is not satisfied by its words far apart", () => {
+      const code = `7f${word0}${"00".repeat(40)}7f${word1}`
+      expect(revertStringPresent(code, RESERVED_SWEEP_REVERT)).to.equal(false)
+    })
+
+    it("is not satisfied by an unrelated swept literal after a matching prefix", () => {
+      const swept = Buffer.from("Deposit already swept", "ascii").toString(
+        "hex"
+      )
+      const code = `7f${word0}${store}${"11".repeat(8)}${swept}${"00".repeat(16)}`
+      expect(revertStringPresent(code, RESERVED_SWEEP_REVERT)).to.equal(false)
     })
   })
 })
