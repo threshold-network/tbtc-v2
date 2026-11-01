@@ -24,7 +24,7 @@ contract ReservationInvariantsTest is Test {
         handler = new ReservationHandler();
         harness = handler.harness();
 
-        bytes4[] memory selectors = new bytes4[](14);
+        bytes4[] memory selectors = new bytes4[](15);
         selectors[0] = handler.revealReservedDeposit.selector;
         selectors[1] = handler.requestAcceptance.selector;
         selectors[2] = handler.notifyAcceptanceTimedOut.selector;
@@ -39,6 +39,7 @@ contract ReservationInvariantsTest is Test {
         selectors[11] = handler.updateCaps.selector;
         selectors[12] = handler.updateLimits.selector;
         selectors[13] = handler.warp.selector;
+        selectors[14] = handler.setVaultTrust.selector;
         targetSelector(
             StdInvariant.FuzzSelector({
                 addr: address(handler),
@@ -149,6 +150,62 @@ contract ReservationInvariantsTest is Test {
 
         handler.proveReanchor(0, 1, 1_000);
         assertEq(handler.successes("proveReanchorLate"), 1);
+        assertAllProperties();
+    }
+
+    // ---------------------------------------------------------------------
+    // The acceptance credit branch: both arms
+    // ---------------------------------------------------------------------
+
+    /// @dev A settlement credits the gross anchor through the deposit's
+    ///      vault while that vault is trusted, which is the production
+    ///      `Bank.increaseBalanceAndCall` arm. The vault's Bank balance and
+    ///      its own record both see the amount, so the arm cannot silently
+    ///      degrade to the depositor credit.
+    function test_acceptanceCreditGoesThroughTheTrustedVault() public {
+        assertTrue(harness.isReservationVaultTrusted(), "vault wired trusted");
+
+        uint256 key = acceptOne();
+        uint64 anchorAmount = harness.reservation(key).anchorAmount;
+        FeeFinancerRecorder feeVault = harness.feeVault();
+
+        assertEq(feeVault.vaultCreditCalls(), 1, "vault credited once");
+        assertEq(feeVault.vaultCreditedSat(), anchorAmount, "vault record");
+        assertEq(
+            harness.bank().balanceOf(address(feeVault)),
+            anchorAmount,
+            "vault bank balance"
+        );
+        assertEq(
+            harness.bank().balanceOf(address(handler)),
+            0,
+            "depositor not credited"
+        );
+        assertEq(handler.ghostTrustedCreditedSat(), anchorAmount);
+    }
+
+    /// @dev Revoking the vault's trust before the proof settles takes the
+    ///      fallback arm: the depositor is credited directly and the vault
+    ///      sees nothing. This is the race the library documents - a late
+    ///      proof arriving after a trust revocation.
+    function test_revokedVaultTrustCreditsTheDepositor() public {
+        handler.revealReservedDeposit(0, 500_000, 0);
+        handler.requestAcceptance(0);
+        handler.setVaultTrust(false);
+        assertFalse(harness.isReservationVaultTrusted());
+
+        handler.proveAcceptance(0, 0, 0);
+        assertEq(handler.successes("proveAcceptance"), 1, "accepted");
+
+        uint256 key = handler.keyAt(0);
+        uint64 anchorAmount = harness.reservation(key).anchorAmount;
+        FeeFinancerRecorder feeVault = harness.feeVault();
+
+        assertEq(feeVault.vaultCreditCalls(), 0, "vault not credited");
+        assertEq(feeVault.vaultCreditedSat(), 0);
+        assertEq(harness.bank().balanceOf(address(feeVault)), 0);
+        assertEq(harness.bank().balanceOf(address(handler)), anchorAmount);
+        assertEq(handler.ghostTrustedCreditedSat(), 0);
         assertAllProperties();
     }
 
@@ -269,6 +326,24 @@ contract ReservationInvariantsTest is Test {
             abi.encode(uint256(1))
         );
         assertFalse(handler.property_creditsMatchSettlements());
+    }
+
+    /// @dev The trusted-arm clause is live, not vacuous: after a trusted
+    ///      settlement the property fails as soon as the vault's record no
+    ///      longer matches the ghost, while the summed Bank balances still
+    ///      do.
+    function test_trustedVaultCreditPropertyFires() public {
+        acceptOne();
+        assertTrue(handler.property_creditsMatchSettlements(), "holds first");
+
+        FeeFinancerRecorder feeVault = harness.feeVault();
+        vm.mockCall(
+            address(feeVault),
+            abi.encodeWithSelector(feeVault.vaultCreditedSat.selector),
+            abi.encode(uint256(0))
+        );
+        assertFalse(handler.property_creditsMatchSettlements());
+        vm.clearMockedCalls();
     }
 
     // ---------------------------------------------------------------------
