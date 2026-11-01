@@ -412,9 +412,18 @@ asserts:
   revert message as a run of 32-byte words carrying 31 payload bytes each, so
   the message never appears contiguously, and the search reports a correct build
   as missing;
-- the Bridge answers `isReservedDeposit(0)`;
+- the validator's `bridge()` equals the Bridge the release expects, and the
+  `isReservedDeposit(0)` probe is made **on that address**, not on the
+  deployment record. The reserved-deposit rule calls this Bridge for every
+  deposit in a proposal, so a validator built against another Bridge would fail
+  every sweep validation;
 - `RELEASE_BLOCK < ACTIVATION_BLOCK <= SET_VAULT_STATUS_BLOCK`, with the two
   heights recorded by the "Client Activation Ordering Gate" above.
+
+Both this script and `scripts/deploy-reservation-validator.ts` refuse to run
+with a non-empty `HARDHAT_DEPLOY_FIXTURE` (`0` and `false` included): fixture
+mode resolves the deployment records to the fixture directory, where a missing
+record is not an error.
 
 ```bash
 CHAIN_API_URL=[MAINNET_RPC] \

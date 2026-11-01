@@ -2,7 +2,8 @@
 /* eslint-disable no-restricted-syntax -- checks are reported in the order they ran */
 
 /**
- * The 3a/3b release gate that `cascade-2026-11-03-v2.md` section 8.3 asks for.
+ * The 3a/3b release gate: the M1 validator deployment and the activation
+ * block the client release carries.
  *
  * It answers one question per step, from chain state and the release's own
  * numbers, and exits non-zero on any failure:
@@ -39,7 +40,10 @@
 
 import { ethers, deployments } from "hardhat"
 import {
+  assertNotFixtureMode,
   bridgeAnswersIsReservedDeposit,
+  validatorBridgeCheck,
+  validatorDeclaredBridge,
   validatorRuntimeChecks,
 } from "./validator-runtime-guard"
 
@@ -67,6 +71,8 @@ function requireBlock(name: string): number {
 }
 
 async function main(): Promise<void> {
+  assertNotFixtureMode()
+
   const activationBlock = requireBlock("ACTIVATION_BLOCK")
   const releaseBlock = requireBlock("RELEASE_BLOCK")
   const setVaultStatusBlock = requireBlock("SET_VAULT_STATUS_BLOCK")
@@ -95,15 +101,40 @@ async function main(): Promise<void> {
   })
   checks.push(...validatorRuntimeChecks(validatorCode))
 
-  const bridgeProbe = await bridgeAnswersIsReservedDeposit(
-    ethers.provider,
-    bridgeAddress
-  )
-  checks.push({
-    name: "Bridge answers isReservedDeposit",
-    ok: bridgeProbe.ok,
-    detail: bridgeProbe.detail,
-  })
+  let declaredBridge: string | undefined
+  try {
+    declaredBridge = await validatorDeclaredBridge(
+      ethers.provider,
+      validatorAddress
+    )
+    checks.push(validatorBridgeCheck(declaredBridge, bridgeAddress))
+  } catch (error) {
+    checks.push({
+      name: "validator points at the expected Bridge",
+      ok: false,
+      detail: error instanceof Error ? error.message : String(error),
+    })
+  }
+
+  if (declaredBridge === undefined) {
+    checks.push({
+      name: "Bridge answers isReservedDeposit",
+      ok: false,
+      detail: "not probed: the validator's bridge() could not be read",
+    })
+  } else {
+    // The validator's own Bridge, not the record: that is the address its
+    // reserved-deposit rule calls for every deposit in a proposal.
+    const bridgeProbe = await bridgeAnswersIsReservedDeposit(
+      ethers.provider,
+      declaredBridge
+    )
+    checks.push({
+      name: "Bridge answers isReservedDeposit",
+      ok: bridgeProbe.ok,
+      detail: bridgeProbe.detail,
+    })
+  }
 
   checks.push({
     name: "activation block is above the release block",
@@ -125,7 +156,9 @@ async function main(): Promise<void> {
   const failures = checks.filter((check) => !check.ok).length
   console.log(
     `\n${checks.length - failures}/${checks.length} checks passed ` +
-      `(validator ${validatorAddress}, bridge ${bridgeAddress})`
+      `(validator ${validatorAddress}, bridge ${
+        declaredBridge ?? "<unreadable>"
+      }, expected ${bridgeAddress})`
   )
   if (failures > 0) {
     process.exit(1)

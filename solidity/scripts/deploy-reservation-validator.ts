@@ -47,6 +47,7 @@ import path from "path"
 import hardhatRuntime from "hardhat"
 import type { HardhatRuntimeEnvironment } from "hardhat/types"
 import {
+  assertNotFixtureMode,
   bridgeAnswersIsReservedDeposit,
   validatorRuntimeChecks,
 } from "./validator-runtime-guard"
@@ -77,6 +78,10 @@ export async function deployReservationValidator(
   hre: HardhatRuntimeEnvironment,
   options: DeployOptions = {}
 ): Promise<DeployResult> {
+  // Before the first `get`: fixture mode resolves records to the fixture
+  // directory, where a missing record is not an error.
+  assertNotFixtureMode()
+
   const { deployments, ethers, getNamedAccounts, network } = hre
   const { deploy, get, getOrNull, read } = deployments
   const { deployer } = await getNamedAccounts()

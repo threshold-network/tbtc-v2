@@ -35,7 +35,9 @@ function selectorOf(signature: string): string {
 }
 
 /** `isReservedDeposit(uint256)`, the call the reserved-deposit rule makes. */
-export const SELECTOR_IS_RESERVED_DEPOSIT = selectorOf("isReservedDeposit(uint256)")
+export const SELECTOR_IS_RESERVED_DEPOSIT = selectorOf(
+  "isReservedDeposit(uint256)"
+)
 
 /** The anchor-proposal entry point a reservations validator must expose. */
 export const SELECTOR_VALIDATE_RESERVATION_ANCHOR = selectorOf(
@@ -136,5 +138,81 @@ export async function bridgeAnswersIsReservedDeposit(
         error instanceof Error ? error.message.split("\n")[0] : String(error)
       } - the Bridge is still the pre-reservation implementation`,
     }
+  }
+}
+
+/** `bridge()`, the address the validator was constructed with. */
+const SELECTOR_BRIDGE = selectorOf("bridge()")
+
+/** The variable hardhat-deploy swaps the record directory on. */
+export const FIXTURE_ENV = "HARDHAT_DEPLOY_FIXTURE"
+
+/**
+ * Both entry points read and write the real `deployments/<network>` records,
+ * so fixture mode is fatal for them: hardhat-deploy resolves
+ * `deployments.get` against the fixture directory instead, and a missing
+ * record in fixture mode is not an error the script can notice. The variable
+ * is treated as set whenever it is non-empty - `0` and `false` included -
+ * because hardhat-deploy only checks that it is present.
+ */
+export function assertNotFixtureMode(
+  env: NodeJS.ProcessEnv = process.env
+): void {
+  const raw = env[FIXTURE_ENV]
+  if (raw === undefined || raw === "") {
+    return
+  }
+  throw new Error(
+    `${FIXTURE_ENV} is set to ${JSON.stringify(raw)}: fixture mode resolves ` +
+      "deployment records to the fixture directory instead of the network's " +
+      "deployed records. Unset it and re-run."
+  )
+}
+
+/**
+ * Reads the Bridge the validator calls. The gate asks this address rather
+ * than the deployment record, because an override or a stale record would
+ * otherwise probe a Bridge the validator never calls.
+ */
+export async function validatorDeclaredBridge(
+  provider: { call: (tx: { to: string; data: string }) => Promise<string> },
+  validatorAddress: string
+): Promise<string> {
+  const result = await provider.call({
+    to: validatorAddress,
+    data: `0x${SELECTOR_BRIDGE}`,
+  })
+  if (!result.startsWith("0x") || result.length < 42) {
+    throw new Error(
+      `${validatorAddress} did not answer bridge(): ${result.slice(0, 74)}`
+    )
+  }
+  return `0x${result.slice(-40)}`
+}
+
+/**
+ * Compares the validator's Bridge with the one the release expects. A
+ * disagreement is a gate failure, not a warning: the reserved-deposit rule
+ * calls this address for every deposit in a sweep proposal, so a validator
+ * built against another Bridge either fails every sweep or trusts a Bridge
+ * the release does not ship.
+ */
+export function validatorBridgeCheck(
+  declaredBridge: string,
+  expectedBridge: string
+): CodeCheck {
+  const declared = declaredBridge.toLowerCase()
+  const zero = `0x${"0".repeat(40)}`
+  if (declared === zero) {
+    return {
+      name: "validator points at the expected Bridge",
+      ok: false,
+      detail: "validator.bridge() returned the zero address",
+    }
+  }
+  return {
+    name: "validator points at the expected Bridge",
+    ok: declared === expectedBridge.toLowerCase(),
+    detail: `validator.bridge() ${declaredBridge}, expected ${expectedBridge}`,
   }
 }
