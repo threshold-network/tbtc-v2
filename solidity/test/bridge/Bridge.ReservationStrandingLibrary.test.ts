@@ -777,9 +777,9 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
   })
 
   describe("notifyStaleReservedDeposit", () => {
-    it("rejects when refundDeadlineValidated is false but the deadline has not elapsed", async () => {
-      // The refundDeadlineValidated flag no longer bypasses the deadline
-      // check: the deadline must elapse unconditionally, matching what
+    it("rejects when the refund deadline has not elapsed", async () => {
+      // The refund deadline is enforced unconditionally: it must elapse
+      // before the deposit can be marked stale, matching what
       // `requestReservationAcceptance` already enforces unconditionally.
       const walletPubKeyHash = `0x${"e1".repeat(20)}` as `0x${string}`
       const depositKey = `0x${"f1".repeat(32)}`
@@ -793,8 +793,7 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       await executor.seedPendingReservedDepositBasic(
         depositKey,
         walletPubKeyHash,
-        futureDeadline,
-        false
+        futureDeadline
       )
 
       expect(await executor.pendingReservedDeposits()).to.equal(1)
@@ -807,7 +806,7 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       ).to.be.revertedWith("Deposit refund deadline has not elapsed")
     })
 
-    it("marks a pending reserved deposit stale when refundDeadline has elapsed and refundDeadlineValidated is true", async () => {
+    it("marks a pending reserved deposit stale when the refund deadline has elapsed", async () => {
       const walletPubKeyHash = `0x${"e2".repeat(20)}` as `0x${string}`
       const depositKey = `0x${"f2".repeat(32)}`
       const depositor = ethers.Wallet.createRandom().address
@@ -819,8 +818,7 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
         // Deadline strictly in the past so the deadline-elapsed check
         // passes. block.timestamp must be strictly greater than
         // refundDeadline.
-        1,
-        true
+        1
       )
 
       await expect(executor.notifyStaleReservedDeposit(depositKey)).to.not.be
@@ -851,8 +849,7 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       await executor.seedPendingReservedDepositBasic(
         depositKey,
         walletPubKeyHash,
-        0,
-        false
+        0
       )
 
       await expect(
@@ -870,8 +867,7 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       await executor.seedPendingReservedDepositBasic(
         depositKey,
         walletPubKeyHash,
-        0xffffffff,
-        true
+        0xffffffff
       )
 
       await expect(
@@ -888,8 +884,7 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       await executor.seedPendingReservedDepositBasic(
         depositKey,
         walletPubKeyHash,
-        0,
-        false
+        0
       )
       // The acceptance generation (reservationKey, requestNonce=0) is in
       // the Pending action state. The library must refuse to mark the
@@ -913,36 +908,32 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       const depositKeyD = `0x${"d7".repeat(32)}`
       const depositor = ethers.Wallet.createRandom().address
       // Elapsed deadline: the check is unconditional now, so every call
-      // must clear it regardless of the refundDeadlineValidated flag.
+      // must clear it regardless of how the deadline was captured.
       const elapsedDeadline = 1
 
       await executor.seedDepositBasic(depositKeyA, depositor)
       await executor.seedPendingReservedDepositBasic(
         depositKeyA,
         walletPubKeyHash,
-        elapsedDeadline,
-        false
+        elapsedDeadline
       )
       await executor.seedDepositBasic(depositKeyB, depositor)
       await executor.seedPendingReservedDepositBasic(
         depositKeyB,
         walletPubKeyHash,
-        elapsedDeadline,
-        false
+        elapsedDeadline
       )
       await executor.seedDepositBasic(depositKeyC, depositor)
       await executor.seedPendingReservedDepositBasic(
         depositKeyC,
         walletPubKeyHash,
-        elapsedDeadline,
-        false
+        elapsedDeadline
       )
       await executor.seedDepositBasic(depositKeyD, depositor)
       await executor.seedPendingReservedDepositBasic(
         depositKeyD,
         walletPubKeyHash,
-        elapsedDeadline,
-        false
+        elapsedDeadline
       )
 
       // Four pending deposits, and both clear paths are exercised while the
@@ -986,8 +977,7 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       await executor.seedPendingReservedDepositBasic(
         depositKey,
         walletPubKeyHash,
-        refundDeadline,
-        true
+        refundDeadline
       )
 
       await expect(
@@ -1002,8 +992,7 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       await executor.seedPendingReservedDepositBasic(
         depositKey,
         walletPubKeyHash,
-        refundDeadline,
-        true
+        refundDeadline
       )
       // The position's current generation -- nonce 0 for an unrevealed
       // position -- is a Pending acceptance authorization.

@@ -777,6 +777,15 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
         "no signing window' require)"
     )
   }
+  if (RES_ACTION_TIMEOUT > MAX_RESERVATION_TERM) {
+    throw new Error(
+      `RESERVATION_ACTION_TIMEOUT_SECONDS (${RES_ACTION_TIMEOUT}) exceeds the ` +
+        `on-chain MAX_RESERVATION_TERM (${MAX_RESERVATION_TERM}s / 730 days) ` +
+        "and would revert on finalizeReservationParametersUpdate (mirrors " +
+        "updateReservationParameters's 'Reservation action timeout out of " +
+        "protocol bounds' require)"
+    )
+  }
 
   // Verify Decision 1 invariant holds:
   // reservationMaxTotalAmount <= maxActiveReservations * reservationMaxSingleAmount

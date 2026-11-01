@@ -1052,6 +1052,77 @@ export function assertBridgeRebateStakingPointer(params: {
 }
 
 /**
+ * Asserts that the reservation router the Bridge dispatches into is the
+ * release build, when one is installed.
+ *
+ * The Bridge's `fallback()` delegatecalls `self.reservationRouter` for every
+ * unmatched selector, so every reservation entry point -- acceptance
+ * requests, re-anchor requests, the proof submissions, the parameter
+ * setters -- runs *the router's* code, in the Bridge's storage context.
+ * The rest of this script certifies the Bridge wrapper and every library it
+ * links; without this check the router, the one contract every reservation
+ * call actually executes, is never certified at all.
+ *
+ * The router is write-once (`BridgeState.setReservationRouter`), so a
+ * mismatch here cannot be repaired by the batch this script emits: the
+ * router's code is fixed at install time, and only a Bridge implementation
+ * upgrade could replace it. That is exactly why the drift has to be caught
+ * before the ceremony rather than after it.
+ *
+ * A zero pointer is the bootstrap ordering, not a mismatch: the router is
+ * installed by the reservation bootstrap (`98`), which runs before the
+ * upgrade ceremony this script prepares. The caller reports it so the
+ * operator sees it, and the ceremony proceeds.
+ */
+export function assertReservationRouterRuntime(params: {
+  /** `Bridge.getReservationRouter()`, as read from the chain. */
+  routerAddress: string
+  /** The runtime at that address, as deployed. */
+  onChainRuntime: string
+  /** The release build's artifact runtime for the router. */
+  artifactRuntime: string
+  /** The artifact's `deployedLinkReferences`, as link sites. */
+  linkSites: LinkSite[]
+}): "unset" | "matches" {
+  const { routerAddress, onChainRuntime, artifactRuntime, linkSites } = params
+  if (routerAddress.toLowerCase() === utils.ZeroAddress.toLowerCase()) {
+    return "unset"
+  }
+  if (onChainRuntime === "0x" || onChainRuntime === "0x0") {
+    throw new Error(
+      `the Bridge's reservation router is ${routerAddress}, but that address has ` +
+        "no code on chain. Every reservation call the Bridge dispatches would " +
+        "revert; refusing to run the ceremony."
+    )
+  }
+  // The router links the `Reservation` and `ReservationProofs` libraries, so
+  // its runtime carries placeholders where the artifact leaves the library
+  // addresses. `proveLinkedRuntimeIdentity` reads the candidate's own
+  // address at every link site to learn which library it links, then
+  // compares the rest of the runtime byte for byte against the release
+  // build. No deployment record is consulted, so a rewritten record cannot
+  // make the check pass.
+  const identity = proveLinkedRuntimeIdentity({
+    candidateAddress: routerAddress,
+    candidateRuntime: onChainRuntime,
+    artifactRuntime,
+    linkSites,
+    label: "ReservationRouter",
+    artifactLabel: "ReservationRouter",
+  })
+  if (!identity.isBridge) {
+    throw new Error(
+      `the Bridge's reservation router at ${routerAddress} is not the release ` +
+        `build of the ReservationRouter: ${identity.reason}. The Bridge ` +
+        "dispatches every reservation call into it, and the router is " +
+        "write-once, so the batch this script emits cannot repair it; " +
+        "refusing to run the ceremony."
+    )
+  }
+  return "matches"
+}
+
+/**
  * The Bridge implementation this batch upgrades to, as an input.
  *
  * Human decision R16-2: the release pipeline deploys the Bridge
@@ -1423,43 +1494,57 @@ export function isSelfReferencingLibrary(
 }
 
 /**
- * Proves that a candidate runtime is the Bridge implementation.
+ * Proves that a candidate runtime is the build described by an artifact.
  *
  * The proof is a bytecode identity, not a heuristic:
  *
  *  1. A candidate that refers to itself is rejected: it is a library, and
- *    the Bridge implementation is not a library.
- *  2. The candidate's runtime is compared against the Bridge artifact's own
- *     runtime with the link sites filled in. Everything except the library
- *     addresses has to match byte for byte, so a candidate that is not this
- *     Bridge does not pass, whatever its address literals look like.
+ *    the Bridge and the ReservationRouter are not libraries.
+ *  2. The candidate's runtime is compared against the artifact's own runtime
+ *     with the link sites filled in. Everything except the library addresses
+ *     has to match byte for byte, so a candidate that is not this build does
+ *     not pass, whatever its address literals look like.
  *  3. The library addresses the candidate links are read from the
  *     artifact's link map, so the `Redemption` library is *named*, not
  *     guessed from a PUSH20 scan.
+ *
+ * No deployment record is consulted: the candidate's own bytes say which
+ * library it links at each site, so a rewritten or stale record cannot make
+ * the check pass.
  */
-export function proveBridgeIdentity(params: {
+export function proveLinkedRuntimeIdentity(params: {
   /** The candidate's address on chain. */
   candidateAddress: string
   /** The candidate's runtime bytecode, as deployed. */
   candidateRuntime: string
-  /** The Bridge artifact's deployed bytecode, with link placeholders. */
+  /** The artifact's deployed bytecode, with link placeholders. */
   artifactRuntime: string
-  /** The Bridge artifact's deployed link references. */
+  /** The artifact's deployed link references. */
   linkSites: LinkSite[]
+  /** What the candidate is, for the "it is a library" message. */
+  label: string
+  /** What the artifact describes, for the "differs from" message. */
+  artifactLabel: string
 }): BridgeIdentity {
-  const { candidateAddress, candidateRuntime, artifactRuntime, linkSites } =
-    params
+  const {
+    candidateAddress,
+    candidateRuntime,
+    artifactRuntime,
+    linkSites,
+    label,
+    artifactLabel,
+  } = params
   const candidate = candidateRuntime.toLowerCase().replace(/^0x/, "")
   const artifact = artifactRuntime.toLowerCase().replace(/^0x/, "")
 
-  // Step 1: a library is not the Bridge implementation.
+  // Step 1: a library is not the implementation.
   if (isSelfReferencingLibrary(candidateAddress, candidateRuntime)) {
     return {
       isBridge: false,
       libraries: {},
       reason:
         `the candidate ${candidateAddress} refers to itself in its own runtime, ` +
-        "so it is a library and not the Bridge implementation",
+        `so it is a library and not the ${label}`,
     }
   }
 
@@ -1483,7 +1568,7 @@ export function proveBridgeIdentity(params: {
       )
     }
     if (linked.length !== site.length * 2) {
-      rejection = `the candidate runtime is shorter than the Bridge artifact's link site for ${site.library}`
+      rejection = `the candidate runtime is shorter than the ${artifactLabel} artifact's link site for ${site.library}`
       return
     }
     if (!/^[0-9a-f]+$/.test(linked)) {
@@ -1512,12 +1597,43 @@ export function proveBridgeIdentity(params: {
     return {
       isBridge: false,
       libraries,
-      reason:
-        "the candidate runtime differs from the Bridge artifact outside the library link sites",
+      reason: `the candidate runtime differs from the ${artifactLabel} artifact outside the library link sites`,
     }
   }
 
   return { isBridge: true, libraries }
+}
+
+/**
+ * Proves that a candidate runtime is the Bridge implementation.
+ *
+ * The proof is a bytecode identity, not a heuristic:
+ *
+ *  1. A candidate that refers to itself is rejected: it is a library, and
+ *    the Bridge implementation is not a library.
+ *  2. The candidate's runtime is compared against the Bridge artifact's own
+ *     runtime with the link sites filled in. Everything except the library
+ *     addresses has to match byte for byte, so a candidate that is not this
+ *    Bridge does not pass, whatever its address literals look like.
+ *  3. The library addresses the candidate links are read from the
+ *    artifact's link map, so the `Redemption` library is *named*, not
+ *    guessed from a PUSH20 scan.
+ */
+export function proveBridgeIdentity(params: {
+  /** The candidate's address on chain. */
+  candidateAddress: string
+  /** The candidate's runtime bytecode, as deployed. */
+  candidateRuntime: string
+  /** The Bridge artifact's deployed bytecode, with link placeholders. */
+  artifactRuntime: string
+  /** The Bridge artifact's deployed link references. */
+  linkSites: LinkSite[]
+}): BridgeIdentity {
+  return proveLinkedRuntimeIdentity({
+    ...params,
+    label: "Bridge implementation",
+    artifactLabel: "Bridge",
+  })
 }
 
 /**
@@ -1736,6 +1852,54 @@ const func: DeployFunction =
         )
       }
       console.log(`  ${library} at ${address}: release build OK`)
+    }
+
+    // --- Step 2c: the reservation router the Bridge dispatches into ---
+    // The Bridge's `fallback()` delegatecalls `self.reservationRouter` for
+    // every unmatched selector, so every reservation entry point -- the
+    // acceptance and re-anchor requests, the proof submissions, the
+    // parameter setters -- runs the router's code in the Bridge's storage
+    // context. The checks above certify the Bridge wrapper and the
+    // libraries it links; without this one the router, the contract every
+    // reservation call actually executes, is never certified at all.
+    //
+    // The router is write-once (`BridgeState.setReservationRouter`), so a
+    // mismatch cannot be repaired by the batch this script emits: only a
+    // Bridge implementation upgrade could replace it. Catching the drift
+    // before the ceremony is the point.
+    //
+    // A zero pointer is the bootstrap ordering, not a mismatch: the
+    // reservation bootstrap (`98`) installs the router, and it runs before
+    // the upgrade ceremony this script prepares. The operator sees the
+    // warning and the ceremony proceeds.
+    console.log("\n--- Reservation router verification ---")
+    const routerArtifact = await artifacts.readArtifact(
+      "contracts/bridge/ReservationRouter.sol:ReservationRouter"
+    )
+    const routerAddress: string = await hre.deployments.read(
+      "Bridge",
+      "getReservationRouter"
+    )
+    if (
+      assertReservationRouterRuntime({
+        routerAddress,
+        onChainRuntime:
+          routerAddress === ethers.ZeroAddress
+            ? "0x"
+            : await ethers.provider.getCode(routerAddress),
+        artifactRuntime: routerArtifact.deployedBytecode,
+        linkSites: artifactLinkSites(routerArtifact.deployedLinkReferences),
+      }) === "unset"
+    ) {
+      console.log(
+        `  WARNING: Bridge.getReservationRouter() is ${ethers.ZeroAddress}: the ` +
+          "reservation router is not installed yet. Every reservation call the " +
+          "Bridge dispatches would revert until the bootstrap installs it."
+      )
+    } else {
+      console.log(
+        `  ${routerAddress}: matches the release ReservationRouter build: OK`
+      )
     }
 
     // --- Step 3: Deploy the freeze-head RebateStaking implementation ---

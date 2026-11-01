@@ -350,3 +350,32 @@ campaigns, their counterexamples and the Halmos and fork harnesses stay with the
 5. R-54 and the RebateStaking setter bounds are not part of this PR.
 6. R-21 (section 6) has no fix here: confirm whether a re-stored deferred reimbursement needs a payout path
    in this milestone.
+
+## 10. Milestone-1 release note: a stranded anchor's BTC is not spendable
+
+**Status: accepted risk for milestone 1, by design. No code change.**
+
+When a reservation is stranded (`Reservation.strandReservation`, reachable permissionlessly on a `Live`
+wallet after its term expires), the position's accounting is released -- the wallet's and the global
+reserved capacity are freed, the anchored custody is removed, and the reservation's state becomes `Stranded`.
+The *Bitcoin* side is untouched: the outpoint is never marked spent and the BTC is never moved. Only
+`Acceptance` and `Reanchor` proofs are dispatched for a position (`ReservationProofs`), so no proof type can
+consume the outpoint afterwards, and `prepareReservationForSettlement` admits a stranded position only for a
+*late* generation of an already-proven anchor.
+
+The consequence is a liquidity consequence, not a loss of funds: the depositor's BTC remains in the source
+wallet's anchor, but it cannot be released or moved to another wallet by any milestone-1 path. The wallet's
+accounting no longer counts it, so the BTC looks "free" to the wallet's balance helpers while being
+unspendable by the wallet.
+
+Milestone 1 ships no dissolution path, so there is nothing that could spend it. The mitigation is
+operational rather than contractual:
+
+- the dashboard must carry a **liquid-BTC invariant** that reconciles each Live wallet's `Wallet.getWalletBtcBalance`
+  against its anchored reservation outpoints, so an unspendable anchor cannot be mistaken for spendable
+  balance;
+- operators must be told that a stranded position is not recoverable in milestone 1 -- the depositor's remedy
+  is the wallet's own migration or the milestone-2 dissolution path, not a reservation action.
+
+Milestone 2 must either add the dissolution path or forbid the `Live`-branch strand; until then this note is
+the record of what the release means by "stranded".

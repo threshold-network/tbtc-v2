@@ -51,12 +51,6 @@ library BridgeState {
         // deposits retain it even when reveal-ahead validation is disabled,
         // because acceptance must enforce the validator's refund margin.
         uint32 refundDeadline;
-        // True if the global reveal-ahead policy validated the deadline at
-        // reveal time. Reveal-time provenance metadata only -- no
-        // production code path branches on it; `notifyStaleReservedDeposit`
-        // and `ReservationProofs` compare `block.timestamp` against
-        // `refundDeadline` unconditionally and only ever clear this flag.
-        bool refundDeadlineValidated;
     }
     /// @notice Per-wallet reservation custody exposure and position count,
     ///         packed into a single storage slot.

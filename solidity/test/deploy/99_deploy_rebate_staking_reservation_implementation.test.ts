@@ -29,6 +29,8 @@ import func, {
   isSelfReferencingLibrary,
   proveBridgeIdentity,
   proveLibraryIdentity,
+  proveLinkedRuntimeIdentity,
+  assertReservationRouterRuntime,
   readDeployedBytecode,
   readEnumMemberOrder,
   readRecordAddress,
@@ -38,6 +40,7 @@ import func, {
   scanSelectors,
   semanticTypeId,
   type RebateBatch,
+  type LinkSite,
   type StorageEntry,
   type StorageLayout,
 } from "../../deploy/99_deploy_rebate_staking_reservation_implementation"
@@ -1042,6 +1045,102 @@ describe("deploy/99 deploy_rebate_staking_reservation_implementation", () => {
           installedImplementation: STAKING_IMPL,
         })
       ).to.throw(/carries no address/)
+    })
+  })
+
+  describe("the reservation router the Bridge dispatches into is verified (finding: 99 never checked it)", () => {
+    // The Bridge's `fallback()` delegatecalls `self.reservationRouter` for
+    // every unmatched selector, so every reservation entry point runs the
+    // router's code. The pre-flight certifies the Bridge wrapper and every
+    // library it links; without this check the router -- the contract every
+    // reservation call actually executes -- was never certified.
+
+    // The router build, with its link placeholders filled in the way a real
+    // deployment links them.
+    async function linkedRouterRuntime(): Promise<{
+      artifact: { deployedBytecode: string }
+      linkSites: LinkSite[]
+      runtime: string
+    }> {
+      const artifact = await artifacts.readArtifact(
+        "contracts/bridge/ReservationRouter.sol:ReservationRouter"
+      )
+      const linkSites = artifactLinkSites(artifact.deployedLinkReferences)
+      const libraries: Record<string, string> = {}
+      let counter = 0x51
+      linkSites.forEach((site) => {
+        if (libraries[site.library] === undefined) {
+          libraries[site.library] = ethers.getAddress(
+            `0x${counter.toString(16).padStart(2, "0").repeat(20)}`
+          )
+          counter += 1
+        }
+      })
+      return {
+        artifact,
+        linkSites,
+        runtime: bridgeRuntimeWithLibraries(
+          artifact.deployedBytecode,
+          linkSites,
+          libraries
+        ),
+      }
+    }
+
+    it("accepts the release build of the router", async () => {
+      const { artifact, linkSites, runtime } = await linkedRouterRuntime()
+      expect(
+        assertReservationRouterRuntime({
+          routerAddress: "0x5555555555555555555555555555555555555555",
+          onChainRuntime: runtime,
+          artifactRuntime: artifact.deployedBytecode,
+          linkSites,
+        })
+      ).to.equal("matches")
+    })
+
+    it("rejects a router that is not the release build", async () => {
+      const { artifact, linkSites } = await linkedRouterRuntime()
+      // A runtime of the right length that is not the router: the rejection
+      // is about the bytes, not about a truncated runtime.
+      const notTheRouter = `0x${"60".repeat(
+        artifact.deployedBytecode.length / 2 - 1
+      )}`
+      expect(() =>
+        assertReservationRouterRuntime({
+          routerAddress: "0x5555555555555555555555555555555555555555",
+          onChainRuntime: notTheRouter,
+          artifactRuntime: artifact.deployedBytecode,
+          linkSites,
+        })
+      ).to.throw(/reservation router at .* is not the release build/)
+    })
+
+    it("rejects a router address with no code on chain", async () => {
+      const { artifact, linkSites } = await linkedRouterRuntime()
+      expect(() =>
+        assertReservationRouterRuntime({
+          routerAddress: "0x5555555555555555555555555555555555555555",
+          onChainRuntime: "0x",
+          artifactRuntime: artifact.deployedBytecode,
+          linkSites,
+        })
+      ).to.throw(/has no code on chain/)
+    })
+
+    it("reports a zero pointer as unset, not as a mismatch", async () => {
+      // The reservation bootstrap (98) installs the router, and it runs
+      // before the upgrade ceremony this script prepares. A zero pointer is
+      // the bootstrap ordering, not a mismatch, so the ceremony proceeds.
+      const { artifact, linkSites } = await linkedRouterRuntime()
+      expect(
+        assertReservationRouterRuntime({
+          routerAddress: ethers.ZeroAddress,
+          onChainRuntime: "0x",
+          artifactRuntime: artifact.deployedBytecode,
+          linkSites,
+        })
+      ).to.equal("unset")
     })
   })
 

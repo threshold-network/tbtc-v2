@@ -280,7 +280,13 @@ interface IReservationBridge {
     /// @notice Requests the acceptance of a revealed reserved deposit: the
     ///         authorization for the designated wallet to perform the
     ///         anchor spend. Checks and reserves reservation capacity so
-    ///         the anchor, once signed, can always be proven.
+    ///         the anchor, once signed, can be proven while its difficulty
+    ///         epoch is current or previous. The Bitcoin SPV proof accepts
+    ///         only headers at the relay's current or previous epoch
+    ///         difficulty (`BitcoinTx.determineRequestedDifficulty`), so a
+    ///         confirmed anchor stops being provable once its epoch retarget
+    ///         has passed -- roughly two retarget periods, well before the
+    ///         action timeout could matter.
     /// @dev Caller must be the deposit's depositor. Reverts unless: the
     ///      deposit is revealed to the reservation vault and not swept; no
     ///      acceptance authorization is already pending for it;
@@ -332,7 +338,10 @@ interface IReservationBridge {
     ///      (the hand-off path) skips both caps so a retirement stays
     ///      possible even when the target's slots are saturated. A
     ///      non-privileged call additionally reverts if the reservation's
-    ///      re-anchor cooldown has not elapsed. A caller passing a
+    ///      re-anchor cooldown has not elapsed; the cooldown is keyed on
+    ///      the caller's privilege, so the owner, an SPV maintainer and a
+    ///      proven source-wallet member are exempt from it exactly as they
+    ///      are exempt from the hold cap. A caller passing a
     ///      non-empty `walletMembersIDs` proof that fails validation
     ///      reverts. See
     ///      `Reservation.requestReservationReanchor` for the full
@@ -456,7 +465,8 @@ interface IReservationBridge {
     ///      MAX_RESERVATION_DISSOLUTION_DELAY bound;
     ///      `reservationRenewalWindowSeconds` is greater than zero and
     ///      strictly shorter than the term; `reservationActionTimeout`
-    ///      exceeds the validator's safety margin plus deposit minimum age;
+    ///      exceeds the validator's safety margin plus deposit minimum age
+    ///      and does not exceed the protocol's MAX_RESERVATION_TERM bound;
     ///      `maxReservationsPerWallet` is greater than zero;
     ///      `reservationMaxTotalAmount` does not exceed the slot capacity
     ///      `maxActiveReservations * reservationMaxSingleAmount` (skipped

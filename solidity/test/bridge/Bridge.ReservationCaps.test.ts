@@ -132,6 +132,41 @@ describe("Reservation - amount cap versus slot capacity", () => {
       })
     })
 
+    describe("action timeout ceiling", () => {
+      async function setActionTimeout(timeout: number) {
+        return testReservation.updateReservationParameters(
+          baseParams.reservationVault,
+          baseParams.reservationMinAmount,
+          baseParams.reservationTxMaxFee,
+          baseParams.reservationTermSeconds,
+          baseParams.reservationDissolutionDelay,
+          slotCapacity,
+          baseParams.maxReservationsPerWallet,
+          timeout,
+          baseParams.reservationRenewalWindowSeconds
+        )
+      }
+
+      const OUT_OF_BOUNDS_REVERT =
+        "Reservation action timeout out of protocol bounds"
+
+      it("rejects an action timeout above the maximum reservation term", async () => {
+        await expect(
+          setActionTimeout(MAX_RESERVATION_TERM + 1)
+        ).to.be.revertedWith(OUT_OF_BOUNDS_REVERT)
+      })
+
+      it("rejects the largest uint32, which would overflow the timeout snapshot", async () => {
+        await expect(setActionTimeout(2 ** 32 - 1)).to.be.revertedWith(
+          OUT_OF_BOUNDS_REVERT
+        )
+      })
+
+      it("accepts an action timeout exactly at the maximum reservation term", async () => {
+        await setActionTimeout(MAX_RESERVATION_TERM)
+      })
+    })
+
     it("reverts when the total amount cap exceeds slot capacity", async () => {
       await expect(
         setTotalAmount(testReservation, slotCapacity + 1)

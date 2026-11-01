@@ -403,8 +403,7 @@ contract TestReservationProofs {
             .PendingReservedDeposit({
                 isReserved: true,
                 walletPubKeyHash: walletPubKeyHash,
-                refundDeadline: refundDeadline,
-                refundDeadlineValidated: true
+                refundDeadline: refundDeadline
             });
         /* solhint-disable-next-line not-rely-on-time */
         uint32 revealedAt = uint32(block.timestamp);

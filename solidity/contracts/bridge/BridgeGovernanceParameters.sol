@@ -1669,6 +1669,20 @@ library BridgeGovernanceParameters {
                 Reservation.MAX_RESERVATION_DISSOLUTION_DELAY,
             "Reservation dissolution delay out of protocol bounds"
         );
+        // The action timeout opens the authorization window a request
+        // reserves capacity for, and it is snapshotted into the action
+        // record as `timeoutAt = now + reservationActionTimeout` in a
+        // uint32. An unbounded timeout lets the window -- and the capacity
+        // it holds -- stay open for an arbitrary time, and the uint32
+        // addition can overflow, reverting the request outright. Reject it
+        // at the staging step, for the same reason the dissolution delay is
+        // rejected here: an out-of-bounds value must never enter the
+        // governance delay window, where it would only be caught 48h later
+        // on finalize.
+        require(
+            _newReservationActionTimeout <= Reservation.MAX_RESERVATION_TERM,
+            "Reservation action timeout out of protocol bounds"
+        );
         self.newReservationVault = _newReservationVault;
         self.newReservationMinAmount = _newReservationMinAmount;
         self.newReservationTxMaxFee = _newReservationTxMaxFee;

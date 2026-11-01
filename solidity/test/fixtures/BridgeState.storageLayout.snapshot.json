@@ -603,13 +603,6 @@
         "offset": 21,
         "type": "uint32",
         "numberOfBytes": "4"
-      },
-      {
-        "label": "refundDeadlineValidated",
-        "slot": "0",
-        "offset": 25,
-        "type": "bool",
-        "numberOfBytes": "1"
       }
     ],
     "ReservationRequest": [

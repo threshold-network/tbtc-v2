@@ -18,7 +18,7 @@ import {IWalletRegistry as EcdsaWalletRegistry} from "@keep-network/ecdsa/contra
 ///         requires).
 /// @dev Stubs the reveal-side producer contract that milestone-2 reveal flow must implement:
 ///      1. When a deposit is revealed with `vault == reservationVault`, the producer records:
-///         - `pendingReservedDeposit[key] = PendingReservedDeposit({ isReserved: true, walletPubKeyHash, refundDeadline, refundDeadlineValidated })`
+///         - `pendingReservedDeposit[key] = PendingReservedDeposit({ isReserved: true, walletPubKeyHash, refundDeadline })`
 ///         - `pendingReservedDeposits += 1`
 ///         - `reservations[key].owner = depositor`
 ///         - `deposits[key] = DepositRequest({ depositor, amount, revealedAt, vault, treasuryFee: 0, sweptAt: 0, extraData })`
@@ -76,8 +76,7 @@ contract TestReservation {
             .PendingReservedDeposit({
                 isReserved: true,
                 walletPubKeyHash: walletPubKeyHash,
-                refundDeadline: refundDeadline,
-                refundDeadlineValidated: true
+                refundDeadline: refundDeadline
             });
         state.pendingReservedDeposits += 1;
         state.reservations[reservationKey].owner = owner;
@@ -674,8 +673,7 @@ contract TestReservation {
             .PendingReservedDeposit(
                 isReserved,
                 walletPubKeyHash,
-                refundDeadline,
-                true
+                refundDeadline
             );
     }
 

@@ -124,8 +124,7 @@ contract ReservationInvariantHarness is ReservationHarnessState {
             .PendingReservedDeposit({
                 isReserved: true,
                 walletPubKeyHash: walletPubKeyHash,
-                refundDeadline: refundDeadline,
-                refundDeadlineValidated: true
+                refundDeadline: refundDeadline
             });
         state.pendingReservedDeposits += 1;
         state.reservations[depositKey].owner = depositor;
