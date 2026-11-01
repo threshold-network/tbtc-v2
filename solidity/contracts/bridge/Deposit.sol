@@ -369,7 +369,14 @@ library Deposit {
             self.pendingReservedDeposits += 1;
         }
 
-        if (deposit.treasuryFee > 0 && self.rebateStaking != address(0)) {
+        // Reserved deposits pay their initiation fee to the reservation
+        // vault, so applying a pooled deposit rebate here would consume the
+        // depositor's rebate allowance without discounting that fee.
+        if (
+            deposit.treasuryFee > 0 &&
+            self.rebateStaking != address(0) &&
+            !isReservedDeposit
+        ) {
             deposit.treasuryFee = RebateStaking(self.rebateStaking)
                 .applyForRebate(
                     deposit.depositor,
@@ -377,7 +384,6 @@ library Deposit {
                     RebateStaking.TreasuryFeeType.Deposit
                 );
         }
-
         _emitDepositRevealedEvent(fundingTxHash, fundingOutputAmount, reveal);
     }
 

@@ -133,6 +133,14 @@ contract ReservationRouter is Governable, Initializable {
         bytes32 redemptionTxHash
     );
 
+    event ReservationPartiallyRedeemed(
+        uint256 indexed reservationKey,
+        uint64 requestNonce,
+        bytes32 redemptionTxHash,
+        uint64 redeemedAmount,
+        uint64 newAnchorAmount
+    );
+
     event ReservationReanchorRequested(
         uint256 indexed reservationKey,
         uint64 requestNonce,
@@ -276,6 +284,42 @@ contract ReservationRouter is Governable, Initializable {
         );
     }
 
+    /// @notice Requests a partial in-kind redemption of a reservation: the
+    ///         wallet spends the anchor in a 1-input-2-output transaction
+    ///         paying `redeemAmount` (less the miner fee) to the redeemer
+    ///         and re-anchoring the remainder, leaving the reservation open
+    ///         with a reduced claim and anchor. Can only be called by the
+    ///         reservation vault. See
+    ///         `Reservation.requestPartialReservedRedemption`.
+    /// @param reservationKey The key of the reservation to partially redeem.
+    /// @param redeemer The address able to claim the escrowed portion back
+    ///        if the redemption times out.
+    /// @param redeemerOutputScript The redeemer's length-prefixed output
+    ///        script (P2PKH, P2WPKH, P2SH or P2WSH).
+    /// @param redeemAmount The satoshi portion of the claim to redeem.
+    /// @param feePaid True when the vault collected the redemption fee for
+    ///        this request.
+    /// @param useRetryCredit True when the request consumes the fee-free
+    ///        retry entitlement instead of paying the fee.
+    function requestPartialReservedRedemption(
+        uint256 reservationKey,
+        address redeemer,
+        bytes calldata redeemerOutputScript,
+        uint64 redeemAmount,
+        bool feePaid,
+        bool useRetryCredit
+    ) external {
+        // The caller is checked in the library function.
+        self.requestPartialReservedRedemption(
+            reservationKey,
+            redeemer,
+            redeemerOutputScript,
+            redeemAmount,
+            feePaid,
+            useRetryCredit
+        );
+    }
+
     /// @notice Requests the re-anchoring of a reservation to another
     ///         wallet: the authorization for the source wallet to move the
     ///         anchor during migration or a governance-approved rotation.
@@ -411,7 +455,12 @@ contract ReservationRouter is Governable, Initializable {
     /// @param maxReservationsPerWallet New cap on the number of active
     ///        reservations a single wallet can custody.
     /// @param reservationActionTimeout New value of the reservation action
-    ///        timeout in seconds.
+    ///        timeout in seconds. Must strictly exceed the two-hour proposal
+    ///        safety margin. For acceptance, an immediate post-reveal request
+    ///        needs more than four hours so the two-hour deposit minimum age
+    ///        elapses before that margin; with a shorter valid timeout, the
+    ///        requester must wait for the deposit to age. The authorization
+    ///        must also fit within the remaining guaranteed reveal-ahead window.
     /// @param reservationRenewalWindowSeconds New length of the renewal
     ///        window; must stay strictly shorter than the term.
     /// @dev Requirements:

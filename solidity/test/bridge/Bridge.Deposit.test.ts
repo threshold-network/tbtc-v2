@@ -16,6 +16,7 @@ import type {
   IVault,
   BridgeGovernance,
   RebateStaking,
+  ReservationRouter,
 } from "../../typechain"
 import type {
   DepositRevealInfoStruct,
@@ -51,7 +52,7 @@ describe("Bridge - Deposit", () => {
 
   let bank: Bank & BankStub
   let relay: FakeContract<IRelay>
-  let bridge: Bridge & BridgeStub
+  let bridge: Bridge & BridgeStub & ReservationRouter
   let bridgeGovernance: BridgeGovernance
   let t: Contract
   let rebateStaking: RebateStaking
@@ -308,7 +309,7 @@ describe("Bridge - Deposit", () => {
                     }
                   )
                   context(
-                    "when depositor has stake in rebate staking contract",
+                    "when an ordinary deposit depositor has stake in rebate staking contract",
                     () => {
                       let tx: ContractTransaction
 
@@ -405,6 +406,109 @@ describe("Bridge - Deposit", () => {
                             )
                           ).toNumber()
                         ).to.be.lessThan(availableRebate)
+                      })
+
+                      it("should apply the deposit rebate", async () => {
+                        await expect(tx).to.emit(
+                          rebateStaking,
+                          "RebateReceived"
+                        )
+                      })
+                    }
+                  )
+
+                  context(
+                    "when a reserved deposit depositor has stake in rebate staking contract",
+                    () => {
+                      let tx: ContractTransaction
+
+                      const stakeAmount = to1e18(5)
+                      let availableRebate: number
+
+                      before(async () => {
+                        await createSnapshot()
+
+                        await t
+                          .connect(deployer)
+                          .mint(depositor.address, stakeAmount)
+                        await t
+                          .connect(depositor)
+                          .approve(rebateStaking.address, stakeAmount)
+                        await rebateStaking
+                          .connect(depositor)
+                          .stake(stakeAmount)
+                        availableRebate = (
+                          await rebateStaking.getAvailableRebate(
+                            depositor.address
+                          )
+                        ).toNumber()
+
+                        const bridgeGovernanceAddress =
+                          await bridge.governance()
+                        await ethers.provider.send(
+                          "hardhat_impersonateAccount",
+                          [bridgeGovernanceAddress]
+                        )
+                        await ethers.provider.send("hardhat_setBalance", [
+                          bridgeGovernanceAddress,
+                          "0x8AC7230489E80000",
+                        ])
+                        const bridgeGovernanceSigner = await ethers.getSigner(
+                          bridgeGovernanceAddress
+                        )
+
+                        await bridge
+                          .connect(bridgeGovernanceSigner)
+                          .updateReservationParameters(
+                            reveal.vault,
+                            10000,
+                            2000,
+                            31536000,
+                            2592000,
+                            BigNumber.from("2100000000000000"),
+                            10,
+                            172800,
+                            2592000
+                          )
+
+                        tx = await bridge
+                          .connect(depositor)
+                          .revealDeposit(P2SHFundingTx, reveal)
+                      })
+
+                      after(async () => {
+                        await restoreSnapshot()
+                      })
+
+                      it("should keep the full deposit treasury fee", async () => {
+                        const depositKey = ethers.utils.solidityKeccak256(
+                          ["bytes32", "uint32"],
+                          [
+                            "0x17350f81cdb61cd8d7014ad1507d4af8d032b75812cf88d2c636c1c022991af2",
+                            reveal.fundingOutputIndex,
+                          ]
+                        )
+
+                        const deposit = await bridge.deposits(depositKey)
+
+                        expect(deposit.treasuryFee).to.be.equal(5)
+                      })
+
+                      it("should not apply a deposit rebate", async () => {
+                        await expect(tx).to.not.emit(
+                          rebateStaking,
+                          "RebateReceived"
+                        )
+                      })
+
+                      it("should not decrease available rebate", async () => {
+                        expect(
+                          (
+                            await rebateStaking.getAvailableRebate(
+                              depositor.address
+                            )
+                          ).toNumber()
+                        ).to.be.equal(availableRebate)
                       })
                     }
                   )

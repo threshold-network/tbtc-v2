@@ -38,6 +38,16 @@ interface IReservationBridge {
         bool useRetryCredit
     ) external;
 
+    /// @notice See `ReservationRouter.requestPartialReservedRedemption`.
+    function requestPartialReservedRedemption(
+        uint256 reservationKey,
+        address redeemer,
+        bytes calldata redeemerOutputScript,
+        uint64 redeemAmount,
+        bool feePaid,
+        bool useRetryCredit
+    ) external;
+
     /// @notice See `ReservationRouter.requestReservationReanchor`.
     function requestReservationReanchor(
         uint256 reservationKey,
