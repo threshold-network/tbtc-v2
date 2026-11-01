@@ -90,4 +90,16 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
 export default func
 
 func.tags = ["ReservationRouter"]
-func.dependencies = ["Bridge"]
+// No `Bridge` dependency: this script reads the `Bridge` *record*, never the
+// deploy script that writes it. hardhat-deploy resolves a script's
+// `dependencies` *before* it consults `skip` (1.0.4,
+// `DeploymentsManager.executeDeployScripts`), so a `"Bridge"` dependency runs
+// `06_deploy_bridge.ts` on every network even when this script then skips
+// itself, and 06 has neither a `skip` nor a mainnet guard. On mainnet the
+// Bridge is already deployed, so the run aborts inside 06 -- after 06 has
+// re-deployed `Deposit`, `DepositSweep` and `Wallets` (their sources change in
+// this release, so hardhat-deploy finds the recorded deployment transaction
+// stale) and rewritten those records to name implementations the live Bridge
+// does not link. A local or rehearsal run that needs the records built first
+// passes the tags explicitly:
+// `--tags Bridge,ReservationRouter`.

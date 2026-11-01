@@ -844,6 +844,23 @@ export function assertStorageGate(params: {
 }
 
 /**
+ * The staking contract's source, as the ceremony reads it.
+ *
+ * The fee-mode enum pin reads the source rather than the layout, because
+ * the pinned solc writes no enum members into the deployed layout, so the
+ * comparison cannot see a reorder. The path is overridable through
+ * `REBATE_STAKING_SOURCE_PATH` so the ceremony's own gate can be exercised
+ * end to end against a reordered source; the default is the real contract.
+ */
+export function stakingSourcePath(): string {
+  const override = process.env.REBATE_STAKING_SOURCE_PATH
+  if (override !== undefined && override.trim() !== "") {
+    return override.trim()
+  }
+  return path.join(__dirname, "..", "contracts", "bridge", "RebateStaking.sol")
+}
+
+/**
  * Reads and validates `storageLayout.storage` out of a hardhat-deploy
  * record. Records are files on disk, so the shape is parsed rather than
  * asserted: a missing or malformed layout must fail loudly, not read as an
@@ -1373,6 +1390,19 @@ export function proveLibraryIdentity(params: {
   artifactRuntime: string
 }): LibraryIdentity {
   const { name, address, onChainRuntime, artifactRuntime } = params
+  if (onChainRuntime === "0x" || onChainRuntime === "") {
+    // An address with no code is not a library. This is its own reason,
+    // not a length mismatch: the library was never deployed at that
+    // address, so the Bridge would delegatecall into nothing.
+    return {
+      name,
+      address,
+      matches: false,
+      reason:
+        `the address ${address} carries no code, so it is not the ${name} library ` +
+        "and the Bridge would dispatch into nothing",
+    }
+  }
   let expected: string
   try {
     expected = expectedLibraryRuntime(artifactRuntime, onChainRuntime, address)
@@ -1892,10 +1922,7 @@ const func: DeployFunction =
     const headLayout = readStorageLayoutFile(
       recordPath("RebateStakingReservationImplementation")
     )
-    const stakingSource = fs.readFileSync(
-      path.join(__dirname, "..", "contracts", "bridge", "RebateStaking.sol"),
-      "utf8"
-    )
+    const stakingSource = fs.readFileSync(stakingSourcePath(), "utf8")
     assertStorageGate({
       deployed: deployedLayout,
       head: headLayout,

@@ -310,6 +310,56 @@ async function findRegisteredWalletsSlot(
   )
 }
 
+/**
+ * The rehearsal's storage-layout gate step, applied.
+ *
+ * The rehearsal has to apply the *whole* gate, not only the layout parts:
+ * the semantic comparison and the append-only check cannot see a reorder of
+ * the fee-mode enum, because the pinned solc writes no enum members into the
+ * deployed layout. Calling the two layout assertions on their own is what
+ * left the reorder undetected.
+ *
+ * This function is the rehearsal's own gate step, not a re-implementation of
+ * the gate: it calls the one shared `assertStorageGate` the deploy script
+ * calls, so the rehearsal cannot pass a build the ceremony would reject.
+ *
+ * It is exported so the step can be exercised on its own: a test can hand it
+ * a reordered source and require the rejection, which a source-text scan of
+ * this file cannot prove.
+ */
+export async function applyRehearsalStorageGate(options?: {
+  /** The staking source to pin the enum order against. */
+  stakingSourcePath?: string
+}): Promise<{
+  deployedFields: number
+  headFields: number
+}> {
+  const deployedLayout = readStorageLayoutFile(
+    path.join(
+      __dirname,
+      "..",
+      "deployments",
+      "mainnet",
+      "RebateStakingTIP109HotfixImplementation.json"
+    )
+  )
+  const headLayout = await compiledStorageLayout(STAKING_ARTIFACT)
+  const stakingSource = fs.readFileSync(
+    options?.stakingSourcePath ??
+      path.join(__dirname, "..", "contracts", "bridge", "RebateStaking.sol"),
+    "utf8"
+  )
+  assertStorageGate({
+    deployed: deployedLayout,
+    head: headLayout,
+    stakingSource,
+  })
+  return {
+    deployedFields: deployedLayout.storage.length,
+    headFields: headLayout.storage.length,
+  }
+}
+
 async function main(): Promise<void> {
   const block = await ethers.provider.getBlockNumber()
   if (FORKING_BLOCK === 0 || block !== FORKING_BLOCK) {
@@ -574,31 +624,13 @@ async function main(): Promise<void> {
   // implementation the proxy delegates to on the fork.
   console.log("\n=== Step 3b: storage-layout gate ===")
   try {
-    const deployedLayout = readStorageLayoutFile(
-      path.join(
-        __dirname,
-        "..",
-        "deployments",
-        "mainnet",
-        "RebateStakingTIP109HotfixImplementation.json"
-      )
-    )
-    const headLayout = await compiledStorageLayout(STAKING_ARTIFACT)
-    const stakingSource = fs.readFileSync(
-      path.join(__dirname, "..", "contracts", "bridge", "RebateStaking.sol"),
-      "utf8"
-    )
-    assertStorageGate({
-      deployed: deployedLayout,
-      head: headLayout,
-      stakingSource,
-    })
+    const gate = await applyRehearsalStorageGate()
     record({
       name: "03b-storage-layout-gate",
       status: "PASS",
       values: {
-        deployedFields: deployedLayout.storage.length,
-        headFields: headLayout.storage.length,
+        deployedFields: gate.deployedFields,
+        headFields: gate.headFields,
         feeModeOrder: REBATE_TREASURY_FEE_MODE_ORDER.join(", "),
       },
     })

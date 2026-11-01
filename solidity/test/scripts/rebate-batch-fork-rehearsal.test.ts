@@ -1,12 +1,17 @@
 import assert from "assert"
 import fs from "fs"
+import os from "os"
 import path from "path"
+import { spawnSync } from "child_process"
 import {
   assertStorageGate,
   compiledStorageLayout,
   readStorageLayoutFile,
 } from "../../deploy/99_deploy_rebate_staking_reservation_implementation"
-import { classifyRevert } from "../../scripts/rebate-batch-fork-rehearsal"
+import {
+  applyRehearsalStorageGate,
+  classifyRevert,
+} from "../../scripts/rebate-batch-fork-rehearsal"
 
 const test = it
 
@@ -185,32 +190,51 @@ describe("rebate-batch-fork-rehearsal (storage-layout gate)", () => {
     )
   })
 
-  test("the rehearsal applies the whole gate, not only the layout parts", () => {
-    // The rehearsal has to call the one gate that includes the enum pin.
+  test("the rehearsal applies the whole gate, not only the layout parts", async () => {
+    // The rehearsal has to apply the one gate that includes the enum pin.
     // Calling the two layout assertions on their own is what left the
     // reorder undetected.
+    //
+    // This is the rehearsal's own step, exercised: the step accepts the
+    // real source and rejects a reordered one. A source-text scan of the
+    // script could not prove that, because it says nothing about what the
+    // step does when it runs.
     const source = fs.readFileSync(
       path.join(
         __dirname,
         "..",
         "..",
-        "scripts",
-        "rebate-batch-fork-rehearsal.ts"
+        "contracts",
+        "bridge",
+        "RebateStaking.sol"
       ),
       "utf8"
     )
-    assert.ok(
-      source.includes("assertStorageGate({"),
-      "the rehearsal must call the shared storage gate"
+    const swapped = source.replace(
+      "enum RebateTreasuryFeeMode {\n        Both,\n        DepositOnly,\n        RedemptionOnly\n    }",
+      "enum RebateTreasuryFeeMode {\n        Both,\n        RedemptionOnly,\n        DepositOnly\n    }"
     )
-    assert.ok(
-      !source.includes("assertLayoutCompatible("),
-      "the rehearsal must not compare the layouts outside the shared gate"
+    assert.notEqual(swapped, source, "the enum in the source did not swap")
+
+    const swappedPath = path.join(
+      os.tmpdir(),
+      `rebate-rehearsal-swapped-${process.pid}.sol`
     )
-    assert.ok(
-      !source.includes("assertLayoutAppendOnly("),
-      "the rehearsal must not check append-only outside the shared gate"
-    )
+    fs.writeFileSync(swappedPath, swapped)
+    try {
+      // The real source passes the step.
+      const gate = await applyRehearsalStorageGate()
+      assert.ok(gate.deployedFields > 0, "the step read no deployed fields")
+      assert.ok(gate.headFields > 0, "the step read no head fields")
+
+      // The reordered source fails it, at the enum pin.
+      await assert.rejects(
+        applyRehearsalStorageGate({ stakingSourcePath: swappedPath }),
+        /declares \[Both, RedemptionOnly, DepositOnly\]/
+      )
+    } finally {
+      fs.rmSync(swappedPath, { force: true })
+    }
   })
 })
 
@@ -224,24 +248,53 @@ describe("rebate-batch-fork-rehearsal (entrypoint)", () => {
     // The guard is `require.main === module`, the same one
     // `scripts/compare-pr1067-parity.ts` uses, and it holds under
     // `hardhat run`, which is how the script is invoked.
-    const source = fs.readFileSync(
-      path.join(
-        __dirname,
-        "..",
-        "..",
-        "scripts",
-        "rebate-batch-fork-rehearsal.ts"
-      ),
-      "utf8"
+    //
+    // The check is behavioural: the module is imported by a *real* entry
+    // point, and the run has to end without the rehearsal having started.
+    // A source-text scan of the guard would pass on a script whose guard is
+    // never reached, or whose `main()` call sits beside the guard instead of
+    // inside it.
+    //
+    // The entry is a file, not `node -e`: with `-e` there is no
+    // `require.main`, so `require.main === module` would be false however
+    // the script were written and the check would prove nothing.
+    const entryPath = path.join(
+      os.tmpdir(),
+      `rebate-rehearsal-entry-${process.pid}.js`
+    )
+    fs.writeFileSync(
+      entryPath,
+      `require(${JSON.stringify(
+        path.join(
+          __dirname,
+          "..",
+          "..",
+          "scripts",
+          "rebate-batch-fork-rehearsal.ts"
+        )
+      )})\n`
+    )
+    const result = spawnSync(
+      process.execPath,
+      ["-r", "ts-node/register/transpile-only", entryPath],
+      {
+        cwd: path.join(__dirname, "..", ".."),
+        encoding: "utf8",
+        timeout: 120_000,
+      }
+    )
+    const output = `${result.stdout ?? ""}${result.stderr ?? ""}`
+    assert.equal(result.status, 0, `importing the rehearsal failed:\n${output}`)
+    // The rehearsal's first step announces itself. If `main()` had run, it
+    // would have printed this and then failed on the pinned fork block.
+    assert.ok(
+      !output.includes("=== Step 1: impersonate actors ==="),
+      `importing the rehearsal started the run:\n${output}`
     )
     assert.ok(
-      source.includes("if (require.main === module) {"),
-      "the rehearsal must guard its entrypoint with require.main === module"
+      !output.includes("Fork block is"),
+      `importing the rehearsal started the run:\n${output}`
     )
-    // The call to `main()` has to be inside that guard, not beside it.
-    const guardIndex = source.indexOf("if (require.main === module) {")
-    const callIndex = source.indexOf("main().catch(")
-    assert.ok(guardIndex !== -1, "no entrypoint guard found")
-    assert.ok(callIndex > guardIndex, "main() is called outside the guard")
+    fs.rmSync(entryPath, { force: true })
   })
 })
