@@ -24,6 +24,10 @@ export async function getBlockTime(blockNumber: number): Promise<number> {
     .timestamp
 }
 
+export async function latestBlockTime(): Promise<number> {
+  return getBlockTime(await ethers.provider.getBlockNumber())
+}
+
 export function strip0xPrefix(hexString: string): string {
   return hexString.substring(0, 2) === "0x" ? hexString.substring(2) : hexString
 }

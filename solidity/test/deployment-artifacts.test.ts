@@ -92,9 +92,18 @@ describe("Deployment Artifacts Consistency", () => {
     let knownAddresses: Set<string>
 
     before(() => {
-      const files = fs
-        .readdirSync(deploymentsDir)
-        .filter((f) => f.endsWith(".json"))
+      const files = fs.readdirSync(deploymentsDir).filter(
+        (f) =>
+          f.endsWith(".json") &&
+          // The reservation bootstrap calldata summaries are not
+          // deployment artifacts: deploy/98_generate_reservation_mainnet_calldata.ts
+          // writes them into the same directory, and the script-98 test
+          // deletes them again. Reading the directory while that test
+          // runs (the suite runs in parallel on pull requests) can see a
+          // file that has already been deleted, which fails this suite
+          // for a reason that has nothing to do with the artifacts.
+          !f.startsWith("reservation-bootstrap-calldata-")
+      )
 
       artifacts = files.map((filename) => ({
         filename,

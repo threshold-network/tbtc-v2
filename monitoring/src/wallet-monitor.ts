@@ -7,7 +7,7 @@ import type {
   DkgResultSubmittedEvent as DkgResultSubmittedChainEvent,
   DkgResultApprovedEvent as DkgResultApprovedChainEvent,
   DkgResultChallengedEvent as DkgResultChallengedChainEvent,
-} from "@keep-network/tbtc-v2.ts"
+} from "@keep-network/tbtc-v2.ts/core"
 import type { SystemEvent, Monitor as SystemEventMonitor } from "./system-event"
 
 const WalletRegistered = (

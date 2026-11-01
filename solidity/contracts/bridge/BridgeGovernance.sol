@@ -19,6 +19,7 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "./BridgeGovernanceParameters.sol";
 
 import "./Bridge.sol";
+import "./IReservationBridge.sol";
 
 /// @title Bridge Governance
 /// @notice Owns the `Bridge` contract and is responsible for updating
@@ -31,6 +32,8 @@ contract BridgeGovernance is Ownable {
     using BridgeGovernanceParameters for BridgeGovernanceParameters.MovingFundsData;
     using BridgeGovernanceParameters for BridgeGovernanceParameters.WalletData;
     using BridgeGovernanceParameters for BridgeGovernanceParameters.FraudData;
+    using BridgeGovernanceParameters for BridgeGovernanceParameters.ReservationData;
+    using BridgeGovernanceParameters for BridgeGovernanceParameters.ReservationCapsData;
     using BridgeGovernanceParameters for BridgeGovernanceParameters.TreasuryData;
 
     BridgeGovernanceParameters.DepositData internal depositData;
@@ -38,8 +41,9 @@ contract BridgeGovernance is Ownable {
     BridgeGovernanceParameters.MovingFundsData internal movingFundsData;
     BridgeGovernanceParameters.WalletData internal walletData;
     BridgeGovernanceParameters.FraudData internal fraudData;
+    BridgeGovernanceParameters.ReservationData internal reservationData;
+    BridgeGovernanceParameters.ReservationCapsData internal reservationCapsData;
     BridgeGovernanceParameters.TreasuryData internal treasuryData;
-
     Bridge internal bridge;
 
     // Array is used to mitigate the problem with the contract size limit.
@@ -1793,5 +1797,272 @@ contract BridgeGovernance is Ownable {
     ///         rebate staking configuration, this call will revert.
     function setRebateStaking(address rebateStaking) external onlyOwner {
         bridge.setRebateStaking(rebateStaking);
+    }
+
+    /// @notice Sets the reservation router address. This function does not
+    ///         have a governance delay as setting the reservation router is
+    ///         a one-off action performed during initialization of the
+    ///         reservation mechanism.
+    /// @param _reservationRouter Address of the reservation router contract.
+    /// @dev Requirements:
+    ///      - The caller must be the owner,
+    ///      - The Bridge implementation is expected to enforce that the
+    ///        reservation router address is set exactly once and is not 0x0.
+    function setReservationRouter(
+        address _reservationRouter
+    ) external onlyOwner {
+        bridge.setReservationRouter(_reservationRouter);
+    }
+
+    // --- Reservation
+
+    /// @notice Begins the reservation parameters update process. All
+    ///         reservation parameters (including the reservation vault) are
+    ///         staged together since they are applied atomically via a
+    ///         single Bridge call.
+    /// @dev Can be called only by the contract owner.
+    /// @param _newReservationVault New reservation vault address.
+    /// @param _newReservationMinAmount New reservation minimum amount.
+    /// @param _newReservationTxMaxFee New reservation transaction max fee.
+    /// @param _newReservationTermSeconds New reservation term in seconds.
+    /// @param _newReservationDissolutionDelay New reservation dissolution delay.
+    /// @param _newReservationMaxTotalAmount New reservation max total amount.
+    /// @param _newMaxReservationsPerWallet New max reservations per wallet.
+    /// @param _newReservationActionTimeout New reservation action timeout.
+    /// @param _newReservationRenewalWindowSeconds New reservation renewal window in seconds.
+    function beginReservationParametersUpdate(
+        address _newReservationVault,
+        uint64 _newReservationMinAmount,
+        uint64 _newReservationTxMaxFee,
+        uint32 _newReservationTermSeconds,
+        uint32 _newReservationDissolutionDelay,
+        uint64 _newReservationMaxTotalAmount,
+        uint32 _newMaxReservationsPerWallet,
+        uint32 _newReservationActionTimeout,
+        uint32 _newReservationRenewalWindowSeconds
+    ) external onlyOwner {
+        reservationData.beginReservationParametersUpdate(
+            _newReservationVault,
+            _newReservationMinAmount,
+            _newReservationTxMaxFee,
+            _newReservationTermSeconds,
+            _newReservationDissolutionDelay,
+            _newReservationMaxTotalAmount,
+            _newMaxReservationsPerWallet,
+            _newReservationActionTimeout,
+            _newReservationRenewalWindowSeconds
+        );
+    }
+
+    /// @notice Finalizes the reservation parameters update process.
+    /// @dev Can be called only by the contract owner, after the governance
+    ///      delay elapses. Reads the staged values, clears the staged
+    ///      change, then forwards the values to the Bridge's
+    ///      `updateReservationParameters`.
+    function finalizeReservationParametersUpdate() external onlyOwner {
+        BridgeGovernanceParameters.ReservationData memory staged =
+            reservationData;
+        reservationData.finalizeReservationParametersUpdate(governanceDelay());
+        IReservationBridge(address(bridge)).updateReservationParameters(
+            staged.newReservationVault,
+            staged.newReservationMinAmount,
+            staged.newReservationTxMaxFee,
+            staged.newReservationTermSeconds,
+            staged.newReservationDissolutionDelay,
+            staged.newReservationMaxTotalAmount,
+            staged.newMaxReservationsPerWallet,
+            staged.newReservationActionTimeout,
+            staged.newReservationRenewalWindowSeconds
+        );
+    }
+
+    /// @notice Begins the reservation caps update process. Mirrors the
+    ///         begin/finalize dust-threshold pattern. Must finalize before
+    ///         `beginReservationParametersUpdate` is finalized on bootstrap
+    ///         to satisfy the relational check in
+    ///         `Reservation.updateReservationParameters`.
+    /// @dev Can be called only by the contract owner.
+    /// @param _newMaxReservationsAmountPerWallet New max reservations amount per wallet.
+    /// @param _newReservationMaxSingleAmount New reservation max single amount.
+    /// @param _newMaxActiveReservations New max active reservations.
+    /// @param _newMaxThirdPartyReanchorHoldsPerWallet New per-target cap on
+    ///        the number of concurrently pending third-party re-anchor
+    ///        holds; zero means third parties may not hold re-anchor
+    ///        capacity at all (privileged callers only).
+    /// @param _newHandoffReserveWallets New number of Live wallets held
+    ///        back from acceptance capacity by the hand-off reserve gate;
+    ///        must be at least one.
+    function beginReservationCapsUpdate(
+        uint64 _newMaxReservationsAmountPerWallet,
+        uint64 _newReservationMaxSingleAmount,
+        uint32 _newMaxActiveReservations,
+        uint32 _newMaxThirdPartyReanchorHoldsPerWallet,
+        uint32 _newHandoffReserveWallets
+    ) external onlyOwner {
+        reservationCapsData.beginReservationCapsUpdate(
+            _newMaxReservationsAmountPerWallet,
+            _newReservationMaxSingleAmount,
+            _newMaxActiveReservations,
+            _newMaxThirdPartyReanchorHoldsPerWallet,
+            _newHandoffReserveWallets
+        );
+    }
+
+    /// @notice Finalizes the reservation caps update process.
+    /// @dev Can be called only by the contract owner, after the governance
+    ///      delay elapses. Reads the staged values, clears the staged
+    ///      change, then forwards the values to the Bridge's
+    ///      `updateReservationCaps`.
+    function finalizeReservationCapsUpdate() external onlyOwner {
+        BridgeGovernanceParameters.ReservationCapsData memory staged =
+            reservationCapsData;
+        reservationCapsData.finalizeReservationCapsUpdate(governanceDelay());
+        IReservationBridge(address(bridge)).updateReservationCaps(
+            staged.newMaxReservationsAmountPerWallet,
+            staged.newReservationMaxSingleAmount,
+            staged.newMaxActiveReservations,
+            staged.newMaxThirdPartyReanchorHoldsPerWallet,
+            staged.newHandoffReserveWallets
+        );
+    }
+
+    /// @notice Force-clears a stale/unfundable reserved deposit record
+    ///         before its self-chosen refund deadline elapses. Governance
+    ///         escape hatch for `notifyStaleReservedDeposit` (which anyone
+    ///         can call, but only after that deadline): mitigates a
+    ///         permissionless-reveal griefing vector where fabricated,
+    ///         never-broadcast reveals keep `pendingReservedDeposits` from
+    ///         returning to zero.
+    /// @param depositKey The deposit key of the reserved deposit to
+    ///        force-clear.
+    /// @dev Can be called only by the contract owner. This function does
+    ///      not have a governance delay, matching `notifyStaleReservedDeposit`'s
+    ///      own no-delay, incident-response nature.
+    function forceStaleReservedDeposit(uint256 depositKey) external onlyOwner {
+        IReservationBridge(address(bridge)).forceStaleReservedDeposit(
+            depositKey
+        );
+    }
+
+    /// @notice Authorizes moving a reservation's anchor from its current
+    ///         Live source wallet to another Live wallet. This is the
+    ///         governance-approved rotation path of
+    ///         `Reservation.requestReservationReanchor`, which admits only
+    ///         Bridge governance as the caller when the source wallet is
+    ///         still Live. The call is forwarded to the reservation surface
+    ///         at the Bridge address, so the caller the router observes is
+    ///         this contract, i.e. Bridge governance.
+    /// @param reservationKey The key of the reservation to re-anchor.
+    /// @param targetWalletPubKeyHash 20-byte public key hash of the target
+    ///        wallet, which must be Live and different from the source
+    ///        wallet.
+    /// @dev Can be called only by the contract owner. The call carries
+    ///      empty `walletMembersIDs` and member index 0: the governance
+    ///      path takes no signing-group member proof.
+    /// @dev This function does not have a governance delay, following
+    ///      `forceStaleReservedDeposit` rather than the reservation
+    ///      parameter setters. The delay pattern covers updates that apply
+    ///      to every position at once, where staging is the only way to
+    ///      publish the change before it takes effect; this call affects
+    ///      one identified position, and
+    ///      `Reservation.requestReservationReanchor` re-checks every
+    ///      condition (reservation Active, target wallet Live and
+    ///      different from the source, target capacity, request-time
+    ///      amount floor) at execution time, so a staged copy would only
+    ///      let those conditions drift before the finalize.
+    function requestReservationReanchor(
+        uint256 reservationKey,
+        bytes20 targetWalletPubKeyHash
+    ) external onlyOwner {
+        IReservationBridge(address(bridge)).requestReservationReanchor(
+            reservationKey,
+            targetWalletPubKeyHash,
+            new uint32[](0),
+            0
+        );
+    }
+
+    /// @notice Returns the reservation caps update staged by
+    ///         `beginReservationCapsUpdate`, as the five values in that
+    ///         function's argument order followed by the initiation
+    ///         timestamp.
+    /// @dev A zero timestamp means nothing is staged; all six values are
+    ///      zero when the slot is empty. `finalizeReservationCapsUpdate`
+    ///      clears the timestamp along with the staged values.
+    ///      Only one caps update can be pending: `beginReservationCapsUpdate`
+    ///      overwrites the staged values and the timestamp without a warning,
+    ///      so read this view before every `begin` to see whether a change
+    ///      is already staged, for instance a capacity reduction, and to
+    ///      record what the call is about to replace. The view is
+    ///      unrestricted because the same values are already public through
+    ///      the `ReservationCapsUpdateStarted` event.
+    function pendingReservationCapsUpdate()
+        external
+        view
+        returns (
+            uint64 newMaxReservationsAmountPerWallet,
+            uint64 newReservationMaxSingleAmount,
+            uint32 newMaxActiveReservations,
+            uint32 newMaxThirdPartyReanchorHoldsPerWallet,
+            uint32 newHandoffReserveWallets,
+            uint256 changeInitiated
+        )
+    {
+        return (
+            reservationCapsData.newMaxReservationsAmountPerWallet,
+            reservationCapsData.newReservationMaxSingleAmount,
+            reservationCapsData.newMaxActiveReservations,
+            reservationCapsData.newMaxThirdPartyReanchorHoldsPerWallet,
+            reservationCapsData.newHandoffReserveWallets,
+            reservationCapsData.reservationCapsChangeInitiated
+        );
+    }
+
+    /// @notice Returns the reservation parameters update staged by
+    ///         `beginReservationParametersUpdate`, as the nine values in
+    ///         that function's argument order followed by the initiation
+    ///         timestamp.
+    /// @dev A zero timestamp means nothing is staged; all ten values are
+    ///      zero when the slot is empty. `finalizeReservationParametersUpdate`
+    ///      clears the timestamp along with the staged values.
+    ///      Only one parameters update can be pending: `beginReservationParametersUpdate`
+    ///      overwrites the staged values and the timestamp without a warning,
+    ///      so read this view before every `begin` to see whether a change
+    ///      is already staged -- above all a vault address the
+    ///      irreversibility acknowledgement did not name -- and to record
+    ///      what the call is about to replace. The vault this slot holds is
+    ///      wired into the Bridge permanently once the first reservation is
+    ///      accepted, so a silent overwrite of that field is not
+    ///      recoverable. The view is unrestricted because the same values
+    ///      are already public through the `ReservationParametersUpdateStarted`
+    ///      event.
+    function pendingReservationParametersUpdate()
+        external
+        view
+        returns (
+            address newReservationVault,
+            uint64 newReservationMinAmount,
+            uint64 newReservationTxMaxFee,
+            uint32 newReservationTermSeconds,
+            uint32 newReservationDissolutionDelay,
+            uint64 newReservationMaxTotalAmount,
+            uint32 newMaxReservationsPerWallet,
+            uint32 newReservationActionTimeout,
+            uint32 newReservationRenewalWindowSeconds,
+            uint256 changeInitiated
+        )
+    {
+        return (
+            reservationData.newReservationVault,
+            reservationData.newReservationMinAmount,
+            reservationData.newReservationTxMaxFee,
+            reservationData.newReservationTermSeconds,
+            reservationData.newReservationDissolutionDelay,
+            reservationData.newReservationMaxTotalAmount,
+            reservationData.newMaxReservationsPerWallet,
+            reservationData.newReservationActionTimeout,
+            reservationData.newReservationRenewalWindowSeconds,
+            reservationData.reservationParametersChangeInitiated
+        );
     }
 }
