@@ -901,15 +901,37 @@ export function additionalStakingSourcePath(
   if (override === undefined || override.trim() === "") {
     return undefined
   }
+  assertNoSourceOverrideOffTestNetwork(networkName)
+  return override.trim()
+}
+
+/**
+ * Refuses the source override on any network that is not a test network.
+ *
+ * The override is a test seam. It changes which source the fee-mode enum
+ * order is pinned against, and a live ceremony must pin the deployed
+ * contract's own source. A seam that silently changed what a live
+ * ceremony certified would be exactly the hazard the pin exists to close.
+ *
+ * The check is loud rather than silent in both directions: it throws
+ * rather than ignoring the variable, so an operator who sets it on a live
+ * network is told rather than left to believe the override applied.
+ *
+ * @param networkName the network the ceremony is running against.
+ */
+export function assertNoSourceOverrideOffTestNetwork(networkName: string): void {
+  const override = process.env.REBATE_STAKING_EXTRA_SOURCE_PATH
+  if (override === undefined || override.trim() === "") {
+    return
+  }
   if (!isTestNetwork(networkName)) {
     throw new Error(
       `REBATE_STAKING_EXTRA_SOURCE_PATH is set to ${override.trim()}, but it is a ` +
         "test-only seam: it changes which source the fee-mode enum order is " +
-        `pinned against, and a live ceremony must pin the deployed contract's own ` +
+        "pinned against, and a live ceremony must pin the deployed contract's own " +
         `source. Refusing to run on network ${networkName}.`
     )
   }
-  return override.trim()
 }
 
 /**
@@ -1700,6 +1722,12 @@ const func: DeployFunction =
     console.log("=".repeat(80))
     console.log(`Network: ${hre.network.name}`)
     console.log(`Deployer: ${deployer}`)
+
+    // The source override is a test seam and it is refused here, before
+    // any work is done, so a stray variable in an operator's environment
+    // stops the ceremony immediately rather than after it has read the
+    // records and resolved the sources.
+    assertNoSourceOverrideOffTestNetwork(hre.network.name)
 
     // --- Step 1: Resolve the proxies ---
     const Bridge = await get("Bridge")

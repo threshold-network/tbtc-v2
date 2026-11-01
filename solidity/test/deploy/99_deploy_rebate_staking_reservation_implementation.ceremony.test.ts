@@ -4,6 +4,7 @@ import path from "path"
 import { artifacts } from "hardhat"
 import { ethers } from "ethers"
 import func, {
+  additionalStakingSourcePath,
   artifactLinkSites,
   assertStorageGate,
   bridgeRuntimeWithLibraries,
@@ -544,8 +545,6 @@ describe("deploy/99 the ceremony, end to end", () => {
     // could certify a build against a source that is not the deployed
     // contract's. It has to be refused loudly, not silently ignored and
     // not silently honoured.
-    const { mockHre } = await createCeremony()
-    mockHre.network = { name: "mainnet" }
     process.env.REBATE_STAKING_EXTRA_SOURCE_PATH = path.join(
       DEPLOYMENTS_DIR,
       "reordered-RebateStaking.sol"
@@ -556,6 +555,23 @@ describe("deploy/99 the ceremony, end to end", () => {
       reorderedSource()
     )
 
+    // The resolver refuses it off a test network...
+    expect(() => additionalStakingSourcePath("mainnet")).to.throw(
+      /REBATE_STAKING_EXTRA_SOURCE_PATH is set to .* test-only seam/
+    )
+    expect(() => additionalStakingSourcePath("sepolia")).to.throw(
+      /test-only seam/
+    )
+    // ...and accepts it on one.
+    expect(additionalStakingSourcePath(NETWORK)).to.equal(
+      process.env.REBATE_STAKING_EXTRA_SOURCE_PATH
+    )
+
+    // The ceremony refuses it too, and it refuses it before doing any
+    // work, so the reason the operator sees is the override and not some
+    // later lookup.
+    const { mockHre } = await createCeremony()
+    mockHre.network = { name: "mainnet" }
     const { error, output } = await runCeremony(mockHre)
     expect(error, output).to.not.equal(undefined)
     expect(error?.message).to.match(
