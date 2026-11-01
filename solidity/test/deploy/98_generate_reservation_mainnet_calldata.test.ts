@@ -10,6 +10,7 @@ import func, {
   buildReservationActionDefinitions,
   assertDissolutionDelayWithinScriptPolicy,
   assertFinalizeAcceptsReservationValues,
+  decision1Assessment,
   assertHandoffAwareFleetFit,
   handoffAwareSlotCapacity,
   linkedRecordRuntime,
@@ -134,6 +135,21 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
     return `0x${bytes.join("")}`
   }
 
+  /**
+   * The vault's build info as a different compilation would produce it: the
+   * same shape, different runtime bytes. Its immutable ranges therefore
+   * describe a contract this artifact could not have deployed, and using
+   * them would mask the wrong offsets.
+   */
+  function mismatchedBuildInfo(): any {
+    const copy = JSON.parse(JSON.stringify(vaultBuildInfo))
+    const runtime =
+      copy.output.contracts["contracts/vault/ReservationVault.sol"]
+        .ReservationVault.evm.deployedBytecode
+    runtime.object = `${runtime.object.slice(0, -2)}ff`
+    return copy
+  }
+
   before(async () => {
     bridgeGovernanceArtifact =
       await hre.artifacts.readArtifact("BridgeGovernance")
@@ -237,6 +253,8 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
     bridgeGovernanceOnChainCode?: string
     /** Code at the ReservationVault record's address. */
     vaultOnChainCode?: string
+    /** How `artifacts.getBuildInfo` answers for the vault. */
+    buildInfoMode?: "present" | "missing" | "mismatched"
   }): { mockHre: any } {
     const liveWalletsCount = overrides?.liveWalletsCount ?? 10
     const liveWalletsCountAtFinalize =
@@ -303,6 +321,10 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
           if (
             name === "contracts/vault/ReservationVault.sol:ReservationVault"
           ) {
+            if (overrides?.buildInfoMode === "missing") return undefined
+            if (overrides?.buildInfoMode === "mismatched") {
+              return mismatchedBuildInfo()
+            }
             return vaultBuildInfo
           }
           throw new Error(`Unexpected build info request: ${name}`)
@@ -771,21 +793,35 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
     it("should throw when a byte outside the immutable slots differs", async () => {
       // Byte 8 is in the dispatcher prologue, far from any immutable slot;
       // the immutable references are asserted non-empty above.
-      const tampered = `${vaultRuntime.slice(0, 2 + 16)}ff${vaultRuntime.slice(2 + 20)}`
+      const tampered = `${vaultRuntime.slice(0, 2 + 16)}ff${vaultRuntime.slice(2 + 18)}`
       expect(tampered).to.not.equal(vaultRuntime)
+      expect(tampered).to.have.lengthOf(vaultRuntime.length)
       const { mockHre } = createMockHre({ vaultOnChainCode: tampered })
       await expectRejection(func(mockHre), /keccak256 of the code at/)
     })
 
-    it("should throw when an immutable slot is left zero-filled", async () => {
-      // A runtime that claims the artifact's own bytes is not enough: the
-      // record must describe a deployed vault, and a zero-filled immutable
-      // slot is the artifact, not a deployment. Masking cannot hide a wrong
-      // address, but an untouched slot is still worth rejecting evidence
-      // for, and this pins that the mask does not accept a different length.
+    it("should throw when the runtime is shorter than the artifact", async () => {
+      // Masking replaces the immutable bytes by offset, so a shorter runtime
+      // must not be accepted by the hash comparison: the offsets the artifact
+      // reports no longer line up, and a zero-filled slot cannot be told from
+      // the artifact's own template, so length is the only discriminator left.
       const truncated = vaultRuntime.slice(0, -2)
       const { mockHre } = createMockHre({ vaultOnChainCode: truncated })
       await expectRejection(func(mockHre), /keccak256 of the code at/)
+    })
+
+    it("should refuse when no build info covers the vault", async () => {
+      // Fail-closed: without build info the immutable ranges are unknown, and
+      // comparing the raw templates would reject every correct deployment.
+      const { mockHre } = createMockHre({ buildInfoMode: "missing" })
+      await expectRejection(func(mockHre), /No build info covers/)
+    })
+
+    it("should refuse build info whose runtime differs from the artifact's", async () => {
+      // Ranges from another compilation would mask the wrong offsets, so the
+      // compared hash could hide a byte that actually differs.
+      const { mockHre } = createMockHre({ buildInfoMode: "mismatched" })
+      await expectRejection(func(mockHre), /describes a different runtime/)
     })
   })
 
@@ -982,6 +1018,15 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
       ).to.not.throw()
     })
 
+    it("should report a zero single-amount cap as skipped, not as satisfied", () => {
+      // The report is the ceremony's evidence: calling a disabled cap
+      // "satisfied" would claim a check ran that the contract never ran.
+      const assessment = decision1Assessment(10, BigInt(0), BigInt(500_000))
+      expect(assessment.skipped).to.equal(true)
+      expect(assessment.satisfied).to.equal(true)
+      expect(assessment.slotCapacity).to.equal(BigInt(0))
+    })
+
     it("should still reject a total above capacity when the single-amount cap is set", () => {
       expect(() =>
         assertFinalizeAcceptsReservationValues({
@@ -1003,6 +1048,33 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
         func(mockHre),
         /Active reservations cap must be greater than zero/
       )
+    })
+
+    it("should write a skipped, satisfied Decision 1 into the summary for a disabled single-amount cap", async () => {
+      // The guard admits a zero single-amount cap, so the generated report
+      // must not then mark the same calldata as violating the invariant: the
+      // summary is what the ceremony review reads after the fact.
+      process.env.RESERVATION_SINGLE_AMOUNT_CAP_SATS = "0"
+      process.env.RESERVATION_MAX_TOTAL_AMOUNT_SATS = "500000"
+      removeSummaryFiles()
+      const { mockHre } = createMockHre()
+      const capture = captureConsoleLog()
+      let output: string
+      try {
+        await func(mockHre)
+      } finally {
+        output = capture.restore()
+      }
+      expect(output).to.include("Decision 1 invariant skipped")
+      const files = findSummaryFiles()
+      expect(files.length).to.equal(1)
+      const summary = JSON.parse(fs.readFileSync(files[0], "utf-8"))
+      expect(summary.decision1Invariant.skipped).to.equal(true)
+      expect(summary.decision1Invariant.satisfied).to.equal(true)
+      expect(summary.decision1Invariant.slotCapacity).to.equal("0")
+      expect(summary.decision1Invariant.maxTotalAmount).to.equal("500000")
+      expect(summary.decision1Invariant.description).to.include("disables")
+      removeSummaryFiles()
     })
   })
 

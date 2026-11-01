@@ -494,6 +494,31 @@ export interface ReservationValueSet {
 }
 
 /**
+ * Decision 1 as `Reservation.validateReservationCapsInvariant` evaluates it.
+ *
+ * The contract's predicate is
+ * `single == 0 || active == 0 || total <= uint256(active) * single`: a zero
+ * amount cap disables that cap, so the relational ceiling does not apply at
+ * all rather than being satisfied trivially. Every consumer of the check --
+ * the staging guard, the log line and the summary JSON -- goes through this
+ * one function, so none of them can report a different verdict than the
+ * guard enforced.
+ */
+export function decision1Assessment(
+  maxActive: number,
+  singleAmountCap: bigint,
+  maxTotalAmount: bigint
+): { slotCapacity: bigint; skipped: boolean; satisfied: boolean } {
+  const slotCapacity = BigInt(maxActive) * singleAmountCap
+  const skipped = singleAmountCap === BigInt(0)
+  return {
+    slotCapacity,
+    skipped,
+    satisfied: skipped || maxTotalAmount <= slotCapacity,
+  }
+}
+
+/**
  * Applies every value rule the two finalize calls apply, before any staging
  * calldata exists.
  *
@@ -612,15 +637,16 @@ export function assertFinalizeAcceptsReservationValues(
   // so a zero single-amount cap leaves the total unbounded and must not be
   // rejected here. `maxActive` cannot be zero at this point: the branch
   // above already rejected it.
-  const slotCapacity = BigInt(values.maxActive) * values.singleAmountCap
-  if (
-    values.singleAmountCap !== BigInt(0) &&
-    values.maxTotalAmount > slotCapacity
-  ) {
+  const decision1 = decision1Assessment(
+    values.maxActive,
+    values.singleAmountCap,
+    values.maxTotalAmount
+  )
+  if (!decision1.satisfied) {
     throw new Error(
       `Decision 1 invariant violated: reservationMaxTotalAmount ` +
         `(${values.maxTotalAmount}) > maxActiveReservations * ` +
-        `reservationMaxSingleAmount (${slotCapacity}) (mirrors ` +
+        `reservationMaxSingleAmount (${decision1.slotCapacity}) (mirrors ` +
         "updateReservationParameters's 'Amount cap exceeds slot capacity' " +
         "require); this calldata would revert on finalize"
     )
@@ -1236,9 +1262,18 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 
   // The Decision 1 operands, recorded in the summary JSON below. The check
   // itself ran inside `assertFinalizeAcceptsReservationValues`.
-  const slotCapacity = BigInt(MAX_ACTIVE) * SINGLE_AMOUNT_CAP
+  const decision1 = decision1Assessment(
+    MAX_ACTIVE,
+    SINGLE_AMOUNT_CAP,
+    RES_MAX_TOTAL_AMOUNT
+  )
   console.log(
-    `\nDecision 1 invariant OK: ${RES_MAX_TOTAL_AMOUNT} <= ${slotCapacity}`
+    decision1.skipped
+      ? "\nDecision 1 invariant skipped: RESERVATION_SINGLE_AMOUNT_CAP_SATS " +
+          "is 0, which disables the amount cap, exactly as " +
+          "validateReservationCapsInvariant skips it; the total " +
+          `${RES_MAX_TOTAL_AMOUNT} is unconstrained`
+      : `\nDecision 1 invariant OK: ${RES_MAX_TOTAL_AMOUNT} <= ${decision1.slotCapacity}`
   )
 
   // Verify the Item-3 sizing relation (roadmap.md section 6 item 2,
@@ -1482,11 +1517,13 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
       description: action.label,
     })),
     decision1Invariant: {
-      description:
-        "reservationMaxTotalAmount <= maxActiveReservations * reservationMaxSingleAmount",
-      slotCapacity: slotCapacity.toString(),
+      description: decision1.skipped
+        ? "reservationMaxSingleAmount is 0, which disables the amount cap, so validateReservationCapsInvariant skips the relation rather than failing it"
+        : "reservationMaxTotalAmount <= maxActiveReservations * reservationMaxSingleAmount",
+      skipped: decision1.skipped,
+      slotCapacity: decision1.slotCapacity.toString(),
       maxTotalAmount: RES_MAX_TOTAL_AMOUNT.toString(),
-      satisfied: RES_MAX_TOTAL_AMOUNT <= slotCapacity,
+      satisfied: decision1.satisfied,
     },
     liveWalletSlotCapacity: {
       description:
