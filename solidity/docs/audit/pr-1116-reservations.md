@@ -358,10 +358,10 @@ campaigns, their counterexamples and the Halmos and fork harnesses stay with the
 When a reservation is stranded (`Reservation.strandReservation`, reachable permissionlessly on a `Live`
 wallet after its term expires), the position's accounting is released -- the wallet's and the global
 reserved capacity are freed, the anchored custody is removed, and the reservation's state becomes `Stranded`.
-The *Bitcoin* side is untouched: the outpoint is never marked spent and the BTC is never moved. Only
+The _Bitcoin_ side is untouched: the outpoint is never marked spent and the BTC is never moved. Only
 `Acceptance` and `Reanchor` proofs are dispatched for a position (`ReservationProofs`), so no proof type can
 consume the outpoint afterwards, and `prepareReservationForSettlement` admits a stranded position only for a
-*late* generation of an already-proven anchor.
+_late_ generation of an already-proven anchor.
 
 The consequence is a liquidity consequence, not a loss of funds: the depositor's BTC remains in the source
 wallet's anchor, but it cannot be released or moved to another wallet by any milestone-1 path. The wallet's
