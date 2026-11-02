@@ -5,7 +5,8 @@ locks. They do not resolve the registry's moving `development` tags during a
 release. The direct upstream contract dependencies are exact versions so the
 published package also refers to the artifact versions used by its build.
 
-Both packages use Yarn 4.12.0 and the workflows run `yarn install --immutable`.
+Both packages use Yarn 4.12.0 with Node 22.23.4 in the publishing workflows,
+which run `yarn install --immutable`.
 If a manifest and lock disagree, publication stops rather than repairing the
 inputs in the publishing job.
 
@@ -33,22 +34,50 @@ distribution channel, not a build input.
 ## Preparation and publication
 
 Builds, local Hardhat deployment, version bumping and artifact preparation run
-without `NPM_TOKEN`. The contracts job explicitly runs its existing
-`prepublishOnly` and `prepack` hooks before creating a tarball. The SDK has no
-pack hooks. Both jobs pack with lifecycle scripts disabled, then give the token
-only to `npm publish <tarball> --ignore-scripts`. Packing also uses
-`--script-shell=/usr/bin/false`: npm 10 can still invoke `prepare` despite
-`--ignore-scripts`, so an unexpected hook fails closed without executing it.
+in the `prepare` job without `NPM_TOKEN`. The contracts job explicitly runs its
+existing `prepublishOnly` and `prepack` hooks before creating a tarball. The SDK
+has no pack hooks. Packing uses `--ignore-scripts --script-shell=/usr/bin/false`:
+npm 10 can still invoke `prepare` despite `--ignore-scripts`, so an unexpected
+hook fails closed without executing it.
 
-Keep future package preparation hooks in the token-free preparation step. Do not
-restore dependency updates, source builds or lifecycle scripts to the credentialed
-publish step. The workflows use read-only GitHub permissions and do not persist
-checkout credentials.
+The preparation job stages exactly one regular tarball as `package.tgz`, records
+its SHA-256 digest, and uploads only that file with the pinned official artifact
+action. Its artifact name includes the workflow run ID and attempt. The publish
+job depends on this job's successful completion and downloads the exact artifact
+ID returned by the upload. It supplies no cross-run/repository token or run ID,
+so the download action searches only the current workflow run. Uploads do not
+overwrite existing artifacts.
 
-Run `node --test .github/tests/npm-publication.test.cjs` to check the preparation
-and publication commands against local package fixtures without publishing.
-The tests also flag new lifecycle hooks that need an explicit preparation step.
+Publication runs on a separate GitHub-hosted runner. It has no checkout,
+dependency installation, build, or cache restore. Its working directory remains
+empty; the downloaded tarball is stored under `runner.temp`. Before introducing
+the npm token, it rejects missing or malformed artifact IDs/digests, additional
+files, symlinks, and a tarball whose SHA-256 differs from the preparation output.
+This explicit checksum check fails closed even though the download action's
+built-in artifact digest mismatch handling only emits a warning.
 
-This separates package preparation from the publisher's npm token within the
-job; it is not a sandbox against malicious code persisting in that job. Further
-runner/process isolation is a separate control.
+Before receiving the token, the publisher also reads package metadata with the
+`pacote` parser bundled with its pinned npm toolchain. It uses offline mode,
+disabled scripts, and a fresh inspection cache under `runner.temp`. It rejects
+any `publishConfig` field so package metadata cannot override publisher network
+or authentication settings. This parser may unpack files into that isolated
+inspection cache; no package code is run and the cache is not shared or restored.
+
+Only the final `npm publish <tarball>` step receives `NPM_TOKEN`. It uses the npm
+registry explicitly and disables lifecycle scripts and their script shell. Build
+processes and changes to the build runner's filesystem do not carry over to the
+publishing runner. This protects the publication credential from build-time
+code; it does not establish that the contents of the built package are safe.
+
+Keep future package preparation hooks in the preparation job. Do not add source
+checkouts, build caches, dependency updates, or lifecycle scripts to the publish
+job. Both jobs use read-only GitHub permissions and the
+preparation checkout does not persist credentials.
+
+Run `node --test .github/tests/npm-publication.test.cjs` to check preparation,
+transfer validation, and publication against local package fixtures without
+publishing. The tests use separate build and publisher directories, exercise
+malformed identities, changed/additional files, forbidden lifecycle hooks, and
+package-controlled npm configuration,
+and guard the publish job's action and command allowlist. They also flag new
+package lifecycle hooks that need explicit preparation.

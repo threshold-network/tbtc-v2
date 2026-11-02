@@ -17,8 +17,11 @@ permissions:
   contents: read
 
 jobs:
-  npm-compile-publish-contracts:
+  prepare:
     runs-on: ubuntu-latest
+    outputs:
+      artifact-id: ${{ steps.upload.outputs.artifact-id }}
+      package-sha256: ${{ steps.package.outputs.sha256 }}
     defaults:
       run:
         working-directory: ./solidity
@@ -29,9 +32,7 @@ jobs:
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: "22.x"
-          registry-url: "https://registry.npmjs.org"
-          cache-dependency-path: solidity/yarn.lock
+          node-version: "22.23.4"
 
       - name: Enable Corepack
         run: corepack enable
@@ -72,11 +73,103 @@ jobs:
           mkdir -p "$RUNNER_TEMP/npm-package"
           npm pack --ignore-scripts --script-shell=/usr/bin/false --pack-destination "$RUNNER_TEMP/npm-package"
 
-      - name: Publish prepared package
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Prepare publication artifact
+        id: package
         run: |
           packages=("$RUNNER_TEMP/npm-package"/*.tgz)
           test "${#packages[@]}" -eq 1
           test -f "${packages[0]}"
-          npm publish "${packages[0]}" --ignore-scripts --access=public --tag=development
+          test ! -L "${packages[0]}"
+          mkdir -p "$RUNNER_TEMP/npm-artifact"
+          cp "${packages[0]}" "$RUNNER_TEMP/npm-artifact/package.tgz"
+          node <<'NODE'
+          const fs = require("node:fs")
+          const crypto = require("node:crypto")
+          const archive = `${process.env.RUNNER_TEMP}/npm-artifact/package.tgz`
+          const hash = crypto.createHash("sha256").update(fs.readFileSync(archive)).digest("hex")
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `sha256=${hash}\n`)
+          NODE
+
+      - name: Upload prepared package
+        id: upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: npm-contracts-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/npm-artifact/package.tgz
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+          overwrite: false
+
+  publish:
+    needs: prepare
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      ARTIFACT_ID: ${{ needs.prepare.outputs.artifact-id }}
+      PACKAGE_SHA256: ${{ needs.prepare.outputs.package-sha256 }}
+    steps:
+      # This runner never checks out source or restores a build cache.
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22.23.4"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Validate artifact identity
+        run: |
+          [[ "$ARTIFACT_ID" =~ ^[0-9]+$ ]] || exit 1
+          [[ "$PACKAGE_SHA256" =~ ^[a-f0-9]{64}$ ]] || exit 1
+
+      - name: Download this run's prepared package
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          artifact-ids: ${{ needs.prepare.outputs.artifact-id }}
+          path: ${{ runner.temp }}/npm-package
+          merge-multiple: true
+          # No github-token/run-id override: scope is this repository and run.
+
+      - name: Verify prepared package
+        run: |
+          node <<'NODE'
+          const fs = require("node:fs")
+          const crypto = require("node:crypto")
+          const directory = `${process.env.RUNNER_TEMP}/npm-package`
+          const files = fs.readdirSync(directory)
+          if (files.length !== 1 || files[0] !== "package.tgz") {
+            throw new Error("Expected exactly one package.tgz artifact")
+          }
+          const archive = `${directory}/package.tgz`
+          if (!fs.lstatSync(archive).isFile()) throw new Error("Expected a regular tarball")
+          const hash = crypto.createHash("sha256").update(fs.readFileSync(archive)).digest("hex")
+          if (hash !== process.env.PACKAGE_SHA256) throw new Error("Package checksum mismatch")
+          NODE
+
+      - name: Inspect package metadata
+        run: |
+          node - "$(command -v npm)" <<'NODE'
+          const fs = require("node:fs")
+          const { createRequire } = require("node:module")
+          const npmRequire = createRequire(fs.realpathSync(process.argv[2]))
+          const pacote = npmRequire("pacote")
+          async function inspect() {
+            const manifest = await pacote.manifest(`${process.env.RUNNER_TEMP}/npm-package/package.tgz`, {
+              cache: `${process.env.RUNNER_TEMP}/npm-inspection-cache`,
+              offline: true,
+              ignoreScripts: true,
+              scriptShell: "/usr/bin/false",
+              fullReadJson: true,
+              fullMetadata: true,
+            })
+            if (Object.prototype.hasOwnProperty.call(manifest, "publishConfig")) {
+              throw new Error("Package publishConfig must not override publisher settings")
+            }
+          }
+          inspect().catch(error => { console.error(error.message); process.exitCode = 1 })
+          NODE
+
+      - name: Publish prepared package
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          npm publish "$RUNNER_TEMP/npm-package/package.tgz" --ignore-scripts --script-shell=/usr/bin/false --access=public --tag=development --registry=https://registry.npmjs.org
