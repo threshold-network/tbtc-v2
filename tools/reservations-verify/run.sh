@@ -145,9 +145,13 @@ if has survivors; then
     killed=$(node -e 'const r=require(process.argv[1]);console.log(Object.values(r).filter(x=>x.verdict==="KILLED").length)' "$res")
     total=$(node -e 'console.log(Object.keys(require(process.argv[1])).length)' "$res")
     bad=$(node -e 'const r=require(process.argv[1]);console.log(Object.entries(r).filter(([,x])=>x.verdict!=="KILLED").map(([k,x])=>k+":"+x.verdict).join(" "))' "$res")
-    # Every listed mutant has to be present, and each has to be KILLED with a named failing test.
+    # A mutant whose run died in setup or never passed a test shows nothing, so it is counted
+    # apart from the mutants the tests caught.
+    notviable=$(node -e 'const r=require(process.argv[1]);console.log(Object.values(r).filter(x=>x.verdict==="NOT_VIABLE").length)' "$res")
+    # Every listed mutant has to be present, and each has to be KILLED with a passing test and a
+    # named failing test that is not a setup hook.
     if [ -z "$bad" ] && [ "$total" = "$want" ] && [ "$killed" -gt 0 ]; then v=PASS; else v=FAIL; fi
-    record "survivor mutants killed" "$v" "$killed/$want killed ($total ran) ${bad}"
+    record "survivor mutants killed" "$v" "$killed/$want killed ($total ran, $notviable not viable) ${bad}"
   else
     record "survivor mutants killed" FAIL "no result file"
   fi
