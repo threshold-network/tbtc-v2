@@ -14,12 +14,12 @@ import { StarkNetAddress } from "../../src/lib/starknet/address"
 import * as starknet from "../../src/lib/starknet"
 import { TransactionReceipt } from "@ethersproject/providers"
 
-// Mock axios for relayer calls
-const axios = require("axios")
+// Mock JSON transport for relayer calls
+const jsonHttp = require("../../src/lib/utils/json-http")
 
 describe("StarkNet Single-Parameter Deposit Flow", () => {
   let tbtc: TBTC
-  let axiosStub: any
+  let httpStub: any
   let mockContracts: any
   let mockBitcoinClient: BitcoinClient
 
@@ -135,8 +135,8 @@ describe("StarkNet Single-Parameter Deposit Flow", () => {
       crossChainContractsLoader
     )
 
-    // Mock axios
-    axiosStub = sinon.stub(axios, "post")
+    // Mock JSON transport
+    httpStub = sinon.stub(jsonHttp, "postJson")
   })
 
   afterEach(() => {
@@ -157,7 +157,7 @@ describe("StarkNet Single-Parameter Deposit Flow", () => {
       )
 
       // Mock relayer response
-      axiosStub.resolves({
+      httpStub.resolves({
         data: {
           success: true,
           receipt: {
@@ -213,15 +213,15 @@ describe("StarkNet Single-Parameter Deposit Flow", () => {
       expect((result as TransactionReceipt).transactionHash).to.equal(
         "0xabc123def456789abc123def456789abc123def456789abc123def456789ab"
       )
-      expect(axiosStub.calledOnce).to.be.true
-      expect(axiosStub.args[0][0]).to.equal(
+      expect(httpStub.calledOnce).to.be.true
+      expect(httpStub.args[0][0]).to.equal(
         "https://tbtc-crosschain-relayer-swmku.ondigitalocean.app/api/StarknetTestnet/reveal"
       )
-      expect(axiosStub.args[0][1]).to.have.property("l2DepositOwner")
-      expect(axiosStub.args[0][1]).to.have.property("l2Sender")
-      expect(axiosStub.args[0][1].l2Sender).to.match(/^0x[0-9a-f]{64}$/)
-      expect(axiosStub.args[0][1]).to.have.property("fundingTx")
-      expect(axiosStub.args[0][1]).to.have.property("reveal")
+      expect(httpStub.args[0][1]).to.have.property("l2DepositOwner")
+      expect(httpStub.args[0][1]).to.have.property("l2Sender")
+      expect(httpStub.args[0][1].l2Sender).to.match(/^0x[0-9a-f]{64}$/)
+      expect(httpStub.args[0][1]).to.have.property("fundingTx")
+      expect(httpStub.args[0][1]).to.have.property("reveal")
     })
 
     it("should preserve StarkNet address through entire flow", async () => {
@@ -238,7 +238,7 @@ describe("StarkNet Single-Parameter Deposit Flow", () => {
 
       // Mock relayer to capture the request
       let capturedRequest: any
-      axiosStub.callsFake(async (url: string, data: any) => {
+      httpStub.callsFake(async (url: string, data: any) => {
         capturedRequest = data
         return {
           data: {
@@ -308,10 +308,10 @@ describe("StarkNet Single-Parameter Deposit Flow", () => {
           return {} as any
         })
 
-      // Reset and configure axios stub for this test
-      axiosStub.reset()
-      axiosStub.rejects({
-        isAxiosError: true,
+      // Reset and configure JSON transport stub for this test
+      httpStub.reset()
+      httpStub.rejects({
+        isJsonHttpError: true,
         response: {
           status: 500,
           data: { error: "Internal server error" },
@@ -394,12 +394,12 @@ describe("StarkNet Single-Parameter Deposit Flow", () => {
           return {} as any
         })
 
-      // Reset and configure axios stub for this test
-      axiosStub.reset()
+      // Reset and configure JSON transport stub for this test
+      httpStub.reset()
       const timeoutError = new Error("timeout of 5000ms exceeded")
       ;(timeoutError as any).code = "ECONNABORTED"
-      ;(timeoutError as any).isAxiosError = true
-      axiosStub.rejects(timeoutError)
+      ;(timeoutError as any).isJsonHttpError = true
+      httpStub.rejects(timeoutError)
 
       // Act
       await tbtc.initializeCrossChain("StarkNet", starknetAccount)

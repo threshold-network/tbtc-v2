@@ -13,18 +13,18 @@ import {
 import { Hex } from "../../../src/lib/utils"
 import { TransactionReceipt } from "@ethersproject/providers"
 
-// Mock axios
-const axios = require("axios")
+// Mock JSON transport
+const jsonHttp = require("../../../src/lib/utils/json-http")
 
 describe("StarkNetDepositor - T-001 Implementation", () => {
   let originalPost: any
 
   beforeEach(() => {
-    originalPost = axios.post
+    originalPost = jsonHttp.postJson
   })
 
   afterEach(() => {
-    axios.post = originalPost
+    jsonHttp.postJson = originalPost
   })
 
   describe("initializeDeposit", () => {
@@ -47,7 +47,7 @@ describe("StarkNetDepositor - T-001 Implementation", () => {
       mockReceipt.extraData = Hex.from("0x" + "00".repeat(31) + "01")
 
       // Mock the relayer response
-      axios.post = sinon.stub().resolves({
+      jsonHttp.postJson = sinon.stub().resolves({
         data: {
           success: true,
           receipt: { transactionHash: "0xabc123def456" },
@@ -67,8 +67,8 @@ describe("StarkNetDepositor - T-001 Implementation", () => {
         "0xabc123def456"
       )
 
-      // Check axios was called correctly
-      const stub = axios.post as sinon.SinonStub
+      // Check JSON transport was called correctly
+      const stub = jsonHttp.postJson as sinon.SinonStub
       expect(stub.callCount).to.equal(1)
       expect(stub.getCall(0).args[0]).to.equal(
         "http://test-relayer.local/api/reveal"
@@ -79,6 +79,35 @@ describe("StarkNetDepositor - T-001 Implementation", () => {
         mockReceipt.extraData.toPrefixedString()
       )
       expect(stub.getCall(0).args[1].l2Sender).to.equal(depositOwner.toString())
+      expect(stub.getCall(0).args[2]).to.deep.equal({ timeout: 90000 })
+    })
+
+    it("returns an existing deposit ID from a conflict without retrying", async () => {
+      const depositor = new StarkNetDepositor(
+        {
+          chainId: "0x534e5f4d41494e",
+          relayerUrl: "http://relayer.test/reveal",
+        },
+        "StarkNet",
+        createMockProvider()
+      )
+      depositor.setDepositOwner(StarkNetAddress.from("0x123456"))
+      jsonHttp.postJson = sinon.stub().rejects(
+        new jsonHttp.JsonHttpError("Conflict", "ERR_HTTP_RESPONSE", {
+          status: 409,
+          data: { success: false, depositId: "4660" },
+        })
+      )
+
+      const result = await depositor.initializeDeposit(
+        createMockDepositTx(),
+        0,
+        createMockDeposit()
+      )
+
+      expect(result).to.be.instanceOf(Hex)
+      expect((result as Hex).toPrefixedString()).to.equal("0x1234")
+      expect(jsonHttp.postJson.callCount).to.equal(1)
     })
 
     it("should throw error if deposit owner not set", async () => {
@@ -125,7 +154,7 @@ describe("StarkNetDepositor - T-001 Implementation", () => {
 
       // Mock failures then success
       let callCount = 0
-      axios.post = sinon.stub().callsFake(() => {
+      jsonHttp.postJson = sinon.stub().callsFake(() => {
         callCount++
         if (callCount < 3) {
           const error: any = new Error("Connection refused")
@@ -177,8 +206,8 @@ describe("StarkNetDepositor - T-001 Implementation", () => {
         status: 400,
         data: { error: "Invalid data" },
       }
-      error.isAxiosError = true
-      axios.post = sinon.stub().rejects(error)
+      error.isJsonHttpError = true
+      jsonHttp.postJson = sinon.stub().rejects(error)
 
       // Act & Assert
       try {
@@ -188,7 +217,7 @@ describe("StarkNetDepositor - T-001 Implementation", () => {
         expect((err as Error).message).to.equal("Relayer error: Invalid data")
       }
 
-      expect((axios.post as sinon.SinonStub).callCount).to.equal(1) // No retries
+      expect((jsonHttp.postJson as sinon.SinonStub).callCount).to.equal(1) // No retries
     })
   })
 
@@ -203,9 +232,9 @@ describe("StarkNetDepositor - T-001 Implementation", () => {
       const mockDepositTx = createMockDepositTx()
       const mockReceipt = createMockDeposit()
 
-      // Mock axios to capture the URL
+      // Mock JSON transport to capture the URL
       let capturedUrl: string = ""
-      axios.post = sinon.stub().callsFake((url: string) => {
+      jsonHttp.postJson = sinon.stub().callsFake((url: string) => {
         capturedUrl = url
         return Promise.resolve({
           data: {
@@ -237,9 +266,9 @@ describe("StarkNetDepositor - T-001 Implementation", () => {
       const mockDepositTx = createMockDepositTx()
       const mockReceipt = createMockDeposit()
 
-      // Mock axios to capture the URL
+      // Mock JSON transport to capture the URL
       let capturedUrl: string = ""
-      axios.post = sinon.stub().callsFake((url: string) => {
+      jsonHttp.postJson = sinon.stub().callsFake((url: string) => {
         capturedUrl = url
         return Promise.resolve({
           data: {

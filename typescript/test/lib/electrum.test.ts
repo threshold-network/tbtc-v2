@@ -157,6 +157,22 @@ describe("Electrum", () => {
       const credentials = (client as any).credentials[0]
       expect(credentials.path).to.be.undefined
     })
+
+    it("should preserve IPv6 hosts and explicit ports", () => {
+      const client = ElectrumClient.fromUrl("tcp://[::1]:50002")
+      expect((client as any).credentials[0]).to.deep.equal({
+        host: "[::1]",
+        port: 50002,
+        protocol: "tcp",
+        path: undefined,
+      })
+    })
+
+    it("should reject malformed or out-of-range ports", () => {
+      for (const url of ["tcp://localhost:abc", "wss://localhost:65536"]) {
+        expect(() => ElectrumClient.fromUrl(url)).to.throw()
+      }
+    })
   })
 
   describe("config files", () => {

@@ -1,4 +1,4 @@
-import axios from "axios"
+import { postJson } from "../utils/json-http"
 import { ChainIdentifier, BitcoinDepositor, DepositReceipt } from "../contracts"
 import { packRevealDepositParameters } from "../ethereum"
 import { BitcoinRawTxVectors } from "../bitcoin"
@@ -67,7 +67,7 @@ export class SolanaDepositorInterface implements BitcoinDepositor {
     }
 
     try {
-      const response = await axios.post(
+      const response = await postJson<{ receipt?: TransactionReceipt }>(
         "http://relayer.tbtcscan.com/api/reveal",
         {
           fundingTx,

@@ -6,11 +6,11 @@ import { DepositReceipt } from "../../../src/lib/contracts/bridge"
 import { Hex } from "../../../src/lib/utils"
 import { EthereumAddress } from "../../../src/lib/ethereum"
 import sinon from "sinon"
-import axios from "axios"
+import * as jsonHttp from "../../../src/lib/utils/json-http"
 
 describe("StarkNetDepositor Payload Format", () => {
   let depositor: StarkNetBitcoinDepositor
-  let axiosStub: sinon.SinonStub
+  let httpStub: sinon.SinonStub
 
   const mockProvider = {} // Mock StarkNet provider
   const testAddress =
@@ -24,16 +24,16 @@ describe("StarkNetDepositor Payload Format", () => {
     )
 
     depositor.setDepositOwner(StarkNetAddress.from(testAddress))
-    axiosStub = sinon.stub(axios, "post")
+    httpStub = sinon.stub(jsonHttp, "postJson")
   })
 
   afterEach(() => {
-    axiosStub.restore()
+    httpStub.restore()
   })
 
   it("should include destinationChainDepositOwner in payload", async () => {
     // Mock response
-    axiosStub.resolves({
+    httpStub.resolves({
       data: {
         success: true,
         receipt: {
@@ -63,7 +63,7 @@ describe("StarkNetDepositor Payload Format", () => {
     await depositor.initializeDeposit(depositTx, 0, deposit)
 
     // Verify payload
-    const call = axiosStub.getCall(0)
+    const call = httpStub.getCall(0)
     const payload = call.args[1]
 
     expect(payload).to.not.have.property("destinationChainDepositOwner")
@@ -83,7 +83,7 @@ describe("StarkNetDepositor Payload Format", () => {
   })
 
   it("should format addresses as lowercase", async () => {
-    axiosStub.resolves({
+    httpStub.resolves({
       data: {
         success: true,
         receipt: {
@@ -113,7 +113,7 @@ describe("StarkNetDepositor Payload Format", () => {
 
     await depositor.initializeDeposit(depositTx, 0, deposit)
 
-    const call = axiosStub.getCall(0)
+    const call = httpStub.getCall(0)
     const payload = call.args[1]
 
     // Should be lowercase
@@ -141,7 +141,7 @@ describe("StarkNetDepositor Payload Format", () => {
   })
 
   it("should include all required fields in payload", async () => {
-    axiosStub.resolves({
+    httpStub.resolves({
       data: {
         success: true,
         receipt: {
@@ -179,7 +179,7 @@ describe("StarkNetDepositor Payload Format", () => {
 
     await depositor.initializeDeposit(depositTx, 0, deposit, vault)
 
-    const call = axiosStub.getCall(0)
+    const call = httpStub.getCall(0)
     const payload = call.args[1]
 
     // Check fundingTx structure
@@ -206,7 +206,7 @@ describe("StarkNetDepositor Payload Format", () => {
     // Mock console.log to capture deposit ID
     const consoleLogStub = sinon.stub(console, "log")
 
-    axiosStub.resolves({
+    httpStub.resolves({
       data: {
         success: true,
         receipt: {

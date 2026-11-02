@@ -10,7 +10,7 @@ import { StarkNetExtraDataEncoder } from "./extra-data-encoder"
 import { StarkNetProvider } from "./types"
 import { Hex } from "../utils"
 import { packRevealDepositParameters } from "../ethereum"
-import axios from "axios"
+import { postJson } from "../utils/json-http"
 import { ethers } from "ethers"
 import { TransactionReceipt } from "@ethersproject/providers"
 
@@ -268,14 +268,11 @@ export class StarkNetBitcoinDepositor implements BitcoinDepositor {
           }
         )
 
-        const response = await axios.post<RelayerRevealResponse>(
+        const response = await postJson<RelayerRevealResponse>(
           this.#config.relayerUrl!,
           requestPayload,
           {
             timeout: 90000, // 90 seconds timeout
-            headers: {
-              "Content-Type": "application/json",
-            },
           }
         )
 
@@ -424,10 +421,7 @@ export class StarkNetBitcoinDepositor implements BitcoinDepositor {
    * @returns Formatted error message
    */
   private formatRelayerError(error: any): string {
-    // Check if it's an Axios error
-    const isAxiosError = error.isAxiosError || axios.isAxiosError?.(error)
-
-    if (isAxiosError || error.code === "ECONNABORTED") {
+    if (error.isJsonHttpError || error.code === "ECONNABORTED") {
       // Handle timeout errors
       if (error.code === "ECONNABORTED") {
         return "Relayer request timed out. Please try again."
