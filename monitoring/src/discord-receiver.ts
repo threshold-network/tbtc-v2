@@ -1,5 +1,3 @@
-import axios from "axios"
-
 import {
   BaseReceiver as BaseSystemEventReceiver,
   SystemEventType,
@@ -42,12 +40,24 @@ export class DiscordReceiver extends BaseSystemEventReceiver {
       },
     ]
 
-    await axios.post(
-      this.webhookUrl,
-      { embeds: discordEmbeds },
-      {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 30000)
+    try {
+      const response = await fetch(this.webhookUrl, {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ embeds: discordEmbeds }),
+        signal: controller.signal,
+        redirect: "error",
+      })
+      // Discord normally replies with an empty 204. We do not need response
+      // content, so cancel it instead of buffering an unbounded peer response.
+      await response.body?.cancel()
+      if (!response.ok) {
+        throw new Error(`Discord webhook failed with status ${response.status}`)
       }
-    )
+    } finally {
+      clearTimeout(timer)
+    }
   }
 }

@@ -59,6 +59,14 @@ npm i ethers@legacy-v5
 > The SDK depends on ethers v5. Proper support for newer ethers versions
 > is not guaranteed right now.
 
+The SDK requires Node.js 22 or newer. Browser applications must provide the
+standard `fetch`, `URL`, `AbortController`, and streaming response APIs.
+Solana and StarkNet relayer POSTs use native `fetch`: redirects are rejected,
+responses are limited to 1 MiB after decompression, and each attempt has a
+90-second deadline including body reads. Use a final relayer endpoint that
+does not redirect. Proxy configuration follows the runtime's native fetch
+configuration, rather than Axios's automatic proxy environment handling.
+
 ### Usage
 
 Here is a short example demonstrating SDK usage:
@@ -96,7 +104,7 @@ the SDK module for development.
 
 Please make sure you have the following prerequisites installed on your machine:
 
-- [node.js](https://nodejs.org) >=16
+- [node.js](https://nodejs.org) >=22
 - [yarn](https://classic.yarnpkg.com) >=1.22 or [npm](https://github.com/npm/cli) >=8.11
 
 > Although the below commands use `yarn` you can easily use `npm` instead.

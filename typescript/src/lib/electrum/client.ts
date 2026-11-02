@@ -15,16 +15,11 @@ import {
 } from "../bitcoin"
 import Electrum from "electrum-client-js"
 import { BigNumber } from "ethers"
-import { URL as nodeURL } from "url"
-import URLParse from "url-parse"
 import { backoffRetrier, Hex, RetrierFn } from "../utils"
 
 import MainnetElectrumUrls from "./urls/mainnet.json"
 import TestnetElectrumUrls from "./urls/testnet.json"
 import Testnet4ElectrumUrls from "./urls/testnet4.json"
-
-const browserURL = typeof window !== "undefined" && window.URL
-const URL = nodeURL ?? (browserURL || URLParse)
 
 /**
  * Represents a set of credentials required to establish an Electrum connection.

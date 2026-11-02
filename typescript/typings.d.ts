@@ -4,4 +4,3 @@
  */
 declare module "bufio"
 declare module "electrum-client-js"
-declare module "wif"

@@ -21,7 +21,7 @@ Host pointing to the Electrum server.
 
 #### Defined in
 
-[lib/electrum/client.ts:36](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L36)
+[lib/electrum/client.ts:31](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L31)
 
 ___
 
@@ -33,7 +33,7 @@ Optional URL path (e.g. for authenticated WebSocket endpoints).
 
 #### Defined in
 
-[lib/electrum/client.ts:48](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L48)
+[lib/electrum/client.ts:43](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L43)
 
 ___
 
@@ -45,7 +45,7 @@ Port the Electrum server listens on.
 
 #### Defined in
 
-[lib/electrum/client.ts:40](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L40)
+[lib/electrum/client.ts:35](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L35)
 
 ___
 
@@ -57,4 +57,4 @@ Protocol used by the Electrum server.
 
 #### Defined in
 
-[lib/electrum/client.ts:44](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L44)
+[lib/electrum/client.ts:39](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L39)

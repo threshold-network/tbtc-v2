@@ -106,7 +106,7 @@ the *Persistence* component to filter out already handled system events.
 
 Please make sure you have the following prerequisites installed on your machine:
 
-- https://nodejs.org[Node.js] =14 (newer versions are not supported temporarily)
+- https://nodejs.org[Node.js] >=22
 - https://yarnpkg.com[Yarn] >1.22.0
 
 === Install dependencies
@@ -164,8 +164,13 @@ The behavior can be configured using the following env variables:
 
 |*SENTRY_DSN* |DSN of the Sentry receiver. If not set, events are not dispatched to Sentry |No
 
-|*DISCORD_WEBHOOK_URL* |URL of the Discord receiver webhook. If not set, events are not dispatched to Discord |No
+|*DISCORD_WEBHOOK_URL* |Final URL of the Discord receiver webhook (redirects are rejected). If not set, events are not dispatched to Discord |No
 |===
+
+Discord webhooks use native `fetch` with a 30-second request deadline.
+The receiver discards response bodies and treats non-2xx status codes as errors.
+Proxy configuration follows the runtime's native fetch configuration rather
+than Axios's automatic proxy environment handling.
 
 === Deployment
 
