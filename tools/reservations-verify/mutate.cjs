@@ -11,6 +11,7 @@ const fs = require("fs")
 const cp = require("child_process")
 const crypto = require("crypto")
 const os = require("os")
+const path = require("path")
 const args = process.argv.slice(2)
 const value = (flag) => {
   const i = args.indexOf(flag)
@@ -361,6 +362,40 @@ const readReport = (file) => {
   }
 }
 
+// A report is the harness's own JSON: counts under stats, and one entry per pass, failure and pending
+// test. Every field the classifier reads is checked first, so a malformed report is refused as
+// NOT_VIABLE instead of being counted as a survivor, read as a kill, or thrown on. No field defaults
+// to anything.
+const invalidReport = (report) => {
+  if (report === null || typeof report !== "object" || Array.isArray(report))
+    return "the report is not a JSON object"
+  const stats = report.stats
+  if (stats === null || typeof stats !== "object" || Array.isArray(stats))
+    return "stats is not an object"
+  for (const key of ["tests", "passes", "failures", "pending"])
+    if (!Number.isInteger(stats[key]) || stats[key] < 0)
+      return `stats.${key} is not a count`
+  for (const key of ["passes", "failures", "pending"]) {
+    const entries = report[key]
+    if (!Array.isArray(entries)) return `${key} is not an array`
+    for (let i = 0; i < entries.length; i++) {
+      const entry = entries[i]
+      if (entry === null || typeof entry !== "object" || Array.isArray(entry))
+        return `${key}[${i}] is not an entry`
+      if (
+        typeof entry.title !== "string" ||
+        typeof entry.fullTitle !== "string"
+      )
+        return `${key}[${i}] has no title`
+      if (entry.type !== "test" && entry.type !== "hook")
+        return `${key}[${i}] has no runnable type`
+    }
+    if (stats[key] !== entries.length)
+      return `stats.${key} does not match ${key}`
+  }
+  return null
+}
+
 // Score one run from its report. A kill needs both halves of the experiment: tests that still pass,
 // and at least one failure Mocha marks as a test rather than as a setup hook. A run that died in a
 // hook, one where nothing passed, one with no report and one whose report does not parse are
@@ -383,22 +418,24 @@ const classify = (run) => {
         : `no JSON report from the run (status ${run.r && run.r.status})`,
     }
   }
-  const passes = Array.isArray(report.passes) ? report.passes : []
-  const failures = Array.isArray(report.failures) ? report.failures : []
+  const invalid = invalidReport(report)
+  if (invalid)
+    return {
+      verdict: "NOT_VIABLE",
+      passing: 0,
+      failing: 0,
+      hookFailures: 0,
+      note: `the report is not usable: ${invalid}`,
+    }
+  const passes = report.passes
+  const failures = report.failures
   const hooks = failures.filter((f) => f.type === "hook")
   const tests = failures.filter((f) => f.type === "test")
-  const untyped = failures.filter((f) => f.type !== "hook" && f.type !== "test")
   const base = {
     passing: passes.length,
     failing: failures.length,
     hookFailures: hooks.length,
   }
-  if (untyped.length > 0)
-    return {
-      ...base,
-      verdict: "NOT_VIABLE",
-      note: `${untyped.length} failure(s) in the report carry no runnable type, so a test failure cannot be told from a setup hook`,
-    }
   if (passes.length === 0)
     return {
       ...base,
@@ -424,20 +461,35 @@ const classify = (run) => {
   }
 }
 
-const runTests = (files) => {
-  const reportFile = nextReportFile()
+// One Hardhat invocation. The config and the reporter come from this checkout, the project comes
+// from the worktree named on the command line, so a harness in one directory can drive a worktree in
+// another. The report goes to a file, never to stdout.
+const hardhat = (files, options = {}) => {
+  const reportFile = options.reportFile || nextReportFile()
+  const config = options.config || REPORT_CONFIG
+  const env = [
+    "env -u FORKING_URL -u FORKING_BLOCK TEST_USE_STUBS_TBTC=true",
+    "USE_EXTERNAL_DEPLOY=true NODE_OPTIONS=--max-old-space-size=4096",
+    `MUTATION_TBTC_ROOT=${path.resolve(wt)}`,
+    `MUTATION_JSON=${reportFile}`,
+    options.env || "",
+  ]
+    .filter(Boolean)
+    .join(" ")
   const r = cp.spawnSync(
     "bash",
-    [
-      "-c",
-      `cd ${sol} && env -u FORKING_URL -u FORKING_BLOCK TEST_USE_STUBS_TBTC=true USE_EXTERNAL_DEPLOY=true NODE_OPTIONS=--max-old-space-size=4096 MUTATION_JSON=${reportFile} npx hardhat --config ${REPORT_CONFIG} test ${files}`,
-    ],
+    ["-c", `cd ${sol} && ${env} npx hardhat --config ${config} test ${files}`],
     { encoding: "utf8", maxBuffer: 1 << 28, timeout: 40 * 60 * 1000 }
   )
   const out = (r.stdout || "") + (r.stderr || "")
   const { report, text } = readReport(reportFile)
-  fs.rmSync(reportFile, { force: true })
-  return { r, out, report, reportText: text }
+  return { r, out, report, reportText: text, reportFile }
+}
+
+const runTests = (files) => {
+  const run = hardhat(files)
+  fs.rmSync(run.reportFile, { force: true })
+  return run
 }
 
 const runShard = () => {
@@ -514,6 +566,181 @@ const runShard = () => {
 // A run that fails only in setup is the case the old criterion scored KILLED, so it is planted
 // for real: a test file whose before() hook throws while another test passes. The parser cases
 // pin the shapes a Mocha report takes.
+// Saved reports that a run could leave behind, read through the same --classify path. Every malformed
+// shape the classifier could be handed is refused, and a well-formed one still scores.
+const onePass = `{"type":"test","hook":null,"title":"t","fullTitle":"s t","file":"x","err":null}`
+const oneTest = `{"type":"test","hook":null,"title":"t","fullTitle":"s t","file":"x","err":{"name":"AssertionError","message":"m"}}`
+const oneHook = `{"type":"hook","hook":"\\"before all\\" hook","title":"\\"before all\\" hook for \\"t\\"","fullTitle":"s \\"before all\\" hook for \\"t\\"","file":"x","err":{"name":"Error","message":"m"}}`
+const report = (stats, passes, failures, pending = "[]") =>
+  `{"stats":${stats},"passes":${passes},"failures":${failures},"pending":${pending}}`
+const counts = (tests, passes, failures, pending = 0) =>
+  `{"tests":${tests},"passes":${passes},"failures":${failures},"pending":${pending}}`
+const REPORT_CASES = [
+  [
+    "valid: one pass, no failures",
+    report(counts(1, 1, 0), `[${onePass}]`, "[]"),
+    "SURVIVED",
+  ],
+  [
+    "valid: one pass, one failing test",
+    report(counts(2, 1, 1), `[${onePass}]`, `[${oneTest}]`),
+    "KILLED",
+  ],
+  [
+    "valid: hook-only failure",
+    report(counts(2, 1, 1), `[${onePass}]`, `[${oneHook}]`),
+    "NOT_VIABLE",
+  ],
+  ["empty file", "", "NOT_VIABLE"],
+  ["invalid JSON", '{"stats":', "NOT_VIABLE"],
+  ["JSON null", "null", "NOT_VIABLE"],
+  ["JSON array", "[]", "NOT_VIABLE"],
+  ["JSON string", '"run"', "NOT_VIABLE"],
+  [
+    "passes, no failure detail: failures absent",
+    `{"stats":${counts(1, 1, 0)},"passes":[${onePass}],"pending":[]}`,
+    "NOT_VIABLE",
+  ],
+  [
+    "failures is an object",
+    report(counts(1, 1, 0), `[${onePass}]`, "{}"),
+    "NOT_VIABLE",
+  ],
+  [
+    "failures is a string",
+    report(counts(1, 1, 0), `[${onePass}]`, '"none"'),
+    "NOT_VIABLE",
+  ],
+  [
+    "failures is null",
+    report(counts(1, 1, 0), `[${onePass}]`, "null"),
+    "NOT_VIABLE",
+  ],
+  [
+    "pending absent",
+    `{"stats":${counts(1, 1, 0)},"passes":[${onePass}],"failures":[]}`,
+    "NOT_VIABLE",
+  ],
+  [
+    "stats absent",
+    `{"passes":[${onePass}],"failures":[],"pending":[]}`,
+    "NOT_VIABLE",
+  ],
+  [
+    "stats is an array",
+    `{"stats":[],"passes":[${onePass}],"failures":[],"pending":[]}`,
+    "NOT_VIABLE",
+  ],
+  [
+    "stats.passes not a count",
+    report(
+      '{"tests":1,"passes":"1","failures":0,"pending":0}',
+      `[${onePass}]`,
+      "[]"
+    ),
+    "NOT_VIABLE",
+  ],
+  [
+    "stats count disagrees with the arrays",
+    report(counts(1, 0, 1), `[${onePass}]`, "[]"),
+    "NOT_VIABLE",
+  ],
+  [
+    "null passing entry",
+    report(counts(2, 1, 1), "[null]", `[${oneTest}]`),
+    "NOT_VIABLE",
+  ],
+  [
+    "null failure entry",
+    report(counts(2, 1, 1), `[${onePass}]`, "[null]"),
+    "NOT_VIABLE",
+  ],
+  [
+    "failure with no runnable type",
+    report(
+      counts(2, 1, 1),
+      `[${onePass}]`,
+      '[{"title":"t","fullTitle":"s t"}]'
+    ),
+    "NOT_VIABLE",
+  ],
+  [
+    "failure typed suite",
+    report(
+      counts(2, 1, 1),
+      `[${onePass}]`,
+      '[{"type":"suite","title":"t","fullTitle":"s t"}]'
+    ),
+    "NOT_VIABLE",
+  ],
+  [
+    "failure without a title",
+    report(
+      counts(2, 1, 1),
+      `[${onePass}]`,
+      '[{"type":"test","title":"","fullTitle":7}]'
+    ),
+    "NOT_VIABLE",
+  ],
+  [
+    "no passing entries",
+    report(counts(2, 0, 2), "[]", `[${oneTest},${oneTest}]`),
+    "NOT_VIABLE",
+  ],
+]
+
+// The harness carries no path of its own: a copy in another directory drives the worktree it is told
+// about, and refuses to run when it is not told.
+const crossCheckout = (report) => {
+  const copy = fs.mkdtempSync(`${os.tmpdir()}/mutation-harness-`)
+  for (const file of ["hardhat.mutation.config.ts", "mocha-json-report.cjs"])
+    fs.copyFileSync(`${__dirname}/${file}`, `${copy}/${file}`)
+  const config = `${copy}/hardhat.mutation.config.ts`
+  const target = path.resolve(wt)
+  const dir = `${sol}/test/bridge`
+  const plantFile = "MutationHarnessSelfTestGreen.test.ts"
+  const body = SELF_TEST_PLANTS.find((p) => p[0] === plantFile)[1]
+  let withRoot
+  let withoutRoot
+  try {
+    fs.writeFileSync(`${dir}/${plantFile}`, body)
+    const withRootFile = nextReportFile()
+    withRoot = hardhat(`test/bridge/${plantFile}`, {
+      config,
+      reportFile: withRootFile,
+    })
+    withoutRoot = hardhat(`test/bridge/${plantFile}`, {
+      config,
+      env: "MUTATION_TBTC_ROOT=",
+    })
+  } finally {
+    fs.rmSync(`${dir}/${plantFile}`, { force: true })
+  }
+  report(
+    withRoot.r.status === 0 &&
+      withRoot.report !== null &&
+      withRoot.report.passes.length === 1 &&
+      String(withRoot.report.passes[0].file).startsWith(`${target}/solidity/`),
+    "cross checkout: a harness copy drives the target worktree",
+    `status ${withRoot.r.status}, ${
+      withRoot.report
+        ? `${withRoot.report.passes.length} passing from ${
+            (withRoot.report.passes[0] || {}).file
+          }`
+        : "no report"
+    }`
+  )
+  report(
+    withoutRoot.r.status !== 0 && /MUTATION_TBTC_ROOT/.test(withoutRoot.out),
+    "cross checkout: no target worktree is refused, not guessed",
+    `status ${withoutRoot.r.status}, ${
+      /MUTATION_TBTC_ROOT/.test(withoutRoot.out)
+        ? "the error names the variable"
+        : "the error does not name the variable"
+    }`
+  )
+}
+
 const SELF_TEST_PLANTS = [
   [
     "MutationHarnessSelfTestHook.test.ts",
@@ -735,12 +962,31 @@ const writeTmp = (text) => {
 
 const selfTest = () => {
   let failed = 0
+  let checks = 0
   const report = (ok, label, detail) => {
+    checks++
     if (!ok) failed++
     console.log(
       `${ok ? "PASS" : "FAIL"} ${label}${detail ? ` (${detail})` : ""}`
     )
   }
+  for (const [label, text, want] of REPORT_CASES) {
+    const got = classify({ report: writeTmp(text), r: {} })
+    report(
+      got.verdict === want,
+      `report: ${label} -> ${want}`,
+      `${got.verdict}, want ${want}: ${got.note}`
+    )
+  }
+  const missing = classify({
+    report: readReport(`${reportDir}/absent.json`).report,
+    r: {},
+  })
+  report(
+    missing.verdict === "NOT_VIABLE",
+    "report: no file at all -> NOT_VIABLE",
+    `${missing.verdict}: ${missing.note}`
+  )
   const dir = `${sol}/test/bridge`
   for (const [file, body, want] of SELF_TEST_PLANTS) {
     const path = `${dir}/${file}`
@@ -767,11 +1013,8 @@ const selfTest = () => {
       `${saved && saved.verdict}, want ${got.verdict}`
     )
   }
-  console.log(
-    `self-test: ${
-      SELF_TEST_PLANTS.length * 2 - failed
-    } passed, ${failed} failed`
-  )
+  crossCheckout(report)
+  console.log(`self-test: ${checks - failed} passed, ${failed} failed`)
   process.exit(failed === 0 ? 0 : 1)
 }
 
