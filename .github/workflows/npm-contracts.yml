@@ -13,6 +13,9 @@ on:
       - "solidity/yarn.lock"
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   npm-compile-publish-contracts:
     runs-on: ubuntu-latest
@@ -20,9 +23,11 @@ jobs:
       run:
         working-directory: ./solidity
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "22.x"
           registry-url: "https://registry.npmjs.org"
@@ -31,20 +36,17 @@ jobs:
       - name: Enable Corepack
         run: corepack enable
 
-      # We need this step because the `@keep-network/tbtc` which we update in
-      # next steps has a dependency to `@summa-tx/relay-sol@2.0.2` package, which
-      # downloads one of its sub-dependencies via unathenticated `git://`
+      # The locked `@keep-network/tbtc` has a dependency on
+      # `@summa-tx/relay-sol@2.0.2`, which downloads a sub-dependency via unauthenticated `git://`
       # protocol. That protocol is no longer supported. Thanks to this step
       # `https://` is used instead of `git://`.
       - name: Configure git to don't use unauthenticated protocol
         run: git config --global url."https://".insteadOf git://
 
-      - name: Resolve latest contracts
-        run: |
-          yarn upgrade --exact \
-            @keep-network/ecdsa \
-            @keep-network/random-beacon \
-            @keep-network/tbtc
+      # Upstream contract updates must be reviewed with their manifest and lock
+      # changes before publishing. See .github/RELEASING.md.
+      - name: Install reviewed dependencies
+        run: yarn install --immutable
 
       # Deploy contracts to a local network to generate deployment artifacts that
       # are required by dashboard compilation.
@@ -60,7 +62,21 @@ jobs:
           branch: ${{ github.ref }}
           commit: ${{ github.sha }}
 
-      - name: Publish package
+      # Run the existing artifact preparation hooks before exposing NPM_TOKEN.
+      - name: Prepare and pack package without publishing credentials
+        env:
+          npm_config_network: hardhat
+        run: |
+          npm run prepublishOnly
+          npm run prepack
+          mkdir -p "$RUNNER_TEMP/npm-package"
+          npm pack --ignore-scripts --script-shell=/usr/bin/false --pack-destination "$RUNNER_TEMP/npm-package"
+
+      - name: Publish prepared package
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish --access=public --tag=development --network=hardhat
+        run: |
+          packages=("$RUNNER_TEMP/npm-package"/*.tgz)
+          test "${#packages[@]}" -eq 1
+          test -f "${packages[0]}"
+          npm publish "${packages[0]}" --ignore-scripts --access=public --tag=development
