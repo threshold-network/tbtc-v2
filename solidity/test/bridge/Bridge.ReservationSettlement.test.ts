@@ -1,0 +1,1240 @@
+/**
+ * Extracted from tbtc-v2 PR #1104 (refs/pull/1104/head @ 1a636939),
+ * itself based on PR #1094 (origin/feat/utxo-reservation-guards @ bcfed23f).
+ * Ported onto m1 (PR G, m1/bridge-integration-seams) per human decision
+ * 2026-08-26. Pruned of m2-only paths (dissolution, redemption, renewal,
+ * watchtower veto, retry credit) per roadmap.md §0.7.
+ *
+ * This file keeps only the cumulative re-anchor fee exposure block (the
+ * PR #1104 characterization suite, 2 tests). The other 5 "kept" describes
+ * from the original port were split into independent self-contained files,
+ * each with its own fixture bootstrap, for clarity and parallel authoring:
+ *
+ *   - `Bridge.ReservationAcceptanceAuthorization.test.ts` (2/2 passing):
+ *     'capacity reserved before signing (fill-then-prove)' +
+ *     'acceptance authorization timeout'
+ *   - `Bridge.ReservationSourceAnchorBinding.test.ts` (1/1 passing):
+ *     'action source-anchor binding' (second original case was m2-only)
+ *   - `Bridge.ReservationStranding.test.ts` (10/10 passing, new from
+ *     scratch): `notifyReservationStranded` + `notifyStaleReservedDeposit`
+ *     coverage. Zero prior coverage anywhere, including original PR #1104.
+ *   - 'late proof against a position with a newer pending generation':
+ *     carried as an empty scaffold then deleted 2026-08-26; both original
+ *     cases depended on m2-only `requestRedemption`/`retryRedemption`.
+ *   - 'wallet lifecycle integration': same; carried as an empty scaffold
+ *     then deleted 2026-08-26; all 6 original cases depended on m2-only
+ *     `requestReservationDissolution`/`completeMovingFundsWhileReservationsRemain`.
+ *
+ * Pruned describes:
+ *   - claim double-spend regression (full block - redemption-racing only)
+ *   - retry-credit restoration after a late re-anchor
+ *   - watchtower authorization enforcement in the proof path
+ *   - per-wallet dissolution lock (concurrent dissolutions)
+ *   - reserved redemption gating
+ *   - production MaintainerProxy reservation proof route (depends on
+ *     `MaintainerProxyV2`, which does not exist anywhere in m1 - no
+ *     contract, no deploy script, not compiled. Porting it is new scope
+ *     beyond a test port; dropped rather than faked. Found 2026-08-26.)
+ *
+ * The characterization block above is the PR D obligation tracked in
+ * agent-docs/m1/pr-D-description.md (the "Carry-forward obligation" note).
+ * Source PR #1104 originally understood this as an unbounded accepted
+ * regression (`gt PR1102_CAP`, `gte 86%`). During m1 merge reconciliation
+ * (2026-09-02), `d600a8bf` (fix(bridge): close confirmed review findings in
+ * reservation core, P3 "added a request-time amount floor for re-anchor")
+ * was found to already bound it via `anchorAmount > reservationTxMaxFee +
+ * reservationMinAmount`, checked at request time rather than the
+ * settlement-time dust floor #1104/#1102 characterized. Updated the test
+ * to assert the new (still substantial, ~80%+ in this fixture, but no
+ * longer unbounded) terminal behavior. For m1 specifically: see
+ * docs/spec/reservations/pr-strategy.md §4.1 (justification section) and
+ * pr-review-followups.md item 7 - this P3 fix does not implement any of
+ * the four levers that item enumerated, so item 7 still needs revisiting
+ * against this new floor, not closed by it.
+ */
+
+// Adversarial settlement tests for the two-phase reservation state machine:
+// the late-proof settlement matrix, the action source-anchor binding, the
+// capacity-reserved-before-signing guarantee, the acceptance authorization
+// timeout, the wallet lifecycle integration, and the cumulative re-anchor
+// fee exposure characterization (substantial but bounded, see file header).
+
+import { ethers, helpers } from "hardhat"
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
+import { Contract } from "ethers"
+import { expect } from "chai"
+import type {
+  Bank,
+  BankStub,
+  Bridge,
+  BridgeGovernance,
+  BridgeStub,
+  IWalletRegistry,
+  IRelay,
+  ReimbursementPool,
+  ReservationRouter,
+  ReservationVault,
+  TBTCVault,
+  TBTC,
+} from "../../typechain"
+import bridgeFixture from "../fixtures/bridge"
+import type { Mock } from "../helpers/mock"
+import { walletState } from "../fixtures"
+import { requireValue } from "../../helpers/require-value"
+
+const { createSnapshot, restoreSnapshot } = helpers.snapshot
+const { lastBlockTime, increaseTime } = helpers.time
+
+const ZERO_BYTES32 = ethers.ZeroHash
+
+const RESERVATION_TERM = 31536000 // 365 days
+const RESERVATION_GRACE = 2592000 // 30 days
+const RESERVATION_MIN_AMOUNT = 10000
+const RESERVATION_TX_MAX_FEE = 2000
+// `deploy/97_set_reservation_parameters.ts` already runs as part of
+// `deployments.fixture()` and sets real caps (reservationMaxSingleAmount
+// 100,000, maxActiveReservations 100 - see agent-docs/inventory/
+// reservation-parameters.md), unlike the source test's assumption of a
+// pristine, caps-never-set bridge. `updateReservationParameters`'s
+// relational check (`reservationMaxTotalAmount <= maxActiveReservations *
+// reservationMaxSingleAmount`) is live from that deploy step onward, so
+// this must fit under 100 * 100,000 = 10,000,000 - found 2026-08-26.
+const RESERVATION_MAX_TOTAL = BigInt("10000000")
+const MAX_RESERVATIONS_PER_WALLET = 10
+const RESERVATION_ACTION_TIMEOUT = 172800 // 48 hours
+const RESERVATION_RENEWAL_WINDOW = 2592000 // 30 days
+
+const SATOSHI_MULTIPLIER = 10n ** 10n
+
+const ReservationState = {
+  Unknown: 0,
+  Active: 1,
+  ActionPending: 2,
+  Closed: 3,
+  Stranded: 4,
+}
+
+const ActionType = {
+  None: 0,
+  Acceptance: 1,
+  Redemption: 2,
+  Reanchor: 3,
+  Dissolution: 4,
+}
+
+const ActionState = {
+  Unknown: 0,
+  Pending: 1,
+  Settled: 2,
+  TimedOut: 3,
+  Vetoed: 4,
+  Superseded: 5,
+}
+
+describe("Bridge - Reservation settlement", () => {
+  let governance: HardhatEthersSigner
+  let spvMaintainer: HardhatEthersSigner
+  let thirdParty: HardhatEthersSigner
+  let guardians: HardhatEthersSigner[]
+  let deployer: HardhatEthersSigner
+
+  let bank: Bank & BankStub
+  let relay: Mock<IRelay>
+  let walletRegistry: Mock<IWalletRegistry>
+  let bridge: Bridge & BridgeStub
+  let reservationRouter: ReservationRouter
+  let reimbursementPool: ReimbursementPool
+  let tbtc: TBTC
+  let tbtcVault: TBTCVault
+  let reservationVault: ReservationVault
+  let bridgeGovernance: BridgeGovernance
+  let bridgeGovernanceSigner: HardhatEthersSigner
+
+  const walletPubKeyHash = "0x8db50eb52063ea9d98b3eac91489a90f738986f6"
+  const secondWalletPubKeyHash = "0xafcdf88d15a0e0c2134dbbc9f6da24d0e26c8f21"
+  const blindingFactor = "0xf9f0c90d00039523"
+  const refundPubKeyHash = "0x28e081f285138ccbe389c1eb8985716230129f89"
+  let refundLocktime: string
+
+  const depositAmount = BigInt(3000000)
+  const anchorFee = 1500n
+  const anchorAmount = depositAmount - anchorFee
+  const grossTbtc = anchorAmount * SATOSHI_MULTIPLIER
+
+  before(async () => {
+    ;({
+      deployer,
+      governance,
+      spvMaintainer,
+      thirdParty,
+      guardians,
+      bank,
+      relay,
+      walletRegistry,
+      bridge,
+      bridgeGovernance,
+      reimbursementPool,
+      tbtc,
+      tbtcVault,
+    } = await bridgeFixture())
+
+    // Reservation router functions (`updateReservationParameters`,
+    // `requestReservation*`, `submitReservationAcceptanceProof`,
+    // `submitReservationReanchorProof`, etc.) are declared
+    // on `ReservationRouter`, not `Bridge`. Per `ReservationRouter.sol`
+    // invariant 3 ("no standalone authority"), every one of them is only
+    // reachable through `Bridge.fallback()`'s delegatecall - calling the
+    // router's own deployed address directly executes against its own
+    // empty storage. `ethers.getContractAt` with the router's ABI but
+    // Bridge's address gives correctly-encoded calls that land on
+    // `Bridge.fallback()`, exactly like the production caller path.
+    reservationRouter = await ethers.getContractAt(
+      "ReservationRouter",
+      bridge.target
+    )
+    reservationVault = await helpers.contracts.getContract("ReservationVault")
+    bridgeGovernanceSigner = await impersonateContract(
+      await bridge.governance()
+    )
+    refundLocktime = `0x${toLE((await lastBlockTime()) + 89 * 24 * 60 * 60, 4)}`
+
+    await bridge
+      .connect(bridgeGovernanceSigner)
+      .setVaultStatus(reservationVault.target, true)
+    // `deploy/97_set_reservation_parameters.ts` already set
+    // `reservationMaxSingleAmount` to 100,000 as part of the fixture, but
+    // this fixture's anchor is 2,998,500 sat - well over that single-
+    // reservation cap (Reservation.sol:540-544, "Reservation exceeds the
+    // single-reservation cap"). Raise it with headroom before creating any
+    // reservation - found 2026-08-26.
+    await reservationRouter
+      .connect(bridgeGovernanceSigner)
+      .updateReservationCaps(
+        RESERVATION_MAX_TOTAL,
+        RESERVATION_MAX_TOTAL,
+        10,
+        1,
+        1
+      ) // 10 = 2 wallets * MAX_RESERVATIONS_PER_WALLET, satisfying the Item-3 sizing relation with this fixture's two Live wallets; 1 = hand-off reserve, leaving one remaining Live wallet with 10 positions
+    await reservationRouter
+      .connect(bridgeGovernanceSigner)
+      .updateReservationParameters(
+        reservationVault.target,
+        RESERVATION_MIN_AMOUNT,
+        RESERVATION_TX_MAX_FEE,
+        RESERVATION_TERM,
+        RESERVATION_GRACE,
+        RESERVATION_MAX_TOTAL,
+        MAX_RESERVATIONS_PER_WALLET,
+        RESERVATION_ACTION_TIMEOUT,
+        RESERVATION_RENEWAL_WINDOW
+      )
+
+    await relay.getCurrentEpochDifficulty.returns(0)
+    await relay.getPrevEpochDifficulty.returns(0)
+
+    await bridge.setDepositDustThreshold(10000)
+    await bridge.setDepositTxMaxFee(2000)
+    await bridge.setDepositRevealAheadPeriod(0)
+    await liveWallet(walletPubKeyHash)
+    // A second Live wallet so the hand-off reserve gate (one Live wallet
+    // held back) still leaves a remaining Live wallet with capacity.
+    await liveWallet(secondWalletPubKeyHash)
+
+    const tbtcOwner = await impersonateContract(await tbtc.owner())
+    await tbtc.connect(tbtcOwner).transferOwnership(tbtcVault.target)
+  })
+
+  async function impersonateContract(
+    address: string
+  ): Promise<HardhatEthersSigner> {
+    await ethers.provider.send("hardhat_impersonateAccount", [address])
+    await ethers.provider.send("hardhat_setBalance", [
+      address,
+      "0x8AC7230489E80000",
+    ])
+    return ethers.getSigner(address)
+  }
+
+  async function liveWallet(pkh: string) {
+    await bridge.setWallet(pkh, {
+      ecdsaWalletID: ethers.randomBytes(32),
+      mainUtxoHash: ZERO_BYTES32,
+      pendingRedemptionsValue: 0,
+      createdAt: await lastBlockTime(),
+      movingFundsRequestedAt: 0,
+      closingStartedAt: 0,
+      pendingMovedFundsSweepRequestsCount: 0,
+      state: walletState.Live,
+      movingFundsTargetWalletsCommitmentHash: ZERO_BYTES32,
+    })
+  }
+
+  // ---- Bitcoin fixture crafting (regtest-style difficulty) ----
+
+  const REGTEST_BITS_LE = "ffff7f20"
+  const REGTEST_TARGET = BigInt(0x7fffff) * 2n ** BigInt(8 * (0x20 - 3))
+
+  const reverseHex = (hex: string): string =>
+    (hex.replace(/^0x/, "").match(/../g) ?? []).reverse().join("")
+
+  const hash256 = (hexData: string): string =>
+    ethers.sha256(ethers.sha256(hexData))
+
+  const toLE = (value: number | bigint, byteLength: number): string =>
+    reverseHex(
+      BigInt(value)
+        .toString(16)
+        .padStart(byteLength * 2, "0")
+    )
+
+  const compactSize = (n: number): string => {
+    if (n >= 0xfd) {
+      throw new Error("compactSize > 252 not supported in fixtures")
+    }
+    return n.toString(16).padStart(2, "0")
+  }
+
+  function buildTx(
+    inputs: { txHash: string; index: number }[],
+    outputs: { valueSat: bigint | number; script: string }[]
+  ) {
+    const inputVector = `0x${compactSize(inputs.length)}${inputs
+      .map((i) => `${i.txHash.slice(2)}${toLE(i.index, 4)}00ffffffff`)
+      .join("")}`
+    const outputVector = `0x${compactSize(outputs.length)}${outputs
+      .map(
+        (o) =>
+          `${toLE(BigInt(o.valueSat), 8)}${compactSize(
+            o.script.length / 2
+          )}${o.script}`
+      )
+      .join("")}`
+    const info = {
+      version: "0x01000000",
+      inputVector,
+      outputVector,
+      locktime: "0x00000000",
+    }
+    const txHash = hash256(
+      `0x01000000${inputVector.slice(2)}${outputVector.slice(2)}00000000`
+    )
+    return { info, txHash }
+  }
+
+  function mineHeader(merkleRoot: string): string {
+    const prevBlock = ethers.hexlify(ethers.randomBytes(32)).slice(2)
+    const base = `20000000${prevBlock}${merkleRoot.slice(
+      2
+    )}662a2c68${REGTEST_BITS_LE}`
+    for (let nonce = 0; ; nonce++) {
+      const header = `0x${base}${toLE(nonce, 4)}`
+      if (BigInt(`0x${reverseHex(hash256(header))}`) <= REGTEST_TARGET) {
+        return header
+      }
+    }
+  }
+
+  function proofFor(txHash: string) {
+    const coinbasePreimage = ethers.sha256(ethers.randomBytes(32))
+    const coinbaseTxId = ethers.sha256(coinbasePreimage)
+    const merkleRoot = hash256(`0x${coinbaseTxId.slice(2)}${txHash.slice(2)}`)
+    return {
+      merkleProof: coinbaseTxId,
+      txIndexInBlock: 1,
+      bitcoinHeaders: mineHeader(merkleRoot),
+      coinbasePreimage,
+      coinbaseProof: txHash,
+    }
+  }
+
+  const buildDepositScript = (
+    depositor: string,
+    blinding: string,
+    walletPkh: string,
+    refundPkh: string,
+    locktime: string
+  ): string =>
+    `14${depositor.slice(2)}7508${blinding.slice(2)}7576a914${walletPkh
+      .slice(2)
+      .toLowerCase()}8763ac6776a914${refundPkh.slice(2)}8804${locktime.slice(
+      2
+    )}b175ac68`
+
+  const p2wshScript = (script: string): string =>
+    `0020${ethers.sha256(`0x${script}`).slice(2)}`
+
+  const p2wpkhScript = (pkh: string): string => `0014${pkh.slice(2)}`
+
+  const randomRedeemerScript = (): string =>
+    `0x16${p2wpkhScript(ethers.hexlify(ethers.randomBytes(20)))}`
+
+  // Reveals a fresh reserved deposit and requests acceptance (generation 1).
+  async function makeRequestedReservation(custodian = walletPubKeyHash) {
+    const fundingTx = buildTx(
+      [
+        {
+          txHash: ethers.hexlify(ethers.randomBytes(32)),
+          index: 0,
+        },
+      ],
+      [
+        {
+          valueSat: depositAmount,
+          script: p2wshScript(
+            buildDepositScript(
+              thirdParty.address,
+              blindingFactor,
+              custodian,
+              refundPubKeyHash,
+              refundLocktime
+            )
+          ),
+        },
+      ]
+    )
+
+    await bridge.connect(thirdParty).revealDeposit(fundingTx.info, {
+      fundingOutputIndex: 0,
+      blindingFactor,
+      walletPubKeyHash: custodian,
+      refundPubKeyHash,
+      refundLocktime,
+      vault: reservationVault.target,
+    })
+
+    const reservationKey = BigInt(
+      ethers.solidityPackedKeccak256(
+        ["bytes32", "uint32"],
+        [fundingTx.txHash, 0]
+      )
+    )
+
+    await reservationRouter
+      .connect(thirdParty)
+      .requestReservationAcceptance(
+        fundingTx.info,
+        proofFor(fundingTx.txHash),
+        0,
+        custodian
+      )
+
+    const anchorTx = buildTx(
+      [{ txHash: fundingTx.txHash, index: 0 }],
+      [{ valueSat: anchorAmount, script: p2wpkhScript(custodian) }]
+    )
+
+    return { fundingTx, anchorTx, reservationKey }
+  }
+
+  // Reveals a fresh reserved deposit, requests acceptance (generation 1)
+  // and proves the anchor.
+  async function makeAcceptedReservation(custodian = walletPubKeyHash) {
+    const { fundingTx, anchorTx, reservationKey } =
+      await makeRequestedReservation(custodian)
+
+    await reservationRouter
+      .connect(spvMaintainer)
+      .submitReservationAcceptanceProof(
+        anchorTx.info,
+        proofFor(anchorTx.txHash),
+        reservationKey,
+        1
+      )
+
+    return { fundingTx, anchorTx, reservationKey }
+  }
+
+  // `BridgeGovernance.requestReservationReanchor` is the only route to the
+  // privileged branch of `Reservation.requestReservationReanchor` while the
+  // source wallet is Live: the router admits the call only when `msg.sender`
+  // is the Bridge's governance address, and on mainnet that address holds
+  // `BridgeGovernance`, not an EOA. The other cases in this file impersonate
+  // that address, which skips the forwarder; these call the contract as its
+  // owner.
+  describe("governance rotation off a Live source wallet", () => {
+    beforeEach(async () => {
+      await createSnapshot()
+    })
+
+    afterEach(async () => {
+      await restoreSnapshot()
+    })
+
+    async function setWalletState(pkh: string, state: number) {
+      await bridge.setWallet(pkh, {
+        ecdsaWalletID: ethers.randomBytes(32),
+        mainUtxoHash: ZERO_BYTES32,
+        pendingRedemptionsValue: 0,
+        createdAt: await lastBlockTime(),
+        movingFundsRequestedAt: state === walletState.MovingFunds ? 1 : 0,
+        closingStartedAt: 0,
+        pendingMovedFundsSweepRequestsCount: 0,
+        state,
+        movingFundsTargetWalletsCommitmentHash: ZERO_BYTES32,
+      })
+    }
+
+    it("rotates a Live-source position end to end", async () => {
+      const { anchorTx, reservationKey } = await makeAcceptedReservation()
+      const sourceCountBefore =
+        await reservationRouter.walletReservationsCount(walletPubKeyHash)
+      const targetCountBefore = await reservationRouter.walletReservationsCount(
+        secondWalletPubKeyHash
+      )
+
+      await expect(
+        bridgeGovernance
+          .connect(governance)
+          .requestReservationReanchor(reservationKey, secondWalletPubKeyHash)
+      )
+        .to.emit(reservationRouter, "ReservationReanchorRequested")
+        .withArgs(
+          reservationKey,
+          2,
+          walletPubKeyHash,
+          secondWalletPubKeyHash,
+          BigInt(RESERVATION_TX_MAX_FEE)
+        )
+
+      expect(
+        (await reservationRouter.reservations(reservationKey)).state
+      ).to.equal(ReservationState.ActionPending)
+      // The target's capacity is reserved by the request; the source's is
+      // released only at settlement.
+      expect(
+        await reservationRouter.walletReservationsCount(secondWalletPubKeyHash)
+      ).to.equal(targetCountBefore + 1n)
+      expect(
+        await reservationRouter.walletReservationsCount(walletPubKeyHash)
+      ).to.equal(sourceCountBefore)
+
+      const hopTx = buildTx(
+        [{ txHash: anchorTx.txHash, index: 0 }],
+        [
+          {
+            valueSat: anchorAmount,
+            script: p2wpkhScript(secondWalletPubKeyHash),
+          },
+        ]
+      )
+      await reservationRouter
+        .connect(spvMaintainer)
+        .submitReservationReanchorProof(
+          hopTx.info,
+          proofFor(hopTx.txHash),
+          reservationKey,
+          2
+        )
+
+      const reservation = await reservationRouter.reservations(reservationKey)
+      expect(reservation.walletPubKeyHash).to.equal(secondWalletPubKeyHash)
+      expect(reservation.state).to.equal(ReservationState.Active)
+      expect(
+        await reservationRouter.walletReservationsCount(walletPubKeyHash)
+      ).to.equal(sourceCountBefore - 1n)
+    })
+
+    it("reverts when the caller is not the owner", async () => {
+      const { reservationKey } = await makeAcceptedReservation()
+
+      await expect(
+        bridgeGovernance
+          .connect(thirdParty)
+          .requestReservationReanchor(reservationKey, secondWalletPubKeyHash)
+      ).to.be.revertedWith("Ownable: caller is not the owner")
+
+      expect(
+        (await reservationRouter.reservations(reservationKey)).state
+      ).to.equal(ReservationState.Active)
+    })
+
+    // The forwarder carries an EMPTY member proof and member index 0: the
+    // governance path takes no signing-group member proof. If the forwarder
+    // passed a non-empty proof, `Reservation.requestReservationReanchor`
+    // would run the source-wallet member check, which consults the ECDSA
+    // registry. The registry mock is armed to revert on that call, so a
+    // forwarder that carried a proof would surface this exact reason and
+    // the rotation would fail. Its success is the empty-proof property at
+    // the Hardhat level.
+    it("carries an empty member proof, so the source-wallet member check never runs", async () => {
+      const { reservationKey } = await makeAcceptedReservation()
+
+      await walletRegistry.isWalletMember.reverts(
+        "the forwarder must not ask the registry about a member proof"
+      )
+
+      try {
+        await expect(
+          bridgeGovernance
+            .connect(governance)
+            .requestReservationReanchor(reservationKey, secondWalletPubKeyHash)
+        )
+          .to.emit(reservationRouter, "ReservationReanchorRequested")
+          .withArgs(
+            reservationKey,
+            2,
+            walletPubKeyHash,
+            secondWalletPubKeyHash,
+            BigInt(RESERVATION_TX_MAX_FEE)
+          )
+      } finally {
+        await walletRegistry.isWalletMember.reset()
+      }
+
+      expect(
+        (await reservationRouter.reservations(reservationKey)).state
+      ).to.equal(ReservationState.ActionPending)
+    })
+
+    // The forwarder must not swallow the Bridge's revert: it forwards with
+    // no try/catch, so the Bridge's own reason reaches the caller. Here the
+    // Bridge refuses an unknown reservation key.
+    it("propagates the Bridge's revert instead of swallowing it", async () => {
+      const unknownKey = `0x${"ee".repeat(32)}`
+
+      await expect(
+        bridgeGovernance
+          .connect(governance)
+          .requestReservationReanchor(unknownKey, secondWalletPubKeyHash)
+      ).to.be.revertedWith("Reservation is not active")
+    })
+
+    // A second revert-propagation case, on a guard the Bridge checks after
+    // the reservation lookup: the target wallet must be Live. A forwarder
+    // that swallowed the failure would leave the operator with a silent
+    // no-op instead of the reason.
+    it("propagates the Bridge's revert when the target wallet is not Live", async () => {
+      const { reservationKey } = await makeAcceptedReservation()
+
+      // Retire the target wallet: it is no longer Live, so the Bridge
+      // refuses the rotation.
+      await setWalletState(secondWalletPubKeyHash, walletState.MovingFunds)
+
+      await expect(
+        bridgeGovernance
+          .connect(governance)
+          .requestReservationReanchor(reservationKey, secondWalletPubKeyHash)
+      ).to.be.revertedWith("Target wallet must be in Live state")
+
+      expect(
+        (await reservationRouter.reservations(reservationKey)).state
+      ).to.equal(ReservationState.Active)
+    })
+
+    // The forwarder has no governance delay: the rotation takes effect in
+    // the same block as the owner's call. That is a design property, not an
+    // accident of the staged setters, so it is pinned here rather than left
+    // implicit. The observable half is that the action record exists and
+    // the position is already `ActionPending` in the very block the call
+    // was mined in, with no clock movement in between.
+    //
+    // The `onlyOwner` half is pinned in the same case: a non-owner call is
+    // refused, so the no-delay path is not open to anyone.
+    it("applies a rotation in the same block as the owner's call, and refuses a non-owner", async () => {
+      const { reservationKey } = await makeAcceptedReservation()
+
+      const blockBefore = requireValue(
+        await ethers.provider.getBlock("latest"),
+        "Block"
+      )
+      const actionBefore = await reservationRouter.reservationActions(
+        reservationKey,
+        1
+      )
+
+      const tx = await bridgeGovernance
+        .connect(governance)
+        .requestReservationReanchor(reservationKey, secondWalletPubKeyHash)
+
+      const receipt = requireValue(await tx.wait(), "Transaction receipt")
+      const blockAfter = requireValue(
+        await ethers.provider.getBlock(receipt.blockNumber),
+        "Block"
+      )
+
+      // The call and the rotation share one block: no clock movement, no
+      // second transaction, no waiting out a window. The chain is free to
+      // reuse a timestamp across blocks, so the assertion is that the
+      // action was created in the call's own block, not that the clock
+      // moved by exactly one second.
+      expect(receipt.blockNumber).to.be.equal(blockBefore.number + 1)
+      expect(blockAfter.timestamp).to.be.at.least(blockBefore.timestamp)
+
+      // The action record for the new generation exists in that same
+      // block, and the position is already pending.
+      const actionAfter = await reservationRouter.reservationActions(
+        reservationKey,
+        2
+      )
+      expect(actionAfter.requestedAt).to.be.equal(blockAfter.timestamp)
+      expect(actionAfter.state).to.equal(ActionState.Pending)
+      expect(actionAfter.actionType).to.equal(ActionType.Reanchor)
+      expect(actionAfter.targetWalletPubKeyHash).to.equal(
+        secondWalletPubKeyHash
+      )
+      expect(actionBefore.state).to.not.equal(ActionState.Pending)
+
+      expect(
+        (await reservationRouter.reservations(reservationKey)).state
+      ).to.equal(ReservationState.ActionPending)
+
+      // The no-delay path is the owner's alone.
+      await expect(
+        bridgeGovernance
+          .connect(thirdParty)
+          .requestReservationReanchor(reservationKey, secondWalletPubKeyHash)
+      ).to.be.revertedWith("Ownable: caller is not the owner")
+    })
+
+    it("keeps the Live-source gate shut for a direct EOA call", async () => {
+      // `governance` also owns `BridgeGovernance`: the closest EOA
+      // equivalent of the Council Safe, and still refused, because the
+      // Bridge's governance slot holds the contract rather than the owner.
+      const { reservationKey } = await makeAcceptedReservation()
+
+      await expect(
+        reservationRouter
+          .connect(governance)
+          .requestReservationReanchor(
+            reservationKey,
+            secondWalletPubKeyHash,
+            [],
+            0
+          )
+      ).to.be.revertedWith("Only governance can rotate a Live wallet's anchor")
+    })
+
+    it("forwards a MovingFunds source the same way the hand-off path did", async () => {
+      const { anchorTx, reservationKey } = await makeAcceptedReservation()
+      await setWalletState(walletPubKeyHash, walletState.MovingFunds)
+
+      await expect(
+        bridgeGovernance
+          .connect(governance)
+          .requestReservationReanchor(reservationKey, secondWalletPubKeyHash)
+      )
+        .to.emit(reservationRouter, "ReservationReanchorRequested")
+        .withArgs(
+          reservationKey,
+          2,
+          walletPubKeyHash,
+          secondWalletPubKeyHash,
+          BigInt(RESERVATION_TX_MAX_FEE)
+        )
+
+      // A privileged hand-off never counts against the target's
+      // third-party hold cap.
+      expect(
+        await reservationRouter.pendingThirdPartyReanchorHolds(
+          secondWalletPubKeyHash
+        )
+      ).to.equal(0)
+
+      const hopTx = buildTx(
+        [{ txHash: anchorTx.txHash, index: 0 }],
+        [
+          {
+            valueSat: anchorAmount,
+            script: p2wpkhScript(secondWalletPubKeyHash),
+          },
+        ]
+      )
+      await reservationRouter
+        .connect(spvMaintainer)
+        .submitReservationReanchorProof(
+          hopTx.info,
+          proofFor(hopTx.txHash),
+          reservationKey,
+          2
+        )
+
+      expect(
+        (await reservationRouter.reservations(reservationKey)).walletPubKeyHash
+      ).to.equal(secondWalletPubKeyHash)
+    })
+
+    it("leaves the permissionless MovingFunds path reachable for third parties", async () => {
+      // `thirdParty` is this file's depositor, so it is the reservation's
+      // owner and therefore privileged; a guardian is the ordinary caller.
+      const { reservationKey } = await makeAcceptedReservation()
+      await setWalletState(walletPubKeyHash, walletState.MovingFunds)
+
+      await expect(
+        reservationRouter
+          .connect(guardians[0])
+          .requestReservationReanchor(
+            reservationKey,
+            secondWalletPubKeyHash,
+            [],
+            0
+          )
+      ).to.emit(reservationRouter, "ReservationReanchorRequested")
+
+      expect(
+        await reservationRouter.pendingThirdPartyReanchorHolds(
+          secondWalletPubKeyHash
+        )
+      ).to.equal(1)
+    })
+  })
+
+  describe("cumulative re-anchor fee exposure (accepted regression)", () => {
+    // A scaled parameter regime, the same technique `#1102`'s own
+    // characterization test used: at the default 2,000 sat `txMaxFee` a
+    // full grind of this fixture's 2,998,500 sat anchor would take ~1,498
+    // hops. Raising the fee bound compresses it to 7 without changing the
+    // mechanism under test. `reservationMinAmount` has to move with it to
+    // satisfy `reservationMinAmount > reservationTxMaxFee`.
+    const GRIND_TX_MAX_FEE = 400000
+    const GRIND_MIN_AMOUNT = 500000
+
+    // `#1102`'s fixture ceiling, for the comparison assertion below.
+    const PR1102_CAP = 100000
+
+    beforeEach(async () => {
+      await createSnapshot()
+    })
+
+    afterEach(async () => {
+      await restoreSnapshot()
+    })
+
+    async function raiseFeeBound() {
+      await reservationRouter
+        .connect(bridgeGovernanceSigner)
+        .updateReservationParameters(
+          reservationVault.target,
+          GRIND_MIN_AMOUNT,
+          GRIND_TX_MAX_FEE,
+          RESERVATION_TERM,
+          RESERVATION_GRACE,
+          RESERVATION_MAX_TOTAL,
+          MAX_RESERVATIONS_PER_WALLET,
+          RESERVATION_ACTION_TIMEOUT,
+          RESERVATION_RENEWAL_WINDOW
+        )
+    }
+
+    // One governance-authorized hop, ping-ponging between two Live
+    // wallets. Returns the settled transaction so the next hop can spend
+    // its output.
+    async function grindOneHop(
+      reservationKey: bigint,
+      sourceTx: { txHash: string },
+      target: string,
+      newAnchorValue: bigint,
+      nonce: number
+    ) {
+      await reservationRouter
+        .connect(bridgeGovernanceSigner)
+        .requestReservationReanchor(reservationKey, target, [], 0)
+
+      const hopTx = buildTx(
+        [{ txHash: sourceTx.txHash, index: 0 }],
+        [{ valueSat: newAnchorValue, script: p2wpkhScript(target) }]
+      )
+
+      await reservationRouter
+        .connect(spvMaintainer)
+        .submitReservationReanchorProof(
+          hopTx.info,
+          proofFor(hopTx.txHash),
+          reservationKey,
+          nonce
+        )
+
+      return hopTx
+    }
+
+    it("bounds the grind at a request-time amount floor, not the settlement-time dust floor", async () => {
+      const { anchorTx, reservationKey } = await makeAcceptedReservation()
+      await liveWallet(secondWalletPubKeyHash)
+      await raiseFeeBound()
+
+      const reserveBefore = await tbtc.balanceOf(reservationVault.target)
+      const debtBefore = await reservationVault.inKindFeeDebtSat()
+
+      // Grind at the maximum permitted fee per hop. Termination is no
+      // longer the settlement-time dust floor `#1104`/`#1102` characterized
+      // (`GRIND_TX_MAX_FEE + 1`): `d600a8bf` (fix(bridge): close confirmed
+      // review findings in reservation core, P3 "added a request-time
+      // amount floor for re-anchor") added a REQUEST-time floor requiring
+      // `anchorAmount > reservationTxMaxFee + reservationMinAmount` before
+      // the next hop can even be authorized, which is much higher than the
+      // dust floor and fires first. This supersedes the "no absolute
+      // ceiling" premise `pr-review-followups.md` item 7 documented as an
+      // accepted regression deferred to post-m1: a P3 review fix already
+      // bounds it, just not via the four levers that item enumerated. The
+      // hop count is derived, never hardcoded: it scales with the claim.
+      let currentTx = anchorTx
+      let currentAnchor = anchorAmount
+      let target = secondWalletPubKeyHash
+      let nonce = 2
+      let hops = 0
+      const requestFloor = BigInt(GRIND_TX_MAX_FEE + GRIND_MIN_AMOUNT)
+
+      while (currentAnchor > requestFloor) {
+        const nextAnchor = currentAnchor - BigInt(GRIND_TX_MAX_FEE)
+        // Sequential on purpose: each hop spends the previous hop's output,
+        // so these cannot be batched or parallelised.
+        // eslint-disable-next-line no-await-in-loop
+        currentTx = await grindOneHop(
+          reservationKey,
+          currentTx,
+          target,
+          nextAnchor,
+          nonce
+        )
+        currentAnchor = nextAnchor
+        target =
+          target === secondWalletPubKeyHash
+            ? walletPubKeyHash
+            : secondWalletPubKeyHash
+        nonce += 1
+        hops += 1
+      }
+
+      const reservation = await reservationRouter.reservations(reservationKey)
+      const cumulativeFee = anchorAmount - currentAnchor
+
+      // The claim is written down to the surviving anchor: the owner's
+      // redemption right shrinks by the full grind.
+      expect(reservation.anchorAmount).to.equal(currentAnchor)
+      expect(reservation.mintedAmount).to.equal(currentAnchor)
+
+      // Every satoshi of the grind is financed in kind: burned from the
+      // vault's reserve where it could cover, recorded as global debt
+      // where it could not. Nothing is left unaccounted.
+      const reserveAfter = await tbtc.balanceOf(reservationVault.target)
+      const debtAfter = await reservationVault.inKindFeeDebtSat()
+      const burnedSat = (reserveBefore - reserveAfter) / SATOSHI_MULTIPLIER
+      expect(burnedSat + (debtAfter - debtBefore)).to.equal(cumulativeFee)
+
+      // Still a real, substantial exposure - well above #1102's original
+      // fixture cap - just no longer unbounded. The exact percentage is a
+      // function of `reservationMinAmount` relative to the claim in this
+      // regime, not a protocol constant.
+      expect(cumulativeFee).to.be.gt(PR1102_CAP)
+      expect((cumulativeFee * 100n) / anchorAmount).to.be.gte(80)
+
+      // And the grind is genuinely terminal: the next hop cannot even be
+      // requested, because the request-time floor is the first thing that
+      // stops it now (never reaches the settlement-time dust floor check).
+      await expect(
+        reservationRouter
+          .connect(bridgeGovernanceSigner)
+          .requestReservationReanchor(reservationKey, target, [], 0)
+      ).to.be.revertedWith(
+        "Reanchor would fall below the minimum reservation amount"
+      )
+
+      // Recorded for the deferral note: the hop count scales with the
+      // claim, so this figure is regime-specific, not a constant bound.
+      expect(hops).to.be.gte(6)
+    })
+
+    it("depends on the governance gate: a Live wallet's anchor cannot be rotated permissionlessly", async () => {
+      // The grind above is only tolerable because reaching it requires
+      // governance to authorize every hop. If this gate is ever relaxed,
+      // this substantial (bounded but still large) exposure becomes
+      // reachable by the custodying wallet operator alone, which is the
+      // threat model `pr-review-followups.md` item 7 scored as the
+      // severity-driving case. This test is the tripwire for that change.
+      //
+      // Scope, per limit 2 in this block's header: this catches the gate
+      // being removed, not `privileged` being widened to admit a second
+      // caller. A green run here is not evidence the assumption still
+      // holds; it is only evidence this particular gate still exists.
+      const { reservationKey } = await makeAcceptedReservation()
+      await liveWallet(secondWalletPubKeyHash)
+
+      await expect(
+        reservationRouter
+          .connect(thirdParty)
+          .requestReservationReanchor(
+            reservationKey,
+            secondWalletPubKeyHash,
+            [],
+            0
+          )
+      ).to.be.revertedWith("Only governance can rotate a Live wallet's anchor")
+    })
+  })
+
+  describe("counters with several positions open", () => {
+    beforeEach(async () => {
+      await createSnapshot()
+    })
+
+    afterEach(async () => {
+      await restoreSnapshot()
+    })
+
+    async function setWalletState(pkh: string, state: number) {
+      await bridge.setWallet(pkh, {
+        ecdsaWalletID: ethers.randomBytes(32),
+        mainUtxoHash: ZERO_BYTES32,
+        pendingRedemptionsValue: 0,
+        createdAt: await lastBlockTime(),
+        movingFundsRequestedAt: 0,
+        closingStartedAt: 0,
+        pendingMovedFundsSweepRequestsCount: 0,
+        state,
+        movingFundsTargetWalletsCommitmentHash: ZERO_BYTES32,
+      })
+    }
+
+    // With one or two positions open, `count -= 1` and `count >>= 1` give
+    // the same result. Three positions on one wallet tell them apart, both
+    // for the pending reserved deposit counter on acceptance and for the
+    // source wallet count on re-anchor settlement.
+    it("decrements pending deposits and the source wallet count by exactly one", async () => {
+      const requested = [
+        await makeRequestedReservation(),
+        await makeRequestedReservation(),
+        await makeRequestedReservation(),
+      ]
+      expect(await reservationRouter.pendingReservedDeposits()).to.equal(3)
+
+      await reservationRouter
+        .connect(spvMaintainer)
+        .submitReservationAcceptanceProof(
+          requested[0].anchorTx.info,
+          proofFor(requested[0].anchorTx.txHash),
+          requested[0].reservationKey,
+          1
+        )
+      expect(await reservationRouter.pendingReservedDeposits()).to.equal(2)
+
+      await reservationRouter
+        .connect(spvMaintainer)
+        .submitReservationAcceptanceProof(
+          requested[1].anchorTx.info,
+          proofFor(requested[1].anchorTx.txHash),
+          requested[1].reservationKey,
+          1
+        )
+      await reservationRouter
+        .connect(spvMaintainer)
+        .submitReservationAcceptanceProof(
+          requested[2].anchorTx.info,
+          proofFor(requested[2].anchorTx.txHash),
+          requested[2].reservationKey,
+          1
+        )
+      expect(await reservationRouter.pendingReservedDeposits()).to.equal(0)
+      expect(
+        await reservationRouter.walletReservationsCount(walletPubKeyHash)
+      ).to.equal(3)
+
+      await liveWallet(secondWalletPubKeyHash)
+      const { anchorTx, reservationKey } = requested[0]
+      await reservationRouter
+        .connect(bridgeGovernanceSigner)
+        .requestReservationReanchor(
+          reservationKey,
+          secondWalletPubKeyHash,
+          [],
+          0
+        )
+      const hopTx = buildTx(
+        [{ txHash: anchorTx.txHash, index: 0 }],
+        [
+          {
+            valueSat: anchorAmount,
+            script: p2wpkhScript(secondWalletPubKeyHash),
+          },
+        ]
+      )
+      await reservationRouter
+        .connect(spvMaintainer)
+        .submitReservationReanchorProof(
+          hopTx.info,
+          proofFor(hopTx.txHash),
+          reservationKey,
+          2
+        )
+
+      expect(
+        await reservationRouter.walletReservationsCount(walletPubKeyHash)
+      ).to.equal(2)
+      expect(
+        await reservationRouter.walletReservationsCount(secondWalletPubKeyHash)
+      ).to.equal(1)
+      const [activeCount] = await reservationRouter.activeReservationsCount()
+      expect(activeCount).to.equal(3)
+    })
+
+    // A position stranded while its re-anchor was timed out already carries
+    // its stranding evidence. When the late re-anchor proof then lands on a
+    // closed target wallet, the position is stranded again without a second
+    // `ReservationStranded` event.
+    it("does not emit stranding evidence twice for a late re-anchor of a stranded position", async () => {
+      const { anchorTx, reservationKey } = await makeAcceptedReservation()
+      await liveWallet(secondWalletPubKeyHash)
+      await reservationRouter
+        .connect(bridgeGovernanceSigner)
+        .requestReservationReanchor(
+          reservationKey,
+          secondWalletPubKeyHash,
+          [],
+          0
+        )
+
+      await increaseTime(RESERVATION_ACTION_TIMEOUT + 1)
+      await reservationRouter.notifyReservationActionTimeout(reservationKey)
+
+      await setWalletState(walletPubKeyHash, walletState.Terminated)
+      await expect(
+        reservationRouter.notifyReservationStranded(reservationKey)
+      ).to.emit(reservationRouter, "ReservationStranded")
+
+      await setWalletState(secondWalletPubKeyHash, walletState.Closed)
+      const hopTx = buildTx(
+        [{ txHash: anchorTx.txHash, index: 0 }],
+        [
+          {
+            valueSat: anchorAmount,
+            script: p2wpkhScript(secondWalletPubKeyHash),
+          },
+        ]
+      )
+      const tx = reservationRouter
+        .connect(spvMaintainer)
+        .submitReservationReanchorProof(
+          hopTx.info,
+          proofFor(hopTx.txHash),
+          reservationKey,
+          2
+        )
+      await expect(tx).to.emit(reservationRouter, "ReservationReanchored")
+      await expect(tx).to.not.emit(reservationRouter, "ReservationStranded")
+      expect(
+        (await reservationRouter.reservations(reservationKey)).state
+      ).to.equal(ReservationState.Stranded)
+    })
+
+    // Caps are request-time throttles. A late acceptance proof for a
+    // generation that already timed out re-takes capacity without a cap
+    // check, because its anchor is already confirmed on Bitcoin
+    // (`ReservationProofs.settleAcceptance`, late branch). So a wallet can
+    // end one position above its cap. This is intended behaviour.
+    it("lets a late acceptance proof take a wallet one position above its cap", async () => {
+      await reservationRouter
+        .connect(bridgeGovernanceSigner)
+        .updateReservationParameters(
+          reservationVault.target,
+          RESERVATION_MIN_AMOUNT,
+          RESERVATION_TX_MAX_FEE,
+          RESERVATION_TERM,
+          RESERVATION_GRACE,
+          RESERVATION_MAX_TOTAL,
+          1, // maxReservationsPerWallet
+          RESERVATION_ACTION_TIMEOUT,
+          RESERVATION_RENEWAL_WINDOW
+        )
+
+      const late = await makeRequestedReservation()
+      await increaseTime(RESERVATION_ACTION_TIMEOUT + 1)
+      await reservationRouter.notifyReservationAcceptanceTimedOut(
+        late.reservationKey
+      )
+
+      const onTime = await makeAcceptedReservation()
+      expect(
+        await reservationRouter.walletReservationsCount(walletPubKeyHash)
+      ).to.equal(1)
+
+      await reservationRouter
+        .connect(spvMaintainer)
+        .submitReservationAcceptanceProof(
+          late.anchorTx.info,
+          proofFor(late.anchorTx.txHash),
+          late.reservationKey,
+          1
+        )
+
+      expect(
+        await reservationRouter.walletReservationsCount(walletPubKeyHash)
+      ).to.equal(2)
+      expect(
+        (await reservationRouter.reservations(late.reservationKey)).state
+      ).to.equal(ReservationState.Active)
+      expect(
+        (await reservationRouter.reservations(onTime.reservationKey)).state
+      ).to.equal(ReservationState.Active)
+    })
+  })
+
+  describe("vault re-point while positions are open", () => {
+    it("refuses to change the reservation vault while an accepted reservation is open", async () => {
+      const { reservationKey } = await makeAcceptedReservation()
+      expect(
+        (await reservationRouter.reservations(reservationKey)).state
+      ).to.equal(ReservationState.Active)
+
+      // The open position keeps the standing reserved total non-zero, so
+      // re-pointing the vault would leave its claim against a vault the
+      // bridge no longer routes reservations through.
+      const replacementVault = ethers.Wallet.createRandom().address
+      await expect(
+        reservationRouter
+          .connect(bridgeGovernanceSigner)
+          .updateReservationParameters(
+            replacementVault,
+            RESERVATION_MIN_AMOUNT,
+            RESERVATION_TX_MAX_FEE,
+            RESERVATION_TERM,
+            RESERVATION_GRACE,
+            RESERVATION_MAX_TOTAL,
+            MAX_RESERVATIONS_PER_WALLET,
+            RESERVATION_ACTION_TIMEOUT,
+            RESERVATION_RENEWAL_WINDOW
+          )
+      ).to.be.revertedWith("Active reservations exist")
+
+      expect(
+        (await reservationRouter.reservationParameters()).reservationVault
+      ).to.equal(reservationVault.target)
+    })
+  })
+
+  describe("wallet closing gate", () => {
+    it("refuses to close a wallet that still custodies an accepted reservation", async () => {
+      // Earlier cases in this file may already have opened positions on this
+      // wallet, so the forecast is relative rather than absolute.
+      const custodyBefore =
+        await reservationRouter.walletReservationsCount(walletPubKeyHash)
+      await makeAcceptedReservation()
+      expect(
+        await reservationRouter.walletReservationsCount(walletPubKeyHash)
+      ).to.equal(custodyBefore + BigInt(1))
+
+      // Drive the wallet into Closing and let its closing period elapse.
+      // The position is still custodied by it -- its anchor can only leave
+      // through a re-anchor or a dissolution -- so closing it now would
+      // strand the position outside any wallet's custody ledger.
+      const { walletClosingPeriod } = await bridge.walletParameters()
+      await bridge.setWallet(walletPubKeyHash, {
+        ecdsaWalletID: ethers.randomBytes(32),
+        mainUtxoHash: ZERO_BYTES32,
+        pendingRedemptionsValue: 0,
+        createdAt: await lastBlockTime(),
+        movingFundsRequestedAt: 0,
+        closingStartedAt: await lastBlockTime(),
+        pendingMovedFundsSweepRequestsCount: 0,
+        state: walletState.Closing,
+        movingFundsTargetWalletsCommitmentHash: ZERO_BYTES32,
+      })
+      await increaseTime(Number(walletClosingPeriod) + 1)
+
+      await expect(
+        bridge.notifyWalletClosingPeriodElapsed(walletPubKeyHash)
+      ).to.be.revertedWith("Wallet still custodies reservations")
+      expect((await bridge.wallets(walletPubKeyHash)).state).to.equal(
+        walletState.Closing
+      )
+    })
+  })
+})

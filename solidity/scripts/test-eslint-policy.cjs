@@ -41,6 +41,24 @@ export default function current(value: number): number {
 `,
     "example.test.ts": `describe.only("x", () => {})
 `,
+    // One expect.fail inside the try block (flagged: the catch swallows the
+    // assertion) and one outside it, in a finally and after the try
+    // (allowed). The policy test expects exactly one hit.
+    "expect-fail-in-try.test.ts": `import { expect } from "chai"
+
+export default async function check(run: () => Promise<void>): Promise<void> {
+  let caught: unknown
+  try {
+    await run()
+    expect.fail("expected a rejection")
+  } catch (error) {
+    caught = error
+  } finally {
+    if (caught === null) expect.fail("unreachable")
+  }
+  if (caught === undefined) expect.fail("expected a rejection")
+}
+`,
   }
 
   try {
@@ -284,6 +302,22 @@ module.exports.value = value
         JSON.stringify(result.messages)
       )
     })
+
+    await context.test(
+      "flags expect.fail inside a try block in test files",
+      async () => {
+        const [result] = await eslint.lintFiles([
+          path.join(directory, "expect-fail-in-try.test.ts"),
+        ])
+        const hits = result.messages.filter(
+          (message) =>
+            message.ruleId === "no-restricted-syntax" &&
+            message.severity === 2 &&
+            message.message.includes("expect.fail")
+        )
+        assert.equal(hits.length, 1, JSON.stringify(result.messages))
+      }
+    )
 
     await context.test("reports unused eslint-disable directive", async () => {
       const result =

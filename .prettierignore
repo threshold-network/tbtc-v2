@@ -5,3 +5,5 @@ typescript/
 system-tests/
 monitoring/
 cross-chain/
+# Audit records are published as written, with their tables and transcripts.
+.solidity-auditor/

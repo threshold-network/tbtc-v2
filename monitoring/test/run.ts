@@ -1,20 +1,14 @@
+import "./environment.js"
 import { runTests } from "./test-runner"
+import "./sentry-receiver.test.js"
+import "./system-event-manager.test.js"
+import "./receiver-isolation.test.js"
+import "./redemption-chain.test.js"
+import "./reservation-keeper-monitor.test.js"
+import "./redemption-lifecycle-monitor.test.js"
+import "./supply-monitor.test.js"
 
-process.env.ENVIRONMENT = process.env.ENVIRONMENT ?? "testnet"
-process.env.ETHEREUM_URL = process.env.ETHEREUM_URL ?? "http://localhost:8545"
-process.env.ELECTRUM_URL = process.env.ELECTRUM_URL ?? "tcp://localhost:50001"
-
-async function main() {
-  await import("./sentry-receiver.test")
-  await import("./system-event-manager.test")
-  await import("./receiver-isolation.test")
-  await import("./redemption-chain.test")
-  await import("./redemption-lifecycle-monitor.test")
-
-  await runTests()
-}
-
-main().catch((error) => {
+runTests().catch((error) => {
   // eslint-disable-next-line no-console
   console.error(error)
   process.exitCode = 1

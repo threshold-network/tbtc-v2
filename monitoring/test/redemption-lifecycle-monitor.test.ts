@@ -3,7 +3,7 @@ import { promises as fs } from "fs"
 import { tmpdir } from "os"
 import { join } from "path"
 
-import { BitcoinTxHash } from "@keep-network/tbtc-v2.ts"
+import { BitcoinTxHash } from "@keep-network/tbtc-v2.ts/core"
 
 import { RedemptionLifecycleMonitor } from "../src/redemption-lifecycle-monitor"
 import { Manager, SystemEventType } from "../src/system-event"
@@ -14,7 +14,7 @@ import { context } from "../src/context"
 import { redemptionRequest } from "./redemption-fixtures"
 import { test } from "./test-runner"
 
-import type { RedemptionRequestedEvent } from "@keep-network/tbtc-v2.ts"
+import type { RedemptionRequestedEvent } from "@keep-network/tbtc-v2.ts/core"
 import type {
   RedemptionLifecycleSource,
   RedemptionsCompletedEvent,

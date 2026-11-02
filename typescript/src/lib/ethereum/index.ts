@@ -2,6 +2,7 @@ import { Chains, TBTCContracts } from "../contracts"
 import { Signer } from "@ethersproject/abstract-signer"
 import { Provider } from "@ethersproject/abstract-provider"
 import { EthereumBridge } from "./bridge"
+import { EthereumReservations } from "./reservations"
 import { EthereumWalletRegistry } from "./wallet-registry"
 import { EthereumTBTCToken } from "./tbtc-token"
 import { EthereumTBTCVault } from "./tbtc-vault"
@@ -10,6 +11,7 @@ import { EthereumAddress } from "./address"
 export * from "./address"
 export * from "./bridge"
 export * from "./depositor-proxy"
+export * from "./reservations"
 export * from "./tbtc-token"
 export * from "./tbtc-vault"
 export * from "./wallet-registry"
@@ -81,6 +83,10 @@ export async function loadEthereumCoreContracts(
   }
 
   const bridge = new EthereumBridge({ signerOrProvider: signer }, chainId)
+  const reservations = new EthereumReservations(
+    { signerOrProvider: signer },
+    chainId
+  )
   const tbtcToken = new EthereumTBTCToken({ signerOrProvider: signer }, chainId)
   const tbtcVault = new EthereumTBTCVault({ signerOrProvider: signer }, chainId)
   const walletRegistry = new EthereumWalletRegistry(
@@ -90,6 +96,7 @@ export async function loadEthereumCoreContracts(
 
   return {
     bridge,
+    reservations,
     tbtcToken,
     tbtcVault,
     walletRegistry,

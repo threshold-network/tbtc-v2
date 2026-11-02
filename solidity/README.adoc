@@ -65,6 +65,31 @@ yarn test:integration
 System tests are implemented separately, in the
 link:../system-tests/[`system-tests`] directory of the `tbtc-v2` repository.
 
+=== Measure test coverage
+
+Run coverage from this package directory:
+
+[source,sh]
+----
+env -u FORKING_URL -u FORKING_BLOCK yarn coverage
+----
+
+Reports appear in `coverage/lcov.info`, `coverage/coverage-final.json`,
+and `coverage/lcov-report/index.html`. Test harness contracts are excluded.
+
+The coverage script uses the Prague hardfork because instrumented deployments
+can exceed Osaka's per-transaction gas cap. Coverage also permits oversized
+contracts. Normal tests keep the default hardfork and contract size limit.
+Instrumentation changes gas use, so gas and reimbursement assertions can fail
+under coverage. Use normal tests, not coverage, for those assertions.
+
+The script also clears `FORKING_URL` and `FORKING_BLOCK` for its own run. A
+forking network changes the deployment path: the external exports then refuse to
+deploy their stub contracts (they throw `deployed NuCypherToken contract not
+found`), so deployment fixtures fail. A coverage run that inherits a fork URL
+from the shell is a forking run, not a coverage problem; the script makes that
+impossible.
+
 === Deploy contracts
 
 To deploy all contracts on the given network, please run:

@@ -4,14 +4,14 @@ import {
   BitcoinTxHash,
   EthereumBridge,
   Hex,
-} from "@keep-network/tbtc-v2.ts"
+} from "@keep-network/tbtc-v2.ts/core"
 
 import type { providers } from "ethers"
 import type {
   Bridge,
   ChainEvent,
   RedemptionRequestedEvent,
-} from "@keep-network/tbtc-v2.ts"
+} from "@keep-network/tbtc-v2.ts/core"
 
 export interface RedemptionsCompletedEvent extends ChainEvent {
   walletPublicKeyHash: Hex

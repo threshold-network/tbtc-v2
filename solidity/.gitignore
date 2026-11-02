@@ -15,6 +15,9 @@
 /forge-artifacts/
 /cache_forge/
 
+# solidity-coverage report output
+/coverage/
+
 # Contract artifacts
 /artifacts/
 /deployments/*
@@ -25,3 +28,4 @@
 /.openzeppelin/unknown-*.json
 solcInputs/
 gasReporterOutput.json
+/coverage.json

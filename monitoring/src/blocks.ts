@@ -15,7 +15,12 @@ const resolve = () => {
     return block.timestamp
   }
 
-  return { latestBlock, blockTimestamp }
+  const latestBlockTimestamp = async (): Promise<number> => {
+    const block = await provider.getBlock("latest")
+    return block.timestamp
+  }
+
+  return { latestBlock, blockTimestamp, latestBlockTimestamp }
 }
 
 export const blocks = resolve()

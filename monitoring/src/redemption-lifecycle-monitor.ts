@@ -2,7 +2,7 @@ import { SystemEventType } from "./system-event"
 import { createBtcTxUrl, createEthTxUrl } from "./block-explorer"
 import { satsToRoundedBTC } from "./deposit-monitor"
 
-import type { RedemptionRequestedEvent } from "@keep-network/tbtc-v2.ts"
+import type { RedemptionRequestedEvent } from "@keep-network/tbtc-v2.ts/core"
 import type { Monitor, SystemEvent } from "./system-event"
 import type { RedemptionLifecycleSource } from "./redemption-chain"
 

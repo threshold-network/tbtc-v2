@@ -14,6 +14,9 @@
 - [ApiUrl](enums/ApiUrl.md)
 - [BitcoinNetwork](enums/BitcoinNetwork-1.md)
 - [DepositState](enums/DepositState.md)
+- [ReservationActionState](enums/ReservationActionState.md)
+- [ReservationActionType](enums/ReservationActionType.md)
+- [ReservationState](enums/ReservationState.md)
 - [StarkNetRelayerDepositStatus](enums/StarkNetRelayerDepositStatus.md)
 - [WalletState](enums/WalletState-1.md)
 - [endpointUrl](enums/endpointUrl.md)
@@ -40,6 +43,7 @@
 - [EthereumExtraDataEncoder](classes/EthereumExtraDataEncoder.md)
 - [EthereumL1BitcoinDepositor](classes/EthereumL1BitcoinDepositor.md)
 - [EthereumL1BitcoinRedeemer](classes/EthereumL1BitcoinRedeemer.md)
+- [EthereumReservations](classes/EthereumReservations.md)
 - [EthereumTBTCToken](classes/EthereumTBTCToken.md)
 - [EthereumTBTCVault](classes/EthereumTBTCVault.md)
 - [EthereumWalletRegistry](classes/EthereumWalletRegistry.md)
@@ -94,6 +98,13 @@
 - [RedeemerProxy](interfaces/RedeemerProxy.md)
 - [RedemptionRequest](interfaces/RedemptionRequest.md)
 - [RedemptionWallet](interfaces/RedemptionWallet.md)
+- [ReservationActionRecord](interfaces/ReservationActionRecord.md)
+- [ReservationCaps](interfaces/ReservationCaps.md)
+- [ReservationOccupancy](interfaces/ReservationOccupancy.md)
+- [ReservationParameters](interfaces/ReservationParameters.md)
+- [ReservationRecord](interfaces/ReservationRecord.md)
+- [Reservations](interfaces/Reservations.md)
+- [ReservedWallet](interfaces/ReservedWallet.md)
 - [SerializableWallet](interfaces/SerializableWallet.md)
 - [StarkNetBitcoinDepositorConfig](interfaces/StarkNetBitcoinDepositorConfig.md)
 - [StarkNetTBTCTokenConfig](interfaces/StarkNetTBTCTokenConfig.md)
@@ -439,7 +450,7 @@ can submit transactions; providers (from @ethersproject/abstract-provider) provi
 
 #### Defined in
 
-[src/lib/ethereum/index.ts:26](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/index.ts#L26)
+[src/lib/ethereum/index.ts:28](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/index.ts#L28)
 
 ___
 
@@ -767,13 +778,14 @@ Convenience type aggregating all TBTC core contracts.
 | Name | Type |
 | :------ | :------ |
 | `bridge` | [`Bridge`](interfaces/Bridge.md) |
+| `reservations` | [`Reservations`](interfaces/Reservations.md) |
 | `tbtcToken` | [`TBTCToken`](interfaces/TBTCToken.md) |
 | `tbtcVault` | [`TBTCVault`](interfaces/TBTCVault.md) |
 | `walletRegistry` | [`WalletRegistry`](interfaces/WalletRegistry.md) |
 
 #### Defined in
 
-[src/lib/contracts/index.ts:19](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/index.ts#L19)
+[src/lib/contracts/index.ts:21](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/index.ts#L21)
 
 ## Variables
 
@@ -1311,7 +1323,7 @@ Chain ID as a string.
 
 #### Defined in
 
-[src/lib/ethereum/index.ts:33](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/index.ts#L33)
+[src/lib/ethereum/index.ts:35](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/index.ts#L35)
 
 ___
 
@@ -1434,7 +1446,7 @@ Throws an error if the address of the signer is not a proper
 
 #### Defined in
 
-[src/lib/ethereum/index.ts:55](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/index.ts#L55)
+[src/lib/ethereum/index.ts:57](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/index.ts#L57)
 
 ___
 
@@ -1707,7 +1719,7 @@ Throws an error if the signer's Ethereum chain ID is other than
 
 #### Defined in
 
-[src/lib/ethereum/index.ts:74](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/index.ts#L74)
+[src/lib/ethereum/index.ts:76](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/index.ts#L76)
 
 ___
 

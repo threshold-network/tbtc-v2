@@ -1,0 +1,195 @@
+{
+  "schemaVersion": 2,
+  "mode": "live",
+  "network": "rehearsal",
+  "phase": "prepare",
+  "startBlock": 11899906,
+  "forkBlock": null,
+  "activationBlock": 0,
+  "runAt": "2026-10-12T16:17:28.775Z",
+  "binding": {
+    "chainId": 31337,
+    "bridge": "0x2220acE07d86B508742D511478e517716B675940",
+    "forkBlock": null
+  },
+  "addresses": {
+    "bridge": "0x2220acE07d86B508742D511478e517716B675940",
+    "oldGov": "0x61700ebaCCfd9FB0100C35DDd38e4cC3e9057c5A",
+    "oldImpl": "0xc9CEec54a8b25D7051B702322675ee3014bA4685",
+    "newImpl": "0x2DB8355295C5f09da68Cf35A318F7209d90c0640",
+    "newGov": "0xfb5C050a969921b882b9EB151a8862Bf56D5cBE0",
+    "router": "0xd8F192488c6B2AF29c6E0a02040E68F87B9d5EAA",
+    "vault": "0x222C73bc1440b97876B64C3F34077904deF93714",
+    "proxyAdmin": "0x0E9bD483CC8Fb649636e0cd7a60BC48b6C040103",
+    "deployer": "0xb9B8a92677fcad86dc8d36fe947184283B03b3C8"
+  },
+  "summary": {
+    "total": 17,
+    "pass": 17,
+    "fail": 0,
+    "skip": 0
+  },
+  "steps": [
+    {
+      "name": "00-read-sepolia-state",
+      "status": "PASS",
+      "values": {
+        "bridge": "0x2220acE07d86B508742D511478e517716B675940",
+        "oldGov": "0x61700ebaCCfd9FB0100C35DDd38e4cC3e9057c5A",
+        "implementation": "0xc9CEec54a8b25D7051B702322675ee3014bA4685",
+        "proxyAdmin": "0x0E9bD483CC8Fb649636e0cd7a60BC48b6C040103",
+        "governanceDelay": "60",
+        "liveWalletsCount": "4",
+        "depositParameters": "1000000,2000,100000,1296000"
+      }
+    },
+    {
+      "name": "00-load-prepare-artifact",
+      "status": "PASS",
+      "values": {
+        "note": "no prior prepare artifact; fresh prepare"
+      }
+    },
+    {
+      "name": "01-live-signer-check",
+      "status": "PASS",
+      "values": {
+        "signer": "0xb9B8a92677fcad86dc8d36fe947184283B03b3C8",
+        "note": "rehearsal node: deployer unlocked via one-off RPC setup"
+      }
+    },
+    {
+      "name": "02a-deploy-shared-libraries",
+      "status": "PASS",
+      "values": {
+        "EcdsaLib": "0x8949B7b87d03c38e1e6261E5E1a7368Ec3801985",
+        "Deposit": "0xeAF38E6124f922f4C15918650e7aEdD4AD580d38",
+        "DepositSweep": "0xC17322cF9609Ab7a1f61F5aaBAC2A9EbeFb6302A",
+        "Fraud": "0xb6acA1e864B7A8C25a51367404eCFE4AC40Ff681",
+        "MovingFunds": "0xD3f4979A829984c9133f19549E7f143Ae2931f8C",
+        "Redemption": "0x09fe333257D5Bd43f27abB2Ee33140506049f938",
+        "Wallets": "0x4A14Aa43465fF5ef5Bd9C0c3cc9B770616D671a7",
+        "Reservation": "0xFbE24c63537cC2EB4AeC77Bbe75537Ef1C42fa9f",
+        "ReservationProofs": "0x04F2d9A3cFBB0978B2D7023a7a2CB59a8A825f30",
+        "BridgeGovernanceParameters": "0x14f3052363FF6F7810842bD9b4fa7ea5049E68f8"
+      }
+    },
+    {
+      "name": "02b-deploy-bridge-implementation",
+      "status": "PASS",
+      "txHash": "0xb80c36c1439458a1517112dfaea5d557e669f0e2cf42d9aca3de650972690e46",
+      "gasUsed": 5170655,
+      "values": {
+        "address": "0x2DB8355295C5f09da68Cf35A318F7209d90c0640"
+      }
+    },
+    {
+      "name": "02c-deploy-reservation-router",
+      "status": "PASS",
+      "txHash": "0x258829f3bb7666a062debc677f161f29930cf0b48c7cbb226edc3514f9e26811",
+      "gasUsed": 1712899,
+      "values": {
+        "address": "0xd8F192488c6B2AF29c6E0a02040E68F87B9d5EAA"
+      }
+    },
+    {
+      "name": "02d-deploy-reservation-vault",
+      "status": "PASS",
+      "txHash": "0xef19daa29959a9d8a3b1cff9bb0ef13da9b998b4845b0110607c3526c84199ba",
+      "gasUsed": 1598272,
+      "values": {
+        "address": "0x222C73bc1440b97876B64C3F34077904deF93714"
+      }
+    },
+    {
+      "name": "02e-transfer-reservation-vault-ownership-to-governance",
+      "status": "PASS",
+      "txHash": "0x83215720e7c9d247772f3d89313307078e7784ee8152453beb540fc332ce1c54",
+      "gasUsed": 25842,
+      "values": {
+        "note": "governance EOA == deployer EOA on Sepolia (index 0)"
+      }
+    },
+    {
+      "name": "02f-deploy-new-bridge-governance",
+      "status": "PASS",
+      "txHash": "0x59f9d0f7d8a0c4449dab1e500c3221b128d3b2302433125966d2e1cd1785f96c",
+      "gasUsed": 4785596,
+      "values": {
+        "address": "0xfb5C050a969921b882b9EB151a8862Bf56D5cBE0"
+      }
+    },
+    {
+      "name": "03-proxy-upgrade",
+      "status": "PASS",
+      "txHash": "0x5c852a36772097773ce6067f539d9b07f9cef1441eb60ad8cd73918f272e5cee",
+      "gasUsed": 38784,
+      "values": {
+        "newImpl": "0x2DB8355295C5f09da68Cf35A318F7209d90c0640"
+      }
+    },
+    {
+      "name": "04-state-preservation",
+      "status": "PASS",
+      "values": {
+        "unchanged": [
+          "knownPk",
+          "knownWallet",
+          "liveWalletsCount",
+          "depositParameters",
+          "governance",
+          "initialized",
+          "ecdsaWalletRegistry",
+          "rebateStaking",
+          "reservationVault",
+          "reservationRouter"
+        ]
+      }
+    },
+    {
+      "name": "05-governance-transfer-begin",
+      "status": "PASS",
+      "txHash": "0x4175823a45abd8b45f842cae4945a01f47330ec8c0636939a93fe65d43728b46",
+      "gasUsed": 69667,
+      "values": {
+        "newGov": "0xfb5C050a969921b882b9EB151a8862Bf56D5cBE0"
+      }
+    },
+    {
+      "name": "06-governance-transfer-finalize",
+      "status": "PASS",
+      "txHash": "0x73343348e7f5a0c5ce0a59a33ac2a0460c583c585407a8814f1752f135058ffd",
+      "gasUsed": 45593
+    },
+    {
+      "name": "07-set-reservation-router",
+      "status": "PASS",
+      "txHash": "0xc02ed7d738a4e10e0d74c6ad587b0ac957523baeb4b72f07e394bf1368e11881",
+      "gasUsed": 64983,
+      "values": {
+        "router": "0xd8F192488c6B2AF29c6E0a02040E68F87B9d5EAA"
+      }
+    },
+    {
+      "name": "08-assert-reserved-deposits-feasible",
+      "status": "PASS",
+      "values": {
+        "dust": "1000000",
+        "revealAhead": "1296000",
+        "term": 7776000
+      }
+    },
+    {
+      "name": "09-begin-reservation-caps",
+      "status": "PASS",
+      "txHash": "0x84629e43d8a572478ea3f9815c9ebbfb847ee774d8291eae0548442b000f7983",
+      "gasUsed": 97463
+    },
+    {
+      "name": "10-begin-reservation-parameters",
+      "status": "PASS",
+      "txHash": "0x50fb0b1c66abdc87423238961ff884fcc73df93f9175501b44cf494fc8ea0c61",
+      "gasUsed": 124558
+    }
+  ]
+}

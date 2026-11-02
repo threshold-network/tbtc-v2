@@ -17,12 +17,23 @@ import "@typechain/hardhat"
 import "./tasks/typechain-external"
 import "hardhat-dependency-compiler"
 import "solidity-docgen"
+import "solidity-coverage"
 
 // Preserve explicit verification in deploy scripts; do not wrap ethers transactions.
 setupTenderly({ automaticVerifications: false })
 
 // Load .env from tbtc-v2/ (parent of solidity/) so CHAIN_API_URL etc. are available
 loadEnv({ path: path.join(__dirname, "..", ".env") })
+
+// Solc output selection shared by every compiler-settings block whose build
+// info needs to expose storage layouts to the upgrade-safety test in
+// test/bridge/Bridge.StorageLayout.test.ts. Hoisted so per-contract compiler
+// overrides cannot drift from the main compiler's selection.
+const storageLayoutOutputSelection = {
+  "*": {
+    "*": ["storageLayout"],
+  },
+}
 
 const ecdsaSolidityCompilerConfig = {
   version: "0.8.17",
@@ -31,11 +42,12 @@ const ecdsaSolidityCompilerConfig = {
       enabled: true,
       runs: 200,
     },
+    outputSelection: storageLayoutOutputSelection,
   },
 }
 
-// Reduce the number of optimizer runs to 100 to keep the contract size sane.
-// BridgeGovernance contract does not need to be super gas-efficient.
+// Set optimizer runs to 200 for BridgeGovernance (matching
+// ecdsaSolidityCompilerConfig, for cross-environment solc-default reproducibility).
 const bridgeGovernanceCompilerConfig = {
   version: "0.8.17",
   settings: {
@@ -43,9 +55,26 @@ const bridgeGovernanceCompilerConfig = {
       enabled: true,
       runs: 200,
     },
+    outputSelection: storageLayoutOutputSelection,
   },
 }
-
+// Reduce the number of optimizer runs to keep Bridge.sol under the
+// EIP-170 24KB limit when the m1 reservation surface (router fallback,
+// governance setters, and parameter views) lands on top of the
+// isReservedDeposit view already wired in this branch. The shared
+// storageLayoutOutputSelection is required so the upgrade-safety test
+// in test/bridge/Bridge.StorageLayout.test.ts keeps the storage layout
+// in build info.
+const bridgeCompilerConfig = {
+  version: "0.8.17",
+  settings: {
+    optimizer: {
+      enabled: true,
+      runs: 200, // Reversion to default 1000 attempted and re-measured as infeasible post router-split: 24835 bytes > 24576 limit.
+    },
+    outputSelection: storageLayoutOutputSelection,
+  },
+}
 // Configuration for testing environment.
 export const testConfig = {
   // How many accounts we expect to define for non-staking related signers, e.g.
@@ -71,6 +100,7 @@ const config: HardhatUserConfig = {
             enabled: true,
             runs: 1000,
           },
+          outputSelection: storageLayoutOutputSelection,
         },
       },
     ],
@@ -78,6 +108,7 @@ const config: HardhatUserConfig = {
       "@keep-network/ecdsa/contracts/WalletRegistry.sol":
         ecdsaSolidityCompilerConfig,
       "contracts/bridge/BridgeGovernance.sol": bridgeGovernanceCompilerConfig,
+      "contracts/bridge/Bridge.sol": bridgeCompilerConfig,
       "contracts/cross-chain/wormhole/L1BTCDepositorNttWithExecutor.sol": {
         version: "0.8.17",
         settings: {
@@ -85,6 +116,7 @@ const config: HardhatUserConfig = {
             enabled: true,
             runs: 1, // Minimal runs to minimize bytecode size
           },
+          outputSelection: storageLayoutOutputSelection,
         },
       },
     },
@@ -110,6 +142,15 @@ const config: HardhatUserConfig = {
       blockGasLimit: 30_000_000,
       // Keep the per-transaction gas estimation used by the ethers v5 signer.
       gas: "auto",
+      // Coverage-only pin: coverage compiles with the optimizer off, which
+      // pushes the largest linked-library deploys past EIP-7825's
+      // per-transaction gas cap under the default Osaka hardfork and makes
+      // their test hooks run out of gas. A pre-OSAKA hardfork has no such
+      // cap. Normal builds and tests leave the variable unset and keep the
+      // default hardfork.
+      ...(process.env.COVERAGE_HARDFORK
+        ? { hardfork: process.env.COVERAGE_HARDFORK }
+        : {}),
       forking: {
         // forking is enabled only if FORKING_URL env is provided
         enabled: !!process.env.FORKING_URL,
@@ -170,6 +211,17 @@ const config: HardhatUserConfig = {
         const gwei = Number(process.env.GAS_PRICE_GWEI)
         return Number.isFinite(gwei) && gwei > 0 ? gwei * 1e9 : 5e9 // 5 gwei default
       })(),
+    },
+    // Local `hardhat node --fork` of Sepolia on port 8547, used to rehearse
+    // the live path of scripts/reservations-sepolia-rehearsal.ts. Same
+    // signer source as `sepolia`. A forked `hardhat node` keeps chain id
+    // 31337 whatever it forks.
+    rehearsal: {
+      url: "http://127.0.0.1:8547",
+      chainId: 31337,
+      accounts: process.env.ACCOUNTS_PRIVATE_KEYS
+        ? process.env.ACCOUNTS_PRIVATE_KEYS.split(",")
+        : undefined,
     },
     mainnet: {
       url: process.env.CHAIN_API_URL || "",
@@ -309,7 +361,11 @@ const config: HardhatUserConfig = {
     disambiguatePaths: false,
     runOnCompile: true,
     strict: true,
-    except: ["BridgeStub$"],
+    except: [
+      "BridgeStub$",
+      "ReservationStrandingExecutor$",
+      "TestReservation$",
+    ],
   },
   mocha: {
     timeout: 60_000,

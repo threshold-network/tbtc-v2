@@ -10,6 +10,12 @@ solc = "0.8.17"
 evm_version = "london"
 optimizer = true
 optimizer_runs = 1000
+# Foundry denies filesystem access to the cheatcodes by default. The
+# reservation unit test reads the shared cross-repo satoshi-to-base-unit
+# vector from `test/data/reservations/satoshi-units.json`, so that one file
+# gets a read grant. The grant is scoped to the single file: the suite gets
+# no blanket filesystem access.
+fs_permissions = [{ access = "read", path = "out" }, { access = "read", path = "./test/data/reservations/satoshi-units.json" }]
 # Match Hardhat's compiler settings, including solc 0.8.17's default EVM target.
 # Context-scoped remappings for nested @openzeppelin/contracts(-upgradeable) versions that
 # genuinely differ from the workspace's top-level 4.8.1: @keep-network/ecdsa pins 4.9.1
@@ -74,6 +80,7 @@ additional_compiler_profiles = [
 compilation_restrictions = [
     { paths = "node_modules/@keep-network/ecdsa/contracts/WalletRegistry.sol", optimizer_runs = 200 },
     { paths = "contracts/bridge/BridgeGovernance.sol", optimizer_runs = 200 },
+    { paths = "contracts/bridge/Bridge.sol", optimizer_runs = 200 },
     { paths = "contracts/cross-chain/wormhole/L1BTCDepositorNttWithExecutor.sol", optimizer_runs = 1 }
 ]
 
@@ -82,3 +89,19 @@ runs = 256
 
 [profile.ci.fuzz]
 runs = 1000
+
+# Audit proof-of-concept guards (test/audit-poc) and the test/fizz helpers they
+# import. Opt-in: the default and ci profiles keep test-foundry as the only
+# suite, so CI is unchanged. Run them with `yarn test:audit-poc` or
+# `FOUNDRY_PROFILE=audit forge test -vvv`.
+[profile.audit]
+test = "test/audit-poc"
+
+# Halmos symbolic checks (test/halmos). Opt-in: the default and ci profiles
+# keep test-foundry as the only suite, so CI is unchanged. Run them with
+# FOUNDRY_PROFILE=halmos halmos --forge-build-out build/halmos
+# --match-contract ReservationFloorHalmos --function check_
+[profile.halmos]
+test = "test/halmos"
+out = "build/halmos"
+cache_path = "cache/halmos"

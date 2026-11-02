@@ -8,6 +8,7 @@ on:
       - main
     paths:
       - "monitoring/**"
+      - "typescript/**"
       - "config/**"
   pull_request:
   workflow_dispatch:
@@ -38,6 +39,7 @@ jobs:
           filters: |
             path-filter:
               - './monitoring/**'
+              - './typescript/**'
               - './config/**'
 
   monitoring-build:
@@ -63,19 +65,27 @@ jobs:
         with:
           node-version: "22.x"
           cache: yarn
-          cache-dependency-path: monitoring/yarn.lock
+          cache-dependency-path: |
+            monitoring/yarn.lock
+            typescript/yarn.lock
 
       - name: Configure git to don't use unauthenticated protocol
         run: git config --global url."https://".insteadOf git://
 
+      - name: Build the repository SDK
+        working-directory: ./typescript
+        run: |
+          corepack yarn install --immutable
+          npm run build
+
       - name: Install dependencies
-        run: yarn install --frozen-lockfile
+        run: npx --yes yarn@1.22.22 install --frozen-lockfile
 
       - name: Build
-        run: yarn build
+        run: npx --yes yarn@1.22.22 build
 
       - name: Test
-        run: yarn test
+        run: npx --yes yarn@1.22.22 test
 
   monitoring-docker:
     needs: [monitoring-detect-changes, monitoring-build]
@@ -120,7 +130,8 @@ jobs:
           provenance: false
           cache-from: type=local,src=/tmp/.buildx-cache
           cache-to: type=local,dest=/tmp/.buildx-cache-new
-          context: ./monitoring
+          context: .
+          file: ./monitoring/Dockerfile
           push: ${{ github.event.inputs.environment != 'local' }}
           tags: |
             ${{ env.GCR_REGISTRY_URL || 'local' }}/${{ env.GOOGLE_PROJECT_ID || 'local' }}/tbtc-v2-monitoring
@@ -156,13 +167,21 @@ jobs:
         with:
           node-version: "22.x"
           cache: yarn
-          cache-dependency-path: monitoring/yarn.lock
+          cache-dependency-path: |
+            monitoring/yarn.lock
+            typescript/yarn.lock
 
       - name: Configure git to don't use unauthenticated protocol
         run: git config --global url."https://".insteadOf git://
 
+      - name: Build the repository SDK
+        working-directory: ./typescript
+        run: |
+          corepack yarn install --immutable
+          npm run build
+
       - name: Install dependencies
-        run: yarn install --frozen-lockfile
+        run: npx --yes yarn@1.22.22 install --frozen-lockfile
 
       - name: Check formatting
-        run: yarn format
+        run: npx --yes yarn@1.22.22 format

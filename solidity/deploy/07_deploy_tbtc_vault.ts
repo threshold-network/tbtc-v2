@@ -35,4 +35,4 @@ const func: DeployFunction = async function deployTbtcVault(
 export default func
 
 func.tags = ["TBTCVault"]
-func.dependencies = ["Bank", "TBTC"]
+func.dependencies = ["Bank", "TBTC", "Bridge"]

@@ -4,13 +4,25 @@ import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
 import type {
   Bridge,
+  IReservationBridge,
   IRedemptionWatchtower,
   WalletProposalValidator,
 } from "../../typechain"
+import type { Reservation } from "../../typechain/contracts/bridge/IReservationBridge"
+import type { WalletProposalValidator as WalletProposalValidatorTypes } from "../../typechain/contracts/bridge/WalletProposalValidator"
 import { walletState, movedFundsSweepRequestState } from "../fixtures"
 import { NO_MAIN_UTXO } from "../data/deposit-sweep"
 import { createMock } from "../helpers/mock"
 import type { Mock } from "../helpers/mock"
+
+// TypeChain nests struct types under the contract namespace, so name the
+// four structs these suites build at the import site.
+type ReservationActionStruct = Reservation.ReservationActionStruct
+type ReservationRequestStruct = Reservation.ReservationRequestStruct
+type ReservationReanchorProposalStruct =
+  WalletProposalValidatorTypes.ReservationReanchorProposalStruct
+type ReservationAnchorProposalStruct =
+  WalletProposalValidatorTypes.ReservationAnchorProposalStruct
 
 const { lastBlockTime, increaseTime } = helpers.time
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
@@ -18,6 +30,23 @@ const { ZeroAddress: AddressZero, ZeroHash: HashZero } = ethers
 
 const day = 86400
 const depositLocktime = 30 * day
+
+// Anchor for `createTestRedemptionRequest`'s default `requestedAt`. Captured
+// from the chain's own clock (not `Date.now()`) at the start of the
+// `validateRedemptionProposal` describe block below, because local-network
+// deploy scripts (e.g. `97_set_reservation_parameters.ts`'s governance-delay
+// bypass) advance `block.timestamp` via `evm_increaseTime` well past real
+// wall-clock time. Relying on `Date.now()` here made every default-timed
+// redemption request silently drift out of its safety-margin window
+// whenever this file ran after a fixture that had already fast-forwarded
+// the chain.
+let redemptionRequestDefaultAnchorTime = 0
+
+// Anchor for `createTestDeposit`'s default `revealedAt`. Captured from the
+// chain's own clock (not `Date.now()`) at the start of the
+// `validateDepositSweepProposal` describe block below, for the same reason
+// as `redemptionRequestDefaultAnchorTime` above.
+let depositRevealDefaultAnchorTime = 0
 
 const emptyDepositExtraInfo = {
   fundingTx: {
@@ -59,6 +88,8 @@ describe("WalletProposalValidator", () => {
 
     before(async () => {
       await createSnapshot()
+
+      depositRevealDefaultAnchorTime = await lastBlockTime()
 
       await bridge.depositParameters.returns([0, 0, bridgeDepositTxMaxFee, 0])
     })
@@ -1308,6 +1339,8 @@ describe("WalletProposalValidator", () => {
 
     before(async () => {
       await createSnapshot()
+
+      redemptionRequestDefaultAnchorTime = await lastBlockTime()
 
       await bridge.redemptionParameters.returns([
         0,
@@ -2896,6 +2929,1470 @@ describe("WalletProposalValidator", () => {
       })
     })
   })
+
+  describe("validateReservationAnchorProposal", () => {
+    let reservationBridge: Mock<IReservationBridge>
+
+    // Arbitrary 20-byte hashes; only their mutual distinctness and their
+    // mapping to the mocked wallet/action/deposit records matter.
+    const walletPubKeyHash = `0x${"55".repeat(20)}`
+    const otherWalletPubKeyHash = `0x${"66".repeat(20)}`
+    const vault = `0x${"77".repeat(20)}`
+    const otherVault = `0x${"88".repeat(20)}`
+
+    const requestNonce = 1
+    // Lifecycle regression fixtures here are reachable on-chain:
+    // governance requires `reservationMinAmount > reservationTxMaxFee > 0`
+    // (Reservation.updateReservationParameters) and authorization requires
+    // `deposit.amount > minAmount + 2 * txMaxFee` (reservation acceptance).
+    // The below-snapshot-floor case is an explicit mock-only test of the
+    // validator's defensive invariant.
+    const reservationMinAmount = 15000
+    const reservationTxMaxFee = 10000
+    const anchorTxFee = 6000
+    // Meets the authorization floor (`reservationMinAmount +
+    // 2 * reservationTxMaxFee`) so the anchor-amount minimum check (out of
+    // this describe block's scope) never fires incidentally in the
+    // cases below.
+    const depositAmount = reservationMinAmount + 2 * reservationTxMaxFee + 1000
+
+    const reservationActionType = {
+      None: 0,
+      Acceptance: 1,
+      Redemption: 2,
+      Reanchor: 3,
+      Dissolution: 4,
+    }
+
+    const reservationActionState = {
+      Unknown: 0,
+      Pending: 1,
+      Settled: 2,
+      TimedOut: 3,
+      Vetoed: 4,
+      Superseded: 5,
+    }
+
+    const buildReservationAction = (
+      overrides: Partial<ReservationActionStruct> = {}
+    ): ReservationActionStruct => ({
+      targetWalletPubKeyHash: walletPubKeyHash,
+      requestedAt: 0,
+      timeoutAt: 0,
+      txMaxFee: 0,
+      actionType: reservationActionType.Acceptance,
+      state: reservationActionState.Pending,
+      feePaid: false,
+      redeemer: AddressZero,
+      actionDataHash: HashZero,
+      sourceAnchorUtxoHash: HashZero,
+      amount: 0,
+      minAmount: 0,
+      usedRetryCredit: false,
+      watchtowerDefaultDelay: 0,
+      watchtowerLevelOneDelay: 0,
+      watchtowerLevelTwoDelay: 0,
+      retryCreditSourceNonce: 0,
+      isPartial: false,
+      termSeconds: 0,
+      dissolutionDelay: 0,
+      thirdPartyHold: false,
+      ...overrides,
+    })
+
+    const buildWallet = (state: number) => ({
+      ecdsaWalletID: HashZero,
+      mainUtxoHash: HashZero,
+      pendingRedemptionsValue: 0,
+      createdAt: 0,
+      movingFundsRequestedAt: 0,
+      closingStartedAt: 0,
+      pendingMovedFundsSweepRequestsCount: 0,
+      state,
+      movingFundsTargetWalletsCommitmentHash: HashZero,
+    })
+
+    let deposit: TestDeposit
+
+    const buildProposal = (
+      overrides: Partial<ReservationAnchorProposalStruct> = {}
+    ): ReservationAnchorProposalStruct => ({
+      walletPubKeyHash,
+      depositKey: deposit.key,
+      requestNonce,
+      anchorTxFee,
+      ...overrides,
+    })
+
+    before(async () => {
+      // `MockContract`'s fallback answers any selector configured on it,
+      // regardless of which ABI it was created against (see `mock.ts`), so
+      // a second `createMock` pinned at the same address layers
+      // `IReservationBridge`'s functions -- reached in production through
+      // `Bridge`'s fallback `delegatecall` to `ReservationRouter` -- onto
+      // the very same mock the validator's `bridge` already points at.
+      reservationBridge = await createMock<IReservationBridge>(
+        "IReservationBridge",
+        { address: bridge.address }
+      )
+
+      // Re-anchor `createTestDeposit`'s default `revealedAt` to the chain's
+      // current clock, mirroring `validateDepositSweepProposal`'s own
+      // anchoring above -- this describe block runs later in the file, so
+      // the chain time when it runs may have drifted from that anchor.
+      depositRevealDefaultAnchorTime = await lastBlockTime()
+    })
+
+    context("when the action is not a pending acceptance action", () => {
+      before(async () => {
+        await createSnapshot()
+
+        deposit = createTestDeposit(walletPubKeyHash, vault)
+
+        await bridge.wallets
+          .whenCalledWith(walletPubKeyHash)
+          .returns(buildWallet(walletState.Live))
+        await reservationBridge.reservationParameters.returns([
+          vault,
+          reservationMinAmount,
+          reservationTxMaxFee,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+        ])
+        await reservationBridge.reservationActions.returns(
+          buildReservationAction({
+            actionType: reservationActionType.Reanchor,
+          })
+        )
+      })
+
+      after(async () => {
+        await bridge.wallets.reset()
+        await reservationBridge.reservationParameters.reset()
+        await reservationBridge.reservationActions.reset()
+
+        await restoreSnapshot()
+      })
+
+      it("should revert", async () => {
+        await expect(
+          walletProposalValidator.validateReservationAnchorProposal(
+            buildProposal(),
+            deposit.extraInfo
+          )
+        ).to.be.revertedWith("Not a pending acceptance action")
+      })
+    })
+
+    context("when the acceptance action is not pending", () => {
+      before(async () => {
+        await createSnapshot()
+
+        deposit = createTestDeposit(walletPubKeyHash, vault)
+
+        await bridge.wallets
+          .whenCalledWith(walletPubKeyHash)
+          .returns(buildWallet(walletState.Live))
+        await reservationBridge.reservationParameters.returns([
+          vault,
+          reservationMinAmount,
+          reservationTxMaxFee,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+        ])
+        await reservationBridge.reservationActions.returns(
+          buildReservationAction({ state: reservationActionState.Settled })
+        )
+      })
+
+      after(async () => {
+        await bridge.wallets.reset()
+        await reservationBridge.reservationParameters.reset()
+        await reservationBridge.reservationActions.reset()
+
+        await restoreSnapshot()
+      })
+
+      it("should revert", async () => {
+        await expect(
+          walletProposalValidator.validateReservationAnchorProposal(
+            buildProposal(),
+            deposit.extraInfo
+          )
+        ).to.be.revertedWith("Acceptance action is not pending")
+      })
+    })
+
+    context("when the acceptance action has timed out", () => {
+      before(async () => {
+        await createSnapshot()
+
+        deposit = createTestDeposit(walletPubKeyHash, vault)
+
+        const now = await lastBlockTime()
+
+        await bridge.wallets
+          .whenCalledWith(walletPubKeyHash)
+          .returns(buildWallet(walletState.Live))
+        await reservationBridge.reservationParameters.returns([
+          vault,
+          reservationMinAmount,
+          reservationTxMaxFee,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+        ])
+        await reservationBridge.reservationActions.returns(
+          buildReservationAction({ timeoutAt: now })
+        )
+      })
+
+      after(async () => {
+        await bridge.wallets.reset()
+        await reservationBridge.reservationParameters.reset()
+        await reservationBridge.reservationActions.reset()
+
+        await restoreSnapshot()
+      })
+
+      it("should revert", async () => {
+        await expect(
+          walletProposalValidator.validateReservationAnchorProposal(
+            buildProposal(),
+            deposit.extraInfo
+          )
+        ).to.be.revertedWith("Acceptance action has timed out")
+      })
+    })
+
+    context(
+      "when the proposal's wallet does not match the authorized action",
+      () => {
+        before(async () => {
+          await createSnapshot()
+
+          deposit = createTestDeposit(walletPubKeyHash, vault)
+
+          const now = await lastBlockTime()
+
+          await bridge.wallets
+            .whenCalledWith(walletPubKeyHash)
+            .returns(buildWallet(walletState.Live))
+          await reservationBridge.reservationParameters.returns([
+            vault,
+            reservationMinAmount,
+            reservationTxMaxFee,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+          ])
+          await reservationBridge.reservationActions.returns(
+            buildReservationAction({
+              targetWalletPubKeyHash: otherWalletPubKeyHash,
+              timeoutAt: now + day,
+            })
+          )
+        })
+
+        after(async () => {
+          await bridge.wallets.reset()
+          await reservationBridge.reservationParameters.reset()
+          await reservationBridge.reservationActions.reset()
+
+          await restoreSnapshot()
+        })
+
+        it("should revert", async () => {
+          await expect(
+            walletProposalValidator.validateReservationAnchorProposal(
+              buildProposal(),
+              deposit.extraInfo
+            )
+          ).to.be.revertedWith("Wallet does not match the authorized action")
+        })
+      }
+    )
+
+    context("when the deposit is not revealed", () => {
+      before(async () => {
+        await createSnapshot()
+
+        deposit = createTestDeposit(walletPubKeyHash, vault)
+
+        const now = await lastBlockTime()
+
+        await bridge.wallets
+          .whenCalledWith(walletPubKeyHash)
+          .returns(buildWallet(walletState.Live))
+        await reservationBridge.reservationParameters.returns([
+          vault,
+          reservationMinAmount,
+          reservationTxMaxFee,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+        ])
+        await reservationBridge.reservationActions.returns(
+          buildReservationAction({ timeoutAt: now + day })
+        )
+        // `bridge.deposits` is left unconfigured, so it answers with a
+        // zero-valued `DepositRequest` (`revealedAt` of zero).
+      })
+
+      after(async () => {
+        await bridge.wallets.reset()
+        await reservationBridge.reservationParameters.reset()
+        await reservationBridge.reservationActions.reset()
+
+        await restoreSnapshot()
+      })
+
+      it("should revert", async () => {
+        await expect(
+          walletProposalValidator.validateReservationAnchorProposal(
+            buildProposal(),
+            deposit.extraInfo
+          )
+        ).to.be.revertedWith("Deposit not revealed")
+      })
+    })
+
+    context("when the deposit min age is not achieved", () => {
+      before(async () => {
+        await createSnapshot()
+
+        const now = await lastBlockTime()
+
+        deposit = createTestDeposit(walletPubKeyHash, vault, true, now)
+
+        await bridge.wallets
+          .whenCalledWith(walletPubKeyHash)
+          .returns(buildWallet(walletState.Live))
+        await reservationBridge.reservationParameters.returns([
+          vault,
+          reservationMinAmount,
+          reservationTxMaxFee,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+        ])
+        await reservationBridge.reservationActions.returns(
+          buildReservationAction({ timeoutAt: now + day })
+        )
+        await bridge.deposits.returns(deposit.request)
+      })
+
+      after(async () => {
+        await bridge.wallets.reset()
+        await reservationBridge.reservationParameters.reset()
+        await reservationBridge.reservationActions.reset()
+        await bridge.deposits.reset()
+
+        await restoreSnapshot()
+      })
+
+      it("should revert", async () => {
+        await expect(
+          walletProposalValidator.validateReservationAnchorProposal(
+            buildProposal(),
+            deposit.extraInfo
+          )
+        ).to.be.revertedWith("Deposit min age not achieved yet")
+      })
+    })
+
+    context("when the deposit is already swept", () => {
+      before(async () => {
+        await createSnapshot()
+
+        deposit = createTestDeposit(walletPubKeyHash, vault)
+
+        const now = await lastBlockTime()
+
+        await bridge.wallets
+          .whenCalledWith(walletPubKeyHash)
+          .returns(buildWallet(walletState.Live))
+        await reservationBridge.reservationParameters.returns([
+          vault,
+          reservationMinAmount,
+          reservationTxMaxFee,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+        ])
+        await reservationBridge.reservationActions.returns(
+          buildReservationAction({ timeoutAt: now + day })
+        )
+        await bridge.deposits.returns({ ...deposit.request, sweptAt: 1 })
+      })
+
+      after(async () => {
+        await bridge.wallets.reset()
+        await reservationBridge.reservationParameters.reset()
+        await reservationBridge.reservationActions.reset()
+        await bridge.deposits.reset()
+
+        await restoreSnapshot()
+      })
+
+      it("should revert", async () => {
+        await expect(
+          walletProposalValidator.validateReservationAnchorProposal(
+            buildProposal(),
+            deposit.extraInfo
+          )
+        ).to.be.revertedWith("Deposit already swept")
+      })
+    })
+
+    context("when the deposit was not revealed as reserved", () => {
+      before(async () => {
+        await createSnapshot()
+
+        deposit = createTestDeposit(walletPubKeyHash, vault)
+
+        const now = await lastBlockTime()
+
+        await bridge.wallets
+          .whenCalledWith(walletPubKeyHash)
+          .returns(buildWallet(walletState.Live))
+        await reservationBridge.reservationParameters.returns([
+          vault,
+          reservationMinAmount,
+          reservationTxMaxFee,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+        ])
+        await reservationBridge.reservationActions.returns(
+          buildReservationAction({ timeoutAt: now + day })
+        )
+        await bridge.deposits.returns(deposit.request)
+        // `bridge.isReservedDeposit` is left unconfigured (defaults false).
+      })
+
+      after(async () => {
+        await bridge.wallets.reset()
+        await reservationBridge.reservationParameters.reset()
+        await reservationBridge.reservationActions.reset()
+        await bridge.deposits.reset()
+
+        await restoreSnapshot()
+      })
+
+      it("should revert", async () => {
+        await expect(
+          walletProposalValidator.validateReservationAnchorProposal(
+            buildProposal(),
+            deposit.extraInfo
+          )
+        ).to.be.revertedWith("Deposit was not revealed as reserved")
+      })
+    })
+
+    context("when the deposit is not routed to the reservation vault", () => {
+      before(async () => {
+        await createSnapshot()
+
+        deposit = createTestDeposit(walletPubKeyHash, otherVault)
+
+        const now = await lastBlockTime()
+
+        await bridge.wallets
+          .whenCalledWith(walletPubKeyHash)
+          .returns(buildWallet(walletState.Live))
+        await reservationBridge.reservationParameters.returns([
+          vault,
+          reservationMinAmount,
+          reservationTxMaxFee,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+        ])
+        await reservationBridge.reservationActions.returns(
+          buildReservationAction({ timeoutAt: now + day })
+        )
+        await bridge.deposits.returns(deposit.request)
+        await bridge.isReservedDeposit.returns(true)
+      })
+
+      after(async () => {
+        await bridge.wallets.reset()
+        await reservationBridge.reservationParameters.reset()
+        await reservationBridge.reservationActions.reset()
+        await bridge.deposits.reset()
+        await bridge.isReservedDeposit.reset()
+
+        await restoreSnapshot()
+      })
+
+      it("should revert", async () => {
+        await expect(
+          walletProposalValidator.validateReservationAnchorProposal(
+            buildProposal(),
+            deposit.extraInfo
+          )
+        ).to.be.revertedWith("Deposit not routed to the reservation vault")
+      })
+    })
+
+    context("when the proposed transaction fee is zero", () => {
+      before(async () => {
+        await createSnapshot()
+
+        deposit = createTestDeposit(walletPubKeyHash, vault)
+
+        const now = await lastBlockTime()
+
+        await bridge.wallets
+          .whenCalledWith(walletPubKeyHash)
+          .returns(buildWallet(walletState.Live))
+        await reservationBridge.reservationParameters.returns([
+          vault,
+          reservationMinAmount,
+          reservationTxMaxFee,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+        ])
+        await reservationBridge.reservationActions.returns(
+          buildReservationAction({
+            timeoutAt: now + day,
+            txMaxFee: reservationTxMaxFee,
+          })
+        )
+        await bridge.deposits.returns(deposit.request)
+        await bridge.isReservedDeposit.returns(true)
+      })
+
+      after(async () => {
+        await bridge.wallets.reset()
+        await reservationBridge.reservationParameters.reset()
+        await reservationBridge.reservationActions.reset()
+        await bridge.deposits.reset()
+        await bridge.isReservedDeposit.reset()
+
+        await restoreSnapshot()
+      })
+
+      it("should revert", async () => {
+        await expect(
+          walletProposalValidator.validateReservationAnchorProposal(
+            buildProposal({ anchorTxFee: 0 }),
+            deposit.extraInfo
+          )
+        ).to.be.revertedWith("Proposed transaction fee cannot be zero")
+      })
+    })
+
+    context(
+      "when the proposed transaction fee exceeds the authorized action's max fee",
+      () => {
+        before(async () => {
+          await createSnapshot()
+
+          deposit = createTestDeposit(walletPubKeyHash, vault)
+
+          const now = await lastBlockTime()
+
+          await bridge.wallets
+            .whenCalledWith(walletPubKeyHash)
+            .returns(buildWallet(walletState.Live))
+          await reservationBridge.reservationParameters.returns([
+            vault,
+            reservationMinAmount,
+            reservationTxMaxFee,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+          ])
+          await reservationBridge.reservationActions.returns(
+            buildReservationAction({
+              timeoutAt: now + day,
+              txMaxFee: anchorTxFee - 1,
+            })
+          )
+          await bridge.deposits.returns(deposit.request)
+          await bridge.isReservedDeposit.returns(true)
+        })
+
+        after(async () => {
+          await bridge.wallets.reset()
+          await reservationBridge.reservationParameters.reset()
+          await reservationBridge.reservationActions.reset()
+          await bridge.deposits.reset()
+          await bridge.isReservedDeposit.reset()
+
+          await restoreSnapshot()
+        })
+
+        it("should revert", async () => {
+          await expect(
+            walletProposalValidator.validateReservationAnchorProposal(
+              buildProposal(),
+              deposit.extraInfo
+            )
+          ).to.be.revertedWith("Proposed transaction fee is too high")
+        })
+      }
+    )
+
+    context("when the deposit violates the refund safety margin", () => {
+      before(async () => {
+        await createSnapshot()
+
+        const safetyMarginViolatedAt = await lastBlockTime()
+        const depositRefundableAt =
+          safetyMarginViolatedAt +
+          Number(await walletProposalValidator.DEPOSIT_REFUND_SAFETY_MARGIN())
+        const depositRevealedAt = depositRefundableAt - depositLocktime
+
+        deposit = createTestDeposit(
+          walletPubKeyHash,
+          vault,
+          true,
+          depositRevealedAt
+        )
+
+        const now = await lastBlockTime()
+
+        await bridge.wallets
+          .whenCalledWith(walletPubKeyHash)
+          .returns(buildWallet(walletState.Live))
+        await reservationBridge.reservationParameters.returns([
+          vault,
+          reservationMinAmount,
+          reservationTxMaxFee,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+        ])
+        await reservationBridge.reservationActions.returns(
+          buildReservationAction({
+            timeoutAt: now + day,
+            txMaxFee: reservationTxMaxFee,
+          })
+        )
+        await bridge.deposits.returns({
+          ...deposit.request,
+          amount: depositAmount,
+        })
+        await bridge.isReservedDeposit.returns(true)
+      })
+
+      after(async () => {
+        await bridge.wallets.reset()
+        await reservationBridge.reservationParameters.reset()
+        await reservationBridge.reservationActions.reset()
+        await bridge.deposits.reset()
+        await bridge.isReservedDeposit.reset()
+
+        await restoreSnapshot()
+      })
+
+      it("should revert", async () => {
+        await expect(
+          walletProposalValidator.validateReservationAnchorProposal(
+            buildProposal(),
+            deposit.extraInfo
+          )
+        ).to.be.revertedWith("Deposit refund safety margin is not preserved")
+      })
+    })
+
+    context("when the deposit is controlled by a different wallet", () => {
+      before(async () => {
+        await createSnapshot()
+
+        // The deposit's funding script embeds `otherWalletPubKeyHash`, but
+        // the proposal (and the authorized action) target
+        // `walletPubKeyHash`.
+        deposit = createTestDeposit(otherWalletPubKeyHash, vault)
+
+        const now = await lastBlockTime()
+
+        await bridge.wallets
+          .whenCalledWith(walletPubKeyHash)
+          .returns(buildWallet(walletState.Live))
+        await reservationBridge.reservationParameters.returns([
+          vault,
+          reservationMinAmount,
+          reservationTxMaxFee,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+        ])
+        await reservationBridge.reservationActions.returns(
+          buildReservationAction({
+            timeoutAt: now + day,
+            txMaxFee: reservationTxMaxFee,
+          })
+        )
+        await bridge.deposits.returns({
+          ...deposit.request,
+          amount: depositAmount,
+        })
+        await bridge.isReservedDeposit.returns(true)
+      })
+
+      after(async () => {
+        await bridge.wallets.reset()
+        await reservationBridge.reservationParameters.reset()
+        await reservationBridge.reservationActions.reset()
+        await bridge.deposits.reset()
+        await bridge.isReservedDeposit.reset()
+
+        await restoreSnapshot()
+      })
+
+      it("should revert", async () => {
+        await expect(
+          walletProposalValidator.validateReservationAnchorProposal(
+            buildProposal(),
+            deposit.extraInfo
+          )
+        ).to.be.revertedWith("Deposit controlled by different wallet")
+      })
+    })
+
+    context("when the anchor proposal is valid", () => {
+      before(async () => {
+        await createSnapshot()
+
+        deposit = createTestDeposit(walletPubKeyHash, vault)
+
+        const now = await lastBlockTime()
+
+        await bridge.wallets
+          .whenCalledWith(walletPubKeyHash)
+          .returns(buildWallet(walletState.Live))
+        await reservationBridge.reservationParameters.returns([
+          vault,
+          reservationMinAmount,
+          reservationTxMaxFee,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+        ])
+        await reservationBridge.reservationActions.returns(
+          buildReservationAction({
+            timeoutAt: now + day,
+            txMaxFee: reservationTxMaxFee,
+          })
+        )
+        await bridge.deposits.returns({
+          ...deposit.request,
+          amount: depositAmount,
+        })
+        await bridge.isReservedDeposit.returns(true)
+      })
+
+      after(async () => {
+        await bridge.wallets.reset()
+        await reservationBridge.reservationParameters.reset()
+        await reservationBridge.reservationActions.reset()
+        await bridge.deposits.reset()
+        await bridge.isReservedDeposit.reset()
+
+        await restoreSnapshot()
+      })
+
+      it("should pass validation", async () => {
+        const result =
+          await walletProposalValidator.validateReservationAnchorProposal(
+            buildProposal(),
+            deposit.extraInfo
+          )
+
+        expect(result).to.be.true
+      })
+    })
+
+    context(
+      "when the live reservation minimum was raised after the action was authorized",
+      () => {
+        before(async () => {
+          await createSnapshot()
+
+          deposit = createTestDeposit(walletPubKeyHash, vault)
+
+          const now = await lastBlockTime()
+
+          await bridge.wallets
+            .whenCalledWith(walletPubKeyHash)
+            .returns(buildWallet(walletState.Live))
+          // Live minimum raised far above the snapshot's (still above the
+          // max fee, as governance requires). The validator must keep
+          // validating against the snapshotted `minAmount` so a
+          // governance parameter change cannot invalidate an already
+          // authorized, broadcast anchor transaction.
+          await reservationBridge.reservationParameters.returns([
+            vault,
+            reservationMinAmount * 2,
+            reservationTxMaxFee,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+          ])
+          await reservationBridge.reservationActions.returns(
+            buildReservationAction({
+              timeoutAt: now + day,
+              txMaxFee: reservationTxMaxFee,
+              minAmount: reservationMinAmount,
+            })
+          )
+          await bridge.deposits.returns({
+            ...deposit.request,
+            amount: depositAmount,
+          })
+          await bridge.isReservedDeposit.returns(true)
+        })
+
+        after(async () => {
+          await bridge.wallets.reset()
+          await reservationBridge.reservationParameters.reset()
+          await reservationBridge.reservationActions.reset()
+          await bridge.deposits.reset()
+          await bridge.isReservedDeposit.reset()
+
+          await restoreSnapshot()
+        })
+
+        it("should pass validation against the snapshotted minimum", async () => {
+          const result =
+            await walletProposalValidator.validateReservationAnchorProposal(
+              buildProposal(),
+              deposit.extraInfo
+            )
+
+          expect(result).to.be.true
+        })
+      }
+    )
+
+    context(
+      "when the anchor amount falls below the action's snapshotted minimum",
+      () => {
+        before(async () => {
+          await createSnapshot()
+
+          deposit = createTestDeposit(walletPubKeyHash, vault)
+
+          const now = await lastBlockTime()
+
+          await bridge.wallets
+            .whenCalledWith(walletPubKeyHash)
+            .returns(buildWallet(walletState.Live))
+          // Live minimum lowered, but still above the max fee as
+          // governance requires; the snapshotted minimum is what must
+          // still be enforced at signing time.
+          await reservationBridge.reservationParameters.returns([
+            vault,
+            reservationTxMaxFee + 2000,
+            reservationTxMaxFee,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+          ])
+          await reservationBridge.reservationActions.returns(
+            buildReservationAction({
+              timeoutAt: now + day,
+              txMaxFee: reservationTxMaxFee,
+              minAmount: reservationMinAmount,
+            })
+          )
+          // Unreachable through authorization: an authorized deposit is
+          // at least `minAmount + txMaxFee` (the floor here); the value 1
+          // sat below that only pins that the validator's floor is derived
+          // from the action's snapshotted minimum, not the live one.
+          await bridge.deposits.returns({
+            ...deposit.request,
+            amount: reservationMinAmount + reservationTxMaxFee - 1,
+          })
+          await bridge.isReservedDeposit.returns(true)
+        })
+
+        after(async () => {
+          await bridge.wallets.reset()
+          await reservationBridge.reservationParameters.reset()
+          await reservationBridge.reservationActions.reset()
+          await bridge.deposits.reset()
+          await bridge.isReservedDeposit.reset()
+
+          await restoreSnapshot()
+        })
+
+        it("should revert", async () => {
+          await expect(
+            walletProposalValidator.validateReservationAnchorProposal(
+              buildProposal({ anchorTxFee: reservationTxMaxFee }),
+              deposit.extraInfo
+            )
+          ).to.be.revertedWith("Anchor amount below the reservation minimum")
+        })
+      }
+    )
+
+    context(
+      "when the anchor amount equals the action's snapshotted minimum exactly",
+      () => {
+        before(async () => {
+          await createSnapshot()
+
+          deposit = createTestDeposit(walletPubKeyHash, vault)
+
+          const now = await lastBlockTime()
+
+          await bridge.wallets
+            .whenCalledWith(walletPubKeyHash)
+            .returns(buildWallet(walletState.Live))
+          // Live minimum moved after authorization; the validator must
+          // still accept the exact boundary against the snapshotted
+          // `minAmount`.
+          await reservationBridge.reservationParameters.returns([
+            vault,
+            reservationMinAmount + 5000,
+            reservationTxMaxFee,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+          ])
+          await reservationBridge.reservationActions.returns(
+            buildReservationAction({
+              timeoutAt: now + day,
+              txMaxFee: reservationTxMaxFee,
+              minAmount: reservationMinAmount,
+            })
+          )
+          // Amount is exactly `minAmount + anchorTxFee` (proposing the fee
+          // at the authorized `txMaxFee`), sitting on the validator's
+          // `>=` boundary and at the authorization floor.
+          await bridge.deposits.returns({
+            ...deposit.request,
+            amount: reservationMinAmount + reservationTxMaxFee,
+          })
+          await bridge.isReservedDeposit.returns(true)
+        })
+
+        after(async () => {
+          await bridge.wallets.reset()
+          await reservationBridge.reservationParameters.reset()
+          await reservationBridge.reservationActions.reset()
+          await bridge.deposits.reset()
+          await bridge.isReservedDeposit.reset()
+
+          await restoreSnapshot()
+        })
+
+        it("should pass validation at the exact boundary", async () => {
+          const result =
+            await walletProposalValidator.validateReservationAnchorProposal(
+              buildProposal({ anchorTxFee: reservationTxMaxFee }),
+              deposit.extraInfo
+            )
+
+          expect(result).to.be.true
+        })
+      }
+    )
+  })
+
+  describe("validateReservationReanchorProposal", () => {
+    let reservationBridge: Mock<IReservationBridge>
+
+    // Arbitrary 20-byte hashes; only their mutual distinctness and their
+    // mapping to the mocked reservation/action/wallet records matter.
+    const sourceWalletPubKeyHash = `0x${"11".repeat(20)}`
+    const targetWalletPubKeyHash = `0x${"22".repeat(20)}`
+    const otherActionTargetWalletPubKeyHash = `0x${"33".repeat(20)}`
+    const otherReservationWalletPubKeyHash = `0x${"44".repeat(20)}`
+
+    const reservationKey = 1
+    const requestNonce = 1
+    const reservationTxMaxFee = 10000
+    const reservationMinAmount = 5000
+    const reanchorTxFee = 6000
+    // Must exceed `reservationTxMaxFee + reservationMinAmount` so the
+    // minimum-reservation-amount check (out of this describe block's scope)
+    // never fires incidentally in the cases below.
+    const anchorAmount = reservationTxMaxFee + reservationMinAmount + 1000
+
+    const reservationActionType = {
+      None: 0,
+      Acceptance: 1,
+      Redemption: 2,
+      Reanchor: 3,
+      Dissolution: 4,
+    }
+
+    const reservationActionState = {
+      Unknown: 0,
+      Pending: 1,
+      Settled: 2,
+      TimedOut: 3,
+      Vetoed: 4,
+      Superseded: 5,
+    }
+
+    const buildReservationAction = (
+      overrides: Partial<ReservationActionStruct> = {}
+    ): ReservationActionStruct => ({
+      targetWalletPubKeyHash,
+      requestedAt: 0,
+      timeoutAt: 0,
+      txMaxFee: 0,
+      actionType: reservationActionType.Reanchor,
+      state: reservationActionState.Pending,
+      feePaid: false,
+      redeemer: AddressZero,
+      actionDataHash: HashZero,
+      sourceAnchorUtxoHash: HashZero,
+      amount: 0,
+      minAmount: 0,
+      usedRetryCredit: false,
+      watchtowerDefaultDelay: 0,
+      watchtowerLevelOneDelay: 0,
+      watchtowerLevelTwoDelay: 0,
+      retryCreditSourceNonce: 0,
+      isPartial: false,
+      termSeconds: 0,
+      dissolutionDelay: 0,
+      thirdPartyHold: false,
+      ...overrides,
+    })
+
+    const buildReservationRequest = (
+      overrides: Partial<ReservationRequestStruct> = {}
+    ): ReservationRequestStruct => ({
+      owner: AddressZero,
+      mintedAmount: 0,
+      acceptedAt: 0,
+      walletPubKeyHash: sourceWalletPubKeyHash,
+      anchorAmount,
+      expiresAt: 0,
+      anchorTxHash: HashZero,
+      anchorTxOutputIndex: 0,
+      state: 0,
+      requestNonce: 0,
+      retryCredit: false,
+      dissolutionEligibleAt: 0,
+      cumulativeReanchorFee: 0,
+      reanchorCooldownUntil: 0,
+      ...overrides,
+    })
+
+    const buildProposal = (
+      overrides: Partial<ReservationReanchorProposalStruct> = {}
+    ): ReservationReanchorProposalStruct => ({
+      sourceWalletPubKeyHash,
+      reservationKey,
+      requestNonce,
+      targetWalletPubKeyHash,
+      reanchorTxFee,
+      ...overrides,
+    })
+
+    const buildWallet = (state: number) => ({
+      ecdsaWalletID: HashZero,
+      mainUtxoHash: HashZero,
+      pendingRedemptionsValue: 0,
+      createdAt: 0,
+      movingFundsRequestedAt: 0,
+      closingStartedAt: 0,
+      pendingMovedFundsSweepRequestsCount: 0,
+      state,
+      movingFundsTargetWalletsCommitmentHash: HashZero,
+    })
+
+    before(async () => {
+      // `MockContract`'s fallback answers any selector configured on it,
+      // regardless of which ABI it was created against (see `mock.ts`), so
+      // a second `createMock` pinned at the same address layers
+      // `IReservationBridge`'s functions -- reached in production through
+      // `Bridge`'s fallback `delegatecall` to `ReservationRouter` -- onto
+      // the very same mock the validator's `bridge` already points at.
+      reservationBridge = await createMock<IReservationBridge>(
+        "IReservationBridge",
+        { address: bridge.address }
+      )
+    })
+
+    context("when the action is not a Reanchor action", () => {
+      before(async () => {
+        await createSnapshot()
+
+        await reservationBridge.reservationActions.returns(
+          buildReservationAction({
+            actionType: reservationActionType.Acceptance,
+          })
+        )
+        await reservationBridge.reservations.returns(buildReservationRequest())
+      })
+
+      after(async () => {
+        await reservationBridge.reservationActions.reset()
+        await reservationBridge.reservations.reset()
+
+        await restoreSnapshot()
+      })
+
+      it("should revert", async () => {
+        await expect(
+          walletProposalValidator.validateReservationReanchorProposal(
+            buildProposal()
+          )
+        ).to.be.revertedWith("Not a pending re-anchor action")
+      })
+    })
+
+    context("when the Reanchor action is not pending", () => {
+      before(async () => {
+        await createSnapshot()
+
+        await reservationBridge.reservationActions.returns(
+          buildReservationAction({ state: reservationActionState.Settled })
+        )
+        await reservationBridge.reservations.returns(buildReservationRequest())
+      })
+
+      after(async () => {
+        await reservationBridge.reservationActions.reset()
+        await reservationBridge.reservations.reset()
+
+        await restoreSnapshot()
+      })
+
+      it("should revert", async () => {
+        await expect(
+          walletProposalValidator.validateReservationReanchorProposal(
+            buildProposal()
+          )
+        ).to.be.revertedWith("Re-anchor action is not pending")
+      })
+    })
+
+    context("when the Reanchor action has timed out", () => {
+      before(async () => {
+        await createSnapshot()
+
+        const now = await lastBlockTime()
+
+        await reservationBridge.reservationActions.returns(
+          buildReservationAction({ timeoutAt: now - 1 })
+        )
+        await reservationBridge.reservations.returns(buildReservationRequest())
+      })
+
+      after(async () => {
+        await reservationBridge.reservationActions.reset()
+        await reservationBridge.reservations.reset()
+
+        await restoreSnapshot()
+      })
+
+      it("should revert", async () => {
+        await expect(
+          walletProposalValidator.validateReservationReanchorProposal(
+            buildProposal()
+          )
+        ).to.be.revertedWith("Re-anchor action has timed out")
+      })
+    })
+
+    context(
+      "when the proposal's target wallet does not match the authorized action",
+      () => {
+        before(async () => {
+          await createSnapshot()
+
+          const now = await lastBlockTime()
+
+          await reservationBridge.reservationActions.returns(
+            buildReservationAction({
+              targetWalletPubKeyHash: otherActionTargetWalletPubKeyHash,
+              timeoutAt: now + day,
+            })
+          )
+          await reservationBridge.reservations.returns(
+            buildReservationRequest()
+          )
+        })
+
+        after(async () => {
+          await reservationBridge.reservationActions.reset()
+          await reservationBridge.reservations.reset()
+
+          await restoreSnapshot()
+        })
+
+        it("should revert", async () => {
+          await expect(
+            walletProposalValidator.validateReservationReanchorProposal(
+              buildProposal()
+            )
+          ).to.be.revertedWith(
+            "Target wallet does not match the authorized action"
+          )
+        })
+      }
+    )
+
+    context("when the reservation is custodied by a different wallet", () => {
+      before(async () => {
+        await createSnapshot()
+
+        const now = await lastBlockTime()
+
+        await reservationBridge.reservationActions.returns(
+          buildReservationAction({ timeoutAt: now + day })
+        )
+        await reservationBridge.reservations.returns(
+          buildReservationRequest({
+            walletPubKeyHash: otherReservationWalletPubKeyHash,
+          })
+        )
+      })
+
+      after(async () => {
+        await reservationBridge.reservationActions.reset()
+        await reservationBridge.reservations.reset()
+
+        await restoreSnapshot()
+      })
+
+      it("should revert", async () => {
+        await expect(
+          walletProposalValidator.validateReservationReanchorProposal(
+            buildProposal()
+          )
+        ).to.be.revertedWith("Reservation custodied by different wallet")
+      })
+    })
+
+    context("when the target wallet is not in the Live state", () => {
+      before(async () => {
+        await createSnapshot()
+
+        const now = await lastBlockTime()
+
+        await reservationBridge.reservationActions.returns(
+          buildReservationAction({ timeoutAt: now + day })
+        )
+        await reservationBridge.reservations.returns(buildReservationRequest())
+        await bridge.wallets
+          .whenCalledWith(targetWalletPubKeyHash)
+          .returns(buildWallet(walletState.Closing))
+      })
+
+      after(async () => {
+        await reservationBridge.reservationActions.reset()
+        await reservationBridge.reservations.reset()
+        await bridge.wallets.reset()
+
+        await restoreSnapshot()
+      })
+
+      it("should revert", async () => {
+        await expect(
+          walletProposalValidator.validateReservationReanchorProposal(
+            buildProposal()
+          )
+        ).to.be.revertedWith("Target wallet must be in Live state")
+      })
+    })
+
+    context("when the re-anchor proposal is valid", () => {
+      before(async () => {
+        await createSnapshot()
+
+        const now = await lastBlockTime()
+
+        await reservationBridge.reservationActions.returns(
+          buildReservationAction({
+            timeoutAt: now + day,
+            txMaxFee: reservationTxMaxFee,
+          })
+        )
+        await reservationBridge.reservations.returns(buildReservationRequest())
+        await reservationBridge.reservationParameters.returns([
+          AddressZero,
+          reservationMinAmount,
+          reservationTxMaxFee,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+        ])
+        await bridge.wallets
+          .whenCalledWith(targetWalletPubKeyHash)
+          .returns(buildWallet(walletState.Live))
+      })
+
+      after(async () => {
+        await reservationBridge.reservationActions.reset()
+        await reservationBridge.reservations.reset()
+        await reservationBridge.reservationParameters.reset()
+        await bridge.wallets.reset()
+
+        await restoreSnapshot()
+      })
+
+      it("should pass validation", async () => {
+        const result =
+          await walletProposalValidator.validateReservationReanchorProposal(
+            buildProposal()
+          )
+
+        expect(result).to.be.true
+      })
+    })
+
+    context(
+      "when the target exceeds the per-wallet caps (the request already reserved that capacity)",
+      () => {
+        before(async () => {
+          await createSnapshot()
+
+          const now = await lastBlockTime()
+
+          await reservationBridge.reservationActions.returns(
+            buildReservationAction({
+              timeoutAt: now + day,
+              txMaxFee: reservationTxMaxFee,
+            })
+          )
+          await reservationBridge.reservations.returns(
+            buildReservationRequest()
+          )
+          // The target's reserved position is one past its per-wallet count
+          // cap and over its reserved-amount cap; the on-chain request has
+          // already reserved that capacity, so the proposal must still
+          // validate.
+          await reservationBridge.reservationParameters.returns([
+            AddressZero,
+            reservationMinAmount,
+            reservationTxMaxFee,
+            0,
+            0,
+            0,
+            0,
+            1, // maxReservationsPerWallet
+            0,
+            0,
+          ])
+          await reservationBridge.reservationCaps.returns([
+            100, // maxReservationsAmountPerWallet
+            0,
+            0,
+            0,
+          ])
+          await reservationBridge.walletReservationsCount
+            .whenCalledWith(targetWalletPubKeyHash)
+            .returns(2)
+          await reservationBridge.walletReservationsAmount
+            .whenCalledWith(targetWalletPubKeyHash)
+            .returns(200)
+          await bridge.wallets
+            .whenCalledWith(targetWalletPubKeyHash)
+            .returns(buildWallet(walletState.Live))
+        })
+
+        after(async () => {
+          await reservationBridge.reservationActions.reset()
+          await reservationBridge.reservations.reset()
+          await reservationBridge.reservationParameters.reset()
+          await reservationBridge.reservationCaps.reset()
+          await reservationBridge.walletReservationsCount.reset()
+          await reservationBridge.walletReservationsAmount.reset()
+          await bridge.wallets.reset()
+
+          await restoreSnapshot()
+        })
+
+        it("should pass validation", async () => {
+          const result =
+            await walletProposalValidator.validateReservationReanchorProposal(
+              buildProposal()
+            )
+
+          expect(result).to.be.true
+        })
+      }
+    )
+  })
 })
 
 const depositKey = (
@@ -2907,6 +4404,9 @@ const depositKey = (
     [fundingTxHash, fundingOutputIndex]
   )
 
+/** Deposit record produced by `createTestDeposit` below. */
+type TestDeposit = ReturnType<typeof createTestDeposit>
+
 const createTestDeposit = (
   walletPubKeyHash: string,
   vault: string,
@@ -2917,10 +4417,13 @@ const createTestDeposit = (
   let resolvedRevealedAt = revealedAt
 
   if (!resolvedRevealedAt) {
-    // If the deposit reveal time is not explicitly set, use `now - 1 day` to
-    // ensure deposit minimum age is achieved by default.
-    const now = Math.floor(Date.now() / 1000)
-    resolvedRevealedAt = now - day
+    // If the deposit reveal time is not explicitly set, use
+    // `chainTime - 1 day` to ensure deposit minimum age is achieved by
+    // default. Anchored to the chain's own clock (captured once per
+    // `validateDepositSweepProposal` run), not `Date.now()`, since
+    // `block.timestamp` can be far ahead of real wall-clock time by the
+    // point this file runs.
+    resolvedRevealedAt = depositRevealDefaultAnchorTime - day
   }
 
   const refundableAt = resolvedRevealedAt + depositLocktime
@@ -3040,10 +4543,13 @@ const createTestRedemptionRequest = (
   let resolvedRequestedAt = requestedAt
 
   if (!resolvedRequestedAt) {
-    // If the request creation time is not explicitly set, use `now - 1 day` to
-    // ensure request minimum age is achieved by default.
-    const now = Math.floor(Date.now() / 1000)
-    resolvedRequestedAt = now - day
+    // If the request creation time is not explicitly set, use
+    // `chainTime - 1 day` to ensure request minimum age is achieved by
+    // default. Anchored to the chain's own clock (captured once per
+    // `validateRedemptionProposal` run), not `Date.now()`, since
+    // `block.timestamp` can be far ahead of real wall-clock time by the
+    // point this file runs.
+    resolvedRequestedAt = redemptionRequestDefaultAnchorTime - day
   }
 
   const redeemer = `0x${crypto.randomBytes(20).toString("hex")}`

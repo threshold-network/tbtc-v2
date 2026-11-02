@@ -1,6 +1,6 @@
 import assert from "assert"
 
-import { EthereumAddress, EthereumBridge } from "@keep-network/tbtc-v2.ts"
+import { EthereumAddress, EthereumBridge } from "@keep-network/tbtc-v2.ts/core"
 
 import {
   RedemptionChain,
@@ -12,7 +12,7 @@ import { test } from "./test-runner"
 import { redemptionRequest } from "./redemption-fixtures"
 
 import type { providers } from "ethers"
-import type { Bridge } from "@keep-network/tbtc-v2.ts"
+import type { Bridge } from "@keep-network/tbtc-v2.ts/core"
 
 const address = `0x${"aa".repeat(20)}`
 const wallet = `0x${"11".repeat(20)}`
