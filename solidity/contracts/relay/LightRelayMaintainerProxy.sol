@@ -20,6 +20,7 @@ import "@keep-network/random-beacon/contracts/Reimbursable.sol";
 import "@keep-network/random-beacon/contracts/ReimbursementPool.sol";
 
 import "./LightRelay.sol";
+import "../libraries/GasAccounting.sol";
 
 /// @title LightRelayMaintainerProxy
 /// @notice The proxy contract that allows the relay maintainers to be refunded
@@ -140,7 +141,7 @@ contract LightRelayMaintainerProxy is Ownable, Reimbursable {
         lightRelay.retarget(headers);
 
         reimbursementPool.refund(
-            (gasStart - gasleft()) + retargetGasOffset,
+            GasAccounting.gasSpent(gasStart) + retargetGasOffset,
             msg.sender
         );
     }

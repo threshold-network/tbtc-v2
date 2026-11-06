@@ -32,6 +32,7 @@ import "./EcdsaLib.sol";
 import "./Wallets.sol";
 import "./Fraud.sol";
 import "./MovingFunds.sol";
+import "../libraries/GasAccounting.sol";
 
 import "../bank/IReceiveBalanceApproval.sol";
 import "../bank/Bank.sol";
@@ -172,6 +173,17 @@ contract Bridge is
     event FraudChallengeDefeated(
         bytes20 indexed walletPubKeyHash,
         bytes32 sighash
+    );
+
+    event FraudChallengePayoutDeferred(
+        address indexed beneficiary,
+        uint256 amount
+    );
+
+    event FraudChallengePayoutClaimed(
+        address indexed beneficiary,
+        address indexed recipient,
+        uint256 amount
     );
 
     event FraudChallengeDefeatTimedOut(
@@ -825,7 +837,8 @@ contract Bridge is
         );
 
         self.reimbursementPool.refund(
-            (gasStart - gasleft()) + self.movingFundsCommitmentGasOffset,
+            GasAccounting.gasSpent(gasStart) +
+                self.movingFundsCommitmentGasOffset,
             msg.sender
         );
     }
@@ -1271,6 +1284,19 @@ contract Bridge is
         );
     }
 
+    /// @notice Claims the caller's deferred fraud payout to a chosen recipient.
+    /// @dev A failed claim reverts, preserving the caller's credit. Only the
+    ///      credited beneficiary can choose the destination address.
+    function claimFraudChallengePayout(address payable recipient) external {
+        self.claimFraudChallengePayout(recipient);
+    }
+
+    /// @notice Retries a deferred fraud payout to its original beneficiary.
+    /// @dev Anyone may fund the retry; the credited ETH cannot be redirected.
+    function retryFraudChallengePayout(address payable beneficiary) external {
+        self.retryFraudChallengePayout(beneficiary);
+    }
+
     /// @notice Allows the Governance to mark the given vault address as trusted
     ///         or no longer trusted. Vaults are not trusted by default.
     ///         Trusted vault must meet the following criteria:
@@ -1704,6 +1730,13 @@ contract Bridge is
     /// @return The current count of wallets being in the Live state.
     function liveWalletsCount() external view returns (uint32) {
         return self.liveWalletsCount;
+    }
+
+    /// @notice Returns the amount of deferred fraud payout owed to a beneficiary.
+    function pendingFraudChallengePayouts(
+        address beneficiary
+    ) external view returns (uint256) {
+        return self.pendingFraudChallengePayouts[beneficiary];
     }
 
     /// @notice Returns the fraud challenge identified by the given key built

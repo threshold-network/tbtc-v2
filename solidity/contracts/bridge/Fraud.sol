@@ -96,6 +96,17 @@ library Fraud {
         bytes32 sighash
     );
 
+    event FraudChallengePayoutDeferred(
+        address indexed beneficiary,
+        uint256 amount
+    );
+
+    event FraudChallengePayoutClaimed(
+        address indexed beneficiary,
+        address indexed recipient,
+        uint256 amount
+    );
+
     /// @notice Submits a fraud challenge indicating that a UTXO being under
     ///         wallet control was unlocked by the wallet but was not used
     ///         according to the protocol rules. That means the wallet signed
@@ -329,11 +340,7 @@ library Fraud {
         // Mark the challenge as resolved as it was successfully defeated
         challenge.resolved = true;
 
-        // Send the ether deposited by the challenger to the treasury
-        /* solhint-disable avoid-low-level-calls */
-        // slither-disable-next-line low-level-calls,unchecked-lowlevel,arbitrary-send
-        self.treasury.call{gas: 100000, value: challenge.depositAmount}("");
-        /* solhint-enable avoid-low-level-calls */
+        payOrDefer(self, self.treasury, challenge.depositAmount);
 
         bytes memory compressedWalletPublicKey = EcdsaLib.compressPublicKey(
             walletPublicKey.slice32(0),
@@ -410,13 +417,7 @@ library Fraud {
         );
 
         challenge.resolved = true;
-        // Return the ether deposited by the challenger
-        /* solhint-disable avoid-low-level-calls */
-        // slither-disable-next-line low-level-calls,unchecked-lowlevel
-        challenge.challenger.call{gas: 100000, value: challenge.depositAmount}(
-            ""
-        );
-        /* solhint-enable avoid-low-level-calls */
+        payOrDefer(self, challenge.challenger, challenge.depositAmount);
 
         bytes memory compressedWalletPublicKey = EcdsaLib.compressPublicKey(
             walletPublicKey.slice32(0),
@@ -432,6 +433,63 @@ library Fraud {
 
         // slither-disable-next-line reentrancy-events
         emit FraudChallengeDefeatTimedOut(walletPubKeyHash, sighash);
+    }
+
+    /// @dev Resolution must not depend on a receiver's gas needs. A failed
+    ///      bounded push becomes a claim, including when opcode repricing makes
+    ///      a previously valid receive function exceed this best-effort budget.
+    function payOrDefer(
+        BridgeState.Storage storage self,
+        address beneficiary,
+        uint256 amount
+    ) internal {
+        /* solhint-disable avoid-low-level-calls */
+        // slither-disable-next-line low-level-calls
+        (bool sent, ) = beneficiary.call{gas: 100000, value: amount}("");
+        /* solhint-enable avoid-low-level-calls */
+        if (!sent) {
+            self.pendingFraudChallengePayouts[beneficiary] += amount;
+            emit FraudChallengePayoutDeferred(beneficiary, amount);
+        }
+    }
+
+    /// @notice Withdraws the caller's deferred fraud payout to a chosen address.
+    /// @dev Effects precede the external call: reentry cannot claim the same
+    ///      credit twice. A failed withdrawal reverts and restores the credit.
+    function claimFraudChallengePayout(
+        BridgeState.Storage storage self,
+        address payable recipient
+    ) external {
+        withdrawPayout(self, msg.sender, recipient);
+    }
+
+    /// @notice Lets anyone retry delivery to the original credited beneficiary.
+    /// @dev A third party cannot redirect the credit. This supports contract
+    ///      receivers that cannot call the beneficiary-only claim function.
+    function retryFraudChallengePayout(
+        BridgeState.Storage storage self,
+        address payable beneficiary
+    ) external {
+        withdrawPayout(self, beneficiary, beneficiary);
+    }
+
+    function withdrawPayout(
+        BridgeState.Storage storage self,
+        address beneficiary,
+        address payable recipient
+    ) private {
+        require(recipient != address(0), "Recipient must not be 0x0");
+        uint256 amount = self.pendingFraudChallengePayouts[beneficiary];
+        require(amount > 0, "No pending fraud challenge payout");
+
+        self.pendingFraudChallengePayouts[beneficiary] = 0;
+        /* solhint-disable avoid-low-level-calls */
+        // slither-disable-next-line low-level-calls
+        (bool sent, ) = recipient.call{value: amount}("");
+        /* solhint-enable avoid-low-level-calls */
+        require(sent, "Fraud challenge payout failed");
+
+        emit FraudChallengePayoutClaimed(beneficiary, recipient, amount);
     }
 
     /// @notice Extracts the UTXO keys from the given preimage used during

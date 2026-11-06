@@ -24,6 +24,7 @@ import "../integrator/AbstractBTCDepositor.sol";
 import "../integrator/IBridge.sol";
 import "../integrator/ITBTCVault.sol";
 import "./utils/Crosschain.sol";
+import "../libraries/GasAccounting.sol";
 
 /// @title AbstractL1BTCDepositor
 /// @notice This contract is part of the direct bridging mechanism allowing
@@ -326,7 +327,7 @@ abstract contract AbstractL1BTCDepositor is
             address(reimbursementPool) != address(0) &&
             reimbursementAuthorizations[msg.sender]
         ) {
-            uint256 gasSpent = (gasStart - gasleft()) +
+            uint256 gasSpent = GasAccounting.gasSpent(gasStart) +
                 initializeDepositGasOffset;
 
             // Should not happen as long as initializeDepositGasOffset is
@@ -465,7 +466,7 @@ abstract contract AbstractL1BTCDepositor is
                 // using the `_refundToGasSpent` function.
                 uint256 msgValueOffset = _refundToGasSpent(msg.value);
                 reimbursementPool.refund(
-                    (gasStart - gasleft()) +
+                    GasAccounting.gasSpent(gasStart) +
                         msgValueOffset +
                         finalizeDepositGasOffset,
                     msg.sender

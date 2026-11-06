@@ -325,6 +325,10 @@ library BridgeState {
         // governance wiring; changing it afterwards requires a dedicated
         // upgrade path of the Bridge implementation.
         address rebateStaking;
+        // ETH payouts that could not be delivered during fraud resolution.
+        // Appended in the reserved storage gap; existing fields keep their
+        // original slots. Only the credited beneficiary can withdraw.
+        mapping(address => uint256) pendingFraudChallengePayouts;
         // Reserved storage space in case we need to add more variables.
         // The convention from OpenZeppelin suggests the storage space should
         // add up to 50 slots. Here we want to have more slots as there are
@@ -332,7 +336,7 @@ library BridgeState {
         // the struct in the upcoming versions we need to reduce the array size.
         // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
         // slither-disable-next-line unused-state
-        uint256[48] __gap;
+        uint256[47] __gap;
     }
 
     event DepositParametersUpdated(

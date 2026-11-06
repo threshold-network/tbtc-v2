@@ -21,6 +21,7 @@ import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 
 import "./Wormhole.sol";
 import "../../integrator/AbstractBTCRedeemer.sol";
+import "../../libraries/GasAccounting.sol";
 
 /// @title L1BTCRedeemerWormhole
 /// @notice This contract is part of the direct bridging mechanism allowing
@@ -259,7 +260,7 @@ contract L1BTCRedeemerWormhole is
             reimbursementAuthorizations[msg.sender]
         ) {
             reimbursementPool.refund(
-                (gasStart - gasleft()) + requestRedemptionGasOffset,
+                GasAccounting.gasSpent(gasStart) + requestRedemptionGasOffset,
                 msg.sender
             );
         }

@@ -27,6 +27,7 @@ import "../../integrator/IBridge.sol";
 import "../../integrator/ITBTCVault.sol";
 
 import "./Wormhole.sol";
+import "../../libraries/GasAccounting.sol";
 import "../utils/Crosschain.sol";
 
 /// @title L1BTCDepositorWormholeV2Arbitrum
@@ -389,7 +390,7 @@ contract L1BTCDepositorWormholeV2Arbitrum is
             address(reimbursementPool) != address(0) &&
             reimbursementAuthorizations[msg.sender]
         ) {
-            uint256 gasSpent = (gasStart - gasleft()) +
+            uint256 gasSpent = GasAccounting.gasSpent(gasStart) +
                 initializeDepositGasOffset;
 
             // Should not happen as long as initializeDepositGasOffset is
@@ -487,7 +488,7 @@ contract L1BTCDepositorWormholeV2Arbitrum is
             if (reimbursementAuthorizations[msg.sender]) {
                 uint256 msgValueOffset = _refundToGasSpent(msg.value);
                 reimbursementPool.refund(
-                    (gasStart - gasleft()) +
+                    GasAccounting.gasSpent(gasStart) +
                         msgValueOffset +
                         finalizeDepositGasOffset,
                     msg.sender
