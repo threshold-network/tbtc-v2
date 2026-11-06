@@ -1733,9 +1733,11 @@ contract Bridge is
     }
 
     /// @notice Returns the amount of deferred fraud payout owed to a beneficiary.
-    function pendingFraudChallengePayouts(
-        address beneficiary
-    ) external view returns (uint256) {
+    function pendingFraudChallengePayouts(address beneficiary)
+        external
+        view
+        returns (uint256)
+    {
         return self.pendingFraudChallengePayouts[beneficiary];
     }
 

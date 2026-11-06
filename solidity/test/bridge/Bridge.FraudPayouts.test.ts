@@ -15,18 +15,25 @@ describe("Bridge - deferred fraud payouts", () => {
     // code without deploying unrelated staking, beacon and SPV fixtures.
     const [governance, treasury, thirdParty, proxyAdmin] =
       await ethers.getSigners()
-    const libraries: Record<string, string> = {}
-    for (const name of [
-      "Deposit",
-      "DepositSweep",
-      "Redemption",
-      "Wallets",
-      "Fraud",
-      "MovingFunds",
-    ]) {
-      const library = await (await ethers.getContractFactory(name)).deploy()
-      libraries[name] = library.address
-    }
+    const libraries = Object.fromEntries(
+      await Promise.all(
+        [
+          "Deposit",
+          "DepositSweep",
+          "Redemption",
+          "Wallets",
+          "Fraud",
+          "MovingFunds",
+        ].map(async (name) => {
+          const library = await (
+            await ethers.getContractFactory(
+              `contracts/bridge/${name}.sol:${name}`
+            )
+          ).deploy()
+          return [name, library.address]
+        })
+      )
+    )
     const bridgeFactory = await ethers.getContractFactory("BridgeStub", {
       libraries,
     })

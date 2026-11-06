@@ -449,6 +449,10 @@ library Fraud {
         /* solhint-enable avoid-low-level-calls */
         if (!sent) {
             self.pendingFraudChallengePayouts[beneficiary] += amount;
+            // A false result means the receiver frame, including all of its
+            // reentrant effects and events, reverted. This event therefore
+            // cannot be reordered with a surviving receiver interaction.
+            // slither-disable-next-line reentrancy-events
             emit FraudChallengePayoutDeferred(beneficiary, amount);
         }
     }
@@ -483,13 +487,14 @@ library Fraud {
         require(amount > 0, "No pending fraud challenge payout");
 
         self.pendingFraudChallengePayouts[beneficiary] = 0;
+        // Publish the effect before interacting. A failed call reverts this
+        // event together with the cleared credit.
+        emit FraudChallengePayoutClaimed(beneficiary, recipient, amount);
         /* solhint-disable avoid-low-level-calls */
         // slither-disable-next-line low-level-calls
         (bool sent, ) = recipient.call{value: amount}("");
         /* solhint-enable avoid-low-level-calls */
         require(sent, "Fraud challenge payout failed");
-
-        emit FraudChallengePayoutClaimed(beneficiary, recipient, amount);
     }
 
     /// @notice Extracts the UTXO keys from the given preimage used during
