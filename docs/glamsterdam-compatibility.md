@@ -99,6 +99,11 @@ Amsterdam settlement floors or the state-gas reservoir. If this draft is chosen
 for deployment, a fork sweep must cover floor-bound transactions below 2^24 and
 reservoir transactions above it, with receipt costs compared to refunds.
 
+Also execute the patched deferred-credit and withdrawal bytecode under the
+Amsterdam rules, including a receiver that creates storage, a rejected claim,
+and retry recovery. Passing the ordinary Hardhat credit-logic tests does not
+establish that those paths have enough gas after repricing.
+
 After compilation, verify the complete BridgeState layout against the chosen
 pre-upgrade commit with the project's solc-js 0.8.17 build:
 
