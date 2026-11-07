@@ -21,6 +21,7 @@ import "@keep-network/random-beacon/contracts/ReimbursementPool.sol";
 
 import "../bridge/BitcoinTx.sol";
 import "../bridge/Bridge.sol";
+import "../libraries/GasAccounting.sol";
 
 /// @title Maintainer Proxy
 /// @notice Maintainers are the willing off-chain clients approved by the governance.
@@ -186,7 +187,7 @@ contract MaintainerProxy is Ownable, Reimbursable {
         bridge.submitDepositSweepProof(sweepTx, sweepProof, mainUtxo, vault);
 
         reimbursementPool.refund(
-            (gasStart - gasleft()) + submitDepositSweepProofGasOffset,
+            GasAccounting.gasSpent(gasStart) + submitDepositSweepProofGasOffset,
             msg.sender
         );
     }
@@ -210,7 +211,7 @@ contract MaintainerProxy is Ownable, Reimbursable {
         );
 
         reimbursementPool.refund(
-            (gasStart - gasleft()) + submitRedemptionProofGasOffset,
+            GasAccounting.gasSpent(gasStart) + submitRedemptionProofGasOffset,
             msg.sender
         );
     }
@@ -224,7 +225,7 @@ contract MaintainerProxy is Ownable, Reimbursable {
         bridge.resetMovingFundsTimeout(walletPubKeyHash);
 
         reimbursementPool.refund(
-            (gasStart - gasleft()) + resetMovingFundsTimeoutGasOffset,
+            GasAccounting.gasSpent(gasStart) + resetMovingFundsTimeoutGasOffset,
             msg.sender
         );
     }
@@ -248,7 +249,7 @@ contract MaintainerProxy is Ownable, Reimbursable {
         );
 
         reimbursementPool.refund(
-            (gasStart - gasleft()) + submitMovingFundsProofGasOffset,
+            GasAccounting.gasSpent(gasStart) + submitMovingFundsProofGasOffset,
             msg.sender
         );
     }
@@ -265,7 +266,8 @@ contract MaintainerProxy is Ownable, Reimbursable {
         bridge.notifyMovingFundsBelowDust(walletPubKeyHash, mainUtxo);
 
         reimbursementPool.refund(
-            (gasStart - gasleft()) + notifyMovingFundsBelowDustGasOffset,
+            GasAccounting.gasSpent(gasStart) +
+                notifyMovingFundsBelowDustGasOffset,
             msg.sender
         );
     }
@@ -283,7 +285,8 @@ contract MaintainerProxy is Ownable, Reimbursable {
         bridge.submitMovedFundsSweepProof(sweepTx, sweepProof, mainUtxo);
 
         reimbursementPool.refund(
-            (gasStart - gasleft()) + submitMovedFundsSweepProofGasOffset,
+            GasAccounting.gasSpent(gasStart) +
+                submitMovedFundsSweepProofGasOffset,
             msg.sender
         );
     }
@@ -300,7 +303,7 @@ contract MaintainerProxy is Ownable, Reimbursable {
         bridge.requestNewWallet(activeWalletMainUtxo);
 
         reimbursementPool.refund(
-            (gasStart - gasleft()) + requestNewWalletGasOffset,
+            GasAccounting.gasSpent(gasStart) + requestNewWalletGasOffset,
             msg.sender
         );
     }
@@ -317,7 +320,7 @@ contract MaintainerProxy is Ownable, Reimbursable {
         bridge.notifyWalletCloseable(walletPubKeyHash, walletMainUtxo);
 
         reimbursementPool.refund(
-            (gasStart - gasleft()) + notifyWalletCloseableGasOffset,
+            GasAccounting.gasSpent(gasStart) + notifyWalletCloseableGasOffset,
             msg.sender
         );
     }
@@ -334,7 +337,8 @@ contract MaintainerProxy is Ownable, Reimbursable {
         bridge.notifyWalletClosingPeriodElapsed(walletPubKeyHash);
 
         reimbursementPool.refund(
-            (gasStart - gasleft()) + notifyWalletClosingPeriodElapsedGasOffset,
+            GasAccounting.gasSpent(gasStart) +
+                notifyWalletClosingPeriodElapsedGasOffset,
             msg.sender
         );
     }
@@ -352,7 +356,7 @@ contract MaintainerProxy is Ownable, Reimbursable {
         bridge.defeatFraudChallenge(walletPublicKey, preimage, witness);
 
         reimbursementPool.refund(
-            (gasStart - gasleft()) + defeatFraudChallengeGasOffset,
+            GasAccounting.gasSpent(gasStart) + defeatFraudChallengeGasOffset,
             msg.sender
         );
     }
@@ -372,7 +376,8 @@ contract MaintainerProxy is Ownable, Reimbursable {
         );
 
         reimbursementPool.refund(
-            (gasStart - gasleft()) + defeatFraudChallengeWithHeartbeatGasOffset,
+            GasAccounting.gasSpent(gasStart) +
+                defeatFraudChallengeWithHeartbeatGasOffset,
             msg.sender
         );
     }

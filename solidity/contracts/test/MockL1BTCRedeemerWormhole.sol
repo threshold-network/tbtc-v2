@@ -7,6 +7,7 @@ import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "../cross-chain/wormhole/Wormhole.sol";
 import "../integrator/AbstractBTCRedeemer.sol";
 import "../integrator/IBridge.sol";
+import "../libraries/GasAccounting.sol";
 
 contract MockL1BTCRedeemerWormhole is
     AbstractBTCRedeemer,
@@ -162,7 +163,7 @@ contract MockL1BTCRedeemerWormhole is
             reimbursementAuthorizations[msg.sender]
         ) {
             reimbursementPool.refund(
-                (gasStart - gasleft()) + requestRedemptionGasOffset,
+                GasAccounting.gasSpent(gasStart) + requestRedemptionGasOffset,
                 msg.sender
             );
         }
