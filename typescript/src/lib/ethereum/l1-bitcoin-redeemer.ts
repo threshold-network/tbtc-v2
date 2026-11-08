@@ -1,3 +1,4 @@
+import { assertCrossChainOperationsAllowed } from "../utils/cross-chain-pause"
 import {
   EthersContractConfig,
   EthersContractDeployment,
@@ -86,6 +87,8 @@ export class EthereumL1BitcoinRedeemer
     mainUtxo: BitcoinUtxo,
     encodedVm: BytesLike
   ): Promise<Hex> {
+    assertCrossChainOperationsAllowed()
+
     const walletPublicKeyHash =
       BitcoinHashUtils.computeHash160(walletPublicKey).toPrefixedString()
 

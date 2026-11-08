@@ -41,7 +41,7 @@ the given tBTC v2 deposit script.
 
 #### Defined in
 
-[services/deposits/funding.ts:30](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/funding.ts#L30)
+[services/deposits/funding.ts:31](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/funding.ts#L31)
 
 ## Properties
 
@@ -51,7 +51,7 @@ the given tBTC v2 deposit script.
 
 #### Defined in
 
-[services/deposits/funding.ts:28](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/funding.ts#L28)
+[services/deposits/funding.ts:29](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/funding.ts#L29)
 
 ## Methods
 
@@ -101,7 +101,7 @@ When the sum of the selected UTXOs is insufficient to cover
 
 #### Defined in
 
-[services/deposits/funding.ts:62](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/funding.ts#L62)
+[services/deposits/funding.ts:63](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/funding.ts#L63)
 
 ___
 
@@ -151,7 +151,7 @@ When the sum of the selected UTXOs is insufficient to cover
 
 #### Defined in
 
-[services/deposits/funding.ts:181](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/funding.ts#L181)
+[services/deposits/funding.ts:186](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/funding.ts#L186)
 
 ___
 
@@ -171,4 +171,4 @@ ___
 
 #### Defined in
 
-[services/deposits/funding.ts:34](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/funding.ts#L34)
+[services/deposits/funding.ts:35](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/funding.ts#L35)

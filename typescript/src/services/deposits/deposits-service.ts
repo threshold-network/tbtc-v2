@@ -1,3 +1,4 @@
+import { assertCrossChainOperationsAllowed } from "../../lib/utils/cross-chain-pause"
 import {
   ChainIdentifier,
   CrossChainInterfaces,
@@ -136,6 +137,13 @@ export class DepositsService {
     depositorProxy: DepositorProxy,
     extraData?: Hex
   ): Promise<Deposit> {
+    if (
+      extraData !== undefined ||
+      depositorProxy instanceof CrossChainDepositor
+    ) {
+      assertCrossChainOperationsAllowed()
+    }
+
     const receipt = await this.generateDepositReceipt(
       bitcoinRecoveryAddress,
       depositorProxy.getChainIdentifier(),
@@ -183,6 +191,8 @@ export class DepositsService {
     bitcoinRecoveryAddress: string,
     destinationChainName: DestinationChainName
   ): Promise<Deposit> {
+    assertCrossChainOperationsAllowed()
+
     const crossChainContracts = this.#crossChainContracts(destinationChainName)
     if (!crossChainContracts) {
       throw new Error(
@@ -204,6 +214,12 @@ export class DepositsService {
     depositor: ChainIdentifier,
     extraData?: Hex
   ): Promise<DepositReceipt> {
+    // Metadata receipts do not identify whether their proxy depends on a
+    // relayer. Refuse them even when a custom proxy hides the cross-chain type.
+    if (extraData !== undefined) {
+      assertCrossChainOperationsAllowed()
+    }
+
     const blindingFactor = Hex.from(crypto.randomBytes(8))
 
     const walletPublicKey =

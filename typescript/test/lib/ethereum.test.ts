@@ -1,3 +1,4 @@
+import { exercisePausedCrossChainImplementation } from "../utils/exercise-paused-cross-chain-implementation"
 import {
   BitcoinTxHash,
   BitcoinHashUtils,
@@ -201,6 +202,8 @@ describe("Ethereum", () => {
       })
 
       context("when deposit has optional extra data", () => {
+        exercisePausedCrossChainImplementation()
+
         beforeEach(async () => {
           await bridgeContract.mock.revealDepositWithExtraData.returns()
 
@@ -680,6 +683,8 @@ describe("Ethereum", () => {
     })
 
     describe("initializeDeposit", () => {
+      exercisePausedCrossChainImplementation()
+
       // Just short byte strings for clarity.
       const depositTx: BitcoinRawTxVectors = {
         version: Hex.from("00000000"),
@@ -789,6 +794,8 @@ describe("Ethereum", () => {
     })
 
     describe("initializeDeposit", () => {
+      exercisePausedCrossChainImplementation()
+
       // Just short byte strings for clarity.
       const depositTx: BitcoinRawTxVectors = {
         version: Hex.from("00000000"),

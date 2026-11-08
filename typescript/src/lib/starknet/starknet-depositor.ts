@@ -1,3 +1,4 @@
+import { assertCrossChainOperationsAllowed } from "../utils/cross-chain-pause"
 import {
   BitcoinDepositor,
   ChainIdentifier,
@@ -217,6 +218,8 @@ export class StarkNetBitcoinDepositor implements BitcoinDepositor {
     deposit: DepositReceipt,
     vault?: ChainIdentifier
   ): Promise<Hex | TransactionReceipt> {
+    assertCrossChainOperationsAllowed()
+
     // Check if deposit owner is set
     if (!this.#depositOwner) {
       throw new Error(

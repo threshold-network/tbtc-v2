@@ -1,3 +1,4 @@
+import { assertCrossChainOperationsAllowed } from "../utils/cross-chain-pause"
 import {
   EthersContractConfig,
   EthersContractDeployment,
@@ -152,6 +153,8 @@ export class EthereumL1BitcoinDepositor
     deposit: DepositReceipt,
     vault?: ChainIdentifier
   ): Promise<Hex> {
+    assertCrossChainOperationsAllowed()
+
     const { fundingTx, reveal } = packRevealDepositParameters(
       depositTx,
       depositOutputIndex,

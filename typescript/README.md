@@ -23,6 +23,38 @@ trustless tokenized Bitcoin to their users.
   - [Auto-generated API reference](#auto-generated-api-reference)
 - [Documentation](#documentation)
 
+## Temporary cross-chain pause
+
+New cross-chain deposits, mint reveals and redemption requests are temporarily
+unavailable. This applies to
+the cross-chain service methods, built-in depositor proxies, reconstructed
+cross-chain deposits, redemption relays and direct calls to the SDK's
+cross-chain depositor/redeemer contract adapters. Both L1 and destination-chain
+cross-chain reveal modes reject before submitting a transaction. There is no
+configuration or environment override.
+
+Stored receipts cannot reliably identify whether their depositor depends on a
+relayer. The SDK therefore also refuses new receipts, Bitcoin funding and mint
+reveals for any deposit carrying `extraData`, including custom proxies and
+receipts reconstructed without a proxy. This includes relayed L1 deposits and
+other metadata-bearing integrations while the pause is active.
+
+Ordinary Ethereum deposits and Ethereum redemptions remain available. Custom
+proxies without `extraData` that do not use a built-in cross-chain adapter cannot
+be classified by this guard and remain available; their integrators must control
+their availability independently. Existing deposit receipts,
+funding detection, status reads and Bitcoin refund helpers remain available. Do
+not send new BTC to previously generated cross-chain addresses. Keep
+funded-but-unrevealed receipts for later recovery; the SDK will not reveal
+them while this pause is active.
+
+This change requires a new SDK release and adoption by consumers. It cannot
+stop older installed versions or direct contract calls. The `3.1.0-beta.0`
+package also exposed gasless cross-chain deposit APIs that are absent from this
+branch; its consumers need a compatible patched release or migration, alongside
+the backend gasless-submission pause. SDK availability checks do not change
+backend or contract availability.
+
 ## Quickstart
 
 Here you can find instructions explaining how to use the SDK in your own

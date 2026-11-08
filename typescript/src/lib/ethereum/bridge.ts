@@ -1,3 +1,4 @@
+import { assertCrossChainOperationsAllowed } from "../utils/cross-chain-pause"
 import {
   Bridge as BridgeTypechain,
   Deposit as DepositTypechain,
@@ -249,6 +250,10 @@ export class EthereumBridge
     deposit: DepositReceipt,
     vault?: ChainIdentifier
   ): Promise<Hex> {
+    if (deposit.extraData !== undefined) {
+      assertCrossChainOperationsAllowed()
+    }
+
     const { fundingTx, reveal, extraData } = packRevealDepositParameters(
       depositTx,
       depositOutputIndex,

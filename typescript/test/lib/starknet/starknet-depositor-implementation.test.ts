@@ -1,3 +1,4 @@
+import { exercisePausedCrossChainImplementation } from "../../utils/exercise-paused-cross-chain-implementation"
 import { expect } from "chai"
 import sinon from "sinon"
 import {
@@ -17,6 +18,8 @@ import { TransactionReceipt } from "@ethersproject/providers"
 const axios = require("axios")
 
 describe("StarkNetDepositor - T-001 Implementation", () => {
+  exercisePausedCrossChainImplementation()
+
   let originalPost: any
 
   beforeEach(() => {

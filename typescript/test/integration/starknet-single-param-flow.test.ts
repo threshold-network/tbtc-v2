@@ -1,3 +1,4 @@
+import { exercisePausedCrossChainImplementation } from "../utils/exercise-paused-cross-chain-implementation"
 import { expect, use } from "chai"
 const sinon = require("sinon")
 import chaiAsPromised from "chai-as-promised"
@@ -144,6 +145,8 @@ describe("StarkNet Single-Parameter Deposit Flow", () => {
   })
 
   describe("Complete deposit flow with single-parameter", () => {
+    exercisePausedCrossChainImplementation()
+
     it("should complete deposit with only StarkNet wallet", async () => {
       // Arrange
       const starknetAddress =
@@ -359,6 +362,8 @@ describe("StarkNet Single-Parameter Deposit Flow", () => {
   })
 
   describe("Error handling", () => {
+    exercisePausedCrossChainImplementation()
+
     it("should fail gracefully if StarkNet wallet not connected", async () => {
       // Arrange - Invalid provider that doesn't match backward compatibility criteria
       const invalidProvider = {

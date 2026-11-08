@@ -1,3 +1,4 @@
+import { exercisePausedCrossChainImplementation } from "../utils/exercise-paused-cross-chain-implementation"
 import {
   deployMockContract,
   MockContract,
@@ -44,6 +45,8 @@ describe("Base", () => {
     })
 
     describe("initializeDeposit", () => {
+      exercisePausedCrossChainImplementation()
+
       // Just short byte strings for clarity.
       const depositTx: BitcoinRawTxVectors = {
         version: Hex.from("00000000"),
