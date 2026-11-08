@@ -1,3 +1,4 @@
+import { assertCrossChainOperationsAllowed } from "../../lib/utils/cross-chain-pause"
 import {
   CrossChainContracts,
   DestinationChainName,
@@ -203,6 +204,8 @@ export class RedemptionsService {
     amount: BigNumber,
     l2ChainName: DestinationChainName
   ): Promise<{ targetChainTxHash: Hex }> {
+    assertCrossChainOperationsAllowed()
+
     const crossChainContracts = this.#crossChainContracts(l2ChainName)
     if (!crossChainContracts || !crossChainContracts.l2BitcoinRedeemer) {
       throw new Error(
@@ -250,6 +253,8 @@ export class RedemptionsService {
   ): Promise<{
     targetChainTxHash: Hex
   }> {
+    assertCrossChainOperationsAllowed()
+
     const crossChainContracts = this.#crossChainContracts(l2ChainName)
     if (!crossChainContracts || !crossChainContracts.l1BitcoinRedeemer) {
       throw new Error(

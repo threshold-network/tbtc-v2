@@ -1,3 +1,4 @@
+import { exercisePausedCrossChainImplementation } from "../../utils/exercise-paused-cross-chain-implementation"
 import { expect } from "chai"
 import { StarkNetBitcoinDepositor } from "../../../src/lib/starknet/starknet-depositor"
 import { StarkNetAddress } from "../../../src/lib/starknet/address"
@@ -9,6 +10,8 @@ import sinon from "sinon"
 import axios from "axios"
 
 describe("StarkNetDepositor Payload Format", () => {
+  exercisePausedCrossChainImplementation()
+
   let depositor: StarkNetBitcoinDepositor
   let axiosStub: sinon.SinonStub
 

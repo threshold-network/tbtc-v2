@@ -1,3 +1,4 @@
+import { assertCrossChainOperationsAllowed } from "../../lib/utils/cross-chain-pause"
 import {
   ChainIdentifier,
   ExtraDataEncoder,
@@ -92,6 +93,8 @@ export class CrossChainDepositor implements DepositorProxy {
     deposit: DepositReceipt,
     vault?: ChainIdentifier
   ): Promise<Hex> {
+    assertCrossChainOperationsAllowed()
+
     let result: Hex | TransactionReceipt | SuiTransactionBlockResponse
 
     switch (this.#revealMode) {

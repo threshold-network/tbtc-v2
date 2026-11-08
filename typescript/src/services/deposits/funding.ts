@@ -1,4 +1,5 @@
 import { DepositScript } from "./deposit"
+import { assertCrossChainOperationsAllowed } from "../../lib/utils/cross-chain-pause"
 import {
   BitcoinAddressConverter,
   BitcoinClient,
@@ -70,6 +71,10 @@ export class DepositFunding {
     depositUtxo: BitcoinUtxo
     rawTransaction: BitcoinRawTx
   }> {
+    if (this.script.receipt.extraData !== undefined) {
+      assertCrossChainOperationsAllowed()
+    }
+
     const network = toBitcoinJsLibNetwork(bitcoinNetwork)
 
     const depositorKeyPair = BitcoinPrivateKeyUtils.createKeyPair(
@@ -188,6 +193,10 @@ export class DepositFunding {
     transactionHash: BitcoinTxHash
     depositUtxo: BitcoinUtxo
   }> {
+    if (this.script.receipt.extraData !== undefined) {
+      assertCrossChainOperationsAllowed()
+    }
+
     const utxosWithRaw: (BitcoinUtxo & BitcoinRawTx)[] = []
     for (const utxo of inputUtxos) {
       const utxoRawTransaction = await bitcoinClient.getRawTransaction(

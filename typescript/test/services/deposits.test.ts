@@ -1,3 +1,4 @@
+import { exercisePausedCrossChainImplementation } from "../utils/exercise-paused-cross-chain-implementation"
 import { expect } from "chai"
 import { BigNumber } from "ethers"
 import {
@@ -434,6 +435,8 @@ describe("Deposits", () => {
       })
 
       context("when deposit has optional extra data", () => {
+        exercisePausedCrossChainImplementation()
+
         context("when witness option is true", () => {
           let transactionHash: BitcoinTxHash
           let depositUtxo: BitcoinUtxo
@@ -741,6 +744,8 @@ describe("Deposits", () => {
       })
 
       context("when deposit has optional extra data", () => {
+        exercisePausedCrossChainImplementation()
+
         context("when witness option is true", () => {
           let transactionHash: BitcoinTxHash
           let depositUtxo: BitcoinUtxo
@@ -1756,6 +1761,8 @@ describe("Deposits", () => {
             })
 
             context("when optional extra data is provided", () => {
+              exercisePausedCrossChainImplementation()
+
               context("when extra data is not 32-byte", () => {
                 it("should throw", async () => {
                   await expect(
@@ -1933,6 +1940,8 @@ describe("Deposits", () => {
           })
 
           context("when optional extra data is provided", () => {
+            exercisePausedCrossChainImplementation()
+
             context("when extra data is not 32-byte", () => {
               it("should throw", async () => {
                 await expect(
@@ -1994,6 +2003,8 @@ describe("Deposits", () => {
     })
 
     describe("initiateCrossChainDeposit - BASE", () => {
+      exercisePausedCrossChainImplementation()
+
       const l2DepositOwner = EthereumAddress.from(
         "934b98637ca318a4d6e7ca6ffd1690b8e77df637"
       )
@@ -2211,6 +2222,8 @@ describe("Deposits", () => {
   })
 
   describe("initiateCrossChainDeposit - ARBITRUM", () => {
+    exercisePausedCrossChainImplementation()
+
     const l2DepositOwner = EthereumAddress.from(
       "934b98637ca318a4d6e7ca6ffd1690b8e77df637"
     )
@@ -2425,6 +2438,8 @@ describe("Deposits", () => {
   })
 
   describe("initiateCrossChainDeposit - SOLANA", () => {
+    exercisePausedCrossChainImplementation()
+
     const l2DepositOwner = EthereumAddress.from(
       "934b98637ca318a4d6e7ca6ffd1690b8e77df637"
     )
@@ -2796,6 +2811,8 @@ describe("Deposits", () => {
   })
 
   describe("CrossChainDepositor", () => {
+    exercisePausedCrossChainImplementation()
+
     const l2DepositOwner = EthereumAddress.from(
       "a7C94958CDC477feE1F7D78705275238134699F5"
     )

@@ -1,3 +1,4 @@
+import { assertCrossChainOperationsAllowed } from "../utils/cross-chain-pause"
 import axios from "axios"
 import { ChainIdentifier, BitcoinDepositor, DepositReceipt } from "../contracts"
 import { packRevealDepositParameters } from "../ethereum"
@@ -55,6 +56,8 @@ export class SolanaDepositorInterface implements BitcoinDepositor {
     deposit: DepositReceipt,
     vault?: ChainIdentifier
   ): Promise<TransactionReceipt> {
+    assertCrossChainOperationsAllowed()
+
     const { fundingTx, reveal, extraData } = packRevealDepositParameters(
       depositTx,
       depositOutputIndex,

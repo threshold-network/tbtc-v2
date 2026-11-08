@@ -1,3 +1,4 @@
+import { assertCrossChainOperationsAllowed } from "../utils/cross-chain-pause"
 import {
   BitcoinDepositor,
   ChainIdentifier,
@@ -78,6 +79,8 @@ export class SuiBitcoinDepositor implements BitcoinDepositor {
     deposit: DepositReceipt,
     vault?: ChainIdentifier // Ignored for SUI - no vault support
   ): Promise<Hex | any> {
+    assertCrossChainOperationsAllowed()
+
     // This method is called by CrossChainDepositor in L2Transaction mode
     // It initiates the deposit on SUI, which triggers the relayer
 

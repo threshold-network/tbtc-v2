@@ -1,3 +1,5 @@
+import { CrossChainDepositor } from "./cross-chain"
+import { assertCrossChainOperationsAllowed } from "../../lib/utils/cross-chain-pause"
 import {
   DepositorProxy,
   DepositReceipt,
@@ -129,6 +131,13 @@ export class Deposit {
   async initiateMinting(
     fundingOutpoint?: BitcoinTxOutpoint
   ): Promise<Hex | TransactionReceipt> {
+    if (
+      this.script.receipt.extraData !== undefined ||
+      this.depositorProxy instanceof CrossChainDepositor
+    ) {
+      assertCrossChainOperationsAllowed()
+    }
+
     let resolvedFundingOutpoint: BitcoinTxOutpoint
 
     if (typeof fundingOutpoint !== "undefined") {

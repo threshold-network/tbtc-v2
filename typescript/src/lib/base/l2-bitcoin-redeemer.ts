@@ -1,3 +1,4 @@
+import { assertCrossChainOperationsAllowed } from "../utils/cross-chain-pause"
 import {
   EthersContractConfig,
   EthersContractDeployment,
@@ -75,6 +76,8 @@ export class BaseL2BitcoinRedeemer
     redeemerOutputScript: Hex,
     nonce: number
   ): Promise<Hex> {
+    assertCrossChainOperationsAllowed()
+
     // Convert the output script to raw bytes buffer.
     const rawRedeemerOutputScript = redeemerOutputScript.toBuffer()
     // Prefix the output script bytes buffer with 0x and its own length.

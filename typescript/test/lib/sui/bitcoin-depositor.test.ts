@@ -1,3 +1,4 @@
+import { exercisePausedCrossChainImplementation } from "../../utils/exercise-paused-cross-chain-implementation"
 import { expect } from "chai"
 import chaiAsPromised from "chai-as-promised"
 import chai from "chai"
@@ -119,6 +120,8 @@ describe("SUI Bitcoin Depositor", () => {
   })
 
   describe("initializeDeposit", () => {
+    exercisePausedCrossChainImplementation()
+
     let depositTx: BitcoinRawTxVectors
     let deposit: DepositReceipt
     const depositOutputIndex = 0

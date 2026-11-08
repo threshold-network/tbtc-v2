@@ -1,3 +1,4 @@
+import { exercisePausedCrossChainImplementation } from "../utils/exercise-paused-cross-chain-implementation"
 import {
   BitcoinAddressConverter,
   BitcoinHashUtils,
@@ -692,6 +693,8 @@ describe("Redemptions", () => {
     })
 
     describe("relayRedemptionRequestToL1", () => {
+      exercisePausedCrossChainImplementation()
+
       // Tests for cross-chain redemption relay with explicit redeemer output script.
       // Verifies the 4-parameter function signature and proper parameter passing.
 

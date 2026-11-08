@@ -60,7 +60,7 @@ EthersContractHandle\&lt;L1BitcoinRedeemerTypechain\&gt;.constructor
 
 #### Defined in
 
-[lib/ethereum/l1-bitcoin-redeemer.ts:51](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-redeemer.ts#L51)
+[lib/ethereum/l1-bitcoin-redeemer.ts:52](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-redeemer.ts#L52)
 
 ## Properties
 
@@ -152,7 +152,7 @@ ___
 
 #### Defined in
 
-[lib/ethereum/l1-bitcoin-redeemer.ts:76](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-redeemer.ts#L76)
+[lib/ethereum/l1-bitcoin-redeemer.ts:77](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-redeemer.ts#L77)
 
 ___
 
@@ -214,4 +214,4 @@ ___
 
 #### Defined in
 
-[lib/ethereum/l1-bitcoin-redeemer.ts:84](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-redeemer.ts#L84)
+[lib/ethereum/l1-bitcoin-redeemer.ts:85](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-redeemer.ts#L85)
