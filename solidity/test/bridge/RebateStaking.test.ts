@@ -1,5 +1,5 @@
-import { toNumber, Contract, ContractTransactionResponse } from "ethers"
-import { helpers, ethers } from "hardhat"
+import { toNumber, BigNumberish, ContractTransactionResponse } from "ethers"
+import { helpers, ethers, upgrades } from "hardhat"
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import { expect } from "chai"
 import type {
@@ -29,6 +29,7 @@ describe("RebateStaking", () => {
   let t: TestERC20
   let rebateStaking: RebateStaking
   let deployer: HardhatEthersSigner
+  let esdm: HardhatEthersSigner
   let thirdParty: HardhatEthersSigner
   const defaultStakeAmount = to1e18(100000000)
 
@@ -42,6 +43,7 @@ describe("RebateStaking", () => {
       t,
       rebateStaking,
     } = await bridgeFixture())
+    ;({ esdm } = await helpers.signers.getNamedSigners())
 
     await bridgeGovernance
       .connect(governance)
@@ -1595,6 +1597,252 @@ describe("RebateStaking", () => {
           .withArgs(thirdParty.address, stakeAmount)
       })
     })
+  })
+
+  describe("deprecate", () => {
+    const stakeAmount = defaultStakeAmount
+    const treasuryFee = 950n
+
+    beforeEach(async () => {
+      await createSnapshot()
+    })
+
+    afterEach(async () => {
+      await restoreSnapshot()
+    })
+
+    it("should require owner to deprecate rebate staking", async () => {
+      await expect(
+        rebateStaking.connect(governance).deprecate()
+      ).to.be.revertedWith("Ownable: caller is not the owner")
+    })
+
+    it("should mark rebate staking as deprecated", async () => {
+      const tx = await rebateStaking.connect(deployer).deprecate()
+
+      expect(await rebateStaking.deprecated()).to.be.equal(true)
+      expect(await rebateStaking.unstakingPeriod()).to.be.equal(0)
+      expect(await rebateStaking.rebatePerToken()).to.be.equal(0)
+
+      await expect(tx).to.emit(rebateStaking, "RebateStakingDeprecated")
+      await expect(tx)
+        .to.emit(rebateStaking, "UnstakingPeriodUpdated")
+        .withArgs(0)
+      await expect(tx)
+        .to.emit(rebateStaking, "RebatePerTokenUpdated")
+        .withArgs(0)
+    })
+
+    it("should reject upgrade deprecation initializer from non-proxy-admin", async () => {
+      await expect(
+        rebateStaking.connect(deployer).initializeV2_Deprecate()
+      ).to.be.revertedWithCustomError(rebateStaking, "CallerNotProxyAdmin")
+    })
+
+    it("should allow proxy admin upgrade-and-call to deprecate rebate staking", async () => {
+      await stakeFor(thirdParty, stakeAmount)
+
+      const rebateStakingFactory = await ethers.getContractFactory(
+        "RebateStaking",
+        deployer
+      )
+      const newImplementation = await rebateStakingFactory.deploy()
+      await newImplementation.waitForDeployment()
+
+      const proxyAdmin = await upgrades.admin.getInstance()
+      const proxyAdminWithUpgrade = await ethers.getContractAt(
+        [
+          "function upgradeAndCall(address proxy, address implementation, bytes data)",
+        ],
+        await proxyAdmin.getAddress(),
+        esdm
+      )
+
+      const upgradeData = rebateStakingFactory.interface.encodeFunctionData(
+        "initializeV2_Deprecate"
+      )
+
+      const tx = await proxyAdminWithUpgrade.upgradeAndCall(
+        rebateStaking.target,
+        newImplementation.target,
+        upgradeData
+      )
+
+      await expect(tx).to.emit(rebateStaking, "RebateStakingDeprecated")
+      expect(await rebateStaking.deprecated()).to.be.equal(true)
+      expect(await rebateStaking.unstakingPeriod()).to.be.equal(0)
+      expect(await rebateStaking.rebatePerToken()).to.be.equal(0)
+
+      const receiverBalanceBefore = await t.balanceOf(governance.address)
+      await rebateStaking.connect(thirdParty).withdrawStake(governance.address)
+
+      expect(await t.balanceOf(governance.address)).to.be.equal(
+        receiverBalanceBefore + stakeAmount
+      )
+    })
+
+    it("should allow upgrade deprecation initializer after owner deprecation", async () => {
+      await rebateStaking.connect(deployer).deprecate()
+
+      const rebateStakingFactory = await ethers.getContractFactory(
+        "RebateStaking",
+        deployer
+      )
+      const newImplementation = await rebateStakingFactory.deploy()
+      await newImplementation.waitForDeployment()
+
+      const proxyAdmin = await upgrades.admin.getInstance()
+      const proxyAdminWithUpgrade = await ethers.getContractAt(
+        [
+          "function upgradeAndCall(address proxy, address implementation, bytes data)",
+        ],
+        await proxyAdmin.getAddress(),
+        esdm
+      )
+
+      const upgradeData = rebateStakingFactory.interface.encodeFunctionData(
+        "initializeV2_Deprecate"
+      )
+
+      const tx = await proxyAdminWithUpgrade.upgradeAndCall(
+        rebateStaking.target,
+        newImplementation.target,
+        upgradeData
+      )
+
+      expect(await rebateStaking.deprecated()).to.be.equal(true)
+
+      await expect(tx).to.not.emit(rebateStaking, "RebateStakingDeprecated")
+      await expect(tx).to.not.emit(rebateStaking, "UnstakingPeriodUpdated")
+      await expect(tx).to.not.emit(rebateStaking, "RebatePerTokenUpdated")
+    })
+
+    it("should not allow deprecation twice", async () => {
+      await rebateStaking.connect(deployer).deprecate()
+
+      await expect(
+        rebateStaking.connect(deployer).deprecate()
+      ).to.be.revertedWithCustomError(rebateStaking, "ContractDeprecated")
+    })
+
+    it("should reject active-only operations after deprecation", async () => {
+      await rebateStaking.connect(deployer).deprecate()
+
+      await expect(
+        rebateStaking.connect(deployer).updateRollingWindow(1)
+      ).to.be.revertedWithCustomError(rebateStaking, "ContractDeprecated")
+      await expect(
+        rebateStaking.connect(deployer).updateUnstakingPeriod(1)
+      ).to.be.revertedWithCustomError(rebateStaking, "ContractDeprecated")
+      await expect(
+        rebateStaking.connect(deployer).updateRebatePerToken(1)
+      ).to.be.revertedWithCustomError(rebateStaking, "ContractDeprecated")
+
+      await t.connect(deployer).mint(thirdParty.address, stakeAmount)
+      await t.connect(thirdParty).approve(rebateStaking.target, stakeAmount)
+
+      await expect(
+        rebateStaking.connect(thirdParty).stake(stakeAmount)
+      ).to.be.revertedWithCustomError(rebateStaking, "ContractDeprecated")
+    })
+
+    it("should stop applying rebates after deprecation", async () => {
+      await stakeFor(thirdParty, stakeAmount)
+      await rebateStaking.connect(deployer).deprecate()
+
+      const tx = await bridge.applyForRebate(thirdParty.address, treasuryFee)
+
+      expect(await bridge.lastTreasuryFee()).to.be.equal(treasuryFee)
+      expect(await rebateStaking.getRebateCap(thirdParty.address)).to.be.equal(
+        0
+      )
+      expect(
+        await rebateStaking.getAvailableRebate(thirdParty.address)
+      ).to.be.equal(0)
+      expect(await rebateStaking.getRebateLength(thirdParty.address)).to.equal(
+        0
+      )
+
+      await expect(tx).to.not.emit(rebateStaking, "RebateReceived")
+    })
+
+    it("should allow existing unstaking to finalize immediately", async () => {
+      await stakeFor(thirdParty, stakeAmount)
+      await rebateStaking.connect(thirdParty).startUnstaking(stakeAmount)
+
+      await rebateStaking.connect(deployer).deprecate()
+
+      const receiverBalanceBefore = await t.balanceOf(governance.address)
+      await rebateStaking
+        .connect(thirdParty)
+        .finalizeUnstaking(governance.address)
+
+      expect(await t.balanceOf(governance.address)).to.be.equal(
+        receiverBalanceBefore + stakeAmount
+      )
+      expect(await rebateStaking.getStake(thirdParty.address)).to.be.equal(0)
+    })
+
+    it("should withdraw the caller's entire stake after deprecation", async () => {
+      const unstakeAmount = stakeAmount / 4n
+      await stakeFor(thirdParty, stakeAmount)
+      await rebateStaking.connect(thirdParty).startUnstaking(unstakeAmount)
+      await rebateStaking.connect(thirdParty).setDelegatee(deployer.address)
+      await rebateStaking.connect(thirdParty).setRebateTreasuryFeeMode(1)
+      await rebateStaking.connect(deployer).deprecate()
+
+      const receiverBalanceBefore = await t.balanceOf(governance.address)
+      const tx = await rebateStaking
+        .connect(thirdParty)
+        .withdrawStake(governance.address)
+
+      expect(await t.balanceOf(governance.address)).to.be.equal(
+        receiverBalanceBefore + stakeAmount
+      )
+      expect(await rebateStaking.getStake(thirdParty.address)).to.be.equal(0)
+
+      const [unstakingAmount, unstakingTimestamp] =
+        await rebateStaking.getUnstakingAmount(thirdParty.address)
+      expect(unstakingAmount).to.be.equal(0)
+      expect(unstakingTimestamp).to.be.equal(0)
+      expect(await rebateStaking.getDelegatee(thirdParty.address)).to.be.equal(
+        ZERO_ADDRESS
+      )
+      expect(await rebateStaking.delegates(deployer.address)).to.be.equal(
+        ZERO_ADDRESS
+      )
+      expect(
+        await rebateStaking.getRebateTreasuryFeeMode(thirdParty.address)
+      ).to.be.equal(rebateTreasuryFeeMode.depositOnly)
+
+      await expect(tx)
+        .to.emit(rebateStaking, "StakeWithdrawn")
+        .withArgs(thirdParty.address, governance.address, stakeAmount)
+    })
+
+    it("should reject stake withdrawal when unavailable", async () => {
+      await expect(
+        rebateStaking.connect(thirdParty).withdrawStake(thirdParty.address)
+      ).to.be.revertedWithCustomError(
+        rebateStaking,
+        "RebateStakingNotDeprecated"
+      )
+
+      await rebateStaking.connect(deployer).deprecate()
+
+      await expect(
+        rebateStaking.connect(thirdParty).withdrawStake(ZERO_ADDRESS)
+      ).to.be.revertedWithCustomError(rebateStaking, "ZeroAddress")
+      await expect(
+        rebateStaking.connect(thirdParty).withdrawStake(thirdParty.address)
+      ).to.be.revertedWithCustomError(rebateStaking, "NotAStaker")
+    })
+
+    async function stakeFor(staker: HardhatEthersSigner, amount: BigNumberish) {
+      await t.connect(deployer).mint(staker.address, amount)
+      await t.connect(staker).approve(rebateStaking.target, amount)
+      await rebateStaking.connect(staker).stake(amount)
+    }
   })
 
   describe("forceStakeTransfer", () => {

@@ -1442,7 +1442,7 @@ describe("WalletProposalValidator", () => {
                 const redeemersOutputScripts = new Array(
                   ethers.toNumber(maxSize) + 1
                 ).fill(
-                  createTestRedemptionRequest(walletPubKeyHash).key
+                  (await createTestRedemptionRequest(walletPubKeyHash)).key
                     .redeemerOutputScript
                 )
 
@@ -1464,8 +1464,8 @@ describe("WalletProposalValidator", () => {
                       walletProposalValidator.validateRedemptionProposal({
                         walletPubKeyHash,
                         redeemersOutputScripts: [
-                          createTestRedemptionRequest(walletPubKeyHash).key
-                            .redeemerOutputScript,
+                          (await createTestRedemptionRequest(walletPubKeyHash))
+                            .key.redeemerOutputScript,
                         ],
                         redemptionTxFee: 0,
                       })
@@ -1483,8 +1483,11 @@ describe("WalletProposalValidator", () => {
                         walletProposalValidator.validateRedemptionProposal({
                           walletPubKeyHash,
                           redeemersOutputScripts: [
-                            createTestRedemptionRequest(walletPubKeyHash).key
-                              .redeemerOutputScript,
+                            (
+                              await createTestRedemptionRequest(
+                                walletPubKeyHash
+                              )
+                            ).key.redeemerOutputScript,
                           ],
                           // Exceed the max per-request fee by one.
                           redemptionTxFee: bridgeRedemptionTxMaxTotalFee + 1,
@@ -1506,16 +1509,21 @@ describe("WalletProposalValidator", () => {
                 const redemptionTxFee = 9000
 
                 context("when there is a non-pending request", () => {
-                  let requestOne: ReturnType<typeof createTestRedemptionRequest>
-                  let requestTwo: ReturnType<typeof createTestRedemptionRequest>
+                  let requestOne: Awaited<
+                    ReturnType<typeof createTestRedemptionRequest>
+                  >
+                  let requestTwo: Awaited<
+                    ReturnType<typeof createTestRedemptionRequest>
+                  >
                   before(async () => {
                     await createSnapshot()
 
-                    requestOne = createTestRedemptionRequest(
+                    requestOne = await createTestRedemptionRequest(
                       walletPubKeyHash,
                       5000 // necessary to pass the fee share validation
                     )
-                    requestTwo = createTestRedemptionRequest(walletPubKeyHash)
+                    requestTwo =
+                      await createTestRedemptionRequest(walletPubKeyHash)
 
                     // Request one is a proper one.
                     await bridge.pendingRedemptions
@@ -1570,21 +1578,21 @@ describe("WalletProposalValidator", () => {
                     context(
                       "when immaturity is caused by REDEMPTION_REQUEST_MIN_AGE violation",
                       () => {
-                        let requestOne: ReturnType<
-                          typeof createTestRedemptionRequest
+                        let requestOne: Awaited<
+                          ReturnType<typeof createTestRedemptionRequest>
                         >
-                        let requestTwo: ReturnType<
-                          typeof createTestRedemptionRequest
+                        let requestTwo: Awaited<
+                          ReturnType<typeof createTestRedemptionRequest>
                         >
                         before(async () => {
                           await createSnapshot()
 
-                          requestOne = createTestRedemptionRequest(
+                          requestOne = await createTestRedemptionRequest(
                             walletPubKeyHash,
                             5000 // necessary to pass the fee share validation
                           )
                           requestTwo =
-                            createTestRedemptionRequest(walletPubKeyHash)
+                            await createTestRedemptionRequest(walletPubKeyHash)
 
                           // Request one is a proper one.
                           await bridge.pendingRedemptions
@@ -1642,21 +1650,21 @@ describe("WalletProposalValidator", () => {
                       "when immaturity is caused by watchtower's delay violation",
                       () => {
                         let watchtower: Mock<IRedemptionWatchtower>
-                        let requestOne: ReturnType<
-                          typeof createTestRedemptionRequest
+                        let requestOne: Awaited<
+                          ReturnType<typeof createTestRedemptionRequest>
                         >
-                        let requestTwo: ReturnType<
-                          typeof createTestRedemptionRequest
+                        let requestTwo: Awaited<
+                          ReturnType<typeof createTestRedemptionRequest>
                         >
                         before(async () => {
                           await createSnapshot()
 
-                          requestOne = createTestRedemptionRequest(
+                          requestOne = await createTestRedemptionRequest(
                             walletPubKeyHash,
                             5000, // necessary to pass the fee share validation
                             await lastBlockTime()
                           )
-                          requestTwo = createTestRedemptionRequest(
+                          requestTwo = await createTestRedemptionRequest(
                             walletPubKeyHash,
                             5000, // necessary to pass the fee share validation
                             await lastBlockTime()
@@ -1749,17 +1757,17 @@ describe("WalletProposalValidator", () => {
                     context(
                       "when there is a request that violates the timeout safety margin",
                       () => {
-                        let requestOne: ReturnType<
-                          typeof createTestRedemptionRequest
+                        let requestOne: Awaited<
+                          ReturnType<typeof createTestRedemptionRequest>
                         >
-                        let requestTwo: ReturnType<
-                          typeof createTestRedemptionRequest
+                        let requestTwo: Awaited<
+                          ReturnType<typeof createTestRedemptionRequest>
                         >
                         before(async () => {
                           await createSnapshot()
 
                           // Request one is a proper one.
-                          requestOne = createTestRedemptionRequest(
+                          requestOne = await createTestRedemptionRequest(
                             walletPubKeyHash,
                             5000 // necessary to pass the fee share validation
                           )
@@ -1777,7 +1785,7 @@ describe("WalletProposalValidator", () => {
                             requestTimedOutAt -
                             toBigInt(bridgeRedemptionTimeout)
 
-                          requestTwo = createTestRedemptionRequest(
+                          requestTwo = await createTestRedemptionRequest(
                             walletPubKeyHash,
                             0,
                             toNumber(requestCreatedAt)
@@ -1836,17 +1844,17 @@ describe("WalletProposalValidator", () => {
                           "when there is a request that incurs an unacceptable tx fee share",
                           () => {
                             context("when there is no fee remainder", () => {
-                              let requestOne: ReturnType<
-                                typeof createTestRedemptionRequest
+                              let requestOne: Awaited<
+                                ReturnType<typeof createTestRedemptionRequest>
                               >
-                              let requestTwo: ReturnType<
-                                typeof createTestRedemptionRequest
+                              let requestTwo: Awaited<
+                                ReturnType<typeof createTestRedemptionRequest>
                               >
                               before(async () => {
                                 await createSnapshot()
 
                                 // Request one is a proper one.
-                                requestOne = createTestRedemptionRequest(
+                                requestOne = await createTestRedemptionRequest(
                                   walletPubKeyHash,
                                   4500 // necessary to pass the fee share validation
                                 )
@@ -1857,7 +1865,7 @@ describe("WalletProposalValidator", () => {
                                 // per-request is 4500. In order to test this case
                                 // the second request must allow for 4499 as allowed
                                 // fee share at maximum.
-                                requestTwo = createTestRedemptionRequest(
+                                requestTwo = await createTestRedemptionRequest(
                                   walletPubKeyHash,
                                   4499
                                 )
@@ -1908,17 +1916,17 @@ describe("WalletProposalValidator", () => {
                             })
 
                             context("when there is a fee remainder", () => {
-                              let requestOne: ReturnType<
-                                typeof createTestRedemptionRequest
+                              let requestOne: Awaited<
+                                ReturnType<typeof createTestRedemptionRequest>
                               >
-                              let requestTwo: ReturnType<
-                                typeof createTestRedemptionRequest
+                              let requestTwo: Awaited<
+                                ReturnType<typeof createTestRedemptionRequest>
                               >
                               before(async () => {
                                 await createSnapshot()
 
                                 // Request one is a proper one.
-                                requestOne = createTestRedemptionRequest(
+                                requestOne = await createTestRedemptionRequest(
                                   walletPubKeyHash,
                                   4500 // necessary to pass the fee share validation
                                 )
@@ -1930,7 +1938,7 @@ describe("WalletProposalValidator", () => {
                                 // which takes the remainder. In order to test this
                                 // case the second (last) request must allow for
                                 // 4500 as allowed fee share at maximum.
-                                requestTwo = createTestRedemptionRequest(
+                                requestTwo = await createTestRedemptionRequest(
                                   walletPubKeyHash,
                                   4500
                                 )
@@ -1988,32 +1996,35 @@ describe("WalletProposalValidator", () => {
                             context(
                               "when there are duplicated requests",
                               () => {
-                                let requestOne: ReturnType<
-                                  typeof createTestRedemptionRequest
+                                let requestOne: Awaited<
+                                  ReturnType<typeof createTestRedemptionRequest>
                                 >
-                                let requestTwo: ReturnType<
-                                  typeof createTestRedemptionRequest
+                                let requestTwo: Awaited<
+                                  ReturnType<typeof createTestRedemptionRequest>
                                 >
-                                let requestThree: ReturnType<
-                                  typeof createTestRedemptionRequest
+                                let requestThree: Awaited<
+                                  ReturnType<typeof createTestRedemptionRequest>
                                 >
                                 before(async () => {
                                   await createSnapshot()
 
-                                  requestOne = createTestRedemptionRequest(
-                                    walletPubKeyHash,
-                                    2500 // necessary to pass the fee share validation
-                                  )
+                                  requestOne =
+                                    await createTestRedemptionRequest(
+                                      walletPubKeyHash,
+                                      2500 // necessary to pass the fee share validation
+                                    )
 
-                                  requestTwo = createTestRedemptionRequest(
-                                    walletPubKeyHash,
-                                    2500 // necessary to pass the fee share validation
-                                  )
+                                  requestTwo =
+                                    await createTestRedemptionRequest(
+                                      walletPubKeyHash,
+                                      2500 // necessary to pass the fee share validation
+                                    )
 
-                                  requestThree = createTestRedemptionRequest(
-                                    walletPubKeyHash,
-                                    2500 // necessary to pass the fee share validation
-                                  )
+                                  requestThree =
+                                    await createTestRedemptionRequest(
+                                      walletPubKeyHash,
+                                      2500 // necessary to pass the fee share validation
+                                    )
 
                                   await bridge.pendingRedemptions
                                     .whenCalledWith(
@@ -2071,6 +2082,49 @@ describe("WalletProposalValidator", () => {
                             )
 
                             context("when all requests are unique", () => {
+                              context(
+                                "when the chain clock has advanced",
+                                () => {
+                                  before(async () => {
+                                    await createSnapshot()
+                                    await increaseTime(7 * day)
+                                  })
+
+                                  after(async () => {
+                                    await bridge.pendingRedemptions.reset()
+                                    await restoreSnapshot()
+                                  })
+
+                                  it("should validate a newly prepared request", async () => {
+                                    const request =
+                                      await createTestRedemptionRequest(
+                                        walletPubKeyHash,
+                                        redemptionTxFee
+                                      )
+                                    await bridge.pendingRedemptions
+                                      .whenCalledWith(
+                                        redemptionKey(
+                                          request.key.walletPubKeyHash,
+                                          request.key.redeemerOutputScript
+                                        )
+                                      )
+                                      .returns(request.content)
+
+                                    expect(
+                                      await walletProposalValidator.validateRedemptionProposal(
+                                        {
+                                          walletPubKeyHash,
+                                          redeemersOutputScripts: [
+                                            request.key.redeemerOutputScript,
+                                          ],
+                                          redemptionTxFee,
+                                        }
+                                      )
+                                    ).to.be.true
+                                  })
+                                }
+                              )
+
                               const requestTestData: {
                                 testName: string
                                 watchtower: boolean
@@ -2088,24 +2142,30 @@ describe("WalletProposalValidator", () => {
                               requestTestData.forEach((requestTest) => {
                                 context(requestTest.testName, () => {
                                   let watchtower: Mock<IRedemptionWatchtower>
-                                  let requestOne: ReturnType<
-                                    typeof createTestRedemptionRequest
+                                  let requestOne: Awaited<
+                                    ReturnType<
+                                      typeof createTestRedemptionRequest
+                                    >
                                   >
-                                  let requestTwo: ReturnType<
-                                    typeof createTestRedemptionRequest
+                                  let requestTwo: Awaited<
+                                    ReturnType<
+                                      typeof createTestRedemptionRequest
+                                    >
                                   >
                                   before(async () => {
                                     await createSnapshot()
 
-                                    requestOne = createTestRedemptionRequest(
-                                      walletPubKeyHash,
-                                      5000 // necessary to pass the fee share validation
-                                    )
+                                    requestOne =
+                                      await createTestRedemptionRequest(
+                                        walletPubKeyHash,
+                                        5000 // necessary to pass the fee share validation
+                                      )
 
-                                    requestTwo = createTestRedemptionRequest(
-                                      walletPubKeyHash,
-                                      5000 // necessary to pass the fee share validation
-                                    )
+                                    requestTwo =
+                                      await createTestRedemptionRequest(
+                                        walletPubKeyHash,
+                                        5000 // necessary to pass the fee share validation
+                                      )
 
                                     await bridge.pendingRedemptions
                                       .whenCalledWith(
@@ -3032,19 +3092,14 @@ const redemptionKey = (
   )
 }
 
-const createTestRedemptionRequest = (
+const createTestRedemptionRequest = async (
   walletPubKeyHash: string,
   txMaxFee?: BigNumberish,
   requestedAt?: number
 ) => {
-  let resolvedRequestedAt = requestedAt
-
-  if (!resolvedRequestedAt) {
-    // If the request creation time is not explicitly set, use `now - 1 day` to
-    // ensure request minimum age is achieved by default.
-    const now = Math.floor(Date.now() / 1000)
-    resolvedRequestedAt = now - day
-  }
+  // Prior suites can advance the chain clock independently of wall-clock time.
+  // Keep the default request mature and within its timeout on that chain.
+  const resolvedRequestedAt = requestedAt ?? (await lastBlockTime()) - day
 
   const redeemer = `0x${crypto.randomBytes(20).toString("hex")}`
 
