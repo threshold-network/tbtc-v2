@@ -1,7 +1,7 @@
 /* eslint-disable no-console -- Deployment instructions and verification results are CLI output. */
 import { HardhatRuntimeEnvironment } from "hardhat/types"
 import { DeployFunction, DeployOptions } from "hardhat-deploy/types"
-import { Interface, isAddress } from "ethers"
+import { getAddress, Interface, isAddress, ZeroAddress } from "ethers"
 
 // EIP-1967 transparent proxy admin storage slot. Defined by the standard at
 // https://eips.ethereum.org/EIPS/eip-1967#admin-address and used to discover
@@ -32,13 +32,19 @@ const func: DeployFunction = async function runDeployment(
 ) {
   const { deployments, getNamedAccounts, ethers, artifacts } = hre
   const { deploy, get, save } = deployments
-  const { deployer } = await getNamedAccounts()
 
   const initialPegKeeper = process.env.INITIAL_PEG_KEEPER
-  if (!initialPegKeeper || !isAddress(initialPegKeeper)) {
-    throw new Error("INITIAL_PEG_KEEPER env var must be set to a valid address")
+  if (
+    !initialPegKeeper ||
+    !isAddress(initialPegKeeper) ||
+    getAddress(initialPegKeeper) === ZeroAddress
+  ) {
+    throw new Error(
+      "INITIAL_PEG_KEEPER env var must be set to a valid non-zero address"
+    )
   }
 
+  const { deployer } = await getNamedAccounts()
   const deployOptions: DeployOptions = {
     from: deployer,
     log: true,

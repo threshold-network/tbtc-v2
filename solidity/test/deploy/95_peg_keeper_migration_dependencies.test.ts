@@ -1,15 +1,21 @@
 import { expect } from "chai"
-import { getAddress, zeroPadValue } from "ethers"
+import { artifacts } from "hardhat"
+import { getAddress, getIcapAddress, ZeroAddress, zeroPadValue } from "ethers"
 import fs from "fs"
 import path from "path"
 import type { HardhatRuntimeEnvironment } from "hardhat/types"
 import { DeploymentsManager } from "hardhat-deploy/dist/src/DeploymentsManager"
 import type { Deployment, DeployOptions } from "hardhat-deploy/types"
 
+type TenderlyVerification = Parameters<
+  HardhatRuntimeEnvironment["tenderly"]["verify"]
+>[number]
+
 describe("Peg keeper migration deployment dependencies", () => {
   const solidityPath = path.resolve(__dirname, "../..")
   const governance = "0x1000000000000000000000000000000000000001"
   const governanceV2 = "0x2000000000000000000000000000000000000002"
+  const governanceParametersV2 = "0x3000000000000000000000000000000000000003"
   const networks = ["mainnet", "sepolia"]
   const migrationTags = [
     "BridgeGovernanceV2",
@@ -46,11 +52,16 @@ describe("Peg keeper migration deployment dependencies", () => {
     console.log = originalLog
   })
 
-  function migrationEnvironment(network: string, v2AlreadyDeployed = true) {
+  function migrationEnvironment(
+    network: string,
+    v2AlreadyDeployed = true,
+    tags: Record<string, boolean> = {}
+  ) {
     const records: Record<string, Deployment> = {}
     const getCalls: string[] = []
     const deployCalls: { name: string; options: DeployOptions }[] = []
     const saveCalls: string[] = []
+    const verifications: TenderlyVerification[] = []
     const allowedDeployments = [
       "BridgeGovernanceParametersV2",
       "BridgeGovernanceV2",
@@ -82,7 +93,7 @@ describe("Peg keeper migration deployment dependencies", () => {
       config: {
         paths: { deployments: path.join(solidityPath, "deployments") },
       },
-      network: { name: network, tags: {} },
+      network: { name: network, tags },
       getNamedAccounts: async () => ({ deployer: governance, governance }),
       deployments: {
         get,
@@ -92,7 +103,13 @@ describe("Peg keeper migration deployment dependencies", () => {
             `Fresh deployment requested: ${name}`
           ).to.include(name)
           deployCalls.push({ name, options })
-          records[name] = { address: governanceV2, abi: [] }
+          records[name] = {
+            address:
+              name === "BridgeGovernanceParametersV2"
+                ? governanceParametersV2
+                : governanceV2,
+            abi: [],
+          }
           return records[name]
         },
         save: async (name: string, record: Deployment) => {
@@ -124,6 +141,16 @@ describe("Peg keeper migration deployment dependencies", () => {
         },
       },
       artifacts: { readArtifactSync: () => ({ abi: [] }) },
+      tenderly: {
+        verify: async (verification: TenderlyVerification) => {
+          // Tenderly resolves compiled artifacts, not deployment-record aliases.
+          artifacts.readArtifactSync(verification.name)
+          Object.keys(verification.libraries ?? {}).forEach((library) => {
+            artifacts.readArtifactSync(library)
+          })
+          verifications.push(verification)
+        },
+      },
     } as unknown as HardhatRuntimeEnvironment
     const manager = new DeploymentsManager(hre, hre.network)
 
@@ -132,6 +159,7 @@ describe("Peg keeper migration deployment dependencies", () => {
       getCalls,
       deployCalls,
       saveCalls,
+      verifications,
       // Use hardhat-deploy's real tag resolution and skip evaluation. Calling
       // migration functions directly would miss dependencies running first.
       run: (tag: string) =>
@@ -173,6 +201,51 @@ describe("Peg keeper migration deployment dependencies", () => {
       ])
       expect(logs.join("\n")).to.include(env.records.BridgeGovernance.address)
       expect(logs.join("\n")).to.include("finalizeBridgeGovernanceTransfer")
+    })
+
+    it(`verifies V2 and continues the governance transfer on ${network}`, async () => {
+      process.env.DEPLOY_BRIDGE_GOVERNANCE_V2 = "true"
+      process.env.DEPLOY_BRIDGE_GOVERNANCE_TRANSFER = "true"
+      const env = migrationEnvironment(network, false, { tenderly: true })
+
+      await env.run("TransferBridgeGovernanceV2")
+
+      expect(env.verifications).to.deep.equal([
+        {
+          name: "BridgeGovernance",
+          address: env.records.BridgeGovernanceV2.address,
+          libraries: {
+            BridgeGovernanceParameters:
+              env.records.BridgeGovernanceParametersV2.address,
+          },
+        },
+      ])
+      expect(env.verifications[0].libraries).to.deep.equal(
+        env.deployCalls[1].options.libraries
+      )
+      expect(logs.join("\n")).to.include("finalizeBridgeGovernanceTransfer")
+    })
+
+    ;[
+      { label: "missing", value: undefined },
+      { label: "malformed", value: "not-an-address" },
+      { label: "zero", value: ZeroAddress },
+      { label: "zero ICAP", value: getIcapAddress(ZeroAddress) },
+    ].forEach(({ label, value }) => {
+      it(`rejects a ${label} keeper before preparing the ${network} upgrade`, async () => {
+        process.env.DEPLOY_PROTOCOL_PEG_KEEPER_UPGRADE = "true"
+        if (value !== undefined) process.env.INITIAL_PEG_KEEPER = value
+        const env = migrationEnvironment(network)
+
+        await expect(env.run("UpgradeBridgeV6PegKeeper")).to.be.rejectedWith(
+          "INITIAL_PEG_KEEPER env var must be set to a valid non-zero address"
+        )
+
+        expect(env.deployCalls).to.have.lengthOf(0)
+        expect(env.saveCalls).to.have.lengthOf(0)
+        expect(env.getCalls).to.have.lengthOf(0)
+        expect(logs).to.have.lengthOf(0)
+      })
     })
   })
 
