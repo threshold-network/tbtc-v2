@@ -1,4 +1,4 @@
-import type { BigNumber, BigNumberish, BytesLike } from "ethers"
+import type { BigNumberish, BytesLike } from "ethers"
 import { walletState } from "../fixtures"
 
 // TODO: All explanatory comments regarding redemption math assumes the
@@ -79,8 +79,8 @@ export interface RedemptionTestData {
  * Container for TBTC balance change during redemption test scenario.
  */
 export interface RedemptionBalanceChange {
-  beforeProof: BigNumber
-  afterProof: BigNumber
+  beforeProof: bigint
+  afterProof: bigint
 }
 
 /**

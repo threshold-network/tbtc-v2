@@ -15,8 +15,6 @@
 
 pragma solidity ^0.8.0;
 
-import {BTCUtils} from "@keep-network/bitcoin-spv-sol/contracts/BTCUtils.sol";
-
 import "./IBridge.sol";
 import "./ITBTCVault.sol";
 
@@ -78,8 +76,6 @@ import "./ITBTCVault.sol";
 ///          }
 ///      }
 abstract contract AbstractBTCDepositor {
-    using BTCUtils for bytes;
-
     /// @notice Multiplier to convert satoshi to TBTC token units.
     uint256 public constant SATOSHI_MULTIPLIER = 10 ** 10;
 
@@ -282,16 +278,18 @@ abstract contract AbstractBTCDepositor {
     // slither-disable-next-line dead-code
     function _calculateBitcoinTxHash(
         IBridgeTypes.BitcoinTxInfo memory txInfo
-    ) internal view returns (bytes32) {
-        return
-            abi
-                .encodePacked(
-                    txInfo.version,
-                    txInfo.inputVector,
-                    txInfo.outputVector,
-                    txInfo.locktime
-                )
-                .hash256View();
+    ) internal pure returns (bytes32) {
+        // Bitcoin's transaction hash is SHA-256 applied twice to the serialized
+        // fields. Preserve the digest byte order expected by the Bridge.
+        bytes32 firstHash = sha256(
+            abi.encodePacked(
+                txInfo.version,
+                txInfo.inputVector,
+                txInfo.outputVector,
+                txInfo.locktime
+            )
+        );
+        return sha256(abi.encodePacked(firstHash));
     }
 
     /// @notice Returns minimum deposit amount.

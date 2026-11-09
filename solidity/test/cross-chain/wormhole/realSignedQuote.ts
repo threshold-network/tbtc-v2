@@ -13,9 +13,9 @@
 // ============================================================================
 
 /**
- * Real Executor Quote - Ethereum to Sei EVM (Standard)
+ * Real Executor Quote - Ethereum to sample EVM destination (Standard)
  * Source: Ethereum Mainnet (Chain ID: 2)
- * Destination: Sei EVM (Chain ID: 40)
+ * Destination: sample EVM destination (Chain ID: 40)
  * Gas Limit: 500,000
  * Generated: 2025-10-06T18:32:47.219Z
  */
@@ -35,7 +35,7 @@ export const REAL_SIGNED_QUOTE = {
   quoteLength: 332, // characters including 0x prefix
   byteLength: 165, // actual bytes
   srcChain: 2, // Ethereum
-  dstChain: 40, // Sei EVM
+  dstChain: 40, // Sample EVM destination
   gasLimit: 500000, // 0x7a120
   timestamp: "2025-10-06T18:32:47.219Z",
   expiryTime: "2025-10-06T19:32:47.226Z", // 1 hour validity
@@ -166,7 +166,7 @@ export const FEE_ARGS_STANDARD = {
  * These real signed quotes contain:
  *
  * 1. Valid signatures from Wormhole Executor service
- * 2. Proper chain ID encoding (Ethereum: 2, Sei EVM: 40)
+ * 2. Proper chain ID encoding (Ethereum: 2, sample EVM destination: 40)
  * 3. Different gas limits for comprehensive testing:
  *    - Standard: 500,000 gas (0x7a120)
  *    - Alternative: 300,000 gas (0x493e0)

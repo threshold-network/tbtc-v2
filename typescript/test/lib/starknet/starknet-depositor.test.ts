@@ -8,7 +8,7 @@ describe("StarkNetDepositor", () => {
     it("should initialize with provider", () => {
       // Arrange
       const mockProvider = createMockProvider()
-      const config = { chainId: "SN_MAIN" }
+      const config = { chainId: "0x534e5f4d41494e" }
 
       // Act
       const depositor = new StarkNetDepositor(config, "StarkNet", mockProvider)
@@ -21,7 +21,7 @@ describe("StarkNetDepositor", () => {
     it("should store provider reference", () => {
       // Arrange
       const mockProvider = createMockProvider()
-      const config = { chainId: "SN_MAIN" }
+      const config = { chainId: "0x534e5f4d41494e" }
 
       // Act
       const depositor = new StarkNetDepositor(config, "StarkNet", mockProvider)
@@ -32,7 +32,7 @@ describe("StarkNetDepositor", () => {
 
     it("should throw error if provider is undefined", () => {
       // Arrange
-      const config = { chainId: "SN_MAIN" }
+      const config = { chainId: "0x534e5f4d41494e" }
 
       // Act & Assert
       expect(
@@ -45,7 +45,7 @@ describe("StarkNetDepositor", () => {
     it("should return the chain name passed to constructor", () => {
       // Arrange
       const mockProvider = createMockProvider()
-      const config = { chainId: "SN_MAIN" }
+      const config = { chainId: "0x534e5f4d41494e" }
       const depositor = new StarkNetDepositor(config, "StarkNet", mockProvider)
 
       // Act
@@ -60,7 +60,7 @@ describe("StarkNetDepositor", () => {
     it("should accept StarkNet address as deposit owner", () => {
       // Arrange
       const mockProvider = createMockProvider()
-      const config = { chainId: "SN_MAIN" }
+      const config = { chainId: "0x534e5f4d41494e" }
       const depositor = new StarkNetDepositor(config, "StarkNet", mockProvider)
       const starknetAddress = StarkNetAddress.from("0x123456")
 
@@ -74,7 +74,7 @@ describe("StarkNetDepositor", () => {
     it("should throw error for non-StarkNet address", () => {
       // Arrange
       const mockProvider = createMockProvider()
-      const config = { chainId: "SN_MAIN" }
+      const config = { chainId: "0x534e5f4d41494e" }
       const depositor = new StarkNetDepositor(config, "StarkNet", mockProvider)
       const invalidAddress = { identifierHex: "0x123" } as any
 
@@ -89,7 +89,7 @@ describe("StarkNetDepositor", () => {
     it("should provide access to extra data encoder", () => {
       // Arrange
       const mockProvider = createMockProvider()
-      const config = { chainId: "SN_MAIN" }
+      const config = { chainId: "0x534e5f4d41494e" }
       const depositor = new StarkNetDepositor(config, "StarkNet", mockProvider)
       const starknetAddress = StarkNetAddress.from("0x123456")
 

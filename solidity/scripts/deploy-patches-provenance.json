@@ -1,0 +1,62 @@
+{
+  "node_modules/@threshold-network/solidity-contracts/export/deploy/07_deploy_token_staking.js": {
+    "package": "@threshold-network/solidity-contracts",
+    "version": "1.3.0-dev.11",
+    "hash": "d672c05e0ea9f6164258b745e102b947d328418e5ee59bbf61a8f29f875c2a37"
+  },
+  "node_modules/@threshold-network/solidity-contracts/export/deploy/05_transfer_t.js": {
+    "package": "@threshold-network/solidity-contracts",
+    "version": "1.3.0-dev.11",
+    "hash": "e2407596e045fef20eb704a3dc767858656be77653e6e939a4c19f5f690773bf"
+  },
+  "node_modules/@threshold-network/solidity-contracts/export/deploy/30_deploy_tokenholder_timelock.js": {
+    "package": "@threshold-network/solidity-contracts",
+    "version": "1.3.0-dev.11",
+    "hash": "c084c7964ce57bf502f85195969a91e21274e31a9bcf843a414b84283671ffd1"
+  },
+  "node_modules/@keep-network/ecdsa/export/deploy/03_deploy_wallet_registry.js": {
+    "package": "@keep-network/ecdsa",
+    "version": "2.1.0-dev.19",
+    "hash": "12168e2eca6e4fe02ccdbae137b4afa11fa27827345dfc9b9f6cfe6d92c03f92"
+  },
+  "node_modules/@keep-network/ecdsa/export/deploy/07_approve_wallet_registry.js": {
+    "package": "@keep-network/ecdsa",
+    "version": "2.1.0-dev.19",
+    "hash": "cd18d89107074365f77fcb865ce5a979a27b9607dd0d9fa8d5cfdb0874aeaab4"
+  },
+  "node_modules/@keep-network/random-beacon/export/deploy/04_deploy_random_beacon.js": {
+    "package": "@keep-network/random-beacon",
+    "version": "2.1.0-dev.18",
+    "hash": "5117f1f3cb21881ad255ab0400f70bf3bfb24b4c016afa7b147e9a44f813b78e"
+  },
+  "node_modules/@keep-network/random-beacon/export/deploy/05_approve_random_beacon_in_token_staking.js": {
+    "package": "@keep-network/random-beacon",
+    "version": "2.1.0-dev.18",
+    "hash": "47273f70cebe4d3ffc7b7067a89523620e05c35d8900391f9af705e50c4a4537"
+  },
+  "node_modules/@keep-network/random-beacon/export/deploy/01_deploy_reimbursement_pool.js": {
+    "package": "@keep-network/random-beacon",
+    "version": "2.1.0-dev.18",
+    "hash": "24910e238ba06861e945ddda071e16de0372009f47557f49b64019de20c03fce"
+  },
+  "node_modules/@keep-network/random-beacon/export/deploy/02_deploy_beacon_sortition_pool.js": {
+    "package": "@keep-network/random-beacon",
+    "version": "2.1.0-dev.18",
+    "hash": "1f70817c3ac0388b8de11238223599ca3c8a7c1a7e1c61aeba2b022fb353380f"
+  },
+  "node_modules/@keep-network/random-beacon/export/deploy/03_deploy_beacon_dkg_validator.js": {
+    "package": "@keep-network/random-beacon",
+    "version": "2.1.0-dev.18",
+    "hash": "83c47bc2a712156fc48af365842e1877fc58fac385866e566e50319c5748d5d8"
+  },
+  "node_modules/@keep-network/random-beacon/export/deploy/07_deploy_random_beacon_governance.js": {
+    "package": "@keep-network/random-beacon",
+    "version": "2.1.0-dev.18",
+    "hash": "7c5f65149dcb90af5099cb5059fb18c12d0124805225bb450f63c3e22257d628"
+  },
+  "node_modules/@keep-network/random-beacon/export/deploy/09_deploy_random_beacon_chaosnet.js": {
+    "package": "@keep-network/random-beacon",
+    "version": "2.1.0-dev.18",
+    "hash": "32f3f0e78dfa3f10673a633441caced2c1d8cab68a2ff6ef9579557a73ef7a14"
+  }
+}

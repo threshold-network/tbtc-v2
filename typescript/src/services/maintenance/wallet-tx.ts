@@ -11,7 +11,7 @@ import {
   BitcoinUtxo,
   toBitcoinJsLibNetwork,
 } from "../../lib/bitcoin"
-import { BigNumber } from "ethers"
+import { BigNumber } from "@ethersproject/bignumber"
 import {
   DepositReceipt,
   RedemptionRequest,

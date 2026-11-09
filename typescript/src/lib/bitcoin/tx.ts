@@ -1,6 +1,6 @@
 import { Transaction as Tx } from "bitcoinjs-lib"
 import bufio from "bufio"
-import { BigNumber } from "ethers"
+import { BigNumber } from "@ethersproject/bignumber"
 import { Hex } from "../utils"
 
 /**

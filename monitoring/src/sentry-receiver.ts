@@ -31,6 +31,8 @@ export class SentryReceiver extends BaseSystemEventReceiver {
   }
 
   async handle(systemEvent: SystemEvent): Promise<void> {
+    let eventId: string | undefined
+
     Sentry.withScope((scope) => {
       scope.setExtras(systemEvent.data)
       scope.setExtra("block", systemEvent.block)
@@ -43,8 +45,16 @@ export class SentryReceiver extends BaseSystemEventReceiver {
         .update(JSON.stringify(systemEvent))
         .digest("base64")
 
-      Sentry.captureMessage(`${systemEvent.title} [${hash}]`)
+      eventId = Sentry.captureMessage(`${systemEvent.title} [${hash}]`)
     })
+
+    if (!eventId) {
+      throw new Error("Sentry did not accept the system event")
+    }
+
+    if (!(await Sentry.flush(2000))) {
+      throw new Error("Sentry event was not flushed")
+    }
   }
 
   private resolveSeverityLevel(

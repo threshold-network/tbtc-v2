@@ -58,10 +58,9 @@ interface IRedemptionWatchtower {
     /// @param redemptionKey Redemption key built as
     ///        `keccak256(keccak256(redeemerOutputScript) | walletPubKeyHash)`.
     /// @return Redemption delay.
-    function getRedemptionDelay(uint256 redemptionKey)
-        external
-        view
-        returns (uint32);
+    function getRedemptionDelay(
+        uint256 redemptionKey
+    ) external view returns (uint32);
 }
 
 /// @notice Aggregates functions common to the redemption transaction proof
@@ -252,6 +251,39 @@ library Redemption {
         bytes redeemerOutputScript
     );
 
+    /// @notice Returns true if the decoded `redeemer` is authorized to be
+    ///         credited with rebate accounting against the given Bank
+    ///         `balanceOwner`. Direct redemptions (`balanceOwner == redeemer`)
+    ///         are always authorized. Callback redemptions where
+    ///         `balanceOwner != redeemer` are authorized only when the
+    ///         redeemer has explicitly authorized `balanceOwner` via
+    ///         `RebateStaking.setRebateAuthorization`.
+    /// @dev When `self.rebateStaking == address(0)`, only direct redemptions
+    ///      are authorized. Soft-fail by design: callers consume this view
+    ///      to decide whether to apply a rebate; failing the check does not
+    ///      revert the redemption.
+    /// @param balanceOwner The address of the Bank balance owner whose balance
+    ///        is getting redeemed.
+    /// @param redeemer The Ethereum address of the redeemer named as the
+    ///        target of rebate accounting if a rebate applies.
+    function isRebateAuthorizedForRedemption(
+        BridgeState.Storage storage self,
+        address balanceOwner,
+        address redeemer
+    ) internal view returns (bool) {
+        if (balanceOwner == redeemer) {
+            return true;
+        }
+        if (self.rebateStaking == address(0)) {
+            return false;
+        }
+        return
+            RebateStaking(self.rebateStaking).isRebateAuthorized(
+                redeemer,
+                balanceOwner
+            );
+    }
+
     /// @notice Requests redemption of the given amount from the specified
     ///         wallet to the redeemer Bitcoin output script.
     ///         This function handles the simplest case, where balance owner is
@@ -361,6 +393,12 @@ library Redemption {
     ///      - Wallet must have enough Bitcoin balance to proceed the request,
     ///      - Balance owner must make an allowance in the Bank that the Bridge
     ///        contract can spend the given `amount`.
+    ///      Rebate accounting note: when the decoded `redeemer` differs from
+    ///      `balanceOwner`, a rebate is applied only if the `redeemer` has
+    ///      explicitly authorized `balanceOwner` via
+    ///      `RebateStaking.setRebateAuthorization`. Unauthorized mismatches
+    ///      proceed with the full treasury fee and no rebate, without
+    ///      reverting.
     function requestRedemption(
         BridgeState.Storage storage self,
         address balanceOwner,
@@ -435,6 +473,26 @@ library Redemption {
     ///      - Wallet must have enough Bitcoin balance to proceed the request,
     ///      - Balance owner must make an allowance in the Bank that the Bridge
     ///        contract can spend the given `amount`.
+    ///      Rebate accounting note: when `balanceOwner != redeemer`, the
+    ///      rebate application is gated on `RebateStaking.isRebateAuthorized`.
+    ///      If unauthorized, the redemption proceeds with the full treasury
+    ///      fee and no rebate is applied. Apply/cancel symmetry on
+    ///      `request.redeemer` is preserved: when no rebate is applied,
+    ///      `RebateStaking.cancelRebate` is a no-op for the corresponding
+    ///      timeout.
+    ///      - Treasury-fee waiver: Peg keepers are exempt from treasury fees on
+    ///        direct redemptions when `balanceOwner == redeemer`. This waiver
+    ///        does not apply to the standard `TBTCVault` redemption callback
+    ///        path; for the waiver to apply, a peg keeper must call
+    ///        `TBTCVault.unmint()` then `Bridge.requestRedemption()` directly
+    ///        (two transactions). Once `Bridge.initializeV6_ConfigurePegKeeper`
+    ///        permanently disables the rebate-staking hook by zeroing
+    ///        `self.rebateStaking`, this exclusion becomes the permanent
+    ///        end-state, not a transitional limitation: the legacy rebate
+    ///        branch below becomes unreachable for every redeemer, so all
+    ///        `TBTCVault`-path redemptions receive zero fee relief forever,
+    ///        regardless of whether the underlying balance owner is a peg
+    ///        keeper.
     function requestRedemption(
         BridgeState.Storage storage self,
         bytes20 walletPubKeyHash,
@@ -535,13 +593,25 @@ library Redemption {
         // No need to check whether `amount - treasuryFee - txMaxFee > 0`
         // since the `redemptionDustThreshold` should force that condition
         // to be always true.
-        uint64 treasuryFee = self.redemptionTreasuryFeeDivisor > 0
-            ? amount / self.redemptionTreasuryFeeDivisor
-            : 0;
+        uint64 treasuryFee =
+            self.redemptionTreasuryFeeDivisor > 0
+                ? amount / self.redemptionTreasuryFeeDivisor
+                : 0;
+        // Direct redemptions from allowlisted peg keepers waive the treasury
+        // fee. Other redeemers retain the legacy rebate path, but callback
+        // redemptions where `balanceOwner != redeemer` require the redeemer's
+        // explicit authorization for that balance owner. Once
+        // `self.rebateStaking` is permanently zeroed by
+        // `Bridge.initializeV6_ConfigurePegKeeper`, the `else if` branch below
+        // is permanently unreachable, so no redeemer receives fee relief via
+        // the `TBTCVault` callback path anymore.
         if (treasuryFee > 0) {
             if (balanceOwner == redeemer && self.pegKeepers[redeemer]) {
                 treasuryFee = 0;
-            } else if (self.rebateStaking != address(0)) {
+            } else if (
+                self.rebateStaking != address(0) &&
+                isRebateAuthorizedForRedemption(self, balanceOwner, redeemer)
+            ) {
                 treasuryFee = RebateStaking(self.rebateStaking).applyForRebate(
                     redeemer,
                     treasuryFee,
@@ -973,8 +1043,8 @@ library Redemption {
             // amount reduced by the treasury fee. The request's
             // minimal amount is then the redeemable amount reduced by
             // the maximum transaction fee.
-            uint64 redeemableAmount = request.requestedAmount -
-                request.treasuryFee;
+            uint64 redeemableAmount =
+                request.requestedAmount - request.treasuryFee;
             // Output value must fit between the request's redeemable
             // and minimal amounts to be deemed valid.
             require(
@@ -1010,8 +1080,8 @@ library Redemption {
                 "Output is a non-requested redemption"
             );
 
-            uint64 redeemableAmount = request.requestedAmount -
-                request.treasuryFee;
+            uint64 redeemableAmount =
+                request.requestedAmount - request.treasuryFee;
 
             require(
                 redeemableAmount - request.txMaxFee <= outputValue &&
@@ -1085,8 +1155,7 @@ library Redemption {
             walletPubKeyHash
         ];
         wallet.pendingRedemptionsValue -=
-            request.requestedAmount -
-            request.treasuryFee;
+            request.requestedAmount - request.treasuryFee;
 
         // It is worth noting that there is no need to check if
         // `timedOutRedemption` mapping already contains the given redemption
@@ -1119,11 +1188,10 @@ library Redemption {
     /// @param walletPubKeyHash the pubkey hash of the wallet.
     /// @param script the output script of the redemption.
     /// @return The key = keccak256(keccak256(script) | walletPubKeyHash).
-    function getRedemptionKey(bytes20 walletPubKeyHash, bytes memory script)
-        internal
-        pure
-        returns (uint256)
-    {
+    function getRedemptionKey(
+        bytes20 walletPubKeyHash,
+        bytes memory script
+    ) internal pure returns (uint256) {
         bytes32 scriptHash = keccak256(script);
         uint256 key;
         /* solhint-disable-next-line no-inline-assembly */
@@ -1139,11 +1207,10 @@ library Redemption {
     /// @param walletPubKeyHash the pubkey hash of the wallet.
     /// @param scriptHash the output script hash of the redemption.
     /// @return The key = keccak256(scriptHash | walletPubKeyHash).
-    function _getRedemptionKey(bytes20 walletPubKeyHash, bytes32 scriptHash)
-        internal
-        pure
-        returns (uint256)
-    {
+    function _getRedemptionKey(
+        bytes20 walletPubKeyHash,
+        bytes32 scriptHash
+    ) internal pure returns (uint256) {
         uint256 key;
         /* solhint-disable-next-line no-inline-assembly */
         assembly {
@@ -1185,7 +1252,7 @@ library Redemption {
             walletPubKeyHash,
             redeemerOutputScript
         );
-        Redemption.RedemptionRequest storage redemption = self
+        Redemption.RedemptionRequest memory redemption = self
             .pendingRedemptions[redemptionKey];
 
         // Should never happen, but just in case.
@@ -1199,8 +1266,7 @@ library Redemption {
         // If we don't do this, the wallet will hold the reserve
         // for a redemption request that will never be processed.
         self.registeredWallets[walletPubKeyHash].pendingRedemptionsValue -=
-            redemption.requestedAmount -
-            redemption.treasuryFee;
+            redemption.requestedAmount - redemption.treasuryFee;
 
         // Capture the amount that should be transferred to the
         // redemption watchtower. Use the whole requested amount as a detained
@@ -1213,6 +1279,18 @@ library Redemption {
         // mapping. This is important to avoid this redemption request
         // to be processed by the wallet or reported as timed out.
         delete self.pendingRedemptions[redemptionKey];
+
+        // Mirror the apply/cancel symmetry maintained by
+        // `notifyRedemptionTimeout`: if a rebate was applied at request time,
+        // release the corresponding rolling-window cap entry. When no rebate
+        // was applied (unauthorized callback, or rebate staking unset), the
+        // call is a safe no-op.
+        if (self.rebateStaking != address(0)) {
+            RebateStaking(self.rebateStaking).cancelRebate(
+                redemption.redeemer,
+                redemption.requestedAt
+            );
+        }
 
         self.bank.transferBalance(self.redemptionWatchtower, detainedAmount);
     }

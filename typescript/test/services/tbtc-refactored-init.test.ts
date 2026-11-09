@@ -1,16 +1,16 @@
 import { expect } from "chai"
-import { RpcProvider } from "starknet"
 import { TBTC } from "../../src/services/tbtc"
 import { MockTBTCContracts } from "../utils/mock-tbtc-contracts"
 import { MockBitcoinClient } from "../utils/mock-bitcoin-client"
 import { MockCrossChainContractsLoader } from "../utils/mock-cross-chain-contracts-loader"
+import { createMockProvider } from "../lib/starknet/test-helpers"
 
 describe("Refactored initializeCrossChain", () => {
   let tbtc: TBTC
   let mockTBTCContracts: MockTBTCContracts
   let mockBitcoinClient: MockBitcoinClient
   let mockCrossChainContractsLoader: MockCrossChainContractsLoader
-  let starknetProvider: RpcProvider
+  let starknetProvider: any
   let consoleWarnStub: any
 
   beforeEach(async () => {
@@ -26,10 +26,7 @@ describe("Refactored initializeCrossChain", () => {
       mockCrossChainContractsLoader
     )
 
-    // Mock StarkNet provider
-    starknetProvider = new RpcProvider({
-      nodeUrl: "https://starknet-testnet.public.blastapi.io/rpc/v0_6",
-    })
+    starknetProvider = createMockProvider()
 
     // Stub console.warn
     consoleWarnStub = console.warn as any

@@ -1,10 +1,8 @@
-/* eslint-disable no-underscore-dangle */
-/* eslint-disable @typescript-eslint/no-unused-expressions */
-
-import { ethers, helpers, waffle } from "hardhat"
-import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
+import { ethers, helpers } from "hardhat"
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import { expect } from "chai"
-import { ContractTransaction } from "ethers"
+import { ContractTransactionResponse } from "ethers"
+import { requireValue } from "../../helpers/require-value"
 
 import type { LightRelayStub } from "../../typechain"
 
@@ -13,6 +11,7 @@ import { concatenateHexStrings } from "../helpers/contract-test-helpers"
 import headers from "./headersWithRetarget.json"
 import reorgHeaders from "./headersReorgAndRetarget.json"
 import longHeaders from "./longHeaders.json"
+import { loadFixture } from "../helpers/fixture"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 
@@ -108,7 +107,7 @@ const fixture = async () => {
 
   const Relay = await ethers.getContractFactory("LightRelayStub")
   const relay = await Relay.deploy()
-  await relay.deployed()
+  await relay.waitForDeployment()
 
   await relay.connect(deployer).transferOwnership(governance.address)
 
@@ -121,15 +120,14 @@ const fixture = async () => {
 }
 
 describe("LightRelay", () => {
-  let governance: SignerWithAddress
+  let governance: HardhatEthersSigner
 
-  let thirdParty: SignerWithAddress
+  let thirdParty: HardhatEthersSigner
 
   let relay: LightRelayStub
 
   before(async () => {
-    // eslint-disable-next-line @typescript-eslint/no-extra-semi
-    ;({ governance, thirdParty, relay } = await waffle.loadFixture(fixture))
+    ;({ governance, thirdParty, relay } = await loadFixture(fixture))
   })
 
   //
@@ -145,7 +143,7 @@ describe("LightRelay", () => {
     })
 
     context("when called with valid inputs", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -268,7 +266,7 @@ describe("LightRelay", () => {
       })
 
       context("when called correctly", () => {
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -343,7 +341,7 @@ describe("LightRelay", () => {
       })
 
       context("when set by governance", () => {
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
 
         it("should be updated", async () => {
           await relay.connect(governance).setAuthorizationStatus(true)
@@ -484,7 +482,7 @@ describe("LightRelay", () => {
       })
 
       context("when called correctly", () => {
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
         const retargetHeaders = concatenateHexStrings(headerHex.slice(5, 13))
 
         before(async () => {
@@ -616,7 +614,7 @@ describe("LightRelay", () => {
       })
 
       context("with proof length 9", () => {
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
         const retargetHeaders = concatenateHexStrings(headerHex)
 
         before(async () => {
@@ -643,7 +641,7 @@ describe("LightRelay", () => {
       })
 
       context("with appropriate authorisation", () => {
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
         const retargetHeaders = concatenateHexStrings(headerHex.slice(5, 13))
 
         before(async () => {
@@ -734,7 +732,7 @@ describe("LightRelay", () => {
       })
 
       context("with proof length 6", () => {
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
         const retargetHeaders = concatenateHexStrings(
           longHeaderHex.slice(89, 101)
         )
@@ -763,7 +761,7 @@ describe("LightRelay", () => {
       })
 
       context("with proof length 50", () => {
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
         const retargetHeaders = concatenateHexStrings(
           longHeaderHex.slice(45, 145)
         )
@@ -1024,7 +1022,7 @@ describe("LightRelay", () => {
           const proofHeaders = concatenateHexStrings(headerHex.slice(5, 11))
           await relay.connect(governance).setProofLength(6)
           const tx = await relay.validateChainGasReport(proofHeaders)
-          const txr = await tx.wait()
+          const txr = requireValue(await tx.wait(), "Transaction receipt")
 
           expect(txr.status).to.equal(1)
         })
@@ -1035,7 +1033,7 @@ describe("LightRelay", () => {
           const proofHeaders = concatenateHexStrings(headerHex)
           await relay.connect(governance).setProofLength(18)
           const tx = await relay.validateChainGasReport(proofHeaders)
-          const txr = await tx.wait()
+          const txr = requireValue(await tx.wait(), "Transaction receipt")
 
           expect(txr.status).to.equal(1)
         })

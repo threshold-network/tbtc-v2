@@ -1,5 +1,5 @@
 import { assert } from "chai"
-import { Hex } from "../../src"
+import { backoffRetrier, Hex, skipRetryWhenMatched } from "../../src"
 
 describe("Utils", () => {
   describe("Hex", () => {
@@ -177,5 +177,74 @@ describe("Utils", () => {
         })
       })
     })
+  })
+})
+
+describe("backoffRetrier with skipRetryWhenMatched", () => {
+  // The exact revert reason the WalletRegistry contract produces for
+  // closed/terminated wallets. Pinned here so a contract-side rewording
+  // breaks a test instead of silently restoring the retry behavior.
+  const notRegisteredRevert = "Wallet with the given ID has not been registered"
+
+  const retrier = <T>() =>
+    backoffRetrier<T>(
+      3,
+      1,
+      () => {},
+      skipRetryWhenMatched([notRegisteredRevert])
+    )
+
+  it("should not retry when the error matches a non-retryable pattern", async () => {
+    let attempts = 0
+    let caughtError: Error | undefined
+
+    try {
+      await retrier<void>()(async () => {
+        attempts += 1
+        throw new Error(
+          `call revert exception; reason="${notRegisteredRevert}"`
+        )
+      })
+    } catch (error) {
+      caughtError = error as Error
+    }
+
+    assert.isDefined(caughtError)
+    assert.include(caughtError!.message, notRegisteredRevert)
+    assert.equal(attempts, 1)
+  })
+
+  it("should keep retrying errors that do not match", async () => {
+    let attempts = 0
+    let caughtError: Error | undefined
+
+    try {
+      await retrier<void>()(async () => {
+        attempts += 1
+        throw new Error("server unavailable")
+      })
+    } catch (error) {
+      caughtError = error as Error
+    }
+
+    assert.isDefined(caughtError)
+    assert.include(caughtError!.message, "server unavailable")
+    // `retries` guarded attempts plus the final unguarded attempt.
+    assert.equal(attempts, 4)
+  })
+
+  it("should return the result when a retried call eventually succeeds", async () => {
+    let attempts = 0
+
+    const result = await retrier<string>()(async () => {
+      attempts += 1
+      if (attempts < 2) {
+        throw new Error("server unavailable")
+      }
+      return "ok"
+    })
+
+    assert.equal(result, "ok")
+    assert.equal(attempts, 2)
   })
 })

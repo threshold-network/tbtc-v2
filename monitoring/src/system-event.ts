@@ -23,7 +23,7 @@ export type ReceiverId = string
 export interface SystemEventAck {
   receiverId: ReceiverId
   systemEvent: SystemEvent
-  status: "handled" | "ignored"
+  status: "handled" | "ignored" | "duplicate"
 }
 
 export interface Receiver {
@@ -96,7 +96,7 @@ class Deduplicator implements Receiver {
       return {
         receiverId: this.id(),
         systemEvent,
-        status: "ignored",
+        status: "duplicate",
       }
     }
 
@@ -104,10 +104,25 @@ class Deduplicator implements Receiver {
   }
 }
 
+export interface BlockRange {
+  fromBlock: number
+  toBlock: number
+}
+
 export interface Persistence {
   checkpointBlock: () => Promise<number>
 
   updateCheckpointBlock: (block: number) => Promise<void>
+
+  pendingBlockRange: () => Promise<BlockRange | null>
+
+  updatePendingBlockRange: (range: BlockRange | null) => Promise<void>
+
+  pendingSystemEvents: () => Promise<Record<ReceiverId, SystemEvent[]>>
+
+  updatePendingSystemEvents: (
+    systemEvents: Record<ReceiverId, SystemEvent[]>
+  ) => Promise<void>
 
   handledSystemEvents: () => Promise<Record<ReceiverId, SystemEvent[]>>
 
@@ -125,6 +140,10 @@ export interface ManagerReport {
 
 // Our expectation on how deep can chain reorganization be.
 const reorgDepthBlocks = 12
+
+// Limit a single catch-up pass to keep stale checkpoints from producing
+// unbounded node queries and alert fanout.
+const maxBlockRange = 10000
 
 export class Manager {
   private monitors: Monitor[]
@@ -145,53 +164,41 @@ export class Manager {
 
   async trigger(): Promise<ManagerReport> {
     try {
-      const checkpointBlock = await this.persistence.checkpointBlock()
-      const latestBlock = await blocks.latestBlock()
+      let range = await this.persistence.pendingBlockRange()
+      if (!range) {
+        const checkpointBlock = await this.persistence.checkpointBlock()
+        const latestBlock = await blocks.latestBlock()
 
-      const validCheckpoint =
-        checkpointBlock > 0 && checkpointBlock < latestBlock
+        const validCheckpoint =
+          checkpointBlock > 0 && checkpointBlock < latestBlock
 
-      let fromBlock = validCheckpoint ? checkpointBlock : latestBlock
+        let fromBlock = validCheckpoint ? checkpointBlock : latestBlock
 
-      // Adjust the fromBlock using the reorgDepthBlocks factor to cover
-      // potential chain reorgs.
-      fromBlock =
-        fromBlock - reorgDepthBlocks > 0 ? fromBlock - reorgDepthBlocks : 0
+        // Adjust the fromBlock using the reorgDepthBlocks factor to cover
+        // potential chain reorgs.
+        fromBlock =
+          fromBlock - reorgDepthBlocks > 0 ? fromBlock - reorgDepthBlocks : 0
 
-      const toBlock = latestBlock
-
-      const { systemEventsAcks, errors } = await this.check(fromBlock, toBlock)
-
-      const handledSystemEventsAcks = systemEventsAcks.filter(
-        (ack) => ack.status === "handled"
-      )
-
-      if (handledSystemEventsAcks.length !== 0) {
-        try {
-          const groupByReceiver = (
-            group: Record<ReceiverId, SystemEvent[]>,
-            ack: SystemEventAck
-          ) => {
-            const { receiverId, systemEvent } = ack
-            // eslint-disable-next-line no-param-reassign
-            group[receiverId] = group[receiverId] ?? []
-            group[receiverId].push(systemEvent)
-            return group
-          }
-
-          await this.persistence.storeHandledSystemEvents(
-            handledSystemEventsAcks.reduce(groupByReceiver, {})
-          )
-        } catch (error) {
-          errors.push(`cannot store handled system events: ${error}`)
+        range = {
+          fromBlock,
+          toBlock: Math.min(latestBlock, fromBlock + maxBlockRange),
         }
       }
+      // Keep historical bounds until the scan results are durably captured.
+      // Persist retries too, in case a failed save left only an in-memory range.
+      await this.persistence.updatePendingBlockRange(range)
+      const { fromBlock, toBlock } = range
 
-      if (errors.length === 0) {
+      const { scanSucceeded, errors } = await this.check(fromBlock, toBlock)
+
+      // Once every monitor's events are durably queued, receiver failures must
+      // not hold the scan checkpoint behind newer events for healthy receivers.
+      if (scanSucceeded) {
         try {
-          await this.persistence.updateCheckpointBlock(latestBlock)
+          await this.persistence.updateCheckpointBlock(toBlock)
+          await this.persistence.updatePendingBlockRange(null)
         } catch (error) {
-          errors.push(`cannot update checkpoint block: ${error}`)
+          errors.push(`cannot complete scanned block range: ${error}`)
         }
       }
 
@@ -214,6 +221,7 @@ export class Manager {
     toBlock: number
   ): Promise<{
     systemEventsAcks: SystemEventAck[]
+    scanSucceeded: boolean
     errors: string[]
   }> {
     const systemEvents: SystemEvent[] = []
@@ -224,44 +232,94 @@ export class Manager {
     )
 
     checks.forEach((result) => {
-      switch (result.status) {
-        case "fulfilled": {
-          systemEvents.push(...result.value)
-          break
-        }
-        case "rejected": {
-          errors.push(`cannot check system events monitor: ${result.reason}`)
-          break
-        }
+      if (result.status === "fulfilled") {
+        systemEvents.push(...result.value)
+      } else {
+        errors.push(`cannot check system events monitor: ${result.reason}`)
       }
     })
+    const scanSucceeded = errors.length === 0
 
-    const handledSystemEvents = await this.persistence.handledSystemEvents()
+    const [handledSystemEvents, pendingSystemEvents] = await Promise.all([
+      this.persistence.handledSystemEvents(),
+      this.persistence.pendingSystemEvents(),
+    ])
+    const queued: Record<ReceiverId, SystemEvent[]> = { ...pendingSystemEvents }
+    this.receivers.forEach((receiver) => {
+      const id = receiver.id()
+      const uniqueEvents = new Map(
+        [...(queued[id] ?? []), ...systemEvents].map((event) => [
+          Deduplicator.systemEventKey(event),
+          event,
+        ])
+      )
+      queued[id] = [...uniqueEvents.values()]
+    })
 
+    // Capture payloads per receiver before any delivery or checkpoint update.
+    // In particular, an expiration must survive a later proof or process exit.
+    // Entries for temporarily unconfigured receivers remain in this outbox.
+    await this.persistence.updatePendingSystemEvents(queued)
+
+    const deliveries = this.receivers.flatMap((receiver) => {
+      const id = receiver.id()
+      const deduplicator = Deduplicator.wrap(
+        receiver,
+        handledSystemEvents[id] ?? []
+      )
+      return (queued[id] ?? []).map((systemEvent) => ({
+        receiverId: id,
+        systemEvent,
+        receive: () => deduplicator.receive(systemEvent),
+      }))
+    })
     const dispatches = await Promise.allSettled(
-      this.receivers
-        .map((r) => Deduplicator.wrap(r, handledSystemEvents[r.id()] ?? []))
-        .flatMap((r) => systemEvents.map((se) => r.receive(se)))
+      deliveries.map((delivery) => delivery.receive())
     )
 
     const systemEventsAcks: SystemEventAck[] = []
-
-    dispatches.forEach((result) => {
-      switch (result.status) {
-        case "fulfilled": {
-          systemEventsAcks.push(result.value)
-          break
-        }
-        case "rejected": {
-          errors.push(`cannot dispatch system event: ${result.reason}`)
-          break
-        }
+    const remaining: Record<ReceiverId, SystemEvent[]> = { ...queued }
+    this.receivers.forEach((receiver) => {
+      delete remaining[receiver.id()]
+    })
+    dispatches.forEach((result, index) => {
+      const { receiverId, systemEvent } = deliveries[index]
+      if (result.status === "fulfilled") {
+        systemEventsAcks.push(result.value)
+      } else {
+        remaining[receiverId] = remaining[receiverId] ?? []
+        remaining[receiverId].push(systemEvent)
+        errors.push(
+          `cannot dispatch system event to ${receiverId}: ${result.reason}`
+        )
+      }
+    })
+    Object.keys(remaining).forEach((id) => {
+      if (
+        remaining[id].length > 0 &&
+        !this.receivers.some((r) => r.id() === id)
+      ) {
+        errors.push(`pending system events have no configured receiver: ${id}`)
       }
     })
 
-    return {
-      systemEventsAcks,
-      errors,
+    const handled: Record<ReceiverId, SystemEvent[]> = {}
+    systemEventsAcks.forEach((ack) => {
+      if (ack.status !== "handled") return
+      handled[ack.receiverId] = handled[ack.receiverId] ?? []
+      handled[ack.receiverId].push(ack.systemEvent)
+    })
+    try {
+      if (Object.keys(handled).length > 0) {
+        await this.persistence.storeHandledSystemEvents(handled)
+      }
+      // Remove acknowledged/ignored events only after handled history is saved.
+      // If either write fails, the durable pre-dispatch outbox permits replay.
+      await this.persistence.updatePendingSystemEvents(remaining)
+    } catch (error) {
+      errors.push(`cannot store system event delivery results: ${error}`)
     }
+
+    return { systemEventsAcks, scanSucceeded, errors }
   }
 }

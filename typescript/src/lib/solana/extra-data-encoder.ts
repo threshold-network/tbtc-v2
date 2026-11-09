@@ -1,6 +1,7 @@
 import { ExtraDataEncoder, ChainIdentifier } from "../contracts"
 import { SolanaAddress } from "./address"
 import { Hex } from "../utils"
+import { PublicKey } from "@solana/web3.js"
 
 /**
  * Implementation of the Solana ExtraDataEncoder.
@@ -49,8 +50,8 @@ export class SolanaExtraDataEncoder implements ExtraDataEncoder {
       throw new Error(`Extra data must be 32 bytes. Got ${buffer.length}.`)
     }
 
-    // Create sOLANA address from the extra data
-    return SolanaAddress.from(Hex.from(buffer).toString())
+    // Create Solana address from the 32-byte public key material in extra data.
+    return SolanaAddress.from(new PublicKey(buffer).toBase58())
   }
 }
 

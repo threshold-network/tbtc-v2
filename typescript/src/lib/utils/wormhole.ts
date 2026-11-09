@@ -10,7 +10,7 @@ import { Chains } from "../contracts"
  * import { WORMHOLE_CHAIN_IDS, Chains, encodeDestinationReceiver } from "@keep-network/tbtc-v2"
  *
  * const encoded = encodeDestinationReceiver(
- *   WORMHOLE_CHAIN_IDS[Chains.Sei.Testnet],
+ *   WORMHOLE_CHAIN_IDS[Chains.Ethereum.Sepolia],
  *   "0x1234567890123456789012345678901234567890"
  * )
  * ```
@@ -18,6 +18,4 @@ import { Chains } from "../contracts"
 export const WORMHOLE_CHAIN_IDS = {
   [Chains.Ethereum.Sepolia]: 10002,
   [Chains.Ethereum.Mainnet]: 2,
-  [Chains.Sei.Testnet]: 40,
-  [Chains.Sei.Mainnet]: 40,
 }

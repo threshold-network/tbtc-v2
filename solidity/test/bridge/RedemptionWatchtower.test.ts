@@ -1,7 +1,13 @@
-import { helpers, waffle, ethers } from "hardhat"
-import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
+import {
+  toBigInt,
+  toNumber,
+  BigNumberish,
+  BytesLike,
+  ContractTransactionResponse,
+} from "ethers"
+import { helpers, ethers } from "hardhat"
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import { expect } from "chai"
-import { BigNumber, BigNumberish, BytesLike, ContractTransaction } from "ethers"
 import type {
   Bank,
   BankStub,
@@ -20,7 +26,7 @@ const { impersonateAccount } = helpers.account
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 const { lastBlockTime, increaseTime } = helpers.time
 
-/** Deep `eql` on full tuples fails when RPC returns a different `BigNumber` implementation. */
+/** Compare decoded tuple fields using the same integer and address representation. */
 function assertVetoProposalTuple(
   actual: Awaited<ReturnType<RedemptionWatchtower["vetoProposals"]>>,
   expected: {
@@ -30,21 +36,23 @@ function assertVetoProposalTuple(
     objectionsCount: number
   }
 ) {
-  expect(ethers.utils.getAddress(actual.redeemer)).to.equal(
-    ethers.utils.getAddress(expected.redeemer)
+  expect(ethers.getAddress(actual.redeemer)).to.equal(
+    ethers.getAddress(expected.redeemer)
   )
   expect(
-    BigNumber.from(actual.withdrawableAmount).eq(expected.withdrawableAmount)
+    BigInt(actual.withdrawableAmount) ===
+      ethers.toBigInt(expected.withdrawableAmount)
   ).to.be.true
-  expect(BigNumber.from(actual.finalizedAt).eq(expected.finalizedAt)).to.be.true
+  expect(BigInt(actual.finalizedAt) === ethers.toBigInt(expected.finalizedAt))
+    .to.be.true
   expect(Number(actual.objectionsCount)).to.equal(expected.objectionsCount)
 }
 
 describe("RedemptionWatchtower", () => {
-  let governance: SignerWithAddress
-  let thirdParty: SignerWithAddress
-  let redemptionWatchtowerManager: SignerWithAddress
-  let guardians: SignerWithAddress[]
+  let governance: HardhatEthersSigner
+  let thirdParty: HardhatEthersSigner
+  let redemptionWatchtowerManager: HardhatEthersSigner
+  let guardians: HardhatEthersSigner[]
 
   let bridgeGovernance: BridgeGovernance
   let bridge: Bridge & BridgeStub
@@ -53,7 +61,6 @@ describe("RedemptionWatchtower", () => {
   let redemptionWatchtower: RedemptionWatchtower
 
   before(async () => {
-    // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({
       governance,
       thirdParty,
@@ -63,11 +70,11 @@ describe("RedemptionWatchtower", () => {
       bridge,
       bank,
       redemptionWatchtower,
-    } = await waffle.loadFixture(bridgeFixture))
+    } = await bridgeFixture())
 
     await bridgeGovernance
       .connect(governance)
-      .setRedemptionWatchtower(redemptionWatchtower.address)
+      .setRedemptionWatchtower(redemptionWatchtower.target)
 
     // Make sure test actors are correctly set up.
     const actors = [
@@ -124,7 +131,7 @@ describe("RedemptionWatchtower", () => {
           it("should revert", async () => {
             await expect(
               redemptionWatchtower.connect(governance).enableWatchtower(
-                ethers.constants.AddressZero,
+                ethers.ZeroAddress,
                 guardians.map((g) => g.address)
               )
             ).to.be.revertedWith("Manager address must not be 0x0")
@@ -132,7 +139,7 @@ describe("RedemptionWatchtower", () => {
         })
 
         context("when manager address is non-zero", () => {
-          let tx: ContractTransaction
+          let tx: ContractTransactionResponse
 
           before(async () => {
             await createSnapshot()
@@ -164,7 +171,7 @@ describe("RedemptionWatchtower", () => {
           it("should set initial guardians properly", async () => {
             // eslint-disable-next-line no-restricted-syntax
             for (const guardian of guardians) {
-              // eslint-disable-next-line no-await-in-loop,@typescript-eslint/no-unused-expressions
+              // eslint-disable-next-line no-await-in-loop
               expect(await redemptionWatchtower.isGuardian(guardian.address)).to
                 .be.true
             }
@@ -231,7 +238,9 @@ describe("RedemptionWatchtower", () => {
           // Increase time to the moment the watchtower lifetime expires.
           // The `disableWatchtower` transaction should be mined exactly one
           // second after the lifetime expires.
-          await increaseTime(lifetimeExpiresAt - (await lastBlockTime()))
+          await increaseTime(
+            toNumber(lifetimeExpiresAt) - (await lastBlockTime()) + 1
+          )
 
           // Disable the watchtower for the first time.
           await redemptionWatchtower.connect(thirdParty).disableWatchtower()
@@ -261,7 +270,9 @@ describe("RedemptionWatchtower", () => {
             // The `disableWatchtower` will be mined exactly at the moment
             // of the lifetime expiration which is one second too early
             // to disable the watchtower.
-            await increaseTime(lifetimeExpiresAt - (await lastBlockTime()) - 1)
+            await increaseTime(
+              toNumber(lifetimeExpiresAt) - (await lastBlockTime()) - 1
+            )
           })
 
           after(async () => {
@@ -276,7 +287,7 @@ describe("RedemptionWatchtower", () => {
         })
 
         context("when the watchtower lifetime is expired", () => {
-          let tx: ContractTransaction
+          let tx: ContractTransactionResponse
 
           before(async () => {
             await createSnapshot()
@@ -288,7 +299,9 @@ describe("RedemptionWatchtower", () => {
             // Increase time to the moment the watchtower lifetime expires.
             // The `disableWatchtower` transaction should be mined exactly one
             // second after the lifetime expires.
-            await increaseTime(lifetimeExpiresAt - (await lastBlockTime()))
+            await increaseTime(
+              toNumber(lifetimeExpiresAt) - (await lastBlockTime()) + 1
+            )
 
             tx = await redemptionWatchtower
               .connect(thirdParty)
@@ -364,7 +377,7 @@ describe("RedemptionWatchtower", () => {
         })
 
         context("when guardian does not exist", () => {
-          let tx: ContractTransaction
+          let tx: ContractTransactionResponse
 
           before(async () => {
             await createSnapshot()
@@ -379,7 +392,6 @@ describe("RedemptionWatchtower", () => {
           })
 
           it("should add the guardian properly", async () => {
-            // eslint-disable-next-line @typescript-eslint/no-unused-expressions
             expect(await redemptionWatchtower.isGuardian(thirdParty.address)).to
               .be.true
           })
@@ -430,7 +442,7 @@ describe("RedemptionWatchtower", () => {
       })
 
       context("when guardian exists", () => {
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -445,7 +457,6 @@ describe("RedemptionWatchtower", () => {
         })
 
         it("should remove the guardian properly", async () => {
-          // eslint-disable-next-line @typescript-eslint/no-unused-expressions
           expect(await redemptionWatchtower.isGuardian(guardians[0].address)).to
             .be.false
         })
@@ -469,13 +480,13 @@ describe("RedemptionWatchtower", () => {
     // redeemerOutputScript to avoid a collision and obtain different redemption
     // keys.
     const createLegacyRedemption = async () => {
-      const data: RedemptionTestData = JSON.parse(
-        JSON.stringify(SinglePendingRequestedRedemption)
+      const data: RedemptionTestData = structuredClone(
+        SinglePendingRequestedRedemption
       )
       data.redemptionRequests[0].redeemerOutputScript =
         "0x1976a9142cd680318747b720d67bf4246eb7403b476adb3488ac"
       const redemptions = await createRedemptionRequests(data)
-      // eslint-disable-next-line prefer-destructuring
+
       return redemptions[0]
     }
 
@@ -483,6 +494,12 @@ describe("RedemptionWatchtower", () => {
       await createSnapshot()
 
       legacyRedemption = await createLegacyRedemption()
+
+      // `allowBlocksWithSameTimestamp` lets consecutive blocks share a
+      // timestamp, so `enableWatchtower` could land in the same second as the
+      // legacy redemption request and make `requestedAt >= watchtowerEnabledAt`
+      // true. Advance the clock so the request is strictly pre-watchtower.
+      await increaseTime(1)
 
       await redemptionWatchtower.connect(governance).enableWatchtower(
         redemptionWatchtowerManager.address,
@@ -663,7 +680,7 @@ describe("RedemptionWatchtower", () => {
                       await redemptionWatchtower.defaultDelay(),
                       await redemptionWatchtower.levelOneDelay(),
                       await redemptionWatchtower.levelTwoDelay(),
-                      redemption.amount.add(1)
+                      redemption.amount + 1n
                     )
                 })
 
@@ -703,7 +720,9 @@ describe("RedemptionWatchtower", () => {
                 // Increase time to the moment the watchtower lifetime expires.
                 // The `disableWatchtower` transaction should be mined exactly one
                 // second after the lifetime expires.
-                await increaseTime(lifetimeExpiresAt - (await lastBlockTime()))
+                await increaseTime(
+                  toNumber(lifetimeExpiresAt) - (await lastBlockTime()) + 1
+                )
 
                 // Disable the watchtower.
                 await redemptionWatchtower
@@ -738,9 +757,15 @@ describe("RedemptionWatchtower", () => {
                 before(async () => {
                   await createSnapshot()
 
-                  defaultDelay = await redemptionWatchtower.defaultDelay()
-                  levelOneDelay = await redemptionWatchtower.levelOneDelay()
-                  levelTwoDelay = await redemptionWatchtower.levelTwoDelay()
+                  defaultDelay = toNumber(
+                    await redemptionWatchtower.defaultDelay()
+                  )
+                  levelOneDelay = toNumber(
+                    await redemptionWatchtower.levelOneDelay()
+                  )
+                  levelTwoDelay = toNumber(
+                    await redemptionWatchtower.levelTwoDelay()
+                  )
 
                   const redemptions = await createRedemptionRequests(
                     SinglePendingRequestedRedemption
@@ -758,13 +783,12 @@ describe("RedemptionWatchtower", () => {
                     await createSnapshot()
 
                     // Set time to the first possible moment the first objection
-                    // can no longer be raised. We need to subtract 1 seconds
-                    // to make sure the `raiseObjection` transaction
-                    // is mined exactly at the timestamp the delay expires.
+                    // can no longer be raised. Blocks may share a timestamp
+                    // (`allowBlocksWithSameTimestamp`), so the `raiseObjection`
+                    // transaction is mined at the timestamp the delay expires,
+                    // not one second later.
                     const delayExpiresAt = redemption.requestedAt + defaultDelay
-                    await increaseTime(
-                      delayExpiresAt - (await lastBlockTime()) - 1
-                    )
+                    await increaseTime(delayExpiresAt - (await lastBlockTime()))
                   })
 
                   after(async () => {
@@ -796,14 +820,13 @@ describe("RedemptionWatchtower", () => {
                       )
 
                     // Set time to the first possible moment the second objection
-                    // can no longer be raised. We need to subtract 1 seconds
-                    // to make sure the `raiseObjection` transaction
-                    // is mined exactly at the timestamp the delay expires.
+                    // can no longer be raised. Blocks may share a timestamp
+                    // (`allowBlocksWithSameTimestamp`), so the `raiseObjection`
+                    // transaction is mined at the timestamp the delay expires,
+                    // not one second later.
                     const delayExpiresAt =
                       redemption.requestedAt + levelOneDelay
-                    await increaseTime(
-                      delayExpiresAt - (await lastBlockTime()) - 1
-                    )
+                    await increaseTime(delayExpiresAt - (await lastBlockTime()))
                   })
 
                   after(async () => {
@@ -843,14 +866,13 @@ describe("RedemptionWatchtower", () => {
                       )
 
                     // Set time to the first possible moment the third objection
-                    // can no longer be raised. We need to subtract 1 seconds
-                    // to make sure the `raiseObjection` transaction
-                    // is mined exactly at the timestamp the delay expires.
+                    // can no longer be raised. Blocks may share a timestamp
+                    // (`allowBlocksWithSameTimestamp`), so the `raiseObjection`
+                    // transaction is mined at the timestamp the delay expires,
+                    // not one second later.
                     const delayExpiresAt =
                       redemption.requestedAt + levelTwoDelay
-                    await increaseTime(
-                      delayExpiresAt - (await lastBlockTime()) - 1
-                    )
+                    await increaseTime(delayExpiresAt - (await lastBlockTime()))
                   })
 
                   after(async () => {
@@ -883,8 +905,10 @@ describe("RedemptionWatchtower", () => {
                   const levelTwoDelay =
                     await redemptionWatchtower.levelTwoDelay()
                   const delayExpiresAt =
-                    legacyRedemption.requestedAt + levelTwoDelay
-                  await increaseTime(delayExpiresAt - (await lastBlockTime()))
+                    toBigInt(legacyRedemption.requestedAt) + levelTwoDelay
+                  await increaseTime(
+                    toNumber(delayExpiresAt - toBigInt(await lastBlockTime()))
+                  )
                 })
 
                 after(async () => {
@@ -892,7 +916,7 @@ describe("RedemptionWatchtower", () => {
                 })
 
                 context("when the raised objection is the first one", () => {
-                  let tx: ContractTransaction
+                  let tx: ContractTransactionResponse
 
                   before(async () => {
                     await createSnapshot()
@@ -917,7 +941,6 @@ describe("RedemptionWatchtower", () => {
                   })
 
                   it("should store the objection key", async () => {
-                    // eslint-disable-next-line @typescript-eslint/no-unused-expressions
                     expect(
                       await redemptionWatchtower.objections(
                         buildObjectionKey(
@@ -953,7 +976,7 @@ describe("RedemptionWatchtower", () => {
                 })
 
                 context("when the raised objection is the second one", () => {
-                  let tx: ContractTransaction
+                  let tx: ContractTransactionResponse
 
                   before(async () => {
                     await createSnapshot()
@@ -986,7 +1009,6 @@ describe("RedemptionWatchtower", () => {
                   })
 
                   it("should store the objection key", async () => {
-                    // eslint-disable-next-line @typescript-eslint/no-unused-expressions
                     expect(
                       await redemptionWatchtower.objections(
                         buildObjectionKey(
@@ -1022,10 +1044,10 @@ describe("RedemptionWatchtower", () => {
                 })
 
                 context("when the raised objection is the third one", () => {
-                  let tx: ContractTransaction
-                  let initialWalletPendingRedemptionsValue: BigNumber
-                  let initialBridgeBalance: BigNumber
-                  let initialWatchtowerBalance: BigNumber
+                  let tx: ContractTransactionResponse
+                  let initialWalletPendingRedemptionsValue: bigint
+                  let initialBridgeBalance: bigint
+                  let initialWatchtowerBalance: bigint
 
                   before(async () => {
                     await createSnapshot()
@@ -1034,10 +1056,10 @@ describe("RedemptionWatchtower", () => {
                       await bridge.wallets(legacyRedemption.walletPublicKeyHash)
                     ).pendingRedemptionsValue
 
-                    initialBridgeBalance = await bank.balanceOf(bridge.address)
+                    initialBridgeBalance = await bank.balanceOf(bridge.target)
 
                     initialWatchtowerBalance = await bank.balanceOf(
-                      redemptionWatchtower.address
+                      redemptionWatchtower.target
                     )
 
                     // Raise the first objection.
@@ -1075,7 +1097,6 @@ describe("RedemptionWatchtower", () => {
                   })
 
                   it("should store the objection key", async () => {
-                    // eslint-disable-next-line @typescript-eslint/no-unused-expressions
                     expect(
                       await redemptionWatchtower.objections(
                         buildObjectionKey(
@@ -1088,11 +1109,11 @@ describe("RedemptionWatchtower", () => {
 
                   it("should update veto state properly", async () => {
                     // Penalty fee is 5% of the redemption amount.
-                    const penaltyFee = legacyRedemption.amount.mul(5).div(100)
+                    const penaltyFee = (legacyRedemption.amount * 5n) / 100n
                     // The withdrawable amount left on the watchtower should
                     // be equal to the redemption amount minus the penalty fee.
                     const withdrawableAmount =
-                      legacyRedemption.amount.sub(penaltyFee)
+                      legacyRedemption.amount - penaltyFee
 
                     assertVetoProposalTuple(
                       await redemptionWatchtower.vetoProposals(
@@ -1117,7 +1138,6 @@ describe("RedemptionWatchtower", () => {
                   })
 
                   it("should mark the redeemer as banned", async () => {
-                    // eslint-disable-next-line @typescript-eslint/no-unused-expressions
                     expect(
                       await redemptionWatchtower.isBanned(
                         legacyRedemption.redeemer
@@ -1142,12 +1162,12 @@ describe("RedemptionWatchtower", () => {
                       await bridge.wallets(legacyRedemption.walletPublicKeyHash)
                     ).pendingRedemptionsValue
 
-                    const difference = initialWalletPendingRedemptionsValue.sub(
+                    const difference =
+                      initialWalletPendingRedemptionsValue -
                       currentWalletPendingRedemptionsValue
-                    )
 
                     expect(difference).to.be.equal(
-                      legacyRedemption.amount.sub(legacyRedemption.treasuryFee)
+                      legacyRedemption.amount - legacyRedemption.treasuryFee
                     )
                   })
 
@@ -1161,11 +1181,11 @@ describe("RedemptionWatchtower", () => {
 
                   it("should transfer the redemption amount from the Bridge", async () => {
                     const currentBridgeBalance = await bank.balanceOf(
-                      bridge.address
+                      bridge.target
                     )
 
                     const difference =
-                      initialBridgeBalance.sub(currentBridgeBalance)
+                      initialBridgeBalance - currentBridgeBalance
 
                     // The entire amount should be transferred to the watchtower.
                     expect(difference).to.be.equal(legacyRedemption.amount)
@@ -1174,34 +1194,33 @@ describe("RedemptionWatchtower", () => {
                     await expect(tx)
                       .to.emit(bank, "BalanceTransferred")
                       .withArgs(
-                        bridge.address,
-                        redemptionWatchtower.address,
+                        bridge.target,
+                        redemptionWatchtower.target,
                         legacyRedemption.amount
                       )
                   })
 
                   it("should leave a proper withdrawable amount and burn the penalty fee", async () => {
                     const currentWatchtowerBalance = await bank.balanceOf(
-                      redemptionWatchtower.address
+                      redemptionWatchtower.target
                     )
 
-                    const difference = currentWatchtowerBalance.sub(
-                      initialWatchtowerBalance
-                    )
+                    const difference =
+                      currentWatchtowerBalance - initialWatchtowerBalance
 
                     // Penalty fee is 5% of the redemption amount.
-                    const penaltyFee = legacyRedemption.amount.mul(5).div(100)
+                    const penaltyFee = (legacyRedemption.amount * 5n) / 100n
 
                     // The withdrawable amount left on the watchtower should
                     // be equal to the redemption amount minus the penalty fee.
                     expect(difference).to.be.equal(
-                      legacyRedemption.amount.sub(penaltyFee)
+                      legacyRedemption.amount - penaltyFee
                     )
 
                     // Make sure the penalty fee was burned.
                     await expect(tx)
                       .to.emit(bank, "BalanceDecreased")
-                      .withArgs(redemptionWatchtower.address, penaltyFee)
+                      .withArgs(redemptionWatchtower.target, penaltyFee)
                   })
                 })
               }
@@ -1216,9 +1235,15 @@ describe("RedemptionWatchtower", () => {
               before(async () => {
                 await createSnapshot()
 
-                defaultDelay = await redemptionWatchtower.defaultDelay()
-                levelOneDelay = await redemptionWatchtower.levelOneDelay()
-                levelTwoDelay = await redemptionWatchtower.levelTwoDelay()
+                defaultDelay = toNumber(
+                  await redemptionWatchtower.defaultDelay()
+                )
+                levelOneDelay = toNumber(
+                  await redemptionWatchtower.levelOneDelay()
+                )
+                levelTwoDelay = toNumber(
+                  await redemptionWatchtower.levelTwoDelay()
+                )
 
                 const redemptions = await createRedemptionRequests(
                   SinglePendingRequestedRedemption
@@ -1234,7 +1259,7 @@ describe("RedemptionWatchtower", () => {
               context(
                 "when the raised objection is the first one",
                 async () => {
-                  let tx: ContractTransaction
+                  let tx: ContractTransactionResponse
 
                   before(async () => {
                     await createSnapshot()
@@ -1269,7 +1294,6 @@ describe("RedemptionWatchtower", () => {
                   })
 
                   it("should store the objection key", async () => {
-                    // eslint-disable-next-line @typescript-eslint/no-unused-expressions
                     expect(
                       await redemptionWatchtower.objections(
                         buildObjectionKey(
@@ -1303,7 +1327,7 @@ describe("RedemptionWatchtower", () => {
               )
 
               context("when the raised objection is the second one", () => {
-                let tx: ContractTransaction
+                let tx: ContractTransactionResponse
 
                 before(async () => {
                   await createSnapshot()
@@ -1346,7 +1370,6 @@ describe("RedemptionWatchtower", () => {
                 })
 
                 it("should store the objection key", async () => {
-                  // eslint-disable-next-line @typescript-eslint/no-unused-expressions
                   expect(
                     await redemptionWatchtower.objections(
                       buildObjectionKey(
@@ -1379,10 +1402,10 @@ describe("RedemptionWatchtower", () => {
               })
 
               context("when the raised objection is the third one", () => {
-                let tx: ContractTransaction
-                let initialWalletPendingRedemptionsValue: BigNumber
-                let initialBridgeBalance: BigNumber
-                let initialWatchtowerBalance: BigNumber
+                let tx: ContractTransactionResponse
+                let initialWalletPendingRedemptionsValue: bigint
+                let initialBridgeBalance: bigint
+                let initialWatchtowerBalance: bigint
 
                 before(async () => {
                   await createSnapshot()
@@ -1391,10 +1414,10 @@ describe("RedemptionWatchtower", () => {
                     await bridge.wallets(redemption.walletPublicKeyHash)
                   ).pendingRedemptionsValue
 
-                  initialBridgeBalance = await bank.balanceOf(bridge.address)
+                  initialBridgeBalance = await bank.balanceOf(bridge.target)
 
                   initialWatchtowerBalance = await bank.balanceOf(
-                    redemptionWatchtower.address
+                    redemptionWatchtower.target
                   )
 
                   // Raise the first objection.
@@ -1442,7 +1465,6 @@ describe("RedemptionWatchtower", () => {
                 })
 
                 it("should store the objection key", async () => {
-                  // eslint-disable-next-line @typescript-eslint/no-unused-expressions
                   expect(
                     await redemptionWatchtower.objections(
                       buildObjectionKey(
@@ -1455,10 +1477,10 @@ describe("RedemptionWatchtower", () => {
 
                 it("should update veto state properly", async () => {
                   // Penalty fee is 5% of the redemption amount.
-                  const penaltyFee = redemption.amount.mul(5).div(100)
+                  const penaltyFee = (redemption.amount * 5n) / 100n
                   // The withdrawable amount left on the watchtower should
                   // be equal to the redemption amount minus the penalty fee.
-                  const withdrawableAmount = redemption.amount.sub(penaltyFee)
+                  const withdrawableAmount = redemption.amount - penaltyFee
 
                   assertVetoProposalTuple(
                     await redemptionWatchtower.vetoProposals(
@@ -1480,7 +1502,6 @@ describe("RedemptionWatchtower", () => {
                 })
 
                 it("should mark the redeemer as banned", async () => {
-                  // eslint-disable-next-line @typescript-eslint/no-unused-expressions
                   expect(
                     await redemptionWatchtower.isBanned(redemption.redeemer)
                   ).to.be.true
@@ -1503,12 +1524,12 @@ describe("RedemptionWatchtower", () => {
                     await bridge.wallets(redemption.walletPublicKeyHash)
                   ).pendingRedemptionsValue
 
-                  const difference = initialWalletPendingRedemptionsValue.sub(
+                  const difference =
+                    initialWalletPendingRedemptionsValue -
                     currentWalletPendingRedemptionsValue
-                  )
 
                   expect(difference).to.be.equal(
-                    redemption.amount.sub(redemption.treasuryFee)
+                    redemption.amount - redemption.treasuryFee
                   )
                 })
 
@@ -1522,11 +1543,10 @@ describe("RedemptionWatchtower", () => {
 
                 it("should transfer the redemption amount from the Bridge", async () => {
                   const currentBridgeBalance = await bank.balanceOf(
-                    bridge.address
+                    bridge.target
                   )
 
-                  const difference =
-                    initialBridgeBalance.sub(currentBridgeBalance)
+                  const difference = initialBridgeBalance - currentBridgeBalance
 
                   // The entire amount should be transferred to the watchtower.
                   expect(difference).to.be.equal(redemption.amount)
@@ -1535,34 +1555,31 @@ describe("RedemptionWatchtower", () => {
                   await expect(tx)
                     .to.emit(bank, "BalanceTransferred")
                     .withArgs(
-                      bridge.address,
-                      redemptionWatchtower.address,
+                      bridge.target,
+                      redemptionWatchtower.target,
                       redemption.amount
                     )
                 })
 
                 it("should leave a proper withdrawable amount and burn the penalty fee", async () => {
                   const currentWatchtowerBalance = await bank.balanceOf(
-                    redemptionWatchtower.address
+                    redemptionWatchtower.target
                   )
 
-                  const difference = currentWatchtowerBalance.sub(
-                    initialWatchtowerBalance
-                  )
+                  const difference =
+                    currentWatchtowerBalance - initialWatchtowerBalance
 
                   // Penalty fee is 5% of the redemption amount.
-                  const penaltyFee = redemption.amount.mul(5).div(100)
+                  const penaltyFee = (redemption.amount * 5n) / 100n
 
                   // The withdrawable amount left on the watchtower should
                   // be equal to the redemption amount minus the penalty fee.
-                  expect(difference).to.be.equal(
-                    redemption.amount.sub(penaltyFee)
-                  )
+                  expect(difference).to.be.equal(redemption.amount - penaltyFee)
 
                   // Make sure the penalty fee was burned.
                   await expect(tx)
                     .to.emit(bank, "BalanceDecreased")
-                    .withArgs(redemptionWatchtower.address, penaltyFee)
+                    .withArgs(redemptionWatchtower.target, penaltyFee)
                 })
               })
             })
@@ -1624,7 +1641,9 @@ describe("RedemptionWatchtower", () => {
           // Increase time to the moment the watchtower lifetime expires.
           // The `disableWatchtower` transaction should be mined exactly one
           // second after the lifetime expires.
-          await increaseTime(lifetimeExpiresAt - (await lastBlockTime()))
+          await increaseTime(
+            toNumber(lifetimeExpiresAt) - (await lastBlockTime()) + 1
+          )
 
           // Disable the watchtower.
           await redemptionWatchtower.connect(thirdParty).disableWatchtower()
@@ -1659,7 +1678,7 @@ describe("RedemptionWatchtower", () => {
                 await redemptionWatchtower.defaultDelay(),
                 await redemptionWatchtower.levelOneDelay(),
                 await redemptionWatchtower.levelTwoDelay(),
-                redemption.amount.add(1)
+                redemption.amount + 1n
               )
           })
 
@@ -1822,7 +1841,7 @@ describe("RedemptionWatchtower", () => {
     let defaultDelay: number
     let levelOneDelay: number
     let levelTwoDelay: number
-    let waivedAmountLimit: BigNumber
+    let waivedAmountLimit: bigint
 
     before(async () => {
       await createSnapshot()
@@ -1832,12 +1851,14 @@ describe("RedemptionWatchtower", () => {
         guardians.map((g) => g.address)
       )
 
-      watchtowerLifetime = await redemptionWatchtower.watchtowerLifetime()
+      watchtowerLifetime = toNumber(
+        await redemptionWatchtower.watchtowerLifetime()
+      )
       vetoPenaltyFeeDivisor = 20 // Max value 5%
-      vetoFreezePeriod = await redemptionWatchtower.vetoFreezePeriod()
-      defaultDelay = await redemptionWatchtower.defaultDelay()
-      levelOneDelay = await redemptionWatchtower.levelOneDelay()
-      levelTwoDelay = await redemptionWatchtower.levelTwoDelay()
+      vetoFreezePeriod = toNumber(await redemptionWatchtower.vetoFreezePeriod())
+      defaultDelay = toNumber(await redemptionWatchtower.defaultDelay())
+      levelOneDelay = toNumber(await redemptionWatchtower.levelOneDelay())
+      levelTwoDelay = toNumber(await redemptionWatchtower.levelTwoDelay())
       waivedAmountLimit = await redemptionWatchtower.waivedAmountLimit()
     })
 
@@ -1959,7 +1980,7 @@ describe("RedemptionWatchtower", () => {
           newDefaultDelay?: number
           newLevelOneDelay?: number
           newLevelTwoDelay?: number
-          newWaivedAmountLimit?: BigNumber
+          newWaivedAmountLimit?: bigint
         }[] = [
           {
             testName: "when watchtower lifetime is increased",
@@ -2001,7 +2022,7 @@ describe("RedemptionWatchtower", () => {
           },
           {
             testName: "when waived amount limit is changed to a non-zero value",
-            newWaivedAmountLimit: BigNumber.from(50_000_000),
+            newWaivedAmountLimit: BigInt(50_000_000),
           },
         ]
 
@@ -2012,15 +2033,18 @@ describe("RedemptionWatchtower", () => {
           let newDefaultDelay: number
           let newLevelOneDelay: number
           let newLevelTwoDelay: number
-          let newWaivedAmountLimit: BigNumber
+          let newWaivedAmountLimit: bigint
 
           context(test.testName, async () => {
-            let tx: ContractTransaction
+            let tx: ContractTransactionResponse
 
             before(async () => {
               await createSnapshot()
 
-              const assignValue = (optionalValue, defaultValue) =>
+              const assignValue = <T>(
+                optionalValue: T | undefined,
+                defaultValue: T
+              ): T =>
                 typeof optionalValue !== "undefined"
                   ? optionalValue
                   : defaultValue
@@ -2128,9 +2152,7 @@ describe("RedemptionWatchtower", () => {
       // Create another redemption using the same SinglePendingRequestedRedemption
       // data. Use different redeemerOutputScript to avoid collision
       // with the first redemption.
-      const redemptionData = JSON.parse(
-        JSON.stringify(SinglePendingRequestedRedemption)
-      )
+      const redemptionData = structuredClone(SinglePendingRequestedRedemption)
       redemptionData.redemptionRequests[0].redeemerOutputScript =
         "0x17a914011beb6fb8499e075a57027fb0a58384f2d3f78487"
       // eslint-disable-next-line prefer-destructuring
@@ -2179,7 +2201,7 @@ describe("RedemptionWatchtower", () => {
     context("when the balance owner is banned", () => {
       it("should return false", async () => {
         // Check non-objected redemption with the banned redeemer as balance owner.
-        // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+
         expect(
           await redemptionWatchtower.isSafeRedemption(
             "0x7ac2d9378a1c47e589dfb8095ca95ed2140d2726",
@@ -2194,7 +2216,7 @@ describe("RedemptionWatchtower", () => {
     context("when the redeemer is banned", () => {
       it("should return false", async () => {
         // Check non-objected redemption with the banned redeemer as redeemer.
-        // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+
         expect(
           await redemptionWatchtower.isSafeRedemption(
             "0x7ac2d9378a1c47e589dfb8095ca95ed2140d2726",
@@ -2209,7 +2231,7 @@ describe("RedemptionWatchtower", () => {
     context("when redemption key was vetoed", () => {
       it("should return false", async () => {
         // Check vetoed redemption with non-banned balance owner and redeemer.
-        // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+
         expect(
           await redemptionWatchtower.isSafeRedemption(
             vetoedRedemption.walletPublicKeyHash,
@@ -2225,7 +2247,7 @@ describe("RedemptionWatchtower", () => {
       it("should return false", async () => {
         // Check objected but non-vetoed redemption with non-banned balance
         // owner and redeemer.
-        // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+
         expect(
           await redemptionWatchtower.isSafeRedemption(
             objectedNonVetoedRedemption.walletPublicKeyHash,
@@ -2240,7 +2262,7 @@ describe("RedemptionWatchtower", () => {
     context("when all safety criteria are met", () => {
       it("should return true", async () => {
         // Check non-objected redemption with non-banned balance owner and redeemer.
-        // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+
         expect(
           await redemptionWatchtower.isSafeRedemption(
             "0x7ac2d9378a1c47e589dfb8095ca95ed2140d2726",
@@ -2287,7 +2309,7 @@ describe("RedemptionWatchtower", () => {
       })
 
       context("when the redeemer is banned", () => {
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
         let redemption: RedemptionData
 
         before(async () => {
@@ -2329,7 +2351,6 @@ describe("RedemptionWatchtower", () => {
         })
 
         it("should remove the redeemer from the banned list", async () => {
-          // eslint-disable-next-line @typescript-eslint/no-unused-expressions
           expect(await redemptionWatchtower.isBanned(redemption.redeemer)).to.be
             .false
         })
@@ -2345,7 +2366,7 @@ describe("RedemptionWatchtower", () => {
 
   describe("withdrawVetoedFunds", () => {
     let redemption: RedemptionData
-    let redeemerSigner: SignerWithAddress
+    let redeemerSigner: HardhatEthersSigner
 
     before(async () => {
       await createSnapshot()
@@ -2363,7 +2384,7 @@ describe("RedemptionWatchtower", () => {
 
       redeemerSigner = await impersonateAccount(redemption.redeemer, {
         from: governance,
-        value: 10,
+        value: 10n,
       })
     })
 
@@ -2418,7 +2439,7 @@ describe("RedemptionWatchtower", () => {
     context(
       "when the veto is finalized and the penalty fee is lesser than 100%",
       () => {
-        let withdrawableAmount: BigNumber
+        let withdrawableAmount: bigint
 
         before(async () => {
           await createSnapshot()
@@ -2457,7 +2478,7 @@ describe("RedemptionWatchtower", () => {
             )
 
           // Withdrawable amount is the redemption amount minus the 5% penalty fee.
-          withdrawableAmount = redemption.amount.sub(redemption.amount.div(20))
+          withdrawableAmount = redemption.amount - redemption.amount / 20n
           expect(withdrawableAmount).to.be.equal(
             (await redemptionWatchtower.vetoProposals(redemption.redemptionKey))
               .withdrawableAmount
@@ -2495,7 +2516,7 @@ describe("RedemptionWatchtower", () => {
               // of the freeze period expiration which is one second too early
               // to perform withdrawal.
               await increaseTime(
-                freezePeriodExpiresAt - (await lastBlockTime()) - 1
+                toNumber(freezePeriodExpiresAt) - (await lastBlockTime()) - 1
               )
             })
 
@@ -2527,7 +2548,7 @@ describe("RedemptionWatchtower", () => {
               // The `withdrawVetoedFunds` transaction should be mined exactly one
               // second after the freeze period expiration.
               await increaseTime(
-                freezePeriodExpiresAt - (await lastBlockTime())
+                toNumber(freezePeriodExpiresAt) - (await lastBlockTime()) + 1
               )
             })
 
@@ -2559,15 +2580,15 @@ describe("RedemptionWatchtower", () => {
             })
 
             context("when there are funds to withdraw", () => {
-              let tx: ContractTransaction
-              let initialWatchtowerBalance: BigNumber
-              let initialRedeemerBalance: BigNumber
+              let tx: ContractTransactionResponse
+              let initialWatchtowerBalance: bigint
+              let initialRedeemerBalance: bigint
 
               before(async () => {
                 await createSnapshot()
 
                 initialWatchtowerBalance = await bank.balanceOf(
-                  redemptionWatchtower.address
+                  redemptionWatchtower.target
                 )
                 initialRedeemerBalance = await bank.balanceOf(
                   redemption.redeemer
@@ -2605,20 +2626,18 @@ describe("RedemptionWatchtower", () => {
 
               it("should transfer the funds to the redeemer", async () => {
                 const currentWatchtowerBalance = await bank.balanceOf(
-                  redemptionWatchtower.address
+                  redemptionWatchtower.target
                 )
                 const currentRedeemerBalance = await bank.balanceOf(
                   redemption.redeemer
                 )
 
                 // Watchtower's balance decreased.
-                const watchtowerDifference = initialWatchtowerBalance.sub(
-                  currentWatchtowerBalance
-                )
+                const watchtowerDifference =
+                  initialWatchtowerBalance - currentWatchtowerBalance
                 // Redeemer's balance increased.
-                const redeemerDifference = currentRedeemerBalance.sub(
-                  initialRedeemerBalance
-                )
+                const redeemerDifference =
+                  currentRedeemerBalance - initialRedeemerBalance
 
                 expect(watchtowerDifference).to.be.equal(withdrawableAmount)
                 expect(redeemerDifference).to.be.equal(withdrawableAmount)
@@ -2627,7 +2646,7 @@ describe("RedemptionWatchtower", () => {
                 await expect(tx)
                   .to.emit(bank, "BalanceTransferred")
                   .withArgs(
-                    redemptionWatchtower.address,
+                    redemptionWatchtower.target,
                     redemption.redeemer,
                     withdrawableAmount
                   )
@@ -2639,7 +2658,7 @@ describe("RedemptionWatchtower", () => {
     )
 
     context("when the veto is finalized and the penalty fee is 100%", () => {
-      let withdrawableAmount: BigNumber
+      let withdrawableAmount: bigint
 
       before(async () => {
         await createSnapshot()
@@ -2665,7 +2684,7 @@ describe("RedemptionWatchtower", () => {
           )
 
         // Withdrawable amount is 0 as the default penalty fee is 100%.
-        withdrawableAmount = BigNumber.from(0)
+        withdrawableAmount = BigInt(0)
         expect(withdrawableAmount).to.be.equal(
           (await redemptionWatchtower.vetoProposals(redemption.redemptionKey))
             .withdrawableAmount
@@ -2703,7 +2722,7 @@ describe("RedemptionWatchtower", () => {
             // of the freeze period expiration which is one second too early
             // to perform withdrawal.
             await increaseTime(
-              freezePeriodExpiresAt - (await lastBlockTime()) - 1
+              toNumber(freezePeriodExpiresAt) - (await lastBlockTime()) - 1
             )
           })
 
@@ -2734,7 +2753,9 @@ describe("RedemptionWatchtower", () => {
             // Increase time to the moment the freeze period expires.
             // The `withdrawVetoedFunds` transaction should be mined exactly one
             // second after the freeze period expiration.
-            await increaseTime(freezePeriodExpiresAt - (await lastBlockTime()))
+            await increaseTime(
+              toNumber(freezePeriodExpiresAt) - (await lastBlockTime()) + 1
+            )
           })
 
           after(async () => {
@@ -2759,8 +2780,8 @@ describe("RedemptionWatchtower", () => {
     redeemerOutputScript: string
     redeemer: string
     requestedAt: number
-    amount: BigNumber
-    treasuryFee: BigNumber
+    amount: bigint
+    treasuryFee: bigint
   }
 
   async function createRedemptionRequests(
@@ -2769,14 +2790,14 @@ describe("RedemptionWatchtower", () => {
     // Simulate the wallet is a registered one.
     await bridge.setWallet(data.wallet.pubKeyHash, {
       ecdsaWalletID: data.wallet.ecdsaWalletID,
-      mainUtxoHash: ethers.constants.HashZero,
+      mainUtxoHash: ethers.ZeroHash,
       pendingRedemptionsValue: data.wallet.pendingRedemptionsValue,
       createdAt: await lastBlockTime(),
       movingFundsRequestedAt: 0,
       closingStartedAt: 0,
       pendingMovedFundsSweepRequestsCount: 0,
       state: data.wallet.state,
-      movingFundsTargetWalletsCommitmentHash: ethers.constants.HashZero,
+      movingFundsTargetWalletsCommitmentHash: ethers.ZeroHash,
     })
 
     // Simulate the prepared main UTXO belongs to the wallet.
@@ -2791,7 +2812,7 @@ describe("RedemptionWatchtower", () => {
       /* eslint-disable no-await-in-loop */
       const redeemerSigner = await impersonateAccount(redeemer, {
         from: governance,
-        value: 10,
+        value: 10n,
       })
 
       await makeRedemptionAllowance(redeemerSigner, amount)
@@ -2810,9 +2831,8 @@ describe("RedemptionWatchtower", () => {
         redeemerOutputScript
       )
 
-      const { requestedAt, treasuryFee } = await bridge.pendingRedemptions(
-        redemptionKey
-      )
+      const { requestedAt, treasuryFee } =
+        await bridge.pendingRedemptions(redemptionKey)
       /* eslint-enable no-await-in-loop */
 
       redemptions.push({
@@ -2820,8 +2840,8 @@ describe("RedemptionWatchtower", () => {
         walletPublicKeyHash: data.wallet.pubKeyHash.toString(),
         redeemerOutputScript: redeemerOutputScript.toString(),
         redeemer,
-        requestedAt,
-        amount: BigNumber.from(amount),
+        requestedAt: toNumber(requestedAt),
+        amount: BigInt(amount),
         treasuryFee,
       })
     }
@@ -2830,32 +2850,30 @@ describe("RedemptionWatchtower", () => {
   }
 
   async function makeRedemptionAllowance(
-    redeemer: SignerWithAddress,
+    redeemer: HardhatEthersSigner,
     amount: BigNumberish
   ) {
     // Simulate the redeemer has a Bank balance allowing to make the request.
     await bank.setBalance(redeemer.address, amount)
     // Redeemer must allow the Bridge to spent the requested amount.
-    await bank
-      .connect(redeemer)
-      .increaseBalanceAllowance(bridge.address, amount)
+    await bank.connect(redeemer).increaseBalanceAllowance(bridge.target, amount)
   }
 
   function buildRedemptionKey(
     walletPubKeyHash: BytesLike,
     redeemerOutputScript: BytesLike
   ): string {
-    return ethers.utils.solidityKeccak256(
+    return ethers.solidityPackedKeccak256(
       ["bytes32", "bytes20"],
       [
-        ethers.utils.solidityKeccak256(["bytes"], [redeemerOutputScript]),
+        ethers.solidityPackedKeccak256(["bytes"], [redeemerOutputScript]),
         walletPubKeyHash,
       ]
     )
   }
 
   function buildObjectionKey(redemptionKey: string, guardian: string): string {
-    return ethers.utils.solidityKeccak256(
+    return ethers.solidityPackedKeccak256(
       ["uint256", "address"],
       [redemptionKey, guardian]
     )

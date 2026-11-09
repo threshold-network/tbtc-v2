@@ -1,4 +1,6 @@
 import type { HardhatUserConfig } from "hardhat/config"
+import { task } from "hardhat/config"
+import { TASK_COMPILE } from "hardhat/builtin-tasks/task-names"
 
 import * as dotenv from "dotenv"
 dotenv.config()
@@ -10,7 +12,15 @@ import "hardhat-gas-reporter"
 import "hardhat-contract-sizer"
 import "hardhat-deploy"
 import "@typechain/hardhat"
-import "hardhat-dependency-compiler"
+import { copyBTCDepositorWormholeArtifact } from "../common/copyWormholeV2Artifact"
+
+// Sui consumes the shared `BTCDepositorWormhole` implementation. Stage it from
+// the local solidity build after compiling this package's own sources, so the
+// package resolves the local source instead of the published npm copy.
+task(TASK_COMPILE).setAction(async (args, hre, runSuper) => {
+  await runSuper(args)
+  await copyBTCDepositorWormholeArtifact(hre, __dirname)
+})
 
 const config: HardhatUserConfig = {
   solidity: {
@@ -54,12 +64,27 @@ const config: HardhatUserConfig = {
         : undefined,
       tags: ["etherscan"],
     },
+    // Local mainnet-fork node (anvil) used by the upgrade fork regression test.
+    // Hardhat's built-in forking cannot initialize against the project RPC
+    // (reth omits `totalDifficulty`); pointing at an external anvil fork node
+    // sidesteps that. Run: `anvil --fork-url <RPC> --port 8545 --chain-id 1`.
+    system_tests: {
+      url: "http://127.0.0.1:8545",
+      chainId: 1,
+    },
   },
 
   external: {
     deployments: {
       sepolia: ["./external/sepolia", "./external/suiTestnet"],
       mainnet: ["./external/mainnet", "./external/suiMainnet"],
+      // Fork tests run under `--network system_tests` (chainId 1) and read the
+      // committed mainnet deployment so deployments resolve the live proxy.
+      system_tests: [
+        "deployments/mainnet",
+        "./external/mainnet",
+        "./external/suiMainnet",
+      ],
     },
   },
 
@@ -93,11 +118,6 @@ const config: HardhatUserConfig = {
   },
   typechain: {
     outDir: "typechain",
-  },
-  dependencyCompiler: {
-    paths: [
-      "@keep-network/tbtc-v2/contracts/cross-chain/wormhole/BTCDepositorWormhole.sol",
-    ],
   },
 }
 

@@ -15,12 +15,15 @@ contract MockL1BTCRedeemerWormhole is
 {
     // Custom errors
     error SourceAddressNotAuthorized();
+    error RecoveryAddressNotSet();
+    error RecipientNotRecoveryAddress();
 
     // State variables from L1BTCRedeemerWormhole
     IWormholeTokenBridge public wormholeTokenBridge;
     uint256 public requestRedemptionGasOffset;
     mapping(address => bool) public reimbursementAuthorizations;
     mapping(bytes32 => bool) public allowedSenders;
+    address public recoveryAddress;
 
     // Mock-specific state
     uint256 public mockRedemptionAmountTBTC;
@@ -42,6 +45,10 @@ contract MockL1BTCRedeemerWormhole is
     );
 
     event AllowedSenderUpdated(bytes32 indexed sender, bool allowed);
+
+    event RecoveryAddressUpdated(address indexed recoveryAddress);
+
+    event BankBalanceRescued(address indexed recipient, uint256 amount);
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -76,17 +83,16 @@ contract MockL1BTCRedeemerWormhole is
 
         wormholeTokenBridge = IWormholeTokenBridge(_wormholeTokenBridge);
         requestRedemptionGasOffset = 60_000;
-        mockRedemptionAmountTBTC = 2 * (10**18); // Default to 2 tBTC
+        mockRedemptionAmountTBTC = 2 * (10 ** 18); // Default to 2 tBTC
     }
 
     function setMockRedemptionAmountTBTC(uint256 _amount) external {
         mockRedemptionAmountTBTC = _amount;
     }
 
-    function updateGasOffsetParameters(uint256 _requestRedemptionGasOffset)
-        external
-        onlyOwner
-    {
+    function updateGasOffsetParameters(
+        uint256 _requestRedemptionGasOffset
+    ) external onlyOwner {
         requestRedemptionGasOffset = _requestRedemptionGasOffset;
         emit GasOffsetParametersUpdated(_requestRedemptionGasOffset);
     }
@@ -99,12 +105,30 @@ contract MockL1BTCRedeemerWormhole is
         reimbursementAuthorizations[_address] = authorization;
     }
 
-    function updateAllowedSender(bytes32 _sender, bool _allowed)
-        external
-        onlyOwner
-    {
+    function updateAllowedSender(
+        bytes32 _sender,
+        bool _allowed
+    ) external onlyOwner {
         allowedSenders[_sender] = _allowed;
         emit AllowedSenderUpdated(_sender, _allowed);
+    }
+
+    function setRecoveryAddress(address _recoveryAddress) external onlyOwner {
+        if (_recoveryAddress == address(0)) revert ZeroAddress();
+
+        recoveryAddress = _recoveryAddress;
+        emit RecoveryAddressUpdated(_recoveryAddress);
+    }
+
+    function rescueBankBalance(
+        address recipient,
+        uint256 amount
+    ) external onlyOwner {
+        if (recoveryAddress == address(0)) revert RecoveryAddressNotSet();
+        if (recipient != recoveryAddress) revert RecipientNotRecoveryAddress();
+
+        emit BankBalanceRescued(recipient, amount);
+        bank.transferBalance(recipient, amount);
     }
 
     // Mock implementation of requestRedemption
@@ -136,7 +160,7 @@ contract MockL1BTCRedeemerWormhole is
         // Use the mock-specific redemption amount
         uint256 amountToUse = mockRedemptionAmountTBTC;
         if (amountToUse == 0) {
-            amountToUse = 2 * (10**18);
+            amountToUse = 2 * (10 ** 18);
         }
 
         // Call the internal _requestRedemption

@@ -2,9 +2,6 @@
 # yarn lockfile v1
 
 
-"@keep-network/prettier-config-keep@github:keep-network/prettier-config-keep":
-  version "0.0.1"
-  resolved "https://codeload.github.com/keep-network/prettier-config-keep/tar.gz/d6ec02e80dd76edfba073ca58ef99aee39002c2c"
 
 "@solidity-parser/parser@^0.13.2":
   version "0.13.2"
@@ -14,9 +11,9 @@
     antlr4ts "^0.5.0-alpha.4"
 
 ansi-regex@^5.0.0:
-  version "5.0.0"
-  resolved "https://registry.yarnpkg.com/ansi-regex/-/ansi-regex-5.0.0.tgz#388539f55179bf39339c81af30a654d69f87cb75"
-  integrity sha512-bY6fj56OUQ0hU1KjFNDQuJFezqKdrAyFdIevADiqrWHwSlbmBNMHp5ak2f40Pm8JTFyM2mqxkG6ngkHO11f/lg==
+  version "5.0.1"
+  resolved "https://registry.npmjs.org/ansi-regex/-/ansi-regex-5.0.1.tgz#082cb2c89c9fe8659a311a53bd6a4dc5301db304"
+  integrity sha512-quJQXlTSUGL2LH9SUXo8VwsY4soanhgo6LNSm84E1LBcE8s3O0wpdiRzyR9z/ZZJMlMWv37qOOb9pdJlMUEKFQ==
 
 antlr4ts@^0.5.0-alpha.4:
   version "0.5.0-alpha.4"
@@ -74,10 +71,10 @@ prettier-plugin-solidity@^1.0.0-beta.14:
     solidity-comments-extractor "^0.0.7"
     string-width "^4.2.2"
 
-prettier@^2.3.2:
-  version "2.3.2"
-  resolved "https://registry.yarnpkg.com/prettier/-/prettier-2.3.2.tgz#ef280a05ec253712e486233db5c6f23441e7342d"
-  integrity sha512-lnJzDfJ66zkMy58OL5/NY5zp70S7Nz6KqcKkXYzn2tMVrNxvbqaBpg7H3qHaLxCJ5lNMsGuM8+ohS7cZrthdLQ==
+prettier@^2.8.8:
+  version "2.8.8"
+  resolved "https://registry.yarnpkg.com/prettier/-/prettier-2.8.8.tgz#e8c5d7e98a4305ffe3de2e1fc4aca1a71c28b1da"
+  integrity sha512-tdN8qQGvNjw4CHbY+XXk0JgCXn9QiF21a55rBe5LJAU+kDyC4WQn4+awm2Xfk2lQMk5fKup9XgzTZtGkjBdP9Q==
 
 semver@^7.3.5:
   version "7.3.5"

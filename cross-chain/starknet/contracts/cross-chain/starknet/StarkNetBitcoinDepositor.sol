@@ -107,10 +107,12 @@ contract StarkNetBitcoinDepositor is AbstractL1BTCDepositor {
         uint256 amount,
         bytes32 destinationChainReceiver
     ) internal override {
-        // This function is called by finalizeDeposit which is payable
-        // The caller must send ETH to cover the StarkGate bridge fee
+        // This function is called by finalizeDeposit which is payable.
+        // The caller must send ETH to cover the StarkGate bridge fee exactly:
+        // the whole msg.value is forwarded to StarkGate, which never refunds
+        // the surplus, so any overpayment would be lost.
         uint256 fee = estimateFee();
-        require(msg.value >= fee, "Insufficient L1->L2 message fee");
+        require(msg.value == fee, "Incorrect L1->L2 message fee");
         require(address(tbtcToken) != address(0), "tBTC token not initialized");
 
         // Convert bytes32 to uint256 for StarkNet address format
@@ -121,7 +123,6 @@ contract StarkNetBitcoinDepositor is AbstractL1BTCDepositor {
         tbtcToken.safeIncreaseAllowance(address(starkGateBridge), amount);
 
         // Bridge tBTC to StarkNet
-        // All msg.value is sent to the bridge (no refund)
         // slither-disable-next-line unused-return
         starkGateBridge.deposit{value: msg.value}(
             address(tbtcToken),

@@ -19,8 +19,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const [, proxyDeployment] = await helpers.upgrades.deployProxy(
     "SuiBTCDepositorWormhole",
     {
-      contractName:
-        "@keep-network/tbtc-v2/contracts/cross-chain/wormhole/BTCDepositorWormhole.sol:BTCDepositorWormhole",
+      contractName: "BTCDepositorWormhole",
       initializerArgs: [
         tbtcBridge.address,
         tbtcVault.address,

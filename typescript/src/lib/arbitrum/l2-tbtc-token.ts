@@ -9,7 +9,7 @@ import {
   Chains,
   DestinationChainTBTCToken,
 } from "../contracts"
-import { BigNumber } from "ethers"
+import { BigNumber } from "@ethersproject/bignumber"
 import { EthereumAddress } from "../ethereum"
 
 import ArbitrumL2TBTCTokenDeployment from "./artifacts/arbitrumOne/ArbitrumTBTC.json"

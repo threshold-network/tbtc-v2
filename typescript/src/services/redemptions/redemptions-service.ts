@@ -9,13 +9,15 @@ import {
 import {
   BitcoinAddressConverter,
   BitcoinClient,
+  BitcoinHashUtils,
   BitcoinNetwork,
   BitcoinScriptUtils,
   BitcoinTxHash,
   BitcoinTxOutput,
   BitcoinUtxo,
 } from "../../lib/bitcoin"
-import { BigNumber, BigNumberish, BytesLike } from "ethers"
+import { BigNumber, BigNumberish } from "@ethersproject/bignumber"
+import { BytesLike } from "@ethersproject/bytes"
 import { amountToSatoshi, ApiUrl, endpointUrl, Hex } from "../../lib/utils"
 import { RedeemerProxy } from "./redeemer-proxy"
 import {
@@ -88,52 +90,57 @@ export class RedemptionsService {
     targetChainTxHash: Hex
     walletPublicKey: Hex
   }> {
+    let walletPublicKey: Hex
+    let mainUtxo: BitcoinUtxo
+    let redeemerOutputScript: Hex
+
     try {
       const candidateWallets = await this.fetchWalletsForRedemption()
-      const { walletPublicKey, mainUtxo, redeemerOutputScript } =
-        await this.determineValidRedemptionWallet(
-          amountToSatoshi(amount),
-          candidateWallets,
-          bitcoinRedeemerAddress
-        )
+      const validWallet = await this.determineValidRedemptionWallet(
+        amountToSatoshi(amount),
+        candidateWallets,
+        bitcoinRedeemerAddress
+      )
 
-      if (!walletPublicKey || !mainUtxo || !redeemerOutputScript) {
+      if (
+        !validWallet.walletPublicKey ||
+        !validWallet.mainUtxo ||
+        !validWallet.redeemerOutputScript
+      ) {
         throw new Error(
           "Could not find a valid redemption wallet with enough funds"
         )
       }
 
-      const txHash = await this.tbtcContracts.tbtcToken.requestRedemption(
-        walletPublicKey,
-        mainUtxo,
-        redeemerOutputScript,
-        amount
-      )
-
-      return {
-        targetChainTxHash: txHash,
-        walletPublicKey: walletPublicKey,
-      }
+      walletPublicKey = validWallet.walletPublicKey
+      mainUtxo = validWallet.mainUtxo
+      redeemerOutputScript = validWallet.redeemerOutputScript
     } catch (error) {
       console.warn(
         "Error requesting redemption with candidate wallets. Falling back to manual redemption data:",
         error
       )
 
-      const { walletPublicKey, mainUtxo, redeemerOutputScript } =
-        await this.determineRedemptionData(bitcoinRedeemerAddress, amount)
-
-      const txHash = await this.tbtcContracts.tbtcToken.requestRedemption(
-        walletPublicKey,
-        mainUtxo,
-        redeemerOutputScript,
+      const fallbackData = await this.determineRedemptionData(
+        bitcoinRedeemerAddress,
         amount
       )
 
-      return {
-        targetChainTxHash: txHash,
-        walletPublicKey: walletPublicKey,
-      }
+      walletPublicKey = fallbackData.walletPublicKey
+      mainUtxo = fallbackData.mainUtxo
+      redeemerOutputScript = fallbackData.redeemerOutputScript
+    }
+
+    const txHash = await this.tbtcContracts.tbtcToken.requestRedemption(
+      walletPublicKey,
+      mainUtxo,
+      redeemerOutputScript,
+      amount
+    )
+
+    return {
+      targetChainTxHash: txHash,
+      walletPublicKey: walletPublicKey,
     }
   }
 
@@ -337,9 +344,16 @@ export class RedemptionsService {
 
   /**
    * Determines a valid wallet that can handle a redemption request.
+   * Cross-checks API-provided wallet candidates against the current Bridge
+   * state before accepting them. A candidate is accepted only if the on-chain
+   * wallet is Live, its on-chain public key does not disagree with the API
+   * public key, and its main UTXO matches the Bridge's main UTXO hash or can be
+   * re-resolved from Bitcoin history. The spendable balance is capped to the
+   * lower of the API balance and the on-chain main UTXO value minus pending
+   * Bridge redemptions.
    * @param amount The amount to be redeemed in satoshi precision (1e8).
    * @param potentialCandidateWallets Array of wallets that can handle the
-   *        redemption request. The wallets must be in the Live state.
+   *        redemption request.
    * @param redeemerAddressOrScript Optional. Either a Bitcoin address (P2PKH,
    *        P2WPKH, P2SH, P2WSH) or a raw hex output script (with or without
    *        0x prefix). When provided, the function checks for pending
@@ -371,18 +385,41 @@ export class RedemptionsService {
       )
     }
 
+    const bitcoinNetwork = await this.bitcoinClient.getNetwork()
+
     for (let index = 0; index < potentialCandidateWallets.length; index++) {
       const serializableWallet = potentialCandidateWallets[index]
       const {
-        walletBTCBalance: candidateBTCBalance,
+        walletBTCBalance: apiCandidateBTCBalance,
         walletPublicKey: candidatePublicKey,
         mainUtxo: candidateMainUtxo,
       } = this.fromSerializableWallet(serializableWallet)
 
-      if (candidateBTCBalance.lt(amount)) {
+      const walletPublicKeyHash =
+        BitcoinHashUtils.computeHash160(candidatePublicKey)
+      const currentWallet = await this.tbtcContracts.bridge.wallets(
+        walletPublicKeyHash
+      )
+
+      if (!currentWallet || currentWallet.state !== WalletState.Live) {
         console.debug(
-          `The wallet (${candidatePublicKey.toString()})` +
-            `cannot handle the redemption request. ` +
+          `Wallet is not in Live state ` +
+            `(wallet public key hash: ${walletPublicKeyHash.toString()}). ` +
+            `Continue the loop execution to the next wallet...`
+        )
+        continue
+      }
+
+      // Missing on-chain public key is tolerated to avoid turning a registry
+      // data issue into a candidate rejection. A disagreement is unsafe.
+      if (
+        currentWallet.walletPublicKey &&
+        !currentWallet.walletPublicKey.equals(candidatePublicKey)
+      ) {
+        console.debug(
+          `The wallet public key returned by the redemption wallet API ` +
+            `does not match the on-chain wallet public key ` +
+            `(wallet public key hash: ${walletPublicKeyHash.toString()}). ` +
             `Continue the loop execution to the next wallet...`
         )
         continue
@@ -407,11 +444,60 @@ export class RedemptionsService {
           continue
         }
       }
+
+      let currentMainUtxo = candidateMainUtxo
+      const candidateMainUtxoHash =
+        this.tbtcContracts.bridge.buildUtxoHash(candidateMainUtxo)
+
+      if (!currentWallet.mainUtxoHash.equals(candidateMainUtxoHash)) {
+        console.debug(
+          `The wallet main UTXO returned by the redemption wallet API is stale ` +
+            `(wallet public key hash: ${walletPublicKeyHash.toString()}). ` +
+            `Trying to resolve the current wallet main UTXO...`
+        )
+
+        const resolvedMainUtxo = await this.determineWalletMainUtxo(
+          walletPublicKeyHash,
+          bitcoinNetwork
+        )
+
+        if (!resolvedMainUtxo) {
+          console.debug(
+            `Could not resolve current main UTXO for wallet ` +
+              `${walletPublicKeyHash.toString()}. ` +
+              `Continue the loop execution to the next wallet...`
+          )
+          continue
+        }
+
+        currentMainUtxo = resolvedMainUtxo
+      }
+
+      const onChainCandidateBTCBalance = currentMainUtxo.value.gt(
+        currentWallet.pendingRedemptionsValue
+      )
+        ? currentMainUtxo.value.sub(currentWallet.pendingRedemptionsValue)
+        : BigNumber.from(0)
+      const candidateBTCBalance = onChainCandidateBTCBalance.lt(
+        apiCandidateBTCBalance
+      )
+        ? onChainCandidateBTCBalance
+        : apiCandidateBTCBalance
+
+      if (candidateBTCBalance.lt(amount)) {
+        console.debug(
+          `The wallet (${candidatePublicKey.toString()}) ` +
+            `cannot handle the redemption request. ` +
+            `Continue the loop execution to the next wallet...`
+        )
+        continue
+      }
+
       walletPublicKey = candidatePublicKey
-      mainUtxo = candidateMainUtxo
+      mainUtxo = currentMainUtxo
 
       console.debug(
-        `The wallet (${walletPublicKey.toString()})` +
+        `The wallet (${walletPublicKey.toString()}) ` +
           `can handle the redemption request. ` +
           `Stop the loop execution and proceed with the redemption...`
       )
@@ -528,7 +614,7 @@ export class RedemptionsService {
           })
         } else {
           console.debug(
-            `The wallet (${walletPublicKeyHash.toString()})` +
+            `The wallet (${walletPublicKeyHash.toString()}) ` +
               `cannot handle the redemption request. ` +
               `Continue the loop execution to the next wallet...`
           )
@@ -760,7 +846,7 @@ export class RedemptionsService {
     }
 
     const response = await fetch(
-      `${ApiUrl.TBTC_EXPLORER}${endpointUrl.TBTC_REDEMPTION_WALLET}`
+      `${ApiUrl.THRESHOLD_API}${endpointUrl.TBTC_REDEMPTION_WALLET}`
     )
     if (!response.ok) {
       throw new Error("Failed to fetch redemption wallet from server")

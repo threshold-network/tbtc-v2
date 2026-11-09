@@ -327,8 +327,8 @@ library BridgeState {
         address rebateStaking;
         // Permanently disables one-time rebate staking wiring.
         bool rebateStakingDisabled;
-        // DAO-designated peg keepers exempt from deposit and redemption
-        // treasury fees.
+        // DAO-designated peg keepers. Exempt from deposit treasury fees and
+        // direct-redemption treasury fees (applies when balanceOwner == redeemer).
         mapping(address => bool) pegKeepers;
         // Reserved storage space in case we need to add more variables.
         // The convention from OpenZeppelin suggests the storage space should
@@ -337,6 +337,10 @@ library BridgeState {
         // the struct in the upcoming versions we need to reduce the array size.
         // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
         // slither-disable-next-line unused-state
+        // Upgrade note: `rebateStakingDisabled` packs into the same slot as
+        // `rebateStaking`, the new `pegKeepers` mapping consumed the freed
+        // reserved slot, reducing `__gap` from 48 to 47 for storage-layout
+        // compatibility.
         uint256[47] __gap;
     }
 
@@ -563,8 +567,8 @@ library BridgeState {
         self.redemptionTxMaxTotalFee = _redemptionTxMaxTotalFee;
         self.redemptionTimeout = _redemptionTimeout;
         self.redemptionTimeoutSlashingAmount = _redemptionTimeoutSlashingAmount;
-        self
-            .redemptionTimeoutNotifierRewardMultiplier = _redemptionTimeoutNotifierRewardMultiplier;
+        self.redemptionTimeoutNotifierRewardMultiplier =
+            _redemptionTimeoutNotifierRewardMultiplier;
 
         emit RedemptionParametersUpdated(
             _redemptionDustThreshold,
@@ -702,17 +706,17 @@ library BridgeState {
         self.movingFundsDustThreshold = _movingFundsDustThreshold;
         self.movingFundsTimeoutResetDelay = _movingFundsTimeoutResetDelay;
         self.movingFundsTimeout = _movingFundsTimeout;
-        self
-            .movingFundsTimeoutSlashingAmount = _movingFundsTimeoutSlashingAmount;
-        self
-            .movingFundsTimeoutNotifierRewardMultiplier = _movingFundsTimeoutNotifierRewardMultiplier;
+        self.movingFundsTimeoutSlashingAmount =
+            _movingFundsTimeoutSlashingAmount;
+        self.movingFundsTimeoutNotifierRewardMultiplier =
+            _movingFundsTimeoutNotifierRewardMultiplier;
         self.movingFundsCommitmentGasOffset = _movingFundsCommitmentGasOffset;
         self.movedFundsSweepTxMaxTotalFee = _movedFundsSweepTxMaxTotalFee;
         self.movedFundsSweepTimeout = _movedFundsSweepTimeout;
-        self
-            .movedFundsSweepTimeoutSlashingAmount = _movedFundsSweepTimeoutSlashingAmount;
-        self
-            .movedFundsSweepTimeoutNotifierRewardMultiplier = _movedFundsSweepTimeoutNotifierRewardMultiplier;
+        self.movedFundsSweepTimeoutSlashingAmount =
+            _movedFundsSweepTimeoutSlashingAmount;
+        self.movedFundsSweepTimeoutNotifierRewardMultiplier =
+            _movedFundsSweepTimeoutNotifierRewardMultiplier;
 
         emit MovingFundsParametersUpdated(
             _movingFundsTxMaxTotalFee,
@@ -853,8 +857,8 @@ library BridgeState {
         emit TreasuryUpdated(_treasury);
     }
 
-    /// @notice Updates a peg keeper status. Peg keepers are exempt from
-    ///         deposit and redemption treasury fees.
+    /// @notice Updates eligibility for deposit and direct-redemption treasury-fee
+    ///         waivers. For redemptions, this only applies when balanceOwner == redeemer.
     /// @param _pegKeeper Peg keeper address.
     /// @param _allowed True if the address should be allowed, false otherwise.
     function updatePegKeeper(
@@ -899,9 +903,10 @@ library BridgeState {
     ///      initialization of the rebate staking contract. Changing
     ///      the rebate staking address after it is set requires a
     ///      dedicated upgrade path.
-    function setRebateStaking(Storage storage self, address _rebateStaking)
-        internal
-    {
+    function setRebateStaking(
+        Storage storage self,
+        address _rebateStaking
+    ) internal {
         require(!self.rebateStakingDisabled, "Rebate staking disabled");
 
         require(self.rebateStaking == address(0), "Rebate staking already set");

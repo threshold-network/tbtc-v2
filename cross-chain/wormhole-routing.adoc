@@ -1,0 +1,37 @@
+= Wormhole routing and Sepolia deployment policy
+
+== Supported application routes
+
+The Threshold dApp routes supported Wormhole transfers through Ethereum. Direct
+L2-to-L2 and L2-to-Solana routes are outside the supported application topology.
+The dApp's
+link:https://github.com/tlabs-xyz/threshold-dapp/blob/2781326469d8aa2df41c174e7a288ae8f0f22a27/src/routing/config/protocols.ts[route configuration]
+and
+link:https://github.com/tlabs-xyz/threshold-dapp/blob/2781326469d8aa2df41c174e7a288ae8f0f22a27/src/routing/executors/wormhole.ts[Wormhole executor]
+define those application restrictions.
+
+The gateway contracts can send directly to configured peers. Ethereum's role as
+the token's origin does not require an L1 transaction for every transfer, and a
+peer mapping does not establish application support for that route.
+
+== Sepolia deployment behavior
+
+The `arbitrumSepolia`, `baseSepolia`, and `optimismSepolia` deployments skip both
+the `SolanaWormholeGateway` resolver and the `SetSolanaGatewayAddress` step.
+Their active external deployment directories contain no Solana peer address.
+These deployments therefore do not require or automatically register the old
+Solana devnet gateway, including when either tag is selected explicitly.
+
+The Solana devnet program's token configuration still identifies Goerli tBTC.
+Any future Sepolia-to-Solana integration requires a separate decision to support
+that route and validation of the Solana deployment and token origin before peer
+registration. Registering an address alone would not complete that migration.
+
+Skipping these deployment steps does not clear existing on-chain mappings or
+enforce a contract-level route allowlist. In `L2WormholeGateway.sendTbtc`, a zero
+peer address selects the ordinary Wormhole token-transfer path. The supported
+topology is enforced by the application routing policy.
+
+Mainnet deployment behavior, other EVM peer mappings, and the fake Solana peer
+used by local Hardhat fixtures remain unchanged. Historical Goerli deployment
+records are retained as history and are not active Sepolia configuration.

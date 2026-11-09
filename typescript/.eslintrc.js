@@ -1,9 +1,9 @@
+const base = require("../config/eslint-base")
+
 module.exports = {
-  extends: ["eslint-config-keep"],
-  root: true,
-  parser: "@typescript-eslint/parser",
-  plugins: ["@typescript-eslint"],
+  ...base,
   rules: {
+    ...base.rules,
     // ethers: BigNumber.from and contract filter factories (EventName) are not constructors
     "new-cap": [
       "error",
@@ -11,13 +11,24 @@ module.exports = {
         capIsNewExceptions: ["BN", "BigNumber", "DkgResultSubmitted"],
       },
     ],
-    "valid-jsdoc": [
-      "error",
-      {
-        prefer: { return: "returns" },
-        requireParamType: false,
-        requireReturnType: false,
-      },
-    ],
   },
+  overrides: [
+    {
+      files: ["src/**/*.ts"],
+      rules: {
+        "no-restricted-imports": [
+          "error",
+          {
+            patterns: [
+              {
+                group: ["ethers", "ethers/**"],
+                message:
+                  "ethers is a devDependency only. Use scoped @ethersproject/* packages instead.",
+              },
+            ],
+          },
+        ],
+      },
+    },
+  ],
 }

@@ -1,0 +1,15 @@
+{
+  "canonicalSource": "solidity/contracts/integrator",
+  "sourceSha256": {
+    "AbstractBTCDepositor.sol": "53fbf6af0980e5031eda08d670a6cc84e2d7214be167cc94f3066998344e5e78",
+    "IBridge.sol": "b4f2b4a16402a25dd54bc743548e43e688299cb026ad7264e81a4536ded05f5f",
+    "ITBTCVault.sol": "6d4f287747aeb754af05acbcff95c1ca1dddef0531b52b181d58df0835b79301"
+  },
+  "changes": [
+    {
+      "file": "AbstractBTCDepositor.sol",
+      "change": "replaced BTCUtils.hash256View with inline sha256(sha256(...)) in _calculateBitcoinTxHash",
+      "pr": 1150
+    }
+  ]
+}

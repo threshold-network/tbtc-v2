@@ -1,5 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unused-expressions */
-
 import { expect } from "chai"
 import { ethers } from "hardhat"
 import type { HeartbeatStub } from "../../typechain"
