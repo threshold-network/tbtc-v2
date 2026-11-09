@@ -35,14 +35,15 @@ const func: DeployFunction = async function runDeployment(
   // "BridgeGovernance" remains the currently-live governance contract until
   // 96_transfer_bridge_governance_v2.ts's calldata is executed by its owner;
   // "BridgeGovernanceV2" is the new instance being migrated to.
+  const libraries = {
+    BridgeGovernanceParameters: bridgeGovernanceParametersV2.address,
+  }
   const bridgeGovernanceV2 = await deploy("BridgeGovernanceV2", {
     contract: "BridgeGovernance",
     from: deployer,
     args: [Bridge.address, GOVERNANCE_DELAY],
     log: true,
-    libraries: {
-      BridgeGovernanceParameters: bridgeGovernanceParametersV2.address,
-    },
+    libraries,
     waitConfirmations: 1,
   })
 
@@ -59,8 +60,9 @@ const func: DeployFunction = async function runDeployment(
 
   if (hre.network.tags.tenderly) {
     await hre.tenderly.verify({
-      name: "BridgeGovernanceV2",
+      name: "BridgeGovernance",
       address: bridgeGovernanceV2.address,
+      libraries,
     })
   }
 }
