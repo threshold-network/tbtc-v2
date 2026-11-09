@@ -1,5 +1,5 @@
 import { expect } from "chai"
-import { utils } from "ethers"
+import { getAddress, zeroPadValue } from "ethers"
 import fs from "fs"
 import path from "path"
 import type { HardhatRuntimeEnvironment } from "hardhat/types"
@@ -114,13 +114,13 @@ describe("Peg keeper migration deployment dependencies", () => {
         },
       },
       ethers: {
-        utils,
+        getAddress,
         getContractAt: async () => ({
           owner: async () => governance,
           governance: async () => governanceV2,
         }),
         provider: {
-          getStorageAt: async () => utils.hexZeroPad(governance, 32),
+          getStorage: async () => zeroPadValue(governance, 32),
         },
       },
       artifacts: { readArtifactSync: () => ({ abi: [] }) },

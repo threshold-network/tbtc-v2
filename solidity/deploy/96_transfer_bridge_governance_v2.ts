@@ -1,6 +1,7 @@
+/* eslint-disable no-console -- Deployment instructions and verification results are CLI output. */
 import { HardhatRuntimeEnvironment } from "hardhat/types"
 import { DeployFunction } from "hardhat-deploy/types"
-import { utils } from "ethers"
+import { Interface } from "ethers"
 
 const BRIDGE_GOVERNANCE_ABI = [
   "function beginBridgeGovernanceTransfer(address _newBridgeGovernance)",
@@ -25,14 +26,16 @@ const BRIDGE_GOVERNANCE_ABI = [
 // a network where it has never been deployed, DEPLOY_BRIDGE_GOVERNANCE_V2=true
 // must be set alongside DEPLOY_BRIDGE_GOVERNANCE_TRANSFER=true in the same
 // invocation, or this script throws the actionable error below.
-const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
+const func: DeployFunction = async function runDeployment(
+  hre: HardhatRuntimeEnvironment
+) {
   const { deployments, getNamedAccounts, ethers } = hre
 
   const OldBridgeGovernance = await deployments.get("BridgeGovernance")
   let NewBridgeGovernance
   try {
     NewBridgeGovernance = await deployments.get("BridgeGovernanceV2")
-  } catch (error) {
+  } catch {
     throw new Error(
       "BridgeGovernanceV2 has not been deployed on this network yet. " +
         "Run this with DEPLOY_BRIDGE_GOVERNANCE_V2=true set alongside " +
@@ -44,7 +47,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     )
   }
 
-  const bridgeGovernanceInterface = new utils.Interface(BRIDGE_GOVERNANCE_ABI)
+  const bridgeGovernanceInterface = new Interface(BRIDGE_GOVERNANCE_ABI)
 
   const beginCalldata = bridgeGovernanceInterface.encodeFunctionData(
     "beginBridgeGovernanceTransfer",

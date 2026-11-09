@@ -1,0 +1,10 @@
+{
+  "package": "@keep-network/random-beacon",
+  "version": "2.1.0-dev.18",
+  "tarballSha256": "cb78e285cebfd4e37fa458cb0f1d2f098b11b14957abc06f0eead49472de4bb6",
+  "sourceSha256": {
+    "Reimbursable.sol": "ccf7c5679a5eee9a76ffeccab7b93aebef1d31a8951c370e0f3f446182bf203a",
+    "ReimbursementPool.sol": "4e13f1afad5dc51fc9acfe58e7d96c815deb3a6436eddf5781434f27bc699f6b"
+  },
+  "changes": []
+}

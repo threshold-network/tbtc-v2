@@ -1,0 +1,39 @@
+diff --git a/src/validate/query.ts b/src/validate/query.ts
+--- a/src/validate/query.ts
++++ b/src/validate/query.ts
+@@ -1,4 +1,4 @@
+-import { Version, getVersion } from '../version';
++import { Version, hashBytecode } from '../version';
+ import { ValidationRunData, ValidationError, isOpcodeError, ContractValidation } from './run';
+ import { StorageLayout } from '../storage/layout';
+ import { unlinkBytecode } from '../link-refs';
+@@ -130,9 +130,11 @@
+     for (const name of linkableContracts) {
+       const { linkReferences } = validation[name];
+       const unlinkedBytecode = unlinkBytecode(bytecode, linkReferences);
+-      const version = getVersion(unlinkedBytecode);
++      // Matching only needs the full hash. An unrelated link map can overwrite
++      // metadata, which must not be decoded before the candidate is identified.
++      const withMetadata = hashBytecode(unlinkedBytecode);
+ 
+-      if (validation[name].version?.withMetadata === version.withMetadata) {
++      if (validation[name].version?.withMetadata === withMetadata) {
+         return unlinkedBytecode;
+       }
+     }
+diff --git a/dist/validate/query.js b/dist/validate/query.js
+--- a/dist/validate/query.js
++++ b/dist/validate/query.js
+@@ -121,8 +121,10 @@
+         for (const name of linkableContracts) {
+             const { linkReferences } = validation[name];
+             const unlinkedBytecode = (0, link_refs_1.unlinkBytecode)(bytecode, linkReferences);
+-            const version = (0, version_1.getVersion)(unlinkedBytecode);
+-            if (validation[name].version?.withMetadata === version.withMetadata) {
++            // Matching only needs the full hash. An unrelated link map can overwrite
++            // metadata, which must not be decoded before the candidate is identified.
++            const withMetadata = (0, version_1.hashBytecode)(unlinkedBytecode);
++            if (validation[name].version?.withMetadata === withMetadata) {
+                 return unlinkedBytecode;
+             }
+         }

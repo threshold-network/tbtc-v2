@@ -37,16 +37,16 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
       signer: deployer,
     })
 
-  // Deploy new implementation contract. The StarkNet depositor links an
-  // external library, and the unchanged `DepositState` enum cannot be
-  // auto-compared against the recorded baseline ("insufficient data to compare
-  // enums"). Both relaxations keep the rest of the storage-safety check active.
+  // Deploy new implementation contract. The unchanged `DepositState` enum
+  // cannot be auto-compared against the recorded baseline ("insufficient
+  // data to compare enums"), so `unsafeAllowCustomTypes` stays enabled. The
+  // depositor does not link any external library, so no other relaxation is
+  // needed here.
   const newImplementationAddress: string = (await upgrades.prepareUpgrade(
     proxyDeployment,
     implementationContractFactory,
     {
       kind: "transparent",
-      unsafeAllow: ["external-library-linking"],
       unsafeAllowCustomTypes: true,
     }
   )) as string

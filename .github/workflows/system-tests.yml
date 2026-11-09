@@ -7,17 +7,24 @@ on:
 
 jobs:
   system-tests-deposit-redemption:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v3
 
       - uses: actions/setup-node@v3
         with:
           node-version: "22.x"
-          cache-dependency-path: system-tests/yarn.lock
 
       - name: Enable Corepack
         run: corepack enable
+
+      - uses: actions/setup-node@v3
+        with:
+          node-version: "22.x"
+          cache: yarn
+          cache-dependency-path: |
+            solidity/yarn.lock
+            system-tests/yarn.lock
 
       - name: Configure git to not use unauthenticated protocol
         run: git config --global url."https://".insteadOf git://
@@ -65,17 +72,24 @@ jobs:
 
   system-tests-minting-unminting:
     needs: system-tests-deposit-redemption
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v3
 
       - uses: actions/setup-node@v3
         with:
           node-version: "22.x"
-          cache-dependency-path: system-tests/yarn.lock
 
       - name: Enable Corepack
         run: corepack enable
+
+      - uses: actions/setup-node@v3
+        with:
+          node-version: "22.x"
+          cache: yarn
+          cache-dependency-path: |
+            solidity/yarn.lock
+            system-tests/yarn.lock
 
       - name: Configure git to not use unauthenticated protocol
         run: git config --global url."https://".insteadOf git://

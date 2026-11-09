@@ -1,0 +1,84 @@
+# Additive Bitcoin script fuzz tests; Hardhat owns deployment artifacts.
+# See test-foundry/README.md for the pinned toolchain and commands.
+[profile.default]
+src = "contracts"
+test = "test-foundry"
+out = "forge-artifacts"
+cache_path = "cache_forge"
+libs = ["node_modules", "lib"]
+solc = "0.8.17"
+evm_version = "london"
+optimizer = true
+optimizer_runs = 1000
+# Match Hardhat's compiler settings, including solc 0.8.17's default EVM target.
+# Context-scoped remappings for nested @openzeppelin/contracts(-upgradeable) versions that
+# genuinely differ from the workspace's top-level 4.8.1: @keep-network/ecdsa pins 4.9.1
+# (its EcdsaDkg.sol -> ECDSAUpgradeable.sol imports differ from the top-level file), and
+# @keep-network/random-beacon pins 4.7.3, but only its security/ReentrancyGuard.sol content
+# differs from top-level; random-beacon's access/Ownable.sol and utils/Context.sol are
+# byte-identical across 4.7.3/4.8.1, so remapping only security/ avoids a solc
+# "Identifier already declared" collision (Ownable/Context resolved from two different
+# paths) that occurs when BridgeState.sol imports both Bank.sol (top-level OZ) and
+# random-beacon's ReimbursementPool.sol (which would otherwise pull the whole nested tree)
+# in the same compilation unit. Without the ecdsa/random-beacon entries below, Foundry's
+# global remapping would silently use the wrong (top-level) version for these two packages,
+# diverging from Hardhat's Node-resolution, which honors each package's own node_modules.
+#
+# Two more nested-version cases exist and are intentionally left unremapped:
+# @thesis/solidity-contracts pins 4.2.0 (reached via TBTC.sol -> ERC20WithPermit.sol/
+# MisfundRecovery.sol -> access/Ownable.sol, which genuinely diverges from top-level:
+# renamed internal _setOwner vs _transferOwnership, restructured onlyOwner modifier), and
+# @keep-network/sortition-pools pins 4.9.1 (reached via Wallets.sol -> EcdsaDkg.sol ->
+# SortitionPool.sol -> access/Ownable.sol, which differs from top-level only in comment
+# text). Unlike ecdsa/random-beacon above, remapping either one is not safely possible
+# here: access/Ownable.sol relatively imports "../utils/Context.sol", so remapping just
+# Ownable.sol transitively resolves that package's OWN Context.sol too - and
+# contracts/bridge/VendingMachine.sol (via TBTC.sol) and node_modules/@keep-network/
+# ecdsa/contracts/WalletRegistry.sol (via random-beacon's Reimbursable.sol combined with
+# sortition-pools' chain) each import both that nested Context/Ownable pair AND the
+# unremapped top-level pair in the same file scope, producing the exact "Identifier
+# already declared" collision described above (confirmed empirically: `forge build`
+# fails on both files with either remap applied). Both packages therefore currently
+# compile under Foundry against the top-level 4.8.1 OpenZeppelin instead of their own
+# pinned versions - a real, accepted divergence from Hardhat's Node-resolution, unlike
+# the ecdsa/random-beacon cases below, which fully honor each package's own pin.
+#
+# Caveat: the WalletRegistry.sol collision described above, and the
+# compilation_restrictions entry for it below, are both reproducible only when
+# contracts/hardhat-dependency-compiler/ is present locally - a directory
+# hardhat.config.ts's dependencyCompiler block (keep: true) generates on a Hardhat
+# compile, gitignored via .gitignore's /contracts/hardhat-dependency-compiler/ entry
+# and never committed. That generated copy of @keep-network/ecdsa/contracts/
+# WalletRegistry.sol sits under src = "contracts" above and imports the real
+# WalletRegistry.sol, which is what pulls it into Foundry's compile graph. The CI
+# contracts-foundry job (.github/workflows/contracts.yml) never runs a Hardhat compile
+# before Foundry's steps, so that directory is absent there, and neither the collision
+# nor the compilation_restrictions override below is live in that environment.
+remappings = [
+    "node_modules/@keep-network/ecdsa/:@openzeppelin/contracts/=node_modules/@keep-network/ecdsa/node_modules/@openzeppelin/contracts/",
+    "node_modules/@keep-network/ecdsa/:@openzeppelin/contracts-upgradeable/=node_modules/@keep-network/ecdsa/node_modules/@openzeppelin/contracts-upgradeable/",
+    "node_modules/@keep-network/random-beacon/:@openzeppelin/contracts/security/=node_modules/@keep-network/random-beacon/node_modules/@openzeppelin/contracts/security/",
+    "@openzeppelin/contracts/=node_modules/@openzeppelin/contracts/",
+    "@openzeppelin/contracts-upgradeable/=node_modules/@openzeppelin/contracts-upgradeable/",
+    "@keep-network/=node_modules/@keep-network/",
+    "@threshold-network/=node_modules/@threshold-network/",
+    "@thesis/=node_modules/@thesis/",
+    "forge-std/=lib/forge-std/src/"
+]
+
+# Mirror hardhat.config.ts's per-contract optimizer overrides.
+additional_compiler_profiles = [
+    { name = "runs-200", optimizer_runs = 200 },
+    { name = "runs-1", optimizer_runs = 1 }
+]
+compilation_restrictions = [
+    { paths = "node_modules/@keep-network/ecdsa/contracts/WalletRegistry.sol", optimizer_runs = 200 },
+    { paths = "contracts/bridge/BridgeGovernance.sol", optimizer_runs = 200 },
+    { paths = "contracts/cross-chain/wormhole/L1BTCDepositorNttWithExecutor.sol", optimizer_runs = 1 }
+]
+
+[profile.default.fuzz]
+runs = 256
+
+[profile.ci.fuzz]
+runs = 1000

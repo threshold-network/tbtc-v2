@@ -1,10 +1,7 @@
-/* eslint-disable @typescript-eslint/no-unused-expressions */
-
 import { ethers, helpers, upgrades } from "hardhat"
 import { expect } from "chai"
-import { BigNumber, BigNumberish } from "ethers"
-import { BytesLike } from "@ethersproject/bytes"
-import type { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
+import type { BigNumberish, BytesLike } from "ethers"
+import type { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import type {
   Bank,
   BankStub,
@@ -21,13 +18,13 @@ import { SingleP2SHDeposit } from "../data/deposit-sweep"
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 const { impersonateAccount } = helpers.account
 const { increaseTime, lastBlockTime } = helpers.time
-const { AddressZero } = ethers.constants
+const { ZeroAddress: AddressZero } = ethers
 
 describe("Bridge - Peg keeper", () => {
-  let deployer: SignerWithAddress
-  let governance: SignerWithAddress
-  let thirdParty: SignerWithAddress
-  let esdm: SignerWithAddress
+  let deployer: HardhatEthersSigner
+  let governance: HardhatEthersSigner
+  let thirdParty: HardhatEthersSigner
+  let esdm: HardhatEthersSigner
 
   let bank: Bank & BankStub
   let bridge: Bridge & BridgeStub
@@ -45,12 +42,10 @@ describe("Bridge - Peg keeper", () => {
     "0x160014f4eedc8f40d4b8e30771f792b065ebec0abaddef"
   const redeemerOutputScriptP2PKH =
     "0x1976a914f4eedc8f40d4b8e30771f792b065ebec0abaddef88ac"
-  const requestedAmount = BigNumber.from(1901000)
+  const requestedAmount = 1901000n
 
   before(async () => {
-    // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({ deployer, governance, esdm } = await helpers.signers.getNamedSigners())
-    // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({ thirdParty, bank, bridge, bridgeGovernance, rebateStaking } =
       await bridgeFixture())
 
@@ -221,7 +216,7 @@ describe("Bridge - Peg keeper", () => {
       const deposit = SingleP2SHDeposit.deposits[0]
       const pegKeeper = await impersonateAccount(deposit.depositor, {
         from: governance,
-        value: 10,
+        value: 10n,
       })
 
       await setPegKeeper(pegKeeper.address)
@@ -237,7 +232,7 @@ describe("Bridge - Peg keeper", () => {
         deposit.reveal
       )
 
-      const depositKey = ethers.utils.solidityKeccak256(
+      const depositKey = ethers.solidityPackedKeccak256(
         ["bytes32", "uint32"],
         [deposit.fundingTx.hash, deposit.reveal.fundingOutputIndex]
       )
@@ -291,7 +286,7 @@ describe("Bridge - Peg keeper", () => {
       const balanceOwner = deployer
       await bank.setBalance(balanceOwner.address, requestedAmount)
 
-      const redemptionData = ethers.utils.defaultAbiCoder.encode(
+      const redemptionData = ethers.AbiCoder.defaultAbiCoder().encode(
         ["address", "bytes20", "bytes32", "uint32", "uint64", "bytes"],
         [
           thirdParty.address,
@@ -305,7 +300,7 @@ describe("Bridge - Peg keeper", () => {
 
       await bank
         .connect(balanceOwner)
-        .approveBalanceAndCall(bridge.address, requestedAmount, redemptionData)
+        .approveBalanceAndCall(bridge.target, requestedAmount, redemptionData)
 
       const redemptionKey = buildRedemptionKey(
         walletPubKeyHash,
@@ -315,7 +310,7 @@ describe("Bridge - Peg keeper", () => {
 
       expect(redemption.redeemer).to.equal(thirdParty.address)
       expect(redemption.treasuryFee).to.equal(
-        requestedAmount.div(constants.redemptionTreasuryFeeDivisor)
+        requestedAmount / BigInt(constants.redemptionTreasuryFeeDivisor)
       )
     })
   })
@@ -340,7 +335,7 @@ describe("Bridge - Peg keeper", () => {
     it("should reject zero address initial peg keeper", async () => {
       const bridgeFactory = await getBridgeFactory()
       const newImplementation = await bridgeFactory.deploy()
-      await newImplementation.deployed()
+      await newImplementation.waitForDeployment()
 
       const proxyAdminWithUpgrade = await getProxyAdminWithUpgrade()
       const upgradeData = bridgeFactory.interface.encodeFunctionData(
@@ -350,8 +345,8 @@ describe("Bridge - Peg keeper", () => {
 
       await expect(
         proxyAdminWithUpgrade.upgradeAndCall(
-          bridge.address,
-          newImplementation.address,
+          bridge.target,
+          newImplementation.target,
           upgradeData
         )
       ).to.be.reverted
@@ -360,11 +355,11 @@ describe("Bridge - Peg keeper", () => {
     it("should configure peg keeper and disable rebate staking", async () => {
       await bridgeGovernance
         .connect(governance)
-        .setRebateStaking(rebateStaking.address)
+        .setRebateStaking(rebateStaking.target)
 
       const bridgeFactory = await getBridgeFactory()
       const newImplementation = await bridgeFactory.deploy()
-      await newImplementation.deployed()
+      await newImplementation.waitForDeployment()
 
       const proxyAdminWithUpgrade = await getProxyAdminWithUpgrade()
       const upgradeData = bridgeFactory.interface.encodeFunctionData(
@@ -373,8 +368,8 @@ describe("Bridge - Peg keeper", () => {
       )
 
       const tx = await proxyAdminWithUpgrade.upgradeAndCall(
-        bridge.address,
-        newImplementation.address,
+        bridge.target,
+        newImplementation.target,
         upgradeData
       )
 
@@ -383,7 +378,7 @@ describe("Bridge - Peg keeper", () => {
         .withArgs(thirdParty.address, true)
       await expect(tx)
         .to.emit(bridge, "RebateStakingRepaired")
-        .withArgs(rebateStaking.address, AddressZero)
+        .withArgs(rebateStaking.target, AddressZero)
 
       expect(await bridge.isPegKeeper(thirdParty.address)).to.be.true
       expect(await bridge.getRebateStaking()).to.equal(AddressZero)
@@ -392,11 +387,11 @@ describe("Bridge - Peg keeper", () => {
     it("should prevent rebate staking from being re-enabled after initializer", async () => {
       await bridgeGovernance
         .connect(governance)
-        .setRebateStaking(rebateStaking.address)
+        .setRebateStaking(rebateStaking.target)
 
       const bridgeFactory = await getBridgeFactory()
       const newImplementation = await bridgeFactory.deploy()
-      await newImplementation.deployed()
+      await newImplementation.waitForDeployment()
 
       const proxyAdminWithUpgrade = await getProxyAdminWithUpgrade()
       const upgradeData = bridgeFactory.interface.encodeFunctionData(
@@ -405,8 +400,8 @@ describe("Bridge - Peg keeper", () => {
       )
 
       await proxyAdminWithUpgrade.upgradeAndCall(
-        bridge.address,
-        newImplementation.address,
+        bridge.target,
+        newImplementation.target,
         upgradeData
       )
 
@@ -414,7 +409,7 @@ describe("Bridge - Peg keeper", () => {
       await expect(
         bridgeGovernance
           .connect(governance)
-          .setRebateStaking(rebateStaking.address)
+          .setRebateStaking(rebateStaking.target)
       ).to.be.revertedWith("Rebate staking disabled")
     })
   })
@@ -431,7 +426,7 @@ describe("Bridge - Peg keeper", () => {
     it("should not emit RebateStakingRepaired when rebateStaking is already address(0)", async () => {
       const bridgeFactory = await getBridgeFactory()
       const newImplementation = await bridgeFactory.deploy()
-      await newImplementation.deployed()
+      await newImplementation.waitForDeployment()
 
       const proxyAdminWithUpgrade = await getProxyAdminWithUpgrade()
       const upgradeData = bridgeFactory.interface.encodeFunctionData(
@@ -440,8 +435,8 @@ describe("Bridge - Peg keeper", () => {
       )
 
       const tx = await proxyAdminWithUpgrade.upgradeAndCall(
-        bridge.address,
-        newImplementation.address,
+        bridge.target,
+        newImplementation.target,
         upgradeData
       )
 
@@ -455,7 +450,7 @@ describe("Bridge - Peg keeper", () => {
       // First successful upgrade
       const bridgeFactory = await getBridgeFactory()
       const newImplementation1 = await bridgeFactory.deploy()
-      await newImplementation1.deployed()
+      await newImplementation1.waitForDeployment()
 
       const proxyAdminWithUpgrade = await getProxyAdminWithUpgrade()
       const upgradeData1 = bridgeFactory.interface.encodeFunctionData(
@@ -464,14 +459,14 @@ describe("Bridge - Peg keeper", () => {
       )
 
       await proxyAdminWithUpgrade.upgradeAndCall(
-        bridge.address,
-        newImplementation1.address,
+        bridge.target,
+        newImplementation1.target,
         upgradeData1
       )
 
       // Second attempt with fresh implementation
       const newImplementation2 = await bridgeFactory.deploy()
-      await newImplementation2.deployed()
+      await newImplementation2.waitForDeployment()
 
       const upgradeData2 = bridgeFactory.interface.encodeFunctionData(
         "initializeV6_ConfigurePegKeeper",
@@ -480,8 +475,8 @@ describe("Bridge - Peg keeper", () => {
 
       await expect(
         proxyAdminWithUpgrade.upgradeAndCall(
-          bridge.address,
-          newImplementation2.address,
+          bridge.target,
+          newImplementation2.target,
           upgradeData2
         )
       ).to.be.reverted
@@ -494,14 +489,14 @@ describe("Bridge - Peg keeper", () => {
         deployer
       )
       const newImplementation = await rebateStakingFactory.deploy()
-      await newImplementation.deployed()
+      await newImplementation.waitForDeployment()
 
       const proxyAdmin = await upgrades.admin.getInstance()
       const proxyAdminWithUpgrade = await ethers.getContractAt(
         [
           "function upgradeAndCall(address proxy, address implementation, bytes data)",
         ],
-        proxyAdmin.address,
+        await proxyAdmin.getAddress(),
         esdm
       )
 
@@ -510,8 +505,8 @@ describe("Bridge - Peg keeper", () => {
       )
 
       const tx = await proxyAdminWithUpgrade.upgradeAndCall(
-        rebateStaking.address,
-        newImplementation.address,
+        rebateStaking.target,
+        newImplementation.target,
         upgradeData
       )
 
@@ -562,7 +557,7 @@ describe("Bridge - Peg keeper", () => {
 
       expect(redemption.redeemer).to.equal(thirdParty.address)
       expect(redemption.treasuryFee).to.equal(
-        requestedAmount.div(constants.redemptionTreasuryFeeDivisor)
+        requestedAmount / BigInt(constants.redemptionTreasuryFeeDivisor)
       )
     })
 
@@ -570,7 +565,7 @@ describe("Bridge - Peg keeper", () => {
       // Call initializeV6_ConfigurePegKeeper alone (Bridge-side only) WITHOUT deprecating RebateStaking
       const bridgeFactory = await getBridgeFactory()
       const newImplementation = await bridgeFactory.deploy()
-      await newImplementation.deployed()
+      await newImplementation.waitForDeployment()
 
       const proxyAdminWithUpgrade = await getProxyAdminWithUpgrade()
       const upgradeData = bridgeFactory.interface.encodeFunctionData(
@@ -578,9 +573,9 @@ describe("Bridge - Peg keeper", () => {
         [thirdParty.address]
       )
 
-      const tx = await proxyAdminWithUpgrade.upgradeAndCall(
-        bridge.address,
-        newImplementation.address,
+      await proxyAdminWithUpgrade.upgradeAndCall(
+        bridge.target,
+        newImplementation.target,
         upgradeData
       )
 
@@ -604,13 +599,13 @@ describe("Bridge - Peg keeper", () => {
 
   async function getBridgeFactory() {
     const bridgeLibraries = {
-      Deposit: (await helpers.contracts.getContract("Deposit")).address,
+      Deposit: (await helpers.contracts.getContract("Deposit")).target,
       DepositSweep: (await helpers.contracts.getContract("DepositSweep"))
-        .address,
-      Redemption: (await helpers.contracts.getContract("Redemption")).address,
-      Wallets: (await helpers.contracts.getContract("Wallets")).address,
-      Fraud: (await helpers.contracts.getContract("Fraud")).address,
-      MovingFunds: (await helpers.contracts.getContract("MovingFunds")).address,
+        .target,
+      Redemption: (await helpers.contracts.getContract("Redemption")).target,
+      Wallets: (await helpers.contracts.getContract("Wallets")).target,
+      Fraud: (await helpers.contracts.getContract("Fraud")).target,
+      MovingFunds: (await helpers.contracts.getContract("MovingFunds")).target,
     }
 
     return ethers.getContractFactory("BridgeStub", {
@@ -626,43 +621,41 @@ describe("Bridge - Peg keeper", () => {
       [
         "function upgradeAndCall(address proxy, address implementation, bytes data)",
       ],
-      proxyAdmin.address,
+      await proxyAdmin.getAddress(),
       esdm
     )
   }
 
   async function setLiveWallet(walletPublicKeyHash: string) {
     await bridge.setWallet(walletPublicKeyHash, {
-      ecdsaWalletID: ethers.constants.HashZero,
-      mainUtxoHash: ethers.constants.HashZero,
+      ecdsaWalletID: ethers.ZeroHash,
+      mainUtxoHash: ethers.ZeroHash,
       pendingRedemptionsValue: 0,
       createdAt: await lastBlockTime(),
       movingFundsRequestedAt: 0,
       closingStartedAt: 0,
       pendingMovedFundsSweepRequestsCount: 0,
       state: walletState.Live,
-      movingFundsTargetWalletsCommitmentHash: ethers.constants.HashZero,
+      movingFundsTargetWalletsCommitmentHash: ethers.ZeroHash,
     })
   }
 
   async function makeRedemptionAllowance(
-    redeemer: SignerWithAddress,
+    redeemer: HardhatEthersSigner,
     amount: BigNumberish
   ) {
     await bank.setBalance(redeemer.address, amount)
-    await bank
-      .connect(redeemer)
-      .increaseBalanceAllowance(bridge.address, amount)
+    await bank.connect(redeemer).increaseBalanceAllowance(bridge.target, amount)
   }
 
   function buildRedemptionKey(
     redemptionWalletPubKeyHash: BytesLike,
     redeemerOutputScript: BytesLike
   ): string {
-    return ethers.utils.solidityKeccak256(
+    return ethers.solidityPackedKeccak256(
       ["bytes32", "bytes20"],
       [
-        ethers.utils.solidityKeccak256(["bytes"], [redeemerOutputScript]),
+        ethers.solidityPackedKeccak256(["bytes"], [redeemerOutputScript]),
         redemptionWalletPubKeyHash,
       ]
     )

@@ -55,8 +55,7 @@ async function getStorageLayout(
   const [sourceName, contractName] = fullyQualifiedName.split(":")
 
   const buildInfo = (await artifacts.getBuildInfo(fullyQualifiedName)) as
-    | BuildInfoContracts
-    | undefined
+    BuildInfoContracts | undefined
 
   const storageLayout =
     buildInfo?.output?.contracts?.[sourceName]?.[contractName]?.storageLayout

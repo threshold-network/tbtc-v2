@@ -20,8 +20,7 @@
     "node-json-db": "^2.1.4"
   },
   "devDependencies": {
-    "@keep-network/prettier-config-keep": "github:keep-network/prettier-config-keep",
-    "@thesis-co/eslint-config": "github:thesis/eslint-config",
+    "@thesis-co/eslint-config": "https://codeload.github.com/thesis/eslint-config/tar.gz/495d98594315527450bba336c4319acebcaebb7f",
     "eslint": "8.22.0",
     "prettier": "^2.3.2",
     "typescript": "^4.9.5"

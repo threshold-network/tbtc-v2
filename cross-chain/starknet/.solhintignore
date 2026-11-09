@@ -3,3 +3,4 @@ contracts/hardhat-dependency-compiler/
 build/
 cache/
 artifacts/
+contracts/vendor/

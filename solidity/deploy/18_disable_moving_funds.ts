@@ -28,8 +28,8 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
   // become "closeable" if both of the following is true:
   // - walletMaxAge is set to the maximum value allowed for uint32 type (2^32-1 = 4294967295)
   // - walletClosureMinBtcBalance is zero
-  const walletMaxAge = ethers.BigNumber.from("4294967295")
-  const walletClosureMinBtcBalance = ethers.BigNumber.from("0")
+  const walletMaxAge = ethers.toBigInt("4294967295")
+  const walletClosureMinBtcBalance = ethers.toBigInt("0")
 
   // Fetch the current values of other wallet parameters to keep them unchanged.
   const walletParameters = await read("Bridge", "walletParameters")
@@ -54,13 +54,12 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
   // - movedFundsSweepTimeoutSlashingAmount to 0,
   // - movingFundsTimeoutNotifierRewardMultiplier to 0,
   // - movedFundsSweepTimeoutNotifierRewardMultiplier to 0.
-  const movingFundsTimeout = ethers.BigNumber.from("4294967295")
-  const movedFundsSweepTimeout = ethers.BigNumber.from("4294967295")
-  const movingFundsTimeoutSlashingAmount = ethers.BigNumber.from("0")
-  const movedFundsSweepTimeoutSlashingAmount = ethers.BigNumber.from("0")
-  const movingFundsTimeoutNotifierRewardMultiplier = ethers.BigNumber.from("0")
-  const movedFundsSweepTimeoutNotifierRewardMultiplier =
-    ethers.BigNumber.from("0")
+  const movingFundsTimeout = ethers.toBigInt("4294967295")
+  const movedFundsSweepTimeout = ethers.toBigInt("4294967295")
+  const movingFundsTimeoutSlashingAmount = ethers.toBigInt("0")
+  const movedFundsSweepTimeoutSlashingAmount = ethers.toBigInt("0")
+  const movingFundsTimeoutNotifierRewardMultiplier = ethers.toBigInt("0")
+  const movedFundsSweepTimeoutNotifierRewardMultiplier = ethers.toBigInt("0")
 
   // Fetch the current values of other moving funds parameters to keep them unchanged.
   const movingFundsParameters = await read("Bridge", "movingFundsParameters")

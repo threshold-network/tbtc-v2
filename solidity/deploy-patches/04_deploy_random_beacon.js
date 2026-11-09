@@ -13,6 +13,8 @@
  * RandomBeacon or re-transfer — we exit early when the pool is already owned by the RandomBeacon
  * address from deployments (Phase D).
  */
+const waitForConfirmations = require("../helpers/wait-for-confirmations")
+
 const func = async function (hre) {
   const { getNamedAccounts, deployments, helpers } = hre
   const { deployer } = await getNamedAccounts()
@@ -94,11 +96,7 @@ const func = async function (hre) {
   }
 
   if (hre.network.tags.etherscan) {
-    await hre.ethers.provider.waitForTransaction(
-      RandomBeacon.transactionHash,
-      2,
-      300000
-    )
+    await waitForConfirmations(hre, RandomBeacon.transactionHash, 2, 300000)
     await helpers.etherscan.verify(BLS)
     await helpers.etherscan.verify(BeaconAuthorization)
     await helpers.etherscan.verify(BeaconDkg)

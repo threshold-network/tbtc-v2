@@ -81,7 +81,7 @@ abstract contract AbstractBTCDepositor {
     using BTCUtils for bytes;
 
     /// @notice Multiplier to convert satoshi to TBTC token units.
-    uint256 public constant SATOSHI_MULTIPLIER = 10**10;
+    uint256 public constant SATOSHI_MULTIPLIER = 10 ** 10;
 
     /// @notice Bridge contract address.
     IBridge public bridge;
@@ -151,8 +151,7 @@ abstract contract AbstractBTCDepositor {
         bridge.revealDepositWithExtraData(fundingTx, reveal, extraData);
 
         initialDepositAmount =
-            bridge.deposits(depositKey).amount *
-            SATOSHI_MULTIPLIER;
+            bridge.deposits(depositKey).amount * SATOSHI_MULTIPLIER;
     }
 
     /// @notice Finalizes a deposit by calculating the amount of TBTC minted
@@ -175,7 +174,9 @@ abstract contract AbstractBTCDepositor {
     ///      approximation. See documentation of the `calculateTbtcAmount`
     ///      responsible for calculating this value for more details.
     // slither-disable-next-line dead-code
-    function _finalizeDeposit(uint256 depositKey)
+    function _finalizeDeposit(
+        uint256 depositKey
+    )
         internal
         returns (
             uint256 initialDepositAmount,
@@ -238,13 +239,12 @@ abstract contract AbstractBTCDepositor {
     ) internal view virtual returns (uint256) {
         // Both deposit amount and treasury fee are in the 1e8 satoshi precision.
         // We need to convert them to the 1e18 TBTC precision.
-        uint256 amountSubTreasury = (depositAmountSat - depositTreasuryFeeSat) *
-            SATOSHI_MULTIPLIER;
+        uint256 amountSubTreasury =
+            (depositAmountSat - depositTreasuryFeeSat) * SATOSHI_MULTIPLIER;
 
         uint256 omFeeDivisor = tbtcVault.optimisticMintingFeeDivisor();
-        uint256 omFee = omFeeDivisor > 0
-            ? (amountSubTreasury / omFeeDivisor)
-            : 0;
+        uint256 omFee =
+            omFeeDivisor > 0 ? (amountSubTreasury / omFeeDivisor) : 0;
 
         // The deposit transaction max fee is in the 1e8 satoshi precision.
         // We need to convert them to the 1e18 TBTC precision.
@@ -278,11 +278,9 @@ abstract contract AbstractBTCDepositor {
     /// @param txInfo Bitcoin transaction data, see `IBridgeTypes.BitcoinTxInfo` struct.
     /// @return txHash Bitcoin transaction hash.
     // slither-disable-next-line dead-code
-    function _calculateBitcoinTxHash(IBridgeTypes.BitcoinTxInfo memory txInfo)
-        internal
-        view
-        returns (bytes32)
-    {
+    function _calculateBitcoinTxHash(
+        IBridgeTypes.BitcoinTxInfo memory txInfo
+    ) internal view returns (bytes32) {
         return
             abi
                 .encodePacked(

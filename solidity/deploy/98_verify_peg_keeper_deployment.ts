@@ -1,8 +1,11 @@
+/* eslint-disable no-console -- Deployment instructions and verification results are CLI output. */
 import { HardhatRuntimeEnvironment } from "hardhat/types"
 import { DeployFunction } from "hardhat-deploy/types"
-import { utils } from "ethers"
+import { getAddress, isAddress } from "ethers"
 
-const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
+const func: DeployFunction = async function runDeployment(
+  hre: HardhatRuntimeEnvironment
+) {
   const { ethers, deployments } = hre
 
   console.log("\n========== VERIFYING PEG KEEPER DEPLOYMENT ==========")
@@ -25,7 +28,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   )
 
   const { INITIAL_PEG_KEEPER } = process.env
-  if (!INITIAL_PEG_KEEPER || !utils.isAddress(INITIAL_PEG_KEEPER)) {
+  if (!INITIAL_PEG_KEEPER || !isAddress(INITIAL_PEG_KEEPER)) {
     console.log(
       "⚠️  INITIAL_PEG_KEEPER env var not set; skipping peg keeper allowlist check"
     )
@@ -68,7 +71,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   console.log("\nStep 3: Checking peg keeper allowlist...")
 
   let pegKeeperCheckPassed = false
-  if (INITIAL_PEG_KEEPER && utils.isAddress(INITIAL_PEG_KEEPER)) {
+  if (INITIAL_PEG_KEEPER && isAddress(INITIAL_PEG_KEEPER)) {
     const isPegKeeper = await bridgeContract.isPegKeeper(INITIAL_PEG_KEEPER)
     if (isPegKeeper) {
       console.log("✅ Initial peg keeper is allowlisted")
@@ -123,11 +126,11 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   // EIP-1967 implementation slot
   const IMPLEMENTATION_SLOT =
     "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc"
-  const implData = await ethers.provider.getStorageAt(
+  const implData = await ethers.provider.getStorage(
     RebateStaking.address,
     IMPLEMENTATION_SLOT
   )
-  const rebateImpl = utils.getAddress(`0x${implData.slice(26)}`)
+  const rebateImpl = getAddress(`0x${implData.slice(26)}`)
 
   const rebateStakingV6Impl = await deployments.get(
     "RebateStakingV6Implementation"
@@ -147,11 +150,11 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   // --- Step 8: Verify Bridge implementation is upgraded ---
   console.log("\nStep 8: Checking Bridge proxy implementation...")
 
-  const bridgeImplData = await ethers.provider.getStorageAt(
+  const bridgeImplData = await ethers.provider.getStorage(
     Bridge.address,
     IMPLEMENTATION_SLOT
   )
-  const bridgeImpl = utils.getAddress(`0x${bridgeImplData.slice(26)}`)
+  const bridgeImpl = getAddress(`0x${bridgeImplData.slice(26)}`)
 
   const bridgeV6Impl = await deployments.get("BridgeV6PegKeeperImplementation")
   const isBridgeImplCorrect =

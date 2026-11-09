@@ -1,5 +1,6 @@
 import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
+import { requireValue } from "../../helpers/require-value"
 import type { MockStarkGateBridge, MockTBTCToken } from "../../typechain"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
@@ -8,10 +9,10 @@ describe("StarkNet Bitcoin Depositor - StarkGate Integration Tests", () => {
   let starkGateBridge: MockStarkGateBridge
   let tbtcToken: MockTBTCToken
 
-  const TEST_AMOUNT = ethers.utils.parseEther("1.0")
+  const TEST_AMOUNT = ethers.parseEther("1.0")
   // StarkNet addresses are uint256 - use a valid StarkNet address
-  const TEST_RECIPIENT = ethers.BigNumber.from("0x12345") // Simplified for testing
-  const MESSAGE_FEE = ethers.utils.parseEther("0.01")
+  const TEST_RECIPIENT = BigInt("0x12345") // Simplified for testing
+  const MESSAGE_FEE = ethers.parseEther("0.01")
 
   before(async () => {
     // Deploy mock contracts for research
@@ -40,18 +41,18 @@ describe("StarkNet Bitcoin Depositor - StarkGate Integration Tests", () => {
       // Approve tokens first
       const [signer] = await ethers.getSigners()
       await tbtcToken.mint(signer.address, TEST_AMOUNT)
-      await tbtcToken.approve(starkGateBridge.address, TEST_AMOUNT)
+      await tbtcToken.approve(starkGateBridge.target, TEST_AMOUNT)
 
       // Measure gas for depositWithMessage
       const tx = await starkGateBridge.depositWithMessage(
-        tbtcToken.address,
+        tbtcToken.target,
         TEST_AMOUNT,
         TEST_RECIPIENT,
         emptyMessage,
         { value: MESSAGE_FEE }
       )
 
-      const receipt = await tx.wait()
+      const receipt = requireValue(await tx.wait(), "Transaction receipt")
       const gasUsedWithMessage = receipt.gasUsed
 
       // console.log(
@@ -85,7 +86,6 @@ describe("StarkNet Bitcoin Depositor - StarkGate Integration Tests", () => {
       //   "   This adds unnecessary overhead (~2000 gas) for array processing"
       // )
 
-      // eslint-disable-next-line @typescript-eslint/no-unused-expressions
       expect(true).to.be.true // Document findings
     })
 
@@ -97,13 +97,13 @@ describe("StarkNet Bitcoin Depositor - StarkGate Integration Tests", () => {
       // Use the minted address to approve and call
       const [signer] = await ethers.getSigners()
       await tbtcToken.mint(signer.address, TEST_AMOUNT)
-      await tbtcToken.approve(starkGateBridge.address, TEST_AMOUNT)
+      await tbtcToken.approve(starkGateBridge.target, TEST_AMOUNT)
 
       // Test with empty array
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const emptyArray: any[] = []
       await starkGateBridge.depositWithMessage(
-        tbtcToken.address,
+        tbtcToken.target,
         TEST_AMOUNT,
         TEST_RECIPIENT,
         emptyArray,
@@ -127,7 +127,7 @@ describe("StarkNet Bitcoin Depositor - StarkGate Integration Tests", () => {
 
       // console.log("\n=== Fee Analysis ===")
       // console.log(
-      //   `Base message fee: ${ethers.utils.formatEther(feeEstimate)} ETH`
+      //   `Base message fee: ${ethers.formatEther(feeEstimate)} ETH`
       // )
       // console.log("Fee structure findings:")
       // console.log(
@@ -173,7 +173,7 @@ describe("StarkNet Bitcoin Depositor - StarkGate Integration Tests", () => {
 
       // Research complete
       expect(findings.recommendedFunction).to.equal("deposit")
-      // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+
       expect(findings.hasDepositFunction).to.be.true
     })
   })

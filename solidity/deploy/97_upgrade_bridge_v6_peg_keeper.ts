@@ -1,6 +1,7 @@
+/* eslint-disable no-console -- Deployment instructions and verification results are CLI output. */
 import { HardhatRuntimeEnvironment } from "hardhat/types"
 import { DeployFunction, DeployOptions } from "hardhat-deploy/types"
-import { utils } from "ethers"
+import { Interface, isAddress } from "ethers"
 
 // EIP-1967 transparent proxy admin storage slot. Defined by the standard at
 // https://eips.ethereum.org/EIPS/eip-1967#admin-address and used to discover
@@ -26,13 +27,15 @@ const PROXY_ADMIN_ABI = [
 // hardhat.config.ts namedAccounts) and is not assumed here - the actual
 // upgradeAndCall calls must be submitted by whichever account controls the
 // ProxyAdmin (Timelock/Council) using the logged calldata below.
-const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
+const func: DeployFunction = async function runDeployment(
+  hre: HardhatRuntimeEnvironment
+) {
   const { deployments, getNamedAccounts, ethers, artifacts } = hre
   const { deploy, get, save } = deployments
   const { deployer } = await getNamedAccounts()
 
   const initialPegKeeper = process.env.INITIAL_PEG_KEEPER
-  if (!initialPegKeeper || !utils.isAddress(initialPegKeeper)) {
+  if (!initialPegKeeper || !isAddress(initialPegKeeper)) {
     throw new Error("INITIAL_PEG_KEEPER env var must be set to a valid address")
   }
 
@@ -60,7 +63,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   let BridgeGovernanceV2
   try {
     BridgeGovernanceV2 = await get("BridgeGovernanceV2")
-  } catch (error) {
+  } catch {
     throw new Error(
       "BridgeGovernanceV2 has not been deployed on this network yet. " +
         "hardhat-deploy's tag dependency resolution pulls " +
@@ -191,17 +194,17 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 
   // --- Discover ProxyAdmin via EIP-1967 admin slot ---
   console.log("\n--- Discovering ProxyAdmin ---")
-  const adminData = await ethers.provider.getStorageAt(
+  const adminData = await ethers.provider.getStorage(
     Bridge.address,
     EIP_1967_ADMIN_SLOT
   )
-  const proxyAdminAddress = ethers.utils.getAddress(`0x${adminData.slice(26)}`)
+  const proxyAdminAddress = ethers.getAddress(`0x${adminData.slice(26)}`)
   console.log(`  ProxyAdmin discovered: ${proxyAdminAddress}`)
 
   // --- Generate governance calldata ---
-  const rebateStakingInterface = new utils.Interface(REBATE_STAKING_ABI)
-  const bridgeInterface = new utils.Interface(BRIDGE_ABI)
-  const proxyAdminInterface = new utils.Interface(PROXY_ADMIN_ABI)
+  const rebateStakingInterface = new Interface(REBATE_STAKING_ABI)
+  const bridgeInterface = new Interface(BRIDGE_ABI)
+  const proxyAdminInterface = new Interface(PROXY_ADMIN_ABI)
 
   const rebateStakingCalldata = rebateStakingInterface.encodeFunctionData(
     "initializeV2_Deprecate"

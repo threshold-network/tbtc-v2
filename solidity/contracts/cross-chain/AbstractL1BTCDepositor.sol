@@ -333,8 +333,8 @@ abstract contract AbstractL1BTCDepositor is
             address(reimbursementPool) != address(0) &&
             reimbursementAuthorizations[msg.sender]
         ) {
-            uint256 gasSpent = (gasStart - gasleft()) +
-                initializeDepositGasOffset;
+            uint256 gasSpent =
+                (gasStart - gasleft()) + initializeDepositGasOffset;
 
             // Should not happen as long as initializeDepositGasOffset is
             // set to a reasonable value. If it happens, it's better to
@@ -518,24 +518,17 @@ abstract contract AbstractL1BTCDepositor is
                 /* solhint-enable avoid-low-level-calls */
 
                 if (!success) {
-                    // False positive: `deposits[depositKey]` was already
-                    // set to `Finalized` above, before any external call in
-                    // this function, so a reentrant `initializeDeposit` or
-                    // `finalizeDeposit` call for this same `depositKey`
-                    // always reverts on the deposit-state guard before it
-                    // could reach `gasReimbursements[depositKey]`. This
-                    // line only restores the exact value already read out
-                    // of that mapping earlier in this call, before any
-                    // external call was made, so it can never race with or
-                    // clobber state changed by a reentrant call.
+                    // A failed call rolls back its nested calls. This deposit
+                    // was marked Finalized before any external call, so its
+                    // reimbursement cannot be consumed or replaced by reentry.
+                    // The record is kept as an on-chain trace of the unpaid
+                    // reimbursement only; it is not re-claimable, since
+                    // `finalizeDeposit` is its sole reader and requires
+                    // `DepositState.Initialized`.
                     // slither-disable-next-line reentrancy-no-eth
                     gasReimbursements[depositKey] = reimbursement;
-                    // False positive: emitted only after the low-level call
-                    // above has already returned, so any reentrancy it
-                    // triggered has fully unwound by this point and its
-                    // own events are necessarily ordered before this one;
-                    // `ReimbursementPool.refund` is additionally guarded by
-                    // OpenZeppelin's `nonReentrant`.
+                    // The event describes the reverted pool call; no nested
+                    // event from that call survives to be reordered with it.
                     // slither-disable-next-line reentrancy-events
                     emit DeferredReimbursementFailed(
                         depositKey,
@@ -555,17 +548,14 @@ abstract contract AbstractL1BTCDepositor is
     /// @return Refund value as gas spent.
     /// @dev This function is the reverse of the logic used
     ///      within `ReimbursementPool.refund`.
-    function _refundToGasSpent(uint256 refund)
-        internal
-        virtual
-        returns (uint256)
-    {
+    function _refundToGasSpent(
+        uint256 refund
+    ) internal virtual returns (uint256) {
         uint256 maxGasPrice = reimbursementPool.maxGasPrice();
         uint256 staticGas = reimbursementPool.staticGas();
 
-        uint256 gasPrice = tx.gasprice < maxGasPrice
-            ? tx.gasprice
-            : maxGasPrice;
+        uint256 gasPrice =
+            tx.gasprice < maxGasPrice ? tx.gasprice : maxGasPrice;
 
         // Should not happen but check just in case of weird ReimbursementPool
         // configuration.
@@ -588,7 +578,8 @@ abstract contract AbstractL1BTCDepositor is
     /// @dev In child contracts, this can be LayerZero, Wormhole, or any bridging code.
     /// @param amount Amount of tBTC in 1e18 precision.
     /// @param destinationChainReceiver destination chain deposit owner (32 bytes format).
-    function _transferTbtc(uint256 amount, bytes32 destinationChainReceiver)
-        internal
-        virtual;
+    function _transferTbtc(
+        uint256 amount,
+        bytes32 destinationChainReceiver
+    ) internal virtual;
 }

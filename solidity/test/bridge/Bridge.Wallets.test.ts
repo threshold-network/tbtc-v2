@@ -1,8 +1,8 @@
-/* eslint-disable no-underscore-dangle */
+import { toNumber, ContractTransactionResponse } from "ethers"
+
 import { ethers, helpers } from "hardhat"
-import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import { expect } from "chai"
-import { ContractTransaction } from "ethers"
 import type { Mock } from "../helpers/mock"
 import type {
   Bridge,
@@ -20,15 +20,14 @@ const { createSnapshot, restoreSnapshot } = helpers.snapshot
 const { lastBlockTime, increaseTime } = helpers.time
 
 describe("Bridge - Wallets", () => {
-  let governance: SignerWithAddress
-  let thirdParty: SignerWithAddress
+  let governance: HardhatEthersSigner
+  let thirdParty: HardhatEthersSigner
 
   let walletRegistry: Mock<IWalletRegistry>
   let bridge: Bridge & BridgeStub
   let bridgeGovernance: BridgeGovernance
 
   before(async () => {
-    // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({ governance, thirdParty, walletRegistry, bridge, bridgeGovernance } =
       await bridgeFixture())
   })
@@ -61,7 +60,7 @@ describe("Bridge - Wallets", () => {
         })
 
         context("when active wallet is not set", () => {
-          let tx: ContractTransaction
+          let tx: ContractTransactionResponse
 
           before(async () => {
             await createSnapshot()
@@ -80,7 +79,6 @@ describe("Bridge - Wallets", () => {
           })
 
           it("should call ECDSA Wallet Registry's requestNewWallet function", async () => {
-            // eslint-disable-next-line @typescript-eslint/no-unused-expressions
             await expectCalledOnce(walletRegistry.requestNewWallet)
           })
         })
@@ -93,14 +91,14 @@ describe("Bridge - Wallets", () => {
 
             await bridge.setWallet(ecdsaWalletTestData.pubKeyHash160, {
               ecdsaWalletID: ecdsaWalletTestData.walletID,
-              mainUtxoHash: ethers.constants.HashZero,
+              mainUtxoHash: ethers.ZeroHash,
               pendingRedemptionsValue: 0,
               createdAt: await lastBlockTime(),
               movingFundsRequestedAt: 0,
               closingStartedAt: 0,
               pendingMovedFundsSweepRequestsCount: 0,
               state: walletState.Live,
-              movingFundsTargetWalletsCommitmentHash: ethers.constants.HashZero,
+              movingFundsTargetWalletsCommitmentHash: ethers.ZeroHash,
             })
           })
 
@@ -114,7 +112,7 @@ describe("Bridge - Wallets", () => {
                 context(
                   "when active wallet is old enough and its balance is greater or equal the minimum BTC balance threshold",
                   () => {
-                    let tx: ContractTransaction
+                    let tx: ContractTransactionResponse
 
                     before(async () => {
                       await createSnapshot()
@@ -151,7 +149,6 @@ describe("Bridge - Wallets", () => {
                     })
 
                     it("should call ECDSA Wallet Registry's requestNewWallet function", async () => {
-                      // eslint-disable-next-line @typescript-eslint/no-unused-expressions
                       await expectCalledOnce(walletRegistry.requestNewWallet)
                     })
                   }
@@ -160,7 +157,7 @@ describe("Bridge - Wallets", () => {
                 context(
                   "when active wallet is not old enough but its balance is greater or equal the maximum BTC balance threshold",
                   () => {
-                    let tx: ContractTransaction
+                    let tx: ContractTransactionResponse
 
                     before(async () => {
                       await createSnapshot()
@@ -196,7 +193,6 @@ describe("Bridge - Wallets", () => {
                     })
 
                     it("should call ECDSA Wallet Registry's requestNewWallet function", async () => {
-                      // eslint-disable-next-line @typescript-eslint/no-unused-expressions
                       await expectCalledOnce(walletRegistry.requestNewWallet)
                     })
                   }
@@ -206,7 +202,7 @@ describe("Bridge - Wallets", () => {
               context(
                 "when active wallet is not old enough and its balance is greater or equal the minimum but lesser than the maximum BTC balance threshold",
                 () => {
-                  let tx: Promise<ContractTransaction>
+                  let tx: Promise<ContractTransactionResponse>
 
                   before(async () => {
                     await createSnapshot()
@@ -219,8 +215,7 @@ describe("Bridge - Wallets", () => {
                       txHash:
                         "0xc9e58780c6c289c25ae1fe293f85a4db4d0af4f305172f2a1868ddd917458bdf",
                       txOutputIndex: 1,
-                      txOutputValue:
-                        constants.walletCreationMaxBtcBalance.sub(1),
+                      txOutputValue: constants.walletCreationMaxBtcBalance - 1n,
                     }
 
                     await bridge.setWalletMainUtxo(
@@ -246,7 +241,7 @@ describe("Bridge - Wallets", () => {
               context(
                 "when active wallet is old enough but its balance is lesser than the minimum BTC balance threshold",
                 () => {
-                  let tx: Promise<ContractTransaction>
+                  let tx: Promise<ContractTransactionResponse>
 
                   before(async () => {
                     await createSnapshot()
@@ -261,8 +256,7 @@ describe("Bridge - Wallets", () => {
                       txHash:
                         "0xc9e58780c6c289c25ae1fe293f85a4db4d0af4f305172f2a1868ddd917458bdf",
                       txOutputIndex: 1,
-                      txOutputValue:
-                        constants.walletCreationMinBtcBalance.sub(1),
+                      txOutputValue: constants.walletCreationMinBtcBalance - 1n,
                     }
 
                     await bridge.setWalletMainUtxo(
@@ -361,7 +355,7 @@ describe("Bridge - Wallets", () => {
 
             context("when the minimum BTC balance threshold is zero", () => {
               context("when wallet creation conditions are met", () => {
-                let tx: ContractTransaction
+                let tx: ContractTransactionResponse
 
                 before(async () => {
                   await createSnapshot()
@@ -394,7 +388,6 @@ describe("Bridge - Wallets", () => {
                 })
 
                 it("should call ECDSA Wallet Registry's requestNewWallet function", async () => {
-                  // eslint-disable-next-line @typescript-eslint/no-unused-expressions
                   await expectCalledOnce(walletRegistry.requestNewWallet)
                 })
               })
@@ -463,7 +456,7 @@ describe("Bridge - Wallets", () => {
 
     context("when called by the ECDSA Wallet Registry", async () => {
       context("when called with a valid ECDSA Wallet details", async () => {
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -542,37 +535,37 @@ describe("Bridge - Wallets", () => {
           const testData = [
             {
               testName: "with unique wallet ID and unique public key",
-              walletID: ethers.utils.randomBytes(32),
-              publicKeyX: ethers.utils.randomBytes(32),
-              publicKeyY: ethers.utils.randomBytes(32),
+              walletID: ethers.randomBytes(32),
+              publicKeyX: ethers.randomBytes(32),
+              publicKeyY: ethers.randomBytes(32),
               expectedError: undefined,
             },
             {
               testName: "with duplicated wallet ID and unique public key",
               walletID: ecdsaWalletTestData.walletID,
-              publicKeyX: ethers.utils.randomBytes(32),
-              publicKeyY: ethers.utils.randomBytes(32),
+              publicKeyX: ethers.randomBytes(32),
+              publicKeyY: ethers.randomBytes(32),
               expectedError: undefined,
             },
             {
               testName:
                 "with unique wallet ID, unique public key X and duplicated public key Y",
-              walletID: ethers.utils.randomBytes(32),
-              publicKeyX: ethers.utils.randomBytes(32),
+              walletID: ethers.randomBytes(32),
+              publicKeyX: ethers.randomBytes(32),
               publicKeyY: ecdsaWalletTestData.publicKeyY,
               expectedError: undefined,
             },
             {
               testName:
                 "with unique wallet ID, unique public key Y and duplicated public key X",
-              walletID: ethers.utils.randomBytes(32),
+              walletID: ethers.randomBytes(32),
               publicKeyX: ecdsaWalletTestData.publicKeyY,
-              publicKeyY: ethers.utils.randomBytes(32),
+              publicKeyY: ethers.randomBytes(32),
               expectedError: undefined,
             },
             {
               testName: "with unique wallet ID and duplicated public key",
-              walletID: ethers.utils.randomBytes(32),
+              walletID: ethers.randomBytes(32),
               publicKeyX: ecdsaWalletTestData.publicKeyX,
               publicKeyY: ecdsaWalletTestData.publicKeyY,
               expectedError: "ECDSA wallet has been already registered",
@@ -599,7 +592,7 @@ describe("Bridge - Wallets", () => {
               it(
                 test.expectedError ? "should revert" : "should not revert",
                 async () => {
-                  const tx: Promise<ContractTransaction> = bridge
+                  const tx: Promise<ContractTransactionResponse> = bridge
                     .connect(walletRegistry.wallet)
                     .__ecdsaWalletCreatedCallback(
                       test.walletID,
@@ -629,14 +622,14 @@ describe("Bridge - Wallets", () => {
 
           await bridge.setWallet(ecdsaWalletTestData.pubKeyHash160, {
             ecdsaWalletID: ecdsaWalletTestData.walletID,
-            mainUtxoHash: ethers.constants.HashZero,
+            mainUtxoHash: ethers.ZeroHash,
             pendingRedemptionsValue: 0,
             createdAt: await lastBlockTime(),
             movingFundsRequestedAt: 0,
             closingStartedAt: 0,
             pendingMovedFundsSweepRequestsCount: 0,
             state: walletState.Live,
-            movingFundsTargetWalletsCommitmentHash: ethers.constants.HashZero,
+            movingFundsTargetWalletsCommitmentHash: ethers.ZeroHash,
           })
         })
 
@@ -646,7 +639,7 @@ describe("Bridge - Wallets", () => {
 
         context("when wallet balance is zero", () => {
           context("when wallet is the active one", () => {
-            let tx: ContractTransaction
+            let tx: ContractTransactionResponse
 
             before(async () => {
               await createSnapshot()
@@ -703,14 +696,14 @@ describe("Bridge - Wallets", () => {
           })
 
           context("when wallet is not the active one", () => {
-            let tx: ContractTransaction
+            let tx: ContractTransactionResponse
 
             before(async () => {
               await createSnapshot()
 
               // Set the active wallet to be different than the tested one.
               await bridge.setActiveWallet(
-                ethers.utils.ripemd160(ecdsaWalletTestData.pubKeyHash160)
+                ethers.ripemd160(ecdsaWalletTestData.pubKeyHash160)
               )
 
               tx = await bridge
@@ -752,7 +745,7 @@ describe("Bridge - Wallets", () => {
 
             it("should not unset the active wallet", async () => {
               expect(await bridge.activeWalletPubKeyHash()).to.be.equal(
-                ethers.utils.ripemd160(ecdsaWalletTestData.pubKeyHash160)
+                ethers.ripemd160(ecdsaWalletTestData.pubKeyHash160)
               )
             })
 
@@ -779,7 +772,7 @@ describe("Bridge - Wallets", () => {
           })
 
           context("when wallet is the active one", () => {
-            let tx: ContractTransaction
+            let tx: ContractTransactionResponse
 
             before(async () => {
               await createSnapshot()
@@ -837,14 +830,14 @@ describe("Bridge - Wallets", () => {
           })
 
           context("when wallet is not the active one", () => {
-            let tx: ContractTransaction
+            let tx: ContractTransactionResponse
 
             before(async () => {
               await createSnapshot()
 
               // Set the active wallet to be different than the tested one.
               await bridge.setActiveWallet(
-                ethers.utils.ripemd160(ecdsaWalletTestData.pubKeyHash160)
+                ethers.ripemd160(ecdsaWalletTestData.pubKeyHash160)
               )
 
               tx = await bridge
@@ -887,7 +880,7 @@ describe("Bridge - Wallets", () => {
 
             it("should not unset the active wallet", async () => {
               expect(await bridge.activeWalletPubKeyHash()).to.be.equal(
-                ethers.utils.ripemd160(ecdsaWalletTestData.pubKeyHash160)
+                ethers.ripemd160(ecdsaWalletTestData.pubKeyHash160)
               )
             })
 
@@ -929,15 +922,14 @@ describe("Bridge - Wallets", () => {
 
               await bridge.setWallet(ecdsaWalletTestData.pubKeyHash160, {
                 ecdsaWalletID: ecdsaWalletTestData.walletID,
-                mainUtxoHash: ethers.constants.HashZero,
+                mainUtxoHash: ethers.ZeroHash,
                 pendingRedemptionsValue: 0,
                 createdAt: 0,
                 movingFundsRequestedAt: 0,
                 closingStartedAt: 0,
                 pendingMovedFundsSweepRequestsCount: 0,
                 state: test.walletState,
-                movingFundsTargetWalletsCommitmentHash:
-                  ethers.constants.HashZero,
+                movingFundsTargetWalletsCommitmentHash: ethers.ZeroHash,
               })
             })
 
@@ -986,14 +978,14 @@ describe("Bridge - Wallets", () => {
 
           await bridge.setWallet(ecdsaWalletTestData.pubKeyHash160, {
             ecdsaWalletID: ecdsaWalletTestData.walletID,
-            mainUtxoHash: ethers.constants.HashZero,
+            mainUtxoHash: ethers.ZeroHash,
             pendingRedemptionsValue: 0,
             createdAt: await lastBlockTime(),
             movingFundsRequestedAt: 0,
             closingStartedAt: 0,
             pendingMovedFundsSweepRequestsCount: 0,
             state: walletState.Live,
-            movingFundsTargetWalletsCommitmentHash: ethers.constants.HashZero,
+            movingFundsTargetWalletsCommitmentHash: ethers.ZeroHash,
           })
         })
 
@@ -1005,7 +997,9 @@ describe("Bridge - Wallets", () => {
           before(async () => {
             await createSnapshot()
 
-            await increaseTime((await bridge.walletParameters()).walletMaxAge)
+            await increaseTime(
+              toNumber((await bridge.walletParameters()).walletMaxAge)
+            )
           })
 
           after(async () => {
@@ -1013,7 +1007,7 @@ describe("Bridge - Wallets", () => {
           })
 
           context("when wallet balance is zero", () => {
-            let tx: ContractTransaction
+            let tx: ContractTransactionResponse
 
             before(async () => {
               await createSnapshot()
@@ -1067,7 +1061,7 @@ describe("Bridge - Wallets", () => {
               txOutputValue: 1,
             }
 
-            let tx: ContractTransaction
+            let tx: ContractTransactionResponse
 
             before(async () => {
               await createSnapshot()
@@ -1124,7 +1118,7 @@ describe("Bridge - Wallets", () => {
           "when wallet did not reach the maximum age but their balance is lesser than the minimum threshold",
           () => {
             context("when wallet balance is zero", () => {
-              let tx: ContractTransaction
+              let tx: ContractTransactionResponse
 
               before(async () => {
                 await createSnapshot()
@@ -1177,10 +1171,10 @@ describe("Bridge - Wallets", () => {
                 txHash:
                   "0xc9e58780c6c289c25ae1fe293f85a4db4d0af4f305172f2a1868ddd917458bdf",
                 txOutputIndex: 0,
-                txOutputValue: constants.walletClosureMinBtcBalance.sub(1),
+                txOutputValue: constants.walletClosureMinBtcBalance - 1n,
               }
 
-              let tx: ContractTransaction
+              let tx: ContractTransactionResponse
 
               before(async () => {
                 await createSnapshot()
@@ -1347,15 +1341,14 @@ describe("Bridge - Wallets", () => {
 
               await bridge.setWallet(ecdsaWalletTestData.pubKeyHash160, {
                 ecdsaWalletID: ecdsaWalletTestData.walletID,
-                mainUtxoHash: ethers.constants.HashZero,
+                mainUtxoHash: ethers.ZeroHash,
                 pendingRedemptionsValue: 0,
                 createdAt: 0,
                 movingFundsRequestedAt: 0,
                 closingStartedAt: 0,
                 pendingMovedFundsSweepRequestsCount: 0,
                 state: test.walletState,
-                movingFundsTargetWalletsCommitmentHash:
-                  ethers.constants.HashZero,
+                movingFundsTargetWalletsCommitmentHash: ethers.ZeroHash,
               })
             })
 
@@ -1387,14 +1380,14 @@ describe("Bridge - Wallets", () => {
 
         await bridge.setWallet(ecdsaWalletTestData.pubKeyHash160, {
           ecdsaWalletID: ecdsaWalletTestData.walletID,
-          mainUtxoHash: ethers.constants.HashZero,
+          mainUtxoHash: ethers.ZeroHash,
           pendingRedemptionsValue: 0,
           createdAt: await lastBlockTime(),
           movingFundsRequestedAt: 0,
           closingStartedAt: 0,
           pendingMovedFundsSweepRequestsCount: 0,
           state: walletState.Live,
-          movingFundsTargetWalletsCommitmentHash: ethers.constants.HashZero,
+          movingFundsTargetWalletsCommitmentHash: ethers.ZeroHash,
         })
       })
 
@@ -1418,14 +1411,14 @@ describe("Bridge - Wallets", () => {
   describe("notifyWalletClosingPeriodElapsed", () => {
     const walletDraft = {
       ecdsaWalletID: ecdsaWalletTestData.walletID,
-      mainUtxoHash: ethers.constants.HashZero,
+      mainUtxoHash: ethers.ZeroHash,
       pendingRedemptionsValue: 0,
       createdAt: 0,
       movingFundsRequestedAt: 0,
       closingStartedAt: 0,
       pendingMovedFundsSweepRequestsCount: 0,
       state: walletState.Unknown,
-      movingFundsTargetWalletsCommitmentHash: ethers.constants.HashZero,
+      movingFundsTargetWalletsCommitmentHash: ethers.ZeroHash,
     }
 
     context("when the wallet is in the Closing state", () => {
@@ -1453,13 +1446,13 @@ describe("Bridge - Wallets", () => {
       })
 
       context("when closing period has elapsed", () => {
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
 
           await increaseTime(
-            (await bridge.walletParameters()).walletClosingPeriod + 1
+            toNumber((await bridge.walletParameters()).walletClosingPeriod + 1n)
           )
 
           tx = await bridge.notifyWalletClosingPeriodElapsed(
@@ -1500,7 +1493,7 @@ describe("Bridge - Wallets", () => {
           await createSnapshot()
 
           await increaseTime(
-            (await bridge.walletParameters()).walletClosingPeriod - 1
+            toNumber((await bridge.walletParameters()).walletClosingPeriod - 1n)
           )
         })
 

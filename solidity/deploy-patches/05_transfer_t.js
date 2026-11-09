@@ -1,5 +1,5 @@
 /**
- * Patched copy of @threshold-network/solidity-contracts@1.3.0-dev.12/export/deploy/05_transfer_t.js
+ * Patched copy of @threshold-network/solidity-contracts@1.3.0-dev.11/export/deploy/05_transfer_t.js
  *
  * Upstream always transfers 4.5B T to the vending machine. On a second deploy run the deployer
  * already sent those tokens → "Transfer amount exceeds balance".
@@ -22,16 +22,16 @@ const func = async function (hre) {
   ]
 
   const T_TO_TRANSFER = to1e18("4500000000")
-  const targetBn = ethers.BigNumber.from(T_TO_TRANSFER)
+  const targetBn = ethers.toBigInt(T_TO_TRANSFER)
 
   for (const { tokenSymbol, vendingMachineAddress } of vendingMachines) {
     const vmBal = await read("T", "balanceOf", vendingMachineAddress)
     const deployerBal = await read("T", "balanceOf", deployer)
 
-    const vmBn = ethers.BigNumber.from(vmBal)
-    const deployerBn = ethers.BigNumber.from(deployerBal)
+    const vmBn = ethers.toBigInt(vmBal.toString())
+    const deployerBn = ethers.toBigInt(deployerBal.toString())
 
-    if (vmBn.gte(targetBn)) {
+    if (vmBn >= targetBn) {
       log(
         `Vending machine for ${tokenSymbol} already has >= ${from1e18(
           targetBn
@@ -40,9 +40,9 @@ const func = async function (hre) {
       continue
     }
 
-    const needed = targetBn.sub(vmBn)
-    if (deployerBn.lt(needed)) {
-      // The idempotent-rerun case is already handled by the vmBn.gte(targetBn)
+    const needed = targetBn - vmBn
+    if (deployerBn < needed) {
+      // The idempotent-rerun case is already handled by the vmBn >= targetBn
       // branch above. Reaching here means the vending machine is still under
       // the target AND the deployer cannot cover the shortfall, i.e. a broken
       // / underfunded deploy. Fail loudly instead of masking it as a successful

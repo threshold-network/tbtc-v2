@@ -24,12 +24,9 @@ contract MockTBTCVault is ITBTCVault {
         tbtcToken = _tbtcToken;
     }
 
-    function optimisticMintingRequests(uint256 depositKey)
-        external
-        view
-        override
-        returns (uint64 requestedAt, uint64 finalizedAt)
-    {
+    function optimisticMintingRequests(
+        uint256 depositKey
+    ) external view override returns (uint64 requestedAt, uint64 finalizedAt) {
         return (uint64(block.timestamp), _finalizedAt[depositKey]);
     }
 
@@ -61,7 +58,9 @@ contract MockTBTCVault is ITBTCVault {
         });
     }
 
-    function getDepositInfo(uint256 depositKey)
+    function getDepositInfo(
+        uint256 depositKey
+    )
         external
         view
         returns (
@@ -79,11 +78,9 @@ contract MockTBTCVault is ITBTCVault {
         );
     }
 
-    function isOptimisticMintingFinalized(bytes32 depositKey)
-        external
-        view
-        returns (bool)
-    {
+    function isOptimisticMintingFinalized(
+        bytes32 depositKey
+    ) external view returns (bool) {
         return _finalizedAt[uint256(depositKey)] > 0;
     }
 }

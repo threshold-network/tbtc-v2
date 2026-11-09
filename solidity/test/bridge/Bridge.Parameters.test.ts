@@ -1,23 +1,22 @@
 import { ethers, helpers } from "hardhat"
-import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import { expect } from "chai"
-import { ContractTransaction } from "ethers"
+import { ContractTransactionResponse } from "ethers"
 import type { Bridge, BridgeStub, BridgeGovernance } from "../../typechain"
 import { constants } from "../fixtures"
 import bridgeFixture from "../fixtures/bridge"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 
-const ZERO_ADDRESS = ethers.constants.AddressZero
+const ZERO_ADDRESS = ethers.ZeroAddress
 
 describe("Bridge - Parameters", () => {
-  let governance: SignerWithAddress
-  let thirdParty: SignerWithAddress
+  let governance: HardhatEthersSigner
+  let thirdParty: HardhatEthersSigner
   let bridge: Bridge & BridgeStub
   let bridgeGovernance: BridgeGovernance
 
   before(async () => {
-    // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({ governance, thirdParty, bridge, bridgeGovernance } =
       await bridgeFixture())
   })
@@ -32,10 +31,10 @@ describe("Bridge - Parameters", () => {
         const newDepositRevealAheadPeriod =
           constants.depositRevealAheadPeriod * 2
 
-        let tx1: ContractTransaction
-        let tx2: ContractTransaction
-        let tx3: ContractTransaction
-        let tx4: ContractTransaction
+        let tx1: ContractTransactionResponse
+        let tx2: ContractTransactionResponse
+        let tx3: ContractTransactionResponse
+        let tx4: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -265,17 +264,17 @@ describe("Bridge - Parameters", () => {
         const newRedemptionTxMaxTotalFee = constants.redemptionTxMaxTotalFee * 3
         const newRedemptionTimeout = constants.redemptionTimeout * 4
         const newRedemptionTimeoutSlashingAmount =
-          constants.redemptionTimeoutSlashingAmount.mul(2)
+          constants.redemptionTimeoutSlashingAmount * 2n
         const newRedemptionTimeoutNotifierRewardMultiplier =
           constants.redemptionTimeoutNotifierRewardMultiplier / 4
 
-        let tx1: ContractTransaction
-        let tx2: ContractTransaction
-        let tx3: ContractTransaction
-        let tx4: ContractTransaction
-        let tx5: ContractTransaction
-        let tx6: ContractTransaction
-        let tx7: ContractTransaction
+        let tx1: ContractTransactionResponse
+        let tx2: ContractTransactionResponse
+        let tx3: ContractTransactionResponse
+        let tx4: ContractTransactionResponse
+        let tx5: ContractTransactionResponse
+        let tx6: ContractTransactionResponse
+        let tx7: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -479,9 +478,7 @@ describe("Bridge - Parameters", () => {
             await bridgeGovernance
               .connect(governance)
               .beginRedemptionDustThresholdUpdate(
-                (
-                  await bridge.movingFundsParameters()
-                ).movingFundsDustThreshold
+                (await bridge.movingFundsParameters()).movingFundsDustThreshold
               )
 
             await helpers.time.increaseTime(constants.governanceDelay)
@@ -740,7 +737,7 @@ describe("Bridge - Parameters", () => {
           constants.movingFundsTimeoutResetDelay * 2
         const newMovingFundsTimeout = constants.movingFundsTimeout * 2
         const newMovingFundsTimeoutSlashingAmount =
-          constants.movingFundsTimeoutSlashingAmount.mul(3)
+          constants.movingFundsTimeoutSlashingAmount * 3n
         const newMovingFundsTimeoutNotifierRewardMultiplier =
           constants.movingFundsTimeoutNotifierRewardMultiplier / 2
         const newMovingFundsCommitmentGasOffset =
@@ -749,21 +746,21 @@ describe("Bridge - Parameters", () => {
           constants.movedFundsSweepTxMaxTotalFee * 2
         const newMovedFundsSweepTimeout = constants.movedFundsSweepTimeout * 4
         const newMovedFundsSweepTimeoutSlashingAmount =
-          constants.movedFundsSweepTimeoutSlashingAmount.mul(6)
+          constants.movedFundsSweepTimeoutSlashingAmount * 6n
         const newMovedFundsSweepTimeoutNotifierRewardMultiplier =
           constants.movedFundsSweepTimeoutNotifierRewardMultiplier / 4
 
-        let tx1: ContractTransaction
-        let tx2: ContractTransaction
-        let tx3: ContractTransaction
-        let tx4: ContractTransaction
-        let tx5: ContractTransaction
-        let tx6: ContractTransaction
-        let tx7: ContractTransaction
-        let tx8: ContractTransaction
-        let tx9: ContractTransaction
-        let tx10: ContractTransaction
-        let tx11: ContractTransaction
+        let tx1: ContractTransactionResponse
+        let tx2: ContractTransactionResponse
+        let tx3: ContractTransactionResponse
+        let tx4: ContractTransactionResponse
+        let tx5: ContractTransactionResponse
+        let tx6: ContractTransactionResponse
+        let tx7: ContractTransactionResponse
+        let tx8: ContractTransactionResponse
+        let tx9: ContractTransactionResponse
+        let tx10: ContractTransactionResponse
+        let tx11: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -1158,9 +1155,7 @@ describe("Bridge - Parameters", () => {
             await bridgeGovernance
               .connect(governance)
               .beginMovingFundsDustThresholdUpdate(
-                (
-                  await bridge.redemptionParameters()
-                ).redemptionDustThreshold
+                (await bridge.redemptionParameters()).redemptionDustThreshold
               )
 
             await helpers.time.increaseTime(constants.governanceDelay)
@@ -1285,22 +1280,22 @@ describe("Bridge - Parameters", () => {
       context("when all new parameter values are correct", () => {
         const newWalletCreationPeriod = constants.walletCreationPeriod * 2
         const newWalletCreationMinBtcBalance =
-          constants.walletCreationMinBtcBalance.add(1000)
+          constants.walletCreationMinBtcBalance + 1000n
         const newWalletCreationMaxBtcBalance =
-          constants.walletCreationMaxBtcBalance.add(2000)
+          constants.walletCreationMaxBtcBalance + 2000n
         const newWalletClosureMinBtcBalance =
-          constants.walletClosureMinBtcBalance.add(3000)
+          constants.walletClosureMinBtcBalance + 3000n
         const newWalletMaxAge = constants.walletMaxAge * 2
-        const newWalletMaxBtcTransfer = constants.walletMaxBtcTransfer.add(1000)
+        const newWalletMaxBtcTransfer = constants.walletMaxBtcTransfer + 1000n
         const newWalletClosingPeriod = constants.walletClosingPeriod * 2
 
-        let tx1: ContractTransaction
-        let tx2: ContractTransaction
-        let tx3: ContractTransaction
-        let tx4: ContractTransaction
-        let tx5: ContractTransaction
-        let tx6: ContractTransaction
-        let tx7: ContractTransaction
+        let tx1: ContractTransactionResponse
+        let tx2: ContractTransactionResponse
+        let tx3: ContractTransactionResponse
+        let tx4: ContractTransactionResponse
+        let tx5: ContractTransactionResponse
+        let tx6: ContractTransactionResponse
+        let tx7: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -1578,17 +1573,17 @@ describe("Bridge - Parameters", () => {
     context("when caller is the contract guvnor", () => {
       context("when all new parameter values are correct", () => {
         const newFraudChallengeDepositAmount =
-          constants.fraudChallengeDepositAmount.mul(4)
+          constants.fraudChallengeDepositAmount * 4n
         const newFraudChallengeDefeatTimeout =
           constants.fraudChallengeDefeatTimeout * 3
-        const newFraudSlashingAmount = constants.fraudSlashingAmount.mul(2)
+        const newFraudSlashingAmount = constants.fraudSlashingAmount * 2n
         const newFraudNotifierRewardMultiplier =
           constants.fraudNotifierRewardMultiplier / 4
 
-        let tx1: ContractTransaction
-        let tx2: ContractTransaction
-        let tx3: ContractTransaction
-        let tx4: ContractTransaction
+        let tx1: ContractTransactionResponse
+        let tx2: ContractTransactionResponse
+        let tx3: ContractTransactionResponse
+        let tx4: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -1779,7 +1774,7 @@ describe("Bridge - Parameters", () => {
       })
 
       context("when the new treasury address is non-zero", () => {
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -1884,7 +1879,7 @@ describe("Bridge - Parameters", () => {
         })
 
         context("when the watchtower address is non-zero", () => {
-          let tx: ContractTransaction
+          let tx: ContractTransactionResponse
 
           before(async () => {
             await createSnapshot()
@@ -1974,7 +1969,7 @@ describe("Bridge - Parameters", () => {
         })
 
         context("when the rebate staking address is non-zero", () => {
-          let tx: ContractTransaction
+          let tx: ContractTransactionResponse
 
           before(async () => {
             await createSnapshot()
