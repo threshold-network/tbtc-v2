@@ -32,12 +32,20 @@ const emptyDepositExtraInfo = {
   refundLocktime: "0x00000000",
 }
 
+// Chain time the request helpers anchor their default timestamps to. The
+// validator compares against block.timestamp, and in parallel CI runs an earlier
+// test file in the same worker can leave the chain clock ahead of the wall
+// clock, so `Date.now()` alone is not a safe reference.
+let chainNow = Math.floor(Date.now() / 1000)
+
 describe("WalletProposalValidator", () => {
   let bridge: Mock<Bridge>
 
   let walletProposalValidator: WalletProposalValidator
 
   before(async () => {
+    chainNow = await lastBlockTime()
+
     const { deployer } = await helpers.signers.getNamedSigners()
 
     bridge = await createMock<Bridge>("Bridge")
@@ -2919,7 +2927,7 @@ const createTestDeposit = (
   if (!resolvedRevealedAt) {
     // If the deposit reveal time is not explicitly set, use `now - 1 day` to
     // ensure deposit minimum age is achieved by default.
-    const now = Math.floor(Date.now() / 1000)
+    const now = chainNow
     resolvedRevealedAt = now - day
   }
 
@@ -3042,7 +3050,7 @@ const createTestRedemptionRequest = (
   if (!resolvedRequestedAt) {
     // If the request creation time is not explicitly set, use `now - 1 day` to
     // ensure request minimum age is achieved by default.
-    const now = Math.floor(Date.now() / 1000)
+    const now = chainNow
     resolvedRequestedAt = now - day
   }
 

@@ -2,10 +2,69 @@
 
 = Threshold cross-chain - Polygon
 
-This package brings Bitcoin to Ethereum Polygon. For more details please
-see link:https://github.com/keep-network/tbtc-v2/blob/main/docs/rfc/rfc-8.adoc[RFC 8: Cross-chain Tokenized Threshold BTC]
+This package is deprecated and kept only for Polygon exit operations. Do not
+use it to configure new Polygon bridge-in routes. Existing Polygon tBTC
+liquidity should be withdrawn through `PolygonWormholeGateway.sendTbtc` and
+routed back to Ethereum before moving through the supported hub path.
 
-== How it works?
+The deprecation path keeps the withdrawal/burn path available while blocking
+new canonical Polygon mints and routing. After this change the only exit route
+from Polygon is chain 2 (Ethereum); all direct Polygon-to-L2/Solana routes are
+blocked to prevent further tBTC leakage.
+
+- set `PolygonWormholeGateway.updateMintingLimit(0)` so inbound Wormhole
+  transfers no longer mint canonical Polygon tBTC;
+- block Polygon peer mappings on Base, Arbitrum, Optimism, and Polygon gateway
+  contracts by setting them to each gateway contract's `DISABLED_GATEWAY`
+  sentinel;
+- register Polygon with the `DISABLED_GATEWAY` sentinel on new Solana gateway
+  initialization (an unregistered peer would still accept raw Wormhole tBTC
+  sends), and disable the existing Solana gateway Polygon peer with
+  `cross-chain/solana/deploy/deprecate_polygon.ts` after the upgraded Solana
+  Wormhole Gateway program is deployed;
+- keep `PolygonTBTC` unpaused. The gateway minter role is NOT revoked by the
+  automated deprecation flow; governance must manually revoke it once the
+  outstanding Polygon exit surface is fully drained.
+
+With the minting limit at zero, a Wormhole transfer that still reaches the
+Polygon gateway is not minted: the gateway hands the receiver the Wormhole tBTC
+representation instead, which can be bridged back to Ethereum through the
+Wormhole Token Bridge. Do not establish new inbound bridges to Polygon.
+
+For fresh deployments, the deploy scripts apply these settings before gateway
+ownership is transferred. For existing live deployments where gateway ownership
+has already been transferred, governance executes the equivalent calls.
+`updateMintingLimit(0)` works on the gateway as deployed today; the Safe
+Transaction Builder batch in `governance/update-minting-limit-zero.safe-batch.json`
+holds it for the Polygon gateway owner Safe. The
+`updateGatewayAddress(..., DISABLED_GATEWAY())` calls need the upgraded EVM
+gateway contracts. The cross-chain packages deploy and upgrade gateways from the
+pinned `@keep-network/tbtc-v2` release (1.4.0-dev.0 or 1.7.2), which predates
+`DISABLED_GATEWAY`. So the order is: release `@keep-network/tbtc-v2` with this
+`L2WormholeGateway`, bump the pins, upgrade the gateways, then run the mapping
+scripts. Until then the mapping scripts probe the deployed gateway and skip the
+block, on Hardhat dry runs too. The
+EVM mapping scripts skip the gateway block if the deployed gateway is not
+upgraded with `DISABLED_GATEWAY()` support yet; set
+`REQUIRE_DISABLED_GATEWAY_SUPPORT=true` to make that precondition fatal for a
+deprecation-specific run. The Solana cleanup script refuses to disable the
+Polygon peer unless the deployed Anchor IDL contains the `GatewayDisabled`
+error and the `gatewayInfo` account on the `sendTbtcWrapped` instruction.
+
+The Solana script reads the gateway custodian's authority on chain. On mainnet
+that authority is a Squads vault (`814TqVmhQGKB3srSLRuMcH6m8qWFHRSbNpRxC5Xnador`),
+an off-curve PDA with no secret key, so the script does not sign: it simulates
+the `update_gateway_address` instruction with the vault as signer and writes it
+to `deprecate-polygon.multisig-instruction.json` (or `MULTISIG_INSTRUCTION_OUT`)
+for a Squads vault transaction. It signs and sends directly only when
+`AUTHORITY` points to the keypair that is the custodian authority, as on a
+keypair-controlled devnet deployment, and refuses any other keypair.
+
+For historical context, this package originally brought Bitcoin to Polygon via
+the Wormhole Token Bridge. See
+link:https://github.com/keep-network/tbtc-v2/blob/main/docs/rfc/rfc-8.adoc[RFC 8: Cross-chain Tokenized Threshold BTC].
+
+== How it worked (pre-deprecation)
 
 ```
 +----------------------------+         +---------------------------------------------------------------------------+
@@ -25,12 +84,16 @@ Wormhole-specific tBTC representation into the canonical `PolygonTBTC` token.
 
 === Updating Wormhole Gateway mapping
 
-The deployment scripts are responsible for managing updates of the tBTC gateway
-addresses across various chains. These addresses are stored in the `external/`
-directory for a specific network, such as `polygon/ArbitrumWormholeGateway.json`.
-Mainnet gateway addresses should remain constant. Historical Goerli and Mumbai
-deployment records are retained for reference; those networks are no longer
-configured for deployment.
+With deprecation, the gateway mapping is updated using a sentinel-block flow.
+The deployment scripts (e.g., 13-16_block_..._in_wormhole_gateway_mapping.ts,
+plus the sibling packages' own 14_block_polygon_in_wormhole_gateway_mapping.ts)
+are responsible for blocking peers by setting the mapping to the
+`DISABLED_GATEWAY` sentinel value, ensuring no further transfers can be
+initiated to those chains. Additionally, `sendTbtcGateway` calls to a zero
+address are rejected, ensuring that no peer is configured for that gateway.
+
+Historical Goerli and Mumbai deployment records are retained for reference;
+those networks are no longer configured for deployment.
 
 === Deploy contracts
 

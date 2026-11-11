@@ -465,6 +465,11 @@
           "isSigner": false
         },
         {
+          "name": "gatewayInfo",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
           "name": "wrappedTbtcToken",
           "isMut": true,
           "isSigner": false,
@@ -947,6 +952,16 @@
       "code": 6048,
       "name": "ZeroRecipient",
       "msg": "0x0 recipient not allowed"
+    },
+    {
+      "code": 6050,
+      "name": "ZeroGateway",
+      "msg": "0x0 gateway not allowed"
+    },
+    {
+      "code": 6052,
+      "name": "GatewayDisabled",
+      "msg": "Gateway disabled"
     },
     {
       "code": 6064,

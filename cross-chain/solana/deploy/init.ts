@@ -125,13 +125,11 @@ async function run(): Promise<void> {
   // Point to devnet addresses by default
   let ARBITRUM_GATEWAY = consts.ARBITRUM_GATEWAY_ADDRESS_TESTNET
   let OPTIMISM_GATEWAY = consts.OPTIMISM_GATEWAY_ADDRESS_TESTNET
-  let POLYGON_GATEWAY = consts.POLYGON_GATEWAY_ADDRESS_TESTNET
   let BASE_GATEWAY = consts.BASE_GATEWAY_ADDRESS_TESTNET
   let SOLANA_GATEWAY = consts.SOLANA_GATEWAY_ADDRESS_TESTNET
   if (process.env.CLUSTER === "mainnet") {
     ARBITRUM_GATEWAY = consts.ARBITRUM_GATEWAY_ADDRESS_MAINNET
     OPTIMISM_GATEWAY = consts.OPTIMISM_GATEWAY_ADDRESS_MAINNET
-    POLYGON_GATEWAY = consts.POLYGON_GATEWAY_ADDRESS_MAINNET
     BASE_GATEWAY = consts.BASE_GATEWAY_ADDRESS_MAINNET
     SOLANA_GATEWAY = consts.SOLANA_GATEWAY_ADDRESS_MAINNET
   }
@@ -190,12 +188,8 @@ async function run(): Promise<void> {
     Array.from(new PublicKey(OPTIMISM_GATEWAY).toBuffer())
   )
 
-  // Updating with Polygon
-  const polyArgs = {
-    chain: consts.WH_POLYGON_CHAIN_ID,
-    address: Array.from(Buffer.alloc(32, POLYGON_GATEWAY, "hex")),
-  }
-
+  // Polygon is deprecated: register its peer with the DISABLED_GATEWAY
+  // sentinel so sends to it are rejected, as on migrated deployments.
   const encodedPolyChain = Buffer.alloc(2)
   encodedPolyChain.writeUInt16LE(consts.WH_POLYGON_CHAIN_ID)
   const gatewayPolyInfo = PublicKey.findProgramAddressSync(
@@ -204,7 +198,10 @@ async function run(): Promise<void> {
   )[0]
 
   await wormholeGatewayProgram.methods
-    .updateGatewayAddress(polyArgs)
+    .updateGatewayAddress({
+      chain: consts.WH_POLYGON_CHAIN_ID,
+      address: consts.DISABLED_GATEWAY_ADDRESS,
+    })
     .accounts({
       custodian: minter,
       gatewayInfo: gatewayPolyInfo,
@@ -212,10 +209,7 @@ async function run(): Promise<void> {
     })
     .rpc()
 
-  console.log(
-    "Updated Solana gateway with Polygon..",
-    Array.from(new PublicKey(POLYGON_GATEWAY).toBuffer())
-  )
+  console.log("Disabled Solana gateway Polygon peer..")
 
   // Updating with BASE
   const baseArgs = {

@@ -1,0 +1,33 @@
+{
+  "version": "1.0",
+  "chainId": "137",
+  "createdAt": 1794398400000,
+  "meta": {
+    "name": "Deprecate Polygon tBTC gateway: minting limit to zero",
+    "description": "PolygonWormholeGateway.updateMintingLimit(0). Inbound Wormhole transfers stop minting canonical Polygon tBTC; sendTbtc exits to Ethereum keep working. Needs no gateway upgrade.",
+    "txBuilderVersion": "1.16.5",
+    "createdFromSafeAddress": "0x9F6e831c8F8939DC0C830C6e492e7cEf4f9C2F5f",
+    "createdFromOwnerAddress": ""
+  },
+  "transactions": [
+    {
+      "to": "0x09959798B95d00a3183d20FaC298E4594E599eab",
+      "value": "0",
+      "data": "0x363da98e0000000000000000000000000000000000000000000000000000000000000000",
+      "contractMethod": {
+        "inputs": [
+          {
+            "internalType": "uint256",
+            "name": "_mintingLimit",
+            "type": "uint256"
+          }
+        ],
+        "name": "updateMintingLimit",
+        "payable": false
+      },
+      "contractInputsValues": {
+        "_mintingLimit": "0"
+      }
+    }
+  ]
+}

@@ -23,11 +23,6 @@ export const OPTIMISM_GATEWAY_ADDRESS_TESTNET =
 export const OPTIMISM_GATEWAY_ADDRESS_MAINNET =
   "0000000000000000000000001293a54e160D1cd7075487898d65266081A15458"
 
-export const POLYGON_GATEWAY_ADDRESS_TESTNET =
-  "00000000000000000000000091Fe7128f74dBd4F031ea3D90FC5Ea4DCfD81818"
-export const POLYGON_GATEWAY_ADDRESS_MAINNET =
-  "00000000000000000000000009959798B95d00a3183d20FaC298E4594E599eab"
-
 export const BASE_GATEWAY_ADDRESS_TESTNET =
   "000000000000000000000000e3e0511EEbD87F08FbaE4486419cb5dFB06e1343"
 export const BASE_GATEWAY_ADDRESS_MAINNET =
@@ -44,3 +39,10 @@ export const WRAPPED_TBTC_MINT_TESTNET =
 // deriveWrappedMintKey("wormDTUJ6AWPNvk59vGQbDvGJmqbDTdgWgAqcLBCgUb", 2, "0x18084fbA666a33d37592fA2633fD49a74DD93a88")
 export const WRAPPED_TBTC_MINT_MAINNET =
   "25rXTx9zDZcHyTav5sRqM6YBvTGu9pPH9yv83uAEqbgG"
+
+// Gateway address that blocks sends to a deprecated chain (DISABLED_GATEWAY).
+// An unregistered peer is not enough: sendTbtcWrapped accepts an
+// uninitialized gateway-info account and bridges raw Wormhole tBTC to it.
+export const DISABLED_GATEWAY_ADDRESS = Array.from(
+  Buffer.concat([Buffer.alloc(31), Buffer.from([1])])
+)
