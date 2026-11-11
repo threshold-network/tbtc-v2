@@ -11,6 +11,7 @@
     "!**/test/",
     "deploy_l1/",
     "deploy_l2/",
+    "deploy_helpers/",
     "export/",
     "tasks/",
     "export.json"

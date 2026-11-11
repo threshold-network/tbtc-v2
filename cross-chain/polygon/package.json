@@ -11,6 +11,7 @@
     "!**/test/",
     "deploy_parentchain/",
     "deploy_sidechain/",
+    "deploy_helpers/",
     "export/",
     "tasks/",
     "export.json"

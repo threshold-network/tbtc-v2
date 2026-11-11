@@ -1,9 +1,11 @@
+import fs from "fs"
+import path from "path"
 import { expect } from "chai"
 import {
   isDisabledGatewaySupported,
   evaluateDisabledGatewaySupport,
   DisabledGatewayHardhatRuntimeEnvironment,
-} from "../../deploy_helpers/disabled_gateway"
+} from "../deploy_helpers/disabled_gateway"
 
 const DISABLED_GATEWAY =
   "0x0000000000000000000000000000000000000000000000000000000000000001"
@@ -298,6 +300,24 @@ describe("disabled_gateway", () => {
       } catch (error) {
         expect((error as Error).message).to.match(/timeout/)
       }
+    })
+  })
+
+  it("matches the copies published by the other cross-chain packages", () => {
+    const read = (pkg: string) =>
+      fs.readFileSync(
+        path.join(
+          __dirname,
+          "../..",
+          pkg,
+          "deploy_helpers/disabled_gateway.ts"
+        ),
+        "utf8"
+      )
+    const polygonCopy = read("polygon")
+
+    ;["arbitrum", "base", "optimism"].forEach((pkg) => {
+      expect(read(pkg), `${pkg} copy`).to.equal(polygonCopy)
     })
   })
 })
