@@ -24,8 +24,10 @@ blocked to prevent further tBTC leakage.
   automated deprecation flow; governance must manually revoke it once the
   outstanding Polygon exit surface is fully drained.
 
-Any tBTC still inbound to Polygon after deprecation will be effectively locked
-or require manual recovery; do not establish new inbound bridges to Polygon.
+With the minting limit at zero, a Wormhole transfer that still reaches the
+Polygon gateway is not minted: the gateway hands the receiver the Wormhole tBTC
+representation instead, which can be bridged back to Ethereum through the
+Wormhole Token Bridge. Do not establish new inbound bridges to Polygon.
 
 For fresh deployments, the deploy scripts apply these settings before gateway
 ownership is transferred. For existing live deployments where gateway ownership
