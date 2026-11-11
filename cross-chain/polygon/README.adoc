@@ -51,6 +51,15 @@ deprecation-specific run. The Solana cleanup script refuses to disable the
 Polygon peer unless the deployed Anchor IDL contains the `GatewayDisabled`
 error and the `gatewayInfo` account on the `sendTbtcWrapped` instruction.
 
+The Solana script reads the gateway custodian's authority on chain. On mainnet
+that authority is a Squads vault (`814TqVmhQGKB3srSLRuMcH6m8qWFHRSbNpRxC5Xnador`),
+an off-curve PDA with no secret key, so the script does not sign: it simulates
+the `update_gateway_address` instruction with the vault as signer and writes it
+to `deprecate-polygon.multisig-instruction.json` (or `MULTISIG_INSTRUCTION_OUT`)
+for a Squads vault transaction. It signs and sends directly only when
+`AUTHORITY` points to the keypair that is the custodian authority, as on a
+keypair-controlled devnet deployment, and refuses any other keypair.
+
 For historical context, this package originally brought Bitcoin to Polygon via
 the Wormhole Token Bridge. See
 link:https://github.com/keep-network/tbtc-v2/blob/main/docs/rfc/rfc-8.adoc[RFC 8: Cross-chain Tokenized Threshold BTC].
