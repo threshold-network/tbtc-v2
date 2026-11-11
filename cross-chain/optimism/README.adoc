@@ -21,7 +21,10 @@ Ethereum (chain 2) and blocks new canonical Optimism mints and direct routes:
   initialization (an unregistered peer would still accept raw Wormhole tBTC
   sends), and disable the existing Solana gateway Optimism peer with
   `cross-chain/solana/deploy/deprecate_optimism.ts` after the upgraded Solana
-  Wormhole Gateway program is deployed;
+  Wormhole Gateway program is deployed. On mainnet the custodian authority is
+  the Squads vault, so the script writes the simulated instruction to
+  `deprecate-optimism.multisig-instruction.json` for a vault transaction
+  instead of signing (see the Polygon README);
 - keep `OptimismTBTC` unpaused. The gateway minter role is not revoked by the
   automated flow; governance revokes it once the outstanding Optimism supply has
   drained.

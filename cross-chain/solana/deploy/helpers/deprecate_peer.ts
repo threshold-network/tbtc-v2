@@ -1,7 +1,13 @@
 import * as anchor from "@coral-xyz/anchor"
 import * as crypto from "crypto"
 import fs from "fs"
-import { Keypair, PublicKey } from "@solana/web3.js"
+import {
+  Keypair,
+  PublicKey,
+  TransactionInstruction,
+  TransactionMessage,
+  VersionedTransaction,
+} from "@solana/web3.js"
 import dotenv from "dotenv"
 import { Idl, Program } from "@coral-xyz/anchor"
 import { WormholeGateway } from "../../target/types/wormhole_gateway"
@@ -15,6 +21,31 @@ const BPF_LOADER_UPGRADEABLE_PROGRAM_ID = new PublicKey(
   "BPFLoaderUpgradeab1e11111111111111111111111"
 )
 
+export type AuthorityMode = "sign" | "multisig"
+
+// The custodian authority is the only account that may call
+// `update_gateway_address`. On mainnet it is a Squads vault, an off-curve PDA
+// with no secret key, so the update has to go through the multisig. A local
+// keypair is used only when it is the custodian authority itself.
+export function resolveAuthorityMode(
+  authority: PublicKey,
+  signer?: Keypair
+): AuthorityMode {
+  if (!signer) {
+    return "multisig"
+  }
+
+  if (!signer.publicKey.equals(authority)) {
+    throw new Error(
+      `AUTHORITY ${signer.publicKey.toBase58()} is not the gateway custodian ` +
+        `authority ${authority.toBase58()}. Unset AUTHORITY to produce the ` +
+        "instruction for the authority's multisig instead."
+    )
+  }
+
+  return "sign"
+}
+
 export async function deprecatePeer(
   chainId: number,
   chainName: string
@@ -27,12 +58,13 @@ export async function deprecatePeer(
     .WormholeGateway as Program<WormholeGateway>
   await assertDeployedDisabledGatewaySupport(wormholeGatewayProgram, chainName)
 
-  const authority = loadKey(process.env.AUTHORITY).publicKey
-
   const custodian = PublicKey.findProgramAddressSync(
     [Buffer.from("redeemer")],
     wormholeGatewayProgram.programId
   )[0]
+  const { authority } = await wormholeGatewayProgram.account.custodian.fetch(
+    custodian
+  )
 
   const encodedChain = Buffer.alloc(2)
   encodedChain.writeUInt16LE(chainId)
@@ -41,7 +73,7 @@ export async function deprecatePeer(
     wormholeGatewayProgram.programId
   )[0]
 
-  await wormholeGatewayProgram.methods
+  const update = wormholeGatewayProgram.methods
     .updateGatewayAddress({
       chain: chainId,
       address: DISABLED_GATEWAY_ADDRESS,
@@ -51,9 +83,97 @@ export async function deprecatePeer(
       gatewayInfo,
       authority,
     })
-    .rpc()
 
-  console.log(`Disabled Solana gateway ${chainName} peer`)
+  const signer = process.env.AUTHORITY
+    ? loadKey(process.env.AUTHORITY)
+    : undefined
+
+  if (resolveAuthorityMode(authority, signer) === "sign") {
+    await update.signers([signer as Keypair]).rpc()
+    console.log(`Disabled Solana gateway ${chainName} peer`)
+    return
+  }
+
+  const instruction = await update.instruction()
+  const outPath =
+    process.env.MULTISIG_INSTRUCTION_OUT ??
+    `deprecate-${chainName.toLowerCase()}.multisig-instruction.json`
+  await writeMultisigInstruction(
+    wormholeGatewayProgram,
+    instruction,
+    authority,
+    chainId,
+    chainName,
+    outPath
+  )
+  console.log(
+    `Custodian authority ${authority.toBase58()} ` +
+      `${
+        PublicKey.isOnCurve(authority.toBytes())
+          ? "has no local signer"
+          : "is an off-curve PDA (a multisig vault)"
+      }. ` +
+      `Wrote the ${chainName} peer update for multisig execution to ${outPath}.`
+  )
+}
+
+// Writes the instruction for the authority's multisig (for example a Squads
+// vault transaction) and simulates it with the authority as the only signer
+// and fee payer, without signature checks, so a wrong account or a missing
+// program upgrade fails here instead of in the multisig.
+async function writeMultisigInstruction(
+  program: Program<WormholeGateway>,
+  instruction: TransactionInstruction,
+  authority: PublicKey,
+  chainId: number,
+  chainName: string,
+  outPath: string
+): Promise<void> {
+  const provider = program.provider as anchor.AnchorProvider
+  const { blockhash } = await provider.connection.getLatestBlockhash()
+  const message = new TransactionMessage({
+    payerKey: authority,
+    recentBlockhash: blockhash,
+    instructions: [instruction],
+  }).compileToLegacyMessage()
+
+  const simulation = await provider.connection.simulateTransaction(
+    new VersionedTransaction(message),
+    { sigVerify: false, replaceRecentBlockhash: true }
+  )
+  if (simulation.value.err) {
+    throw new Error(
+      `Simulation of the ${chainName} peer update failed: ` +
+        `${JSON.stringify(simulation.value.err)}\n` +
+        `${(simulation.value.logs ?? []).join("\n")}`
+    )
+  }
+
+  const { bs58 } = anchor.utils.bytes
+  fs.writeFileSync(
+    outPath,
+    `${JSON.stringify(
+      {
+        description: `Set the Solana gateway ${chainName} peer (Wormhole chain ${chainId}) to DISABLED_GATEWAY`,
+        authority: authority.toBase58(),
+        authorityIsOnCurve: PublicKey.isOnCurve(authority.toBytes()),
+        instruction: {
+          programId: instruction.programId.toBase58(),
+          keys: instruction.keys.map(({ pubkey, isSigner, isWritable }) => ({
+            pubkey: pubkey.toBase58(),
+            isSigner,
+            isWritable,
+          })),
+          dataHex: instruction.data.toString("hex"),
+          dataBase58: bs58.encode(instruction.data),
+        },
+        unsignedMessageBase58: bs58.encode(message.serialize()),
+        simulationLogs: simulation.value.logs ?? [],
+      },
+      null,
+      2
+    )}\n`
+  )
 }
 
 export function assertDisabledGatewaySupport(
@@ -162,11 +282,7 @@ async function assertDeployedProgramDataHash(
   }
 }
 
-function loadKey(filename?: string): Keypair {
-  if (!filename) {
-    throw new Error("AUTHORITY environment variable is required")
-  }
-
+function loadKey(filename: string): Keypair {
   try {
     const contents = fs.readFileSync(filename).toString()
     const bs = Uint8Array.from(JSON.parse(contents))
