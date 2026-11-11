@@ -116,10 +116,9 @@ contract L1BTCDepositorWormhole is AbstractL1BTCDepositor {
     /// @param _l2FinalizeDepositGasLimit New gas limit.
     /// @dev Requirements:
     ///      - Can be called only by the contract owner.
-    function updateL2FinalizeDepositGasLimit(uint256 _l2FinalizeDepositGasLimit)
-        external
-        onlyOwner
-    {
+    function updateL2FinalizeDepositGasLimit(
+        uint256 _l2FinalizeDepositGasLimit
+    ) external onlyOwner {
         l2FinalizeDepositGasLimit = _l2FinalizeDepositGasLimit;
         emit L2FinalizeDepositGasLimitUpdated(_l2FinalizeDepositGasLimit);
     }
@@ -139,11 +138,9 @@ contract L1BTCDepositorWormhole is AbstractL1BTCDepositor {
     /// @return cost The cost of the `finalizeDeposit` function call in WEI.
     /// @dev Implemented based on examples presented as part of the Wormhole SDK:
     ///      https://github.com/wormhole-foundation/hello-token/blob/8ec757248788dc12183f13627633e1d6fd1001bb/src/example-extensions/HelloTokenWithoutSDK.sol#L23
-    function _quoteFinalizeDeposit(uint256 messageFee)
-        internal
-        view
-        returns (uint256 cost)
-    {
+    function _quoteFinalizeDeposit(
+        uint256 messageFee
+    ) internal view returns (uint256 cost) {
         // Cost of delivering token and payload to `l2ChainId`.
         (uint256 deliveryCost, ) = wormholeRelayer.quoteEVMDeliveryPrice(
             l2ChainId,
@@ -175,10 +172,10 @@ contract L1BTCDepositorWormhole is AbstractL1BTCDepositor {
     ///        attached to the call (as calculated by `quoteFinalizeDeposit`).
     /// @dev Implemented based on examples presented as part of the Wormhole SDK:
     ///      https://github.com/wormhole-foundation/hello-token/blob/8ec757248788dc12183f13627633e1d6fd1001bb/src/example-extensions/HelloTokenWithoutSDK.sol#L29
-    function _transferTbtc(uint256 amount, bytes32 l2Receiver)
-        internal
-        override
-    {
+    function _transferTbtc(
+        uint256 amount,
+        bytes32 l2Receiver
+    ) internal override {
         // Wormhole supports the 1e8 precision at most. tBTC is 1e18 so
         // the amount needs to be normalized.
         amount = WormholeUtils.normalize(amount);

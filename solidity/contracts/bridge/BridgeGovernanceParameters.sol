@@ -669,8 +669,8 @@ library BridgeGovernanceParameters {
         uint96 _newRedemptionTimeoutSlashingAmount
     ) external {
         /* solhint-disable not-rely-on-time */
-        self
-            .newRedemptionTimeoutSlashingAmount = _newRedemptionTimeoutSlashingAmount;
+        self.newRedemptionTimeoutSlashingAmount =
+            _newRedemptionTimeoutSlashingAmount;
         self.redemptionTimeoutSlashingAmountChangeInitiated = block.timestamp;
         emit RedemptionTimeoutSlashingAmountUpdateStarted(
             _newRedemptionTimeoutSlashingAmount,
@@ -708,8 +708,8 @@ library BridgeGovernanceParameters {
         uint32 _newRedemptionTimeoutNotifierRewardMultiplier
     ) external {
         /* solhint-disable not-rely-on-time */
-        self
-            .newRedemptionTimeoutNotifierRewardMultiplier = _newRedemptionTimeoutNotifierRewardMultiplier;
+        self.newRedemptionTimeoutNotifierRewardMultiplier =
+            _newRedemptionTimeoutNotifierRewardMultiplier;
         self.redemptionTimeoutNotifierRewardMultiplierChangeInitiated = block
             .timestamp;
         emit RedemptionTimeoutNotifierRewardMultiplierUpdateStarted(
@@ -887,8 +887,8 @@ library BridgeGovernanceParameters {
         uint96 _newMovingFundsTimeoutSlashingAmount
     ) external {
         /* solhint-disable not-rely-on-time */
-        self
-            .newMovingFundsTimeoutSlashingAmount = _newMovingFundsTimeoutSlashingAmount;
+        self.newMovingFundsTimeoutSlashingAmount =
+            _newMovingFundsTimeoutSlashingAmount;
         self.movingFundsTimeoutSlashingAmountChangeInitiated = block.timestamp;
         emit MovingFundsTimeoutSlashingAmountUpdateStarted(
             _newMovingFundsTimeoutSlashingAmount,
@@ -926,8 +926,8 @@ library BridgeGovernanceParameters {
         uint32 _newMovingFundsTimeoutNotifierRewardMultiplier
     ) external {
         /* solhint-disable not-rely-on-time */
-        self
-            .newMovingFundsTimeoutNotifierRewardMultiplier = _newMovingFundsTimeoutNotifierRewardMultiplier;
+        self.newMovingFundsTimeoutNotifierRewardMultiplier =
+            _newMovingFundsTimeoutNotifierRewardMultiplier;
         self.movingFundsTimeoutNotifierRewardMultiplierChangeInitiated = block
             .timestamp;
         emit MovingFundsTimeoutNotifierRewardMultiplierUpdateStarted(
@@ -966,8 +966,8 @@ library BridgeGovernanceParameters {
         uint16 _newMovingFundsCommitmentGasOffset
     ) external {
         /* solhint-disable not-rely-on-time */
-        self
-            .newMovingFundsCommitmentGasOffset = _newMovingFundsCommitmentGasOffset;
+        self.newMovingFundsCommitmentGasOffset =
+            _newMovingFundsCommitmentGasOffset;
         self.movingFundsCommitmentGasOffsetChangeInitiated = block.timestamp;
         emit MovingFundsCommitmentGasOffsetUpdateStarted(
             _newMovingFundsCommitmentGasOffset,
@@ -1077,8 +1077,8 @@ library BridgeGovernanceParameters {
         uint96 _newMovedFundsSweepTimeoutSlashingAmount
     ) external {
         /* solhint-disable not-rely-on-time */
-        self
-            .newMovedFundsSweepTimeoutSlashingAmount = _newMovedFundsSweepTimeoutSlashingAmount;
+        self.newMovedFundsSweepTimeoutSlashingAmount =
+            _newMovedFundsSweepTimeoutSlashingAmount;
         self.movedFundsSweepTimeoutSlashingAmountChangeInitiated = block
             .timestamp;
         emit MovedFundsSweepTimeoutSlashingAmountUpdateStarted(
@@ -1118,8 +1118,8 @@ library BridgeGovernanceParameters {
         uint32 _newMovedFundsSweepTimeoutNotifierRewardMultiplier
     ) external {
         /* solhint-disable not-rely-on-time */
-        self
-            .newMovedFundsSweepTimeoutNotifierRewardMultiplier = _newMovedFundsSweepTimeoutNotifierRewardMultiplier;
+        self.newMovedFundsSweepTimeoutNotifierRewardMultiplier =
+            _newMovedFundsSweepTimeoutNotifierRewardMultiplier;
         self
             .movedFundsSweepTimeoutNotifierRewardMultiplierChangeInitiated = block
             .timestamp;
@@ -1513,8 +1513,8 @@ library BridgeGovernanceParameters {
         uint32 _newFraudNotifierRewardMultiplier
     ) external {
         /* solhint-disable not-rely-on-time */
-        self
-            .newFraudNotifierRewardMultiplier = _newFraudNotifierRewardMultiplier;
+        self.newFraudNotifierRewardMultiplier =
+            _newFraudNotifierRewardMultiplier;
         self.fraudNotifierRewardMultiplierChangeInitiated = block.timestamp;
         emit FraudNotifierRewardMultiplierUpdateStarted(
             _newFraudNotifierRewardMultiplier,

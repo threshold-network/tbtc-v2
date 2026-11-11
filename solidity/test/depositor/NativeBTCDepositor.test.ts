@@ -1,8 +1,8 @@
 import { ethers, getUnnamedAccounts, helpers } from "hardhat"
 import { randomBytes } from "crypto"
 import { expect } from "chai"
-import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
-import { BigNumber, ContractTransaction } from "ethers"
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
+import { ContractTransactionResponse } from "ethers"
 import { loadFixture } from "../helpers/fixture"
 import {
   IBridge,
@@ -12,10 +12,7 @@ import {
   TestERC20,
 } from "../../typechain"
 import { to1ePrecision } from "../helpers/contract-test-helpers"
-import type {
-  BitcoinTxInfoStruct,
-  DepositRevealInfoStruct,
-} from "../../typechain/IBridge"
+import type { IBridgeTypes as IBridgeTypesTypes } from "../../typechain/contracts/integrator/IBridge"
 import {
   createMock,
   expectCalledOnce,
@@ -23,6 +20,9 @@ import {
   expectNotCalled,
 } from "../helpers/mock"
 import type { Mock } from "../helpers/mock"
+
+type BitcoinTxInfoStruct = IBridgeTypesTypes.BitcoinTxInfoStruct
+type DepositRevealInfoStruct = IBridgeTypesTypes.DepositRevealInfoStruct
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 const { lastBlockTime } = helpers.time
@@ -45,11 +45,10 @@ describe("NativeBTCDepositor", () => {
       address: tbtcVaultAddress,
     })
     // Attach the tbtcToken mock to the tbtcVault mock.
-    await tbtcVault.tbtcToken.returns(tbtcToken.address)
+    await tbtcVault.tbtcToken.returns(tbtcToken.target)
 
-    const reimbursementPool = await createMock<ReimbursementPool>(
-      "ReimbursementPool"
-    )
+    const reimbursementPool =
+      await createMock<ReimbursementPool>("ReimbursementPool")
 
     const deployment = await helpers.upgrades.deployProxy(
       // Hacky workaround allowing to deploy proxy contract any number of times
@@ -65,7 +64,7 @@ describe("NativeBTCDepositor", () => {
         },
       }
     )
-    const nativeBtcDepositor = deployment[0] as NativeBTCDepositor
+    const nativeBtcDepositor = deployment[0] as unknown as NativeBTCDepositor
 
     await nativeBtcDepositor
       .connect(deployer)
@@ -82,8 +81,8 @@ describe("NativeBTCDepositor", () => {
     }
   }
 
-  let governance: SignerWithAddress
-  let relayer: SignerWithAddress
+  let governance: HardhatEthersSigner
+  let relayer: HardhatEthersSigner
 
   let bridge: Mock<IBridge>
   let tbtcToken: TestERC20
@@ -92,7 +91,6 @@ describe("NativeBTCDepositor", () => {
   let nativeBtcDepositor: NativeBTCDepositor
 
   before(async () => {
-    // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({
       governance,
       relayer,
@@ -204,7 +202,7 @@ describe("NativeBTCDepositor", () => {
     })
 
     context("when the caller is the owner", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -219,7 +217,6 @@ describe("NativeBTCDepositor", () => {
       })
 
       it("should set the authorization properly", async () => {
-        // eslint-disable-next-line @typescript-eslint/no-unused-expressions
         expect(
           await nativeBtcDepositor.reimbursementAuthorizations(relayer.address)
         ).to.be.true
@@ -242,7 +239,7 @@ describe("NativeBTCDepositor", () => {
             .initializeDeposit(
               initializeDepositFixture.fundingTx,
               initializeDepositFixture.reveal,
-              ethers.constants.HashZero
+              ethers.ZeroHash
             )
         ).to.be.revertedWith("L2 deposit owner must not be 0x0")
       })
@@ -251,13 +248,13 @@ describe("NativeBTCDepositor", () => {
     context("when the ethereum receiver address is non-zero", () => {
       context("when the requested vault is not TBTCVault", () => {
         it("should revert", async () => {
-          const corruptedReveal = JSON.parse(
-            JSON.stringify(initializeDepositFixture.reveal)
+          const corruptedReveal = structuredClone(
+            initializeDepositFixture.reveal
           )
 
           // Set another vault address deliberately. This value must be
           // different from the tbtcVaultAddress constant used in the fixture.
-          corruptedReveal.vault = ethers.constants.AddressZero
+          corruptedReveal.vault = ethers.ZeroAddress
 
           await expect(
             nativeBtcDepositor
@@ -324,11 +321,11 @@ describe("NativeBTCDepositor", () => {
               await bridge.deposits
                 .whenCalledWith(initializeDepositFixture.depositKey)
                 .returns({
-                  depositor: nativeBtcDepositor.address,
-                  amount: BigNumber.from(100000),
+                  depositor: nativeBtcDepositor.target,
+                  amount: BigInt(100000),
                   revealedAt,
                   vault: initializeDepositFixture.reveal.vault,
-                  treasuryFee: BigNumber.from(0),
+                  treasuryFee: BigInt(0),
                   sweptAt: finalizedAt,
                   extraData: initializeDepositFixture.ethereumReceiverBytes32,
                 })
@@ -341,7 +338,7 @@ describe("NativeBTCDepositor", () => {
 
               // Mint tBTC to the depositor contract to allow finalization
               await tbtcToken.mint(
-                nativeBtcDepositor.address,
+                nativeBtcDepositor.target,
                 to1ePrecision(10, 18)
               )
 
@@ -376,7 +373,7 @@ describe("NativeBTCDepositor", () => {
 
         context("when the deposit state is Unknown", () => {
           context("when the reimbursement pool is not set", () => {
-            let tx: ContractTransaction
+            let tx: ContractTransactionResponse
 
             before(async () => {
               await createSnapshot()
@@ -405,7 +402,6 @@ describe("NativeBTCDepositor", () => {
             })
 
             it("should reveal the deposit to the Bridge", async () => {
-              // eslint-disable-next-line @typescript-eslint/no-unused-expressions
               await expectCalledOnce(bridge.revealDepositWithExtraData)
 
               const { fundingTx, reveal, ethereumReceiverBytes32 } =
@@ -423,7 +419,7 @@ describe("NativeBTCDepositor", () => {
                 fundingTx.locktime,
               ])
               expect(call.args[1]).to.eql([
-                reveal.fundingOutputIndex,
+                ethers.toBigInt(reveal.fundingOutputIndex),
                 reveal.blindingFactor,
                 reveal.walletPubKeyHash,
                 reveal.refundPubKeyHash,
@@ -455,15 +451,15 @@ describe("NativeBTCDepositor", () => {
               const gr = await nativeBtcDepositor.gasReimbursements(
                 initializeDepositFixture.depositKey
               )
-              expect(gr.receiver).to.equal(ethers.constants.AddressZero)
-              expect(BigNumber.from(gr.gasSpent).eq(0)).to.be.true
+              expect(gr.receiver).to.equal(ethers.ZeroAddress)
+              expect(BigInt(gr.gasSpent) === 0n).to.be.true
             })
           })
 
           context(
             "when the reimbursement pool is set and caller is authorized",
             () => {
-              let tx: ContractTransaction
+              let tx: ContractTransactionResponse
 
               before(async () => {
                 await createSnapshot()
@@ -500,7 +496,6 @@ describe("NativeBTCDepositor", () => {
               })
 
               it("should reveal the deposit to the Bridge", async () => {
-                // eslint-disable-next-line @typescript-eslint/no-unused-expressions
                 await expectCalledOnce(bridge.revealDepositWithExtraData)
 
                 const { fundingTx, reveal, ethereumReceiverBytes32 } =
@@ -518,7 +513,7 @@ describe("NativeBTCDepositor", () => {
                   fundingTx.locktime,
                 ])
                 expect(call.args[1]).to.eql([
-                  reveal.fundingOutputIndex,
+                  ethers.toBigInt(reveal.fundingOutputIndex),
                   reveal.blindingFactor,
                   reveal.walletPubKeyHash,
                   reveal.refundPubKeyHash,
@@ -560,9 +555,9 @@ describe("NativeBTCDepositor", () => {
                 // the resulting value won't be realistic. We only check that
                 // the gas spent is greater than zero which means the deferred
                 // reimbursement has been recorded properly.
-                expect(gasReimbursement.gasSpent.toNumber()).to.be.greaterThan(
-                  0
-                )
+                expect(
+                  ethers.toNumber(gasReimbursement.gasSpent)
+                ).to.be.greaterThan(0)
               })
             }
           )
@@ -570,7 +565,7 @@ describe("NativeBTCDepositor", () => {
           context(
             "when the reimbursement pool is set and caller is not authorized",
             () => {
-              let tx: ContractTransaction
+              let tx: ContractTransactionResponse
 
               before(async () => {
                 await createSnapshot()
@@ -607,7 +602,6 @@ describe("NativeBTCDepositor", () => {
               })
 
               it("should reveal the deposit to the Bridge", async () => {
-                // eslint-disable-next-line @typescript-eslint/no-unused-expressions
                 await expectCalledOnce(bridge.revealDepositWithExtraData)
 
                 const { fundingTx, reveal, ethereumReceiverBytes32 } =
@@ -625,7 +619,7 @@ describe("NativeBTCDepositor", () => {
                   fundingTx.locktime,
                 ])
                 expect(call.args[1]).to.eql([
-                  reveal.fundingOutputIndex,
+                  ethers.toBigInt(reveal.fundingOutputIndex),
                   reveal.blindingFactor,
                   reveal.walletPubKeyHash,
                   reveal.refundPubKeyHash,
@@ -659,8 +653,8 @@ describe("NativeBTCDepositor", () => {
                 const gr = await nativeBtcDepositor.gasReimbursements(
                   initializeDepositFixture.depositKey
                 )
-                expect(gr.receiver).to.equal(ethers.constants.AddressZero)
-                expect(BigNumber.from(gr.gasSpent).eq(0)).to.be.true
+                expect(gr.receiver).to.equal(ethers.ZeroAddress)
+                expect(BigInt(gr.gasSpent) === 0n).to.be.true
               })
             }
           )
@@ -708,11 +702,11 @@ describe("NativeBTCDepositor", () => {
           await bridge.deposits
             .whenCalledWith(initializeDepositFixture.depositKey)
             .returns({
-              depositor: nativeBtcDepositor.address,
-              amount: BigNumber.from(100000),
+              depositor: nativeBtcDepositor.target,
+              amount: BigInt(100000),
               revealedAt,
               vault: initializeDepositFixture.reveal.vault,
-              treasuryFee: BigNumber.from(0),
+              treasuryFee: BigInt(0),
               sweptAt: finalizedAt,
               extraData: initializeDepositFixture.ethereumReceiverBytes32,
             })
@@ -724,10 +718,7 @@ describe("NativeBTCDepositor", () => {
             .returns([revealedAt, finalizedAt])
 
           // Mint tBTC to the depositor contract to allow finalization
-          await tbtcToken.mint(
-            nativeBtcDepositor.address,
-            to1ePrecision(10, 18)
-          )
+          await tbtcToken.mint(nativeBtcDepositor.target, to1ePrecision(10, 18))
 
           await nativeBtcDepositor
             .connect(relayer)
@@ -773,11 +764,11 @@ describe("NativeBTCDepositor", () => {
           await bridge.deposits
             .whenCalledWith(initializeDepositFixture.depositKey)
             .returns({
-              depositor: nativeBtcDepositor.address,
-              amount: BigNumber.from(100000),
+              depositor: nativeBtcDepositor.target,
+              amount: BigInt(100000),
               revealedAt,
               vault: initializeDepositFixture.reveal.vault,
-              treasuryFee: BigNumber.from(0),
+              treasuryFee: BigInt(0),
               sweptAt: 0,
               extraData: initializeDepositFixture.ethereumReceiverBytes32,
             })
@@ -827,11 +818,11 @@ describe("NativeBTCDepositor", () => {
             await bridge.deposits
               .whenCalledWith(initializeDepositFixture.depositKey)
               .returns({
-                depositor: nativeBtcDepositor.address,
-                amount: BigNumber.from(0),
+                depositor: nativeBtcDepositor.target,
+                amount: BigInt(0),
                 revealedAt,
                 vault: initializeDepositFixture.reveal.vault,
-                treasuryFee: BigNumber.from(0),
+                treasuryFee: BigInt(0),
                 sweptAt: finalizedAt,
                 extraData: initializeDepositFixture.ethereumReceiverBytes32,
               })
@@ -862,10 +853,10 @@ describe("NativeBTCDepositor", () => {
 
         context("when normalized amount is not too low to transfer", () => {
           const satoshiMultiplier = to1ePrecision(1, 10)
-          const depositAmount = BigNumber.from(100000)
-          const treasuryFee = BigNumber.from(500)
+          const depositAmount = BigInt(100000)
+          const treasuryFee = BigInt(500)
           const optimisticMintingFeeDivisor = 20 // 5%
-          const depositTxMaxFee = BigNumber.from(1000)
+          const depositTxMaxFee = BigInt(1000)
 
           // amountSubTreasury = (depositAmount - treasuryFee) * satoshiMultiplier = 99500 * 1e10
           // omFee = amountSubTreasury / optimisticMintingFeeDivisor = 4975 * 1e10
@@ -873,7 +864,7 @@ describe("NativeBTCDepositor", () => {
           // tbtcAmount = amountSubTreasury - omFee - txMaxFee = 93525 * 1e10
           const expectedTbtcAmount = to1ePrecision(93525, 10)
 
-          let tx: ContractTransaction
+          let tx: ContractTransactionResponse
 
           context("when the reimbursement pool is not set", () => {
             before(async () => {
@@ -905,7 +896,7 @@ describe("NativeBTCDepositor", () => {
               await bridge.deposits
                 .whenCalledWith(initializeDepositFixture.depositKey)
                 .returns({
-                  depositor: nativeBtcDepositor.address,
+                  depositor: nativeBtcDepositor.target,
                   amount: depositAmount,
                   revealedAt,
                   vault: initializeDepositFixture.reveal.vault,
@@ -922,7 +913,7 @@ describe("NativeBTCDepositor", () => {
 
               // Mint tBTC to the depositor contract
               await tbtcToken.mint(
-                nativeBtcDepositor.address,
+                nativeBtcDepositor.target,
                 expectedTbtcAmount
               )
 
@@ -958,13 +949,13 @@ describe("NativeBTCDepositor", () => {
                   initializeDepositFixture.depositKey,
                   initializeDepositFixture.ethereumReceiverBytes32.toLowerCase(),
                   relayer.address,
-                  depositAmount.mul(satoshiMultiplier),
+                  depositAmount * satoshiMultiplier,
                   expectedTbtcAmount
                 )
             })
 
             it("should transfer tBTC to the ethereum receiver", async () => {
-              const receiverAddress = ethers.utils.getAddress(
+              const receiverAddress = ethers.getAddress(
                 `0x${initializeDepositFixture.ethereumReceiverBytes32.slice(
                   -40
                 )}`
@@ -975,7 +966,6 @@ describe("NativeBTCDepositor", () => {
             })
 
             it("should not call the reimbursement pool", async () => {
-              // eslint-disable-next-line @typescript-eslint/no-unused-expressions
               await expectNotCalled(reimbursementPool.refund)
             })
           })
@@ -986,10 +976,10 @@ describe("NativeBTCDepositor", () => {
               // Use 1Gwei to make sure it's smaller than default gas price
               // used by Hardhat (200 Gwei) and this value will be used
               // for msgValueOffset calculation.
-              const reimbursementPoolMaxGasPrice = BigNumber.from(1000000000)
+              const reimbursementPoolMaxGasPrice = BigInt(1000000000)
               const reimbursementPoolStaticGas = 10000 // Just an arbitrary value.
 
-              let initializeDepositGasSpent: BigNumber
+              let initializeDepositGasSpent: bigint
 
               before(async () => {
                 await createSnapshot()
@@ -1043,7 +1033,7 @@ describe("NativeBTCDepositor", () => {
                 await bridge.deposits
                   .whenCalledWith(initializeDepositFixture.depositKey)
                   .returns({
-                    depositor: nativeBtcDepositor.address,
+                    depositor: nativeBtcDepositor.target,
                     amount: depositAmount,
                     revealedAt,
                     vault: initializeDepositFixture.reveal.vault,
@@ -1060,7 +1050,7 @@ describe("NativeBTCDepositor", () => {
 
                 // Mint tBTC to the depositor contract
                 await tbtcToken.mint(
-                  nativeBtcDepositor.address,
+                  nativeBtcDepositor.target,
                   expectedTbtcAmount
                 )
 
@@ -1099,13 +1089,13 @@ describe("NativeBTCDepositor", () => {
                     initializeDepositFixture.depositKey,
                     initializeDepositFixture.ethereumReceiverBytes32.toLowerCase(),
                     relayer.address,
-                    depositAmount.mul(satoshiMultiplier),
+                    depositAmount * satoshiMultiplier,
                     expectedTbtcAmount
                   )
               })
 
               it("should transfer tBTC to the ethereum receiver", async () => {
-                const receiverAddress = ethers.utils.getAddress(
+                const receiverAddress = ethers.getAddress(
                   `0x${initializeDepositFixture.ethereumReceiverBytes32.slice(
                     -40
                   )}`
@@ -1116,7 +1106,6 @@ describe("NativeBTCDepositor", () => {
               })
 
               it("should reimburse finalization before initialization", async () => {
-                // eslint-disable-next-line @typescript-eslint/no-unused-expressions
                 await expectCalledTwice(reimbursementPool.refund)
 
                 // Pay the finalization reimbursement first so gas consumed
@@ -1129,7 +1118,7 @@ describe("NativeBTCDepositor", () => {
                 // that the reimbursement is greater than zero which means
                 // the reimbursement has been recorded properly.
                 expect(
-                  BigNumber.from(call1.args[0]).toNumber()
+                  ethers.toNumber(BigInt(String(call1.args[0])))
                 ).to.be.greaterThan(0)
                 expect(call1.args[1]).to.equal(relayer.address)
 
@@ -1148,10 +1137,10 @@ describe("NativeBTCDepositor", () => {
               // Use 1Gwei to make sure it's smaller than default gas price
               // used by Hardhat (200 Gwei) and this value will be used
               // for msgValueOffset calculation.
-              const reimbursementPoolMaxGasPrice = BigNumber.from(1000000000)
+              const reimbursementPoolMaxGasPrice = BigInt(1000000000)
               const reimbursementPoolStaticGas = 10000 // Just an arbitrary value.
 
-              let initializeDepositGasSpent: BigNumber
+              let initializeDepositGasSpent: bigint
 
               before(async () => {
                 await createSnapshot()
@@ -1206,7 +1195,7 @@ describe("NativeBTCDepositor", () => {
                 await bridge.deposits
                   .whenCalledWith(initializeDepositFixture.depositKey)
                   .returns({
-                    depositor: nativeBtcDepositor.address,
+                    depositor: nativeBtcDepositor.target,
                     amount: depositAmount,
                     revealedAt,
                     vault: initializeDepositFixture.reveal.vault,
@@ -1223,7 +1212,7 @@ describe("NativeBTCDepositor", () => {
 
                 // Mint tBTC to the depositor contract
                 await tbtcToken.mint(
-                  nativeBtcDepositor.address,
+                  nativeBtcDepositor.target,
                   expectedTbtcAmount
                 )
 
@@ -1267,13 +1256,13 @@ describe("NativeBTCDepositor", () => {
                     initializeDepositFixture.depositKey,
                     initializeDepositFixture.ethereumReceiverBytes32.toLowerCase(),
                     relayer.address,
-                    depositAmount.mul(satoshiMultiplier),
+                    depositAmount * satoshiMultiplier,
                     expectedTbtcAmount
                   )
               })
 
               it("should transfer tBTC to the ethereum receiver", async () => {
-                const receiverAddress = ethers.utils.getAddress(
+                const receiverAddress = ethers.getAddress(
                   `0x${initializeDepositFixture.ethereumReceiverBytes32.slice(
                     -40
                   )}`
@@ -1284,7 +1273,6 @@ describe("NativeBTCDepositor", () => {
               })
 
               it("should pay out proper reimbursements", async () => {
-                // eslint-disable-next-line @typescript-eslint/no-unused-expressions
                 await expectCalledOnce(reimbursementPool.refund)
 
                 // The only call is the deferred gas reimbursement for deposit
@@ -1311,9 +1299,9 @@ describe("NativeBTCDepositor", () => {
 
   context("when reimburseTxMaxFee is true", () => {
     const satoshiMultiplier = to1ePrecision(1, 10)
-    const depositTxMaxFee = BigNumber.from(1000)
-    const depositAmount = BigNumber.from(100000)
-    const treasuryFee = BigNumber.from(500)
+    const depositTxMaxFee = BigInt(1000)
+    const depositAmount = BigInt(100000)
+    const treasuryFee = BigInt(500)
     const optimisticMintingFeeDivisor = 20
 
     // For depositAmount=100000 & treasuryFee=500:
@@ -1372,7 +1360,7 @@ describe("NativeBTCDepositor", () => {
       await bridge.deposits
         .whenCalledWith(initializeDepositFixture.depositKey)
         .returns({
-          depositor: nativeBtcDepositor.address,
+          depositor: nativeBtcDepositor.target,
           amount: depositAmount,
           revealedAt,
           vault: initializeDepositFixture.reveal.vault,
@@ -1386,7 +1374,7 @@ describe("NativeBTCDepositor", () => {
 
       // 5) Mint tBTC to the depositor contract with reimbursed amount
       await tbtcToken.mint(
-        nativeBtcDepositor.address,
+        nativeBtcDepositor.target,
         expectedTbtcAmountReimbursed
       )
 
@@ -1404,7 +1392,7 @@ describe("NativeBTCDepositor", () => {
           initializeDepositFixture.depositKey,
           initializeDepositFixture.ethereumReceiverBytes32.toLowerCase(),
           relayer.address,
-          depositAmount.mul(satoshiMultiplier),
+          depositAmount * satoshiMultiplier,
           expectedTbtcAmountReimbursed
         )
     })
@@ -1437,7 +1425,7 @@ describe("NativeBTCDepositor", () => {
       await bridge.deposits
         .whenCalledWith(initializeDepositFixture.depositKey)
         .returns({
-          depositor: nativeBtcDepositor.address,
+          depositor: nativeBtcDepositor.target,
           amount: depositAmount,
           revealedAt,
           vault: initializeDepositFixture.reveal.vault,
@@ -1451,7 +1439,7 @@ describe("NativeBTCDepositor", () => {
 
       // 5) Mint only the base tBTC amount, simulating a contract balance that
       // cannot cover the extra depositTxMaxFee reimbursement.
-      await tbtcToken.mint(nativeBtcDepositor.address, expectedTbtcAmountBase)
+      await tbtcToken.mint(nativeBtcDepositor.target, expectedTbtcAmountBase)
 
       // 6) Now finalize
       const tx = await nativeBtcDepositor
@@ -1460,7 +1448,7 @@ describe("NativeBTCDepositor", () => {
           value: 0,
         })
 
-      const txMaxFee = depositTxMaxFee.mul(satoshiMultiplier)
+      const txMaxFee = depositTxMaxFee * satoshiMultiplier
       await expect(tx)
         .to.emit(nativeBtcDepositor, "DepositTxMaxFeeReimbursementSkipped")
         .withArgs(
@@ -1475,11 +1463,11 @@ describe("NativeBTCDepositor", () => {
           initializeDepositFixture.depositKey,
           initializeDepositFixture.ethereumReceiverBytes32.toLowerCase(),
           relayer.address,
-          depositAmount.mul(satoshiMultiplier),
+          depositAmount * satoshiMultiplier,
           expectedTbtcAmountBase
         )
 
-      const receiverAddress = ethers.utils.getAddress(
+      const receiverAddress = ethers.getAddress(
         `0x${initializeDepositFixture.ethereumReceiverBytes32.slice(-40)}`
       )
       expect(await tbtcToken.balanceOf(receiverAddress)).to.equal(

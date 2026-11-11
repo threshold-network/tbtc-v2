@@ -71,6 +71,9 @@ are responsible for blocking peers by setting the mapping to the
 initiated to those chains. Additionally, `sendTbtcGateway` calls to a zero
 address are rejected, ensuring that no peer is configured for that gateway.
 
+Historical Goerli and Mumbai deployment records are retained for reference;
+those networks are no longer configured for deployment.
+
 === Deploy contracts
 
 To deploy all contracts on the given network, please run:
@@ -80,7 +83,6 @@ yarn deploy --network <network>
 
 Supported networks:
 - `hardhat` - for local development
-- `mumbai` - testing network
 - `polygon` - mainnet
 
 Currently, this module does not deploy any contracts on L1. All the existing 

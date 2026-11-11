@@ -9,11 +9,9 @@
 /deployments/*
 !/deployments/mainnet/
 !/deployments/base/
-!/deployments/baseGoerli/
 !/deployments/baseSepolia/
 
 # OZ
 /.openzeppelin/unknown-*.json
-!/.openzeppelin/unknown-84531.json
 !/.openzeppelin/unknown-8453.json
 !/.openzeppelin/unknown-84532.json

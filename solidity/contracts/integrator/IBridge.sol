@@ -73,10 +73,9 @@ interface IBridge {
     ) external;
 
     /// @dev See {Bridge#deposits}
-    function deposits(uint256 depositKey)
-        external
-        view
-        returns (IBridgeTypes.DepositRequest memory);
+    function deposits(
+        uint256 depositKey
+    ) external view returns (IBridgeTypes.DepositRequest memory);
 
     /// @dev See {Bridge#depositParameters}
     function depositParameters()
@@ -98,10 +97,9 @@ interface IBridge {
     ) external;
 
     /// @dev See {Bridge#pendingRedemptions}
-    function pendingRedemptions(uint256 redemptionKey)
-        external
-        view
-        returns (IBridgeTypes.RedemptionRequest memory);
+    function pendingRedemptions(
+        uint256 redemptionKey
+    ) external view returns (IBridgeTypes.RedemptionRequest memory);
 
     /// @dev See {Bridge#redemptionParameters}
     function redemptionParameters()
