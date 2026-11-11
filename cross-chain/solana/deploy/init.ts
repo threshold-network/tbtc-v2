@@ -124,12 +124,10 @@ async function run(): Promise<void> {
 
   // Point to devnet addresses by default
   let ARBITRUM_GATEWAY = consts.ARBITRUM_GATEWAY_ADDRESS_TESTNET
-  let OPTIMISM_GATEWAY = consts.OPTIMISM_GATEWAY_ADDRESS_TESTNET
   let BASE_GATEWAY = consts.BASE_GATEWAY_ADDRESS_TESTNET
   let SOLANA_GATEWAY = consts.SOLANA_GATEWAY_ADDRESS_TESTNET
   if (process.env.CLUSTER === "mainnet") {
     ARBITRUM_GATEWAY = consts.ARBITRUM_GATEWAY_ADDRESS_MAINNET
-    OPTIMISM_GATEWAY = consts.OPTIMISM_GATEWAY_ADDRESS_MAINNET
     BASE_GATEWAY = consts.BASE_GATEWAY_ADDRESS_MAINNET
     SOLANA_GATEWAY = consts.SOLANA_GATEWAY_ADDRESS_MAINNET
   }
@@ -159,33 +157,6 @@ async function run(): Promise<void> {
   console.log(
     "Updated Solana gateway with Arbitrum..",
     Array.from(new PublicKey(ARBITRUM_GATEWAY).toBuffer())
-  )
-
-  // Updating with Optimism
-  const optiArgs = {
-    chain: consts.WH_OPTIMISM_CHAIN_ID,
-    address: Array.from(Buffer.alloc(32, OPTIMISM_GATEWAY, "hex")),
-  }
-
-  const encodedOptiChain = Buffer.alloc(2)
-  encodedOptiChain.writeUInt16LE(consts.WH_OPTIMISM_CHAIN_ID)
-  const gatewayOptiInfo = PublicKey.findProgramAddressSync(
-    [Buffer.from("gateway-info"), encodedOptiChain],
-    wormholeGatewayProgram.programId
-  )[0]
-
-  await wormholeGatewayProgram.methods
-    .updateGatewayAddress(optiArgs)
-    .accounts({
-      custodian: minter,
-      gatewayInfo: gatewayOptiInfo,
-      authority,
-    })
-    .rpc()
-
-  console.log(
-    "Updated Solana gateway with Optimism..",
-    Array.from(new PublicKey(OPTIMISM_GATEWAY).toBuffer())
   )
 
   // Updating with BASE
