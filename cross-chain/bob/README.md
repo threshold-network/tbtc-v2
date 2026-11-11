@@ -40,7 +40,7 @@ Existing BOB liquidity should remain withdraw-only:
   already satisfied on both sides -- the L1 pool
   (`0x03E342731c08FDDc34cFb43E91cB3a7e424ee0F6`) is owned by a 6-of-9 Safe
   (`0x9F6e831c8F8939DC0C830C6e492e7cEf4f9C2F5f`) and the BOB pool
-  (`0x36ee23c94523A05981bAAeeAeA4bA97CDde21F6A`) is owned by a separate
+  (`0x36Ee23c94523A05981baaEEaea4BA97cDDe21f6a`) is owned by a separate
   6-of-9 Safe (`0x694DeC29F197c76eb13d4Cc549cE38A1e06Cd24C`). The rebalancer
   precondition is **not** satisfied: `getRebalancer()` on the L1 pool
   currently returns the zero address, so `withdrawLiquidity` (onlyRebalancer)
@@ -69,3 +69,33 @@ already-escrowed L1 deposit -- it cannot be done safely without more care.
 See
 [`docs/tbtc-bob-upgrade-technical-document.md`](docs/tbtc-bob-upgrade-technical-document.md#deprecation-addendum-bob-ccip)
 for the legacy-cap mechanics and the BOB CCIP deprecation addendum.
+
+## Exit-only governance batches
+
+Both CCIP pool proxies have their owner Safe as their proxy admin. A
+transparent proxy never forwards its admin's calls to the implementation, so
+the Safe's owner-only calls (`setChainRateLimiterConfig`, `setRebalancer`,
+`transferOwnership`) revert with "admin cannot fallback to proxy target". Each
+batch in `governance/` therefore moves the proxy admin first, then sets the
+rate limits:
+
+1. `1-ethereum-exit-only.safe-batch.json`, Ethereum Safe
+   `0x9F6e831c8F8939DC0C830C6e492e7cEf4f9C2F5f`:
+   `changeAdmin(0x7Affa05f726D293eB1193807A91617318292008e)` (the ProxyAdmin
+   owned by the 24h Timelock `0x92f2d8b72a7F6a551Be60b9aa4194248E9B4913D`),
+   then an enabled Ethereum-to-BOB outbound bucket of capacity 2 and rate 1 (in
+   wei), which reverts every real deposit. The inbound (BOB-to-Ethereum exit)
+   bucket stays disabled, so exits are not limited.
+2. `2-bob-exit-only.safe-batch.json`, BOB Safe
+   `0x694DeC29F197c76eb13d4Cc549cE38A1e06Cd24C`:
+   `changeAdmin(0xe931f1ac6b00400e1dad153e184afee164d2d88b)` (the 24h
+   TimelockController this Safe proposes, executes and cancels on), then an
+   enabled inbound (mint on BOB) bucket of capacity 2 and rate 1. The outbound
+   (BOB-to-Ethereum exit) bucket stays disabled.
+
+Run batch 1 first. Run batch 2 only once no Ethereum-to-BOB CCIP message is in
+flight: a message that arrives after it fails on BOB until the bucket is raised
+again. Both sequences were simulated on mainnet forks of Ethereum and BOB: each
+call succeeds, the buckets read back as set, and pool ownership is unchanged.
+After the admin change, future pool upgrades go through the timelocks.
+
