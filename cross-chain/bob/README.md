@@ -40,7 +40,7 @@ Existing BOB liquidity should remain withdraw-only:
   already satisfied on both sides -- the L1 pool
   (`0x03E342731c08FDDc34cFb43E91cB3a7e424ee0F6`) is owned by a 6-of-9 Safe
   (`0x9F6e831c8F8939DC0C830C6e492e7cEf4f9C2F5f`) and the BOB pool
-  (`0x36ee23c94523A05981bAAeeAeA4bA97CDde21F6A`) is owned by a separate
+  (`0x36Ee23c94523A05981baaEEaea4BA97cDDe21f6a`) is owned by a separate
   6-of-9 Safe (`0x694DeC29F197c76eb13d4Cc549cE38A1e06Cd24C`). The rebalancer
   precondition is **not** satisfied: `getRebalancer()` on the L1 pool
   currently returns the zero address, so `withdrawLiquidity` (onlyRebalancer)
