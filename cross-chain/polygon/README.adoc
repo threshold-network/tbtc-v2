@@ -31,9 +31,12 @@ Wormhole Token Bridge. Do not establish new inbound bridges to Polygon.
 
 For fresh deployments, the deploy scripts apply these settings before gateway
 ownership is transferred. For existing live deployments where gateway ownership
-has already been transferred, governance must execute the equivalent
-`updateMintingLimit(0)` and `updateGatewayAddress(..., DISABLED_GATEWAY())`
-calls on the EVM gateway contracts after those contracts are upgraded. The
+has already been transferred, governance executes the equivalent calls.
+`updateMintingLimit(0)` works on the gateway as deployed today; the Safe
+Transaction Builder batch in `governance/update-minting-limit-zero.safe-batch.json`
+holds it for the Polygon gateway owner Safe. The
+`updateGatewayAddress(..., DISABLED_GATEWAY())` calls need the upgraded EVM
+gateway contracts. The
 EVM mapping scripts skip the gateway block if the deployed gateway is not
 upgraded with `DISABLED_GATEWAY()` support yet; set
 `REQUIRE_DISABLED_GATEWAY_SUPPORT=true` to make that precondition fatal for a
