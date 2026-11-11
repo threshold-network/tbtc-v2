@@ -66,6 +66,13 @@ contract L2WormholeGateway is
 {
     using SafeERC20Upgradeable for IERC20Upgradeable;
 
+    /// @notice Reserved gateway value that blocks outbound sends for a chain.
+    /// @dev A zero gateway means the target chain has no Wormhole tBTC
+    ///      gateway and should receive raw Wormhole tBTC. This non-zero
+    ///      sentinel is used when governance needs to explicitly disable a
+    ///      route without falling back to raw Wormhole tBTC sends.
+    bytes32 public constant DISABLED_GATEWAY = bytes32(uint256(1));
+
     /// @notice Reference to the Wormhole Token Bridge contract.
     IWormholeTokenBridge public bridge;
 
@@ -74,13 +81,6 @@ contract L2WormholeGateway is
 
     /// @notice Canonical tBTC token.
     L2TBTC public tbtc;
-
-    /// @notice Reserved gateway value that blocks outbound sends for a chain.
-    /// @dev A zero gateway means the target chain has no Wormhole tBTC
-    ///      gateway and should receive raw Wormhole tBTC. This non-zero
-    ///      sentinel is used when governance needs to explicitly disable a
-    ///      route without falling back to raw Wormhole tBTC sends.
-    bytes32 public constant DISABLED_GATEWAY = bytes32(uint256(1));
 
     /// @notice Maps Wormhole chain ID to the Wormhole tBTC gateway address on
     ///         that chain. For example, this chain's ID should be mapped to
