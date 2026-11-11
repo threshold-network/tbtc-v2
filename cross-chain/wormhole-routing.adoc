@@ -14,10 +14,19 @@ The gateway contracts can send directly to configured peers. Ethereum's role as
 the token's origin does not require an L1 transaction for every transfer, and a
 peer mapping does not establish application support for that route.
 
+== Deprecated destinations
+
+Polygon and Optimism are deprecated to exit-only. Once governance executes the
+deprecation calls, their gateways have a minting limit of zero and block their
+peers, and the upgraded Arbitrum, Base and Solana gateways block them in turn. Holders exit through the gateway's `sendTbtc` to Ethereum. See the
+link:polygon/README.adoc[Polygon] and link:optimism/README.adoc[Optimism]
+package READMEs.
+
 == Sepolia deployment behavior
 
-The `arbitrumSepolia`, `baseSepolia`, and `optimismSepolia` deployments skip both
-the `SolanaWormholeGateway` resolver and the `SetSolanaGatewayAddress` step.
+The `arbitrumSepolia` and `baseSepolia` deployments skip both the
+`SolanaWormholeGateway` resolver and the `SetSolanaGatewayAddress` step, and
+`optimismSepolia` skips its Solana block step.
 Their active external deployment directories contain no Solana peer address.
 These deployments therefore do not require or automatically register the old
 Solana devnet gateway, including when either tag is selected explicitly.

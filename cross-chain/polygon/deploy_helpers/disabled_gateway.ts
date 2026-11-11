@@ -30,11 +30,13 @@ export async function isDisabledGatewaySupported(
   // @keep-network/tbtc-v2 release, which may predate DISABLED_GATEWAY; writing
   // the sentinel to such a gateway would not block sends but route them to
   // the address 0x...01.
-  const isDeprecatePolygonTag =
+  const deprecationTags = ["DeprecatePolygon", "DeprecateOptimism"]
+  const isDeprecationTag =
     process.argv.includes("--tags") &&
-    process.argv[process.argv.indexOf("--tags") + 1]
+    (process.argv[process.argv.indexOf("--tags") + 1]
       ?.split(",")
-      .includes("DeprecatePolygon")
+      .some((tag) => deprecationTags.includes(tag)) ??
+      false)
   const envRequireSupport = process.env.REQUIRE_DISABLED_GATEWAY_SUPPORT
 
   let encodedDisabledGateway: string | undefined
@@ -59,7 +61,7 @@ export async function isDisabledGatewaySupported(
     encodedDisabledGateway,
     disabledGateway,
     error,
-    isDeprecatePolygonTag,
+    isDeprecationTag,
     envRequireSupport,
     hre,
     gatewayName,
@@ -71,7 +73,7 @@ export function evaluateDisabledGatewaySupport(
   callResult: string | undefined,
   disabledGateway: string,
   error: unknown,
-  isDeprecatePolygonTag: boolean,
+  isDeprecationTag: boolean,
   envRequireSupport: string | undefined,
   hre: DisabledGatewayHardhatRuntimeEnvironment,
   gatewayName: string,
@@ -79,7 +81,7 @@ export function evaluateDisabledGatewaySupport(
 ): boolean {
   const isSupported =
     callResult?.toLowerCase() === disabledGateway.toLowerCase()
-  const isStrict = envRequireSupport === "true" || isDeprecatePolygonTag
+  const isStrict = envRequireSupport === "true" || isDeprecationTag
 
   if (isSupported) {
     return true

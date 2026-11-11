@@ -124,12 +124,10 @@ async function run(): Promise<void> {
 
   // Point to devnet addresses by default
   let ARBITRUM_GATEWAY = consts.ARBITRUM_GATEWAY_ADDRESS_TESTNET
-  let OPTIMISM_GATEWAY = consts.OPTIMISM_GATEWAY_ADDRESS_TESTNET
   let BASE_GATEWAY = consts.BASE_GATEWAY_ADDRESS_TESTNET
   let SOLANA_GATEWAY = consts.SOLANA_GATEWAY_ADDRESS_TESTNET
   if (process.env.CLUSTER === "mainnet") {
     ARBITRUM_GATEWAY = consts.ARBITRUM_GATEWAY_ADDRESS_MAINNET
-    OPTIMISM_GATEWAY = consts.OPTIMISM_GATEWAY_ADDRESS_MAINNET
     BASE_GATEWAY = consts.BASE_GATEWAY_ADDRESS_MAINNET
     SOLANA_GATEWAY = consts.SOLANA_GATEWAY_ADDRESS_MAINNET
   }
@@ -161,55 +159,36 @@ async function run(): Promise<void> {
     Array.from(new PublicKey(ARBITRUM_GATEWAY).toBuffer())
   )
 
-  // Updating with Optimism
-  const optiArgs = {
-    chain: consts.WH_OPTIMISM_CHAIN_ID,
-    address: Array.from(Buffer.alloc(32, OPTIMISM_GATEWAY, "hex")),
+  // Polygon and Optimism are deprecated: register their peers with the
+  // DISABLED_GATEWAY sentinel so sends to them are rejected, as on migrated
+  // deployments. An unregistered peer would still accept raw Wormhole tBTC
+  // sends.
+  for (const [chain, name] of [
+    [consts.WH_POLYGON_CHAIN_ID, "Polygon"],
+    [consts.WH_OPTIMISM_CHAIN_ID, "Optimism"],
+  ] as const) {
+    const encodedChain = Buffer.alloc(2)
+    encodedChain.writeUInt16LE(chain)
+    const gatewayInfo = PublicKey.findProgramAddressSync(
+      [Buffer.from("gateway-info"), encodedChain],
+      wormholeGatewayProgram.programId
+    )[0]
+
+    // eslint-disable-next-line no-await-in-loop
+    await wormholeGatewayProgram.methods
+      .updateGatewayAddress({
+        chain,
+        address: consts.DISABLED_GATEWAY_ADDRESS,
+      })
+      .accounts({
+        custodian: minter,
+        gatewayInfo,
+        authority,
+      })
+      .rpc()
+
+    console.log(`Disabled Solana gateway ${name} peer..`)
   }
-
-  const encodedOptiChain = Buffer.alloc(2)
-  encodedOptiChain.writeUInt16LE(consts.WH_OPTIMISM_CHAIN_ID)
-  const gatewayOptiInfo = PublicKey.findProgramAddressSync(
-    [Buffer.from("gateway-info"), encodedOptiChain],
-    wormholeGatewayProgram.programId
-  )[0]
-
-  await wormholeGatewayProgram.methods
-    .updateGatewayAddress(optiArgs)
-    .accounts({
-      custodian: minter,
-      gatewayInfo: gatewayOptiInfo,
-      authority,
-    })
-    .rpc()
-
-  console.log(
-    "Updated Solana gateway with Optimism..",
-    Array.from(new PublicKey(OPTIMISM_GATEWAY).toBuffer())
-  )
-
-  // Polygon is deprecated: register its peer with the DISABLED_GATEWAY
-  // sentinel so sends to it are rejected, as on migrated deployments.
-  const encodedPolyChain = Buffer.alloc(2)
-  encodedPolyChain.writeUInt16LE(consts.WH_POLYGON_CHAIN_ID)
-  const gatewayPolyInfo = PublicKey.findProgramAddressSync(
-    [Buffer.from("gateway-info"), encodedPolyChain],
-    wormholeGatewayProgram.programId
-  )[0]
-
-  await wormholeGatewayProgram.methods
-    .updateGatewayAddress({
-      chain: consts.WH_POLYGON_CHAIN_ID,
-      address: consts.DISABLED_GATEWAY_ADDRESS,
-    })
-    .accounts({
-      custodian: minter,
-      gatewayInfo: gatewayPolyInfo,
-      authority,
-    })
-    .rpc()
-
-  console.log("Disabled Solana gateway Polygon peer..")
 
   // Updating with BASE
   const baseArgs = {

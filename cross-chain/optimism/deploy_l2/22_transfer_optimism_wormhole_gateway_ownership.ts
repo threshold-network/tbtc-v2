@@ -15,5 +15,9 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 export default func
 
 func.tags = ["TransferOptimismWormholeGatewayOwnership"]
-func.dependencies = ["OptimismWormholeGateway"]
+// The zero minting limit is applied while the deployer still owns the gateway.
+func.dependencies = [
+  "OptimismWormholeGateway",
+  "DeprecateOptimismWormholeGateway",
+]
 func.runAtTheEnd = true

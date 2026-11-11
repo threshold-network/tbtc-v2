@@ -2,10 +2,57 @@
 
 = Threshold cross-chain - Optimism
 
-This package brings Bitcoin to Ethereum L2 Optimism. For more details please
-see link:https://github.com/keep-network/tbtc-v2/blob/main/docs/rfc/rfc-8.adoc[RFC 8: Cross-chain Tokenized Threshold BTC]
+This package is deprecated and kept only for Optimism exit operations. Do not
+use it to configure new Optimism bridge-in routes. Existing Optimism tBTC
+liquidity should be withdrawn through `OptimismWormholeGateway.sendTbtc` and
+routed back to Ethereum before moving through the supported hub path.
 
-== How it works?
+The deprecation follows the Polygon one. It keeps the withdrawal/burn path to
+Ethereum (chain 2) and blocks new canonical Optimism mints and direct routes:
+
+- set `OptimismWormholeGateway.updateMintingLimit(0)` so inbound Wormhole
+  transfers no longer mint canonical Optimism tBTC. This call works on the
+  gateway as deployed today and does not need an upgrade;
+- block the Arbitrum, Base and Solana peers on the Optimism gateway, and the
+  Optimism peer on the Arbitrum and Base gateways, by setting them to each
+  gateway contract's `DISABLED_GATEWAY` sentinel (Polygon already blocks every
+  peer);
+- register Optimism with the `DISABLED_GATEWAY` sentinel on new Solana gateway
+  initialization (an unregistered peer would still accept raw Wormhole tBTC
+  sends), and disable the existing Solana gateway Optimism peer with
+  `cross-chain/solana/deploy/deprecate_optimism.ts` after the upgraded Solana
+  Wormhole Gateway program is deployed. On mainnet the custodian authority is
+  the Squads vault, so the script writes the simulated instruction to
+  `deprecate-optimism.multisig-instruction.json` for a vault transaction
+  instead of signing (see the Polygon README);
+- keep `OptimismTBTC` unpaused. The gateway minter role is not revoked by the
+  automated flow; governance revokes it once the outstanding Optimism supply has
+  drained.
+
+With the minting limit at zero, a Wormhole transfer that still reaches the
+Optimism gateway is not minted: the gateway hands the receiver the Wormhole tBTC
+representation instead, which can be bridged back to Ethereum through the
+Wormhole Token Bridge.
+
+For live deployments, gateway ownership already sits with governance, so
+governance executes the equivalent calls. `34_manual_deprecate_optimism_wormhole_gateway.ts`
+prints their calldata, and `governance/update-minting-limit-zero.safe-batch.json`
+is a Safe Transaction Builder batch with `updateMintingLimit(0)` for the
+Optimism gateway owner Safe. `updateMintingLimit(0)` can be executed right away; the
+`updateGatewayAddress(..., DISABLED_GATEWAY())` calls need the upgraded gateway
+implementation. The cross-chain packages deploy and upgrade gateways from the
+pinned `@keep-network/tbtc-v2` release (1.4.0-dev.0 or 1.7.2), which predates
+`DISABLED_GATEWAY`: release a package with this `L2WormholeGateway`, bump the
+pins, upgrade the gateways, then run the mapping scripts. Until then the EVM
+mapping scripts probe the deployed gateway and skip the block, on Hardhat dry
+runs too; run them with `--tags DeprecateOptimism` or
+`REQUIRE_DISABLED_GATEWAY_SUPPORT=true` to make that precondition fatal.
+
+For historical context, this package originally brought Bitcoin to Ethereum L2
+Optimism. See
+link:https://github.com/keep-network/tbtc-v2/blob/main/docs/rfc/rfc-8.adoc[RFC 8: Cross-chain Tokenized Threshold BTC].
+
+== How it worked (pre-deprecation)
 
 ```
 +----------------------------+         +---------------------------------------------------------------------------+
