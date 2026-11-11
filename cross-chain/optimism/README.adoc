@@ -32,7 +32,9 @@ Wormhole Token Bridge.
 
 For live deployments, gateway ownership already sits with governance, so
 governance executes the equivalent calls. `34_manual_deprecate_optimism_wormhole_gateway.ts`
-prints their calldata. `updateMintingLimit(0)` can be executed right away; the
+prints their calldata, and `governance/update-minting-limit-zero.safe-batch.json`
+is a Safe Transaction Builder batch with `updateMintingLimit(0)` for the
+Optimism gateway owner Safe. `updateMintingLimit(0)` can be executed right away; the
 `updateGatewayAddress(..., DISABLED_GATEWAY())` calls need the upgraded gateway
 implementation. The EVM mapping scripts skip a gateway block while the deployed
 gateway lacks `DISABLED_GATEWAY()` support; run them with

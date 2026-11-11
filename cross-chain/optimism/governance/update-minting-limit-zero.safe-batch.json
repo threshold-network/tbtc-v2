@@ -1,0 +1,33 @@
+{
+  "version": "1.0",
+  "chainId": "10",
+  "createdAt": 1794398400000,
+  "meta": {
+    "name": "Deprecate Optimism tBTC gateway: minting limit to zero",
+    "description": "OptimismWormholeGateway.updateMintingLimit(0). Inbound Wormhole transfers stop minting canonical Optimism tBTC; sendTbtc exits to Ethereum keep working. Needs no gateway upgrade.",
+    "txBuilderVersion": "1.16.5",
+    "createdFromSafeAddress": "0x7fB50BBabeDEE52b8760Ba15c0c199aF33Fc2EfA",
+    "createdFromOwnerAddress": ""
+  },
+  "transactions": [
+    {
+      "to": "0x1293a54e160D1cd7075487898d65266081A15458",
+      "value": "0",
+      "data": "0x363da98e0000000000000000000000000000000000000000000000000000000000000000",
+      "contractMethod": {
+        "inputs": [
+          {
+            "internalType": "uint256",
+            "name": "_mintingLimit",
+            "type": "uint256"
+          }
+        ],
+        "name": "updateMintingLimit",
+        "payable": false
+      },
+      "contractInputsValues": {
+        "_mintingLimit": "0"
+      }
+    }
+  ]
+}
