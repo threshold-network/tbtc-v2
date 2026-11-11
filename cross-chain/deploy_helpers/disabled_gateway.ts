@@ -20,10 +20,11 @@ export async function isDisabledGatewaySupported(
   destinationName: string,
   disabledGateway: string
 ): Promise<boolean> {
-  if (hre.network.name === "hardhat") {
-    return true
-  }
-
+  // Probe the deployed gateway on every network, hardhat included. The
+  // cross-chain packages deploy and upgrade gateways from the pinned
+  // @keep-network/tbtc-v2 release, which may predate DISABLED_GATEWAY; writing
+  // the sentinel to such a gateway would not block sends but route them to
+  // the address 0x...01.
   const deprecationTags = ["DeprecatePolygon", "DeprecateOptimism"]
   const isDeprecationTag =
     process.argv.includes("--tags") &&

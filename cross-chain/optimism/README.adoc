@@ -17,8 +17,9 @@ Ethereum (chain 2) and blocks new canonical Optimism mints and direct routes:
   Optimism peer on the Arbitrum and Base gateways, by setting them to each
   gateway contract's `DISABLED_GATEWAY` sentinel (Polygon already blocks every
   peer);
-- remove Optimism from new Solana gateway initialization and disable the
-  existing Solana gateway Optimism peer with
+- register Optimism with the `DISABLED_GATEWAY` sentinel on new Solana gateway
+  initialization (an unregistered peer would still accept raw Wormhole tBTC
+  sends), and disable the existing Solana gateway Optimism peer with
   `cross-chain/solana/deploy/deprecate_optimism.ts` after the upgraded Solana
   Wormhole Gateway program is deployed;
 - keep `OptimismTBTC` unpaused. The gateway minter role is not revoked by the
@@ -36,10 +37,13 @@ prints their calldata, and `governance/update-minting-limit-zero.safe-batch.json
 is a Safe Transaction Builder batch with `updateMintingLimit(0)` for the
 Optimism gateway owner Safe. `updateMintingLimit(0)` can be executed right away; the
 `updateGatewayAddress(..., DISABLED_GATEWAY())` calls need the upgraded gateway
-implementation. The EVM mapping scripts skip a gateway block while the deployed
-gateway lacks `DISABLED_GATEWAY()` support; run them with
-`--tags DeprecateOptimism` or `REQUIRE_DISABLED_GATEWAY_SUPPORT=true` to make
-that precondition fatal.
+implementation. The cross-chain packages deploy and upgrade gateways from the
+pinned `@keep-network/tbtc-v2` release (1.4.0-dev.0 or 1.7.2), which predates
+`DISABLED_GATEWAY`: release a package with this `L2WormholeGateway`, bump the
+pins, upgrade the gateways, then run the mapping scripts. Until then the EVM
+mapping scripts probe the deployed gateway and skip the block, on Hardhat dry
+runs too; run them with `--tags DeprecateOptimism` or
+`REQUIRE_DISABLED_GATEWAY_SUPPORT=true` to make that precondition fatal.
 
 For historical context, this package originally brought Bitcoin to Ethereum L2
 Optimism. See

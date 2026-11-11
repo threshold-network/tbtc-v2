@@ -9,6 +9,8 @@ import { WormholeGateway } from "../../target/types/wormhole_gateway"
 const DISABLED_GATEWAY_ADDRESS = Array.from(
   Buffer.concat([Buffer.alloc(31), Buffer.from([1])])
 )
+// UpgradeableLoaderState::size_of_programdata_metadata()
+const PROGRAM_DATA_METADATA_SIZE = 45
 const BPF_LOADER_UPGRADEABLE_PROGRAM_ID = new PublicKey(
   "BPFLoaderUpgradeab1e11111111111111111111111"
 )
@@ -105,8 +107,8 @@ async function assertDeployedDisabledGatewaySupport(
 // whether the *binary* actually enforces it. Guard against that split by
 // requiring the operator to supply the ProgramData hash captured immediately
 // after their most recent `anchor upgrade` (e.g. via
-// `solana program dump <programId> - | sha256sum`, or the equivalent of the
-// hash this function computes, recorded right after that upgrade completes)
+// `solana program dump <programId> program.so && sha256sum program.so`, the
+// same bytes this function hashes, recorded right after that upgrade completes)
 // and refusing to proceed unless the currently deployed binary still matches
 // it. There is no live validator/toolchain available to build a local
 // reference binary here, so a byte-for-byte compare against a freshly
@@ -142,9 +144,12 @@ async function assertDeployedProgramDataHash(
     )
   }
 
+  // `solana program dump` writes the ProgramData account without its
+  // 45-byte upgradeable-loader metadata header (state tag, slot, upgrade
+  // authority); hash exactly those bytes.
   const actualHash = crypto
     .createHash("sha256")
-    .update(programDataAccount.data)
+    .update(programDataAccount.data.subarray(PROGRAM_DATA_METADATA_SIZE))
     .digest("hex")
 
   if (actualHash !== expectedHash.toLowerCase()) {

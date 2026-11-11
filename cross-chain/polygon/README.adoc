@@ -17,9 +17,11 @@ blocked to prevent further tBTC leakage.
 - block Polygon peer mappings on Base, Arbitrum, Optimism, and Polygon gateway
   contracts by setting them to each gateway contract's `DISABLED_GATEWAY`
   sentinel;
-- remove Polygon from new Solana gateway initialization and disable the existing
-  Solana gateway Polygon peer with `cross-chain/solana/deploy/deprecate_polygon.ts`
-  after the upgraded Solana Wormhole Gateway program is deployed;
+- register Polygon with the `DISABLED_GATEWAY` sentinel on new Solana gateway
+  initialization (an unregistered peer would still accept raw Wormhole tBTC
+  sends), and disable the existing Solana gateway Polygon peer with
+  `cross-chain/solana/deploy/deprecate_polygon.ts` after the upgraded Solana
+  Wormhole Gateway program is deployed;
 - keep `PolygonTBTC` unpaused. The gateway minter role is NOT revoked by the
   automated deprecation flow; governance must manually revoke it once the
   outstanding Polygon exit surface is fully drained.
@@ -36,7 +38,12 @@ has already been transferred, governance executes the equivalent calls.
 Transaction Builder batch in `governance/update-minting-limit-zero.safe-batch.json`
 holds it for the Polygon gateway owner Safe. The
 `updateGatewayAddress(..., DISABLED_GATEWAY())` calls need the upgraded EVM
-gateway contracts. The
+gateway contracts. The cross-chain packages deploy and upgrade gateways from the
+pinned `@keep-network/tbtc-v2` release (1.4.0-dev.0 or 1.7.2), which predates
+`DISABLED_GATEWAY`. So the order is: release `@keep-network/tbtc-v2` with this
+`L2WormholeGateway`, bump the pins, upgrade the gateways, then run the mapping
+scripts. Until then the mapping scripts probe the deployed gateway and skip the
+block, on Hardhat dry runs too. The
 EVM mapping scripts skip the gateway block if the deployed gateway is not
 upgraded with `DISABLED_GATEWAY()` support yet; set
 `REQUIRE_DISABLED_GATEWAY_SUPPORT=true` to make that precondition fatal for a

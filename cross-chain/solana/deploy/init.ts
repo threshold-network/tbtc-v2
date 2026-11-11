@@ -159,6 +159,37 @@ async function run(): Promise<void> {
     Array.from(new PublicKey(ARBITRUM_GATEWAY).toBuffer())
   )
 
+  // Polygon and Optimism are deprecated: register their peers with the
+  // DISABLED_GATEWAY sentinel so sends to them are rejected, as on migrated
+  // deployments. An unregistered peer would still accept raw Wormhole tBTC
+  // sends.
+  for (const [chain, name] of [
+    [consts.WH_POLYGON_CHAIN_ID, "Polygon"],
+    [consts.WH_OPTIMISM_CHAIN_ID, "Optimism"],
+  ] as const) {
+    const encodedChain = Buffer.alloc(2)
+    encodedChain.writeUInt16LE(chain)
+    const gatewayInfo = PublicKey.findProgramAddressSync(
+      [Buffer.from("gateway-info"), encodedChain],
+      wormholeGatewayProgram.programId
+    )[0]
+
+    // eslint-disable-next-line no-await-in-loop
+    await wormholeGatewayProgram.methods
+      .updateGatewayAddress({
+        chain,
+        address: consts.DISABLED_GATEWAY_ADDRESS,
+      })
+      .accounts({
+        custodian: minter,
+        gatewayInfo,
+        authority,
+      })
+      .rpc()
+
+    console.log(`Disabled Solana gateway ${name} peer..`)
+  }
+
   // Updating with BASE
   const baseArgs = {
     chain: consts.WH_BASE_CHAIN_ID,

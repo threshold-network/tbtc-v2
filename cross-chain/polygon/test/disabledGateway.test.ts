@@ -168,9 +168,11 @@ describe("disabled_gateway", () => {
       }
     }
 
-    it("short-circuits to true on the hardhat network without calling out", async () => {
-      const hre = makeHre(() => {
-        throw new Error("should not be called")
+    it("probes the deployed gateway on the hardhat network too", async () => {
+      let probed = false
+      const hre = makeHre(async () => {
+        probed = true
+        return "0x"
       })
       hre.network.name = "hardhat"
       expect(
@@ -181,7 +183,8 @@ describe("disabled_gateway", () => {
           "Dest",
           DISABLED_GATEWAY
         )
-      ).to.equal(true)
+      ).to.equal(false)
+      expect(probed).to.equal(true)
     })
 
     it("returns true when the on-chain probe matches the sentinel", async () => {
