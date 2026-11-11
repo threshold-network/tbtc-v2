@@ -1,0 +1,28 @@
+{
+  "version": "1.0",
+  "chainId": "1",
+  "createdAt": 1794398400000,
+  "meta": {
+    "name": "BOB exit-only: Ethereum CCIP pool",
+    "description": "1) changeAdmin(0x7Affa05f...) on the LockReleaseTokenPool proxy: the Safe is the proxy admin today, so its owner calls cannot reach the pool. ProxyAdmin 0x7Affa05f is owned by the Timelock. 2) setChainRateLimiterConfig(BOB 3849287863852499584, outbound {enabled, capacity 2, rate 1}, inbound {disabled}): blocks new Ethereum-to-BOB deposits; BOB-to-Ethereum exits stay unlimited.",
+    "txBuilderVersion": "1.16.5",
+    "createdFromSafeAddress": "0x9F6e831c8F8939DC0C830C6e492e7cEf4f9C2F5f",
+    "createdFromOwnerAddress": ""
+  },
+  "transactions": [
+    {
+      "to": "0x03E342731c08FDDc34cFb43E91cB3a7e424ee0F6",
+      "value": "0",
+      "data": "0x8f2839700000000000000000000000007affa05f726d293eb1193807a91617318292008e",
+      "contractMethod": null,
+      "contractInputsValues": null
+    },
+    {
+      "to": "0x03E342731c08FDDc34cFb43E91cB3a7e424ee0F6",
+      "value": "0",
+      "data": "0xcf7401f3000000000000000000000000000000000000000000000000356b6aeaf3268280000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "contractMethod": null,
+      "contractInputsValues": null
+    }
+  ]
+}

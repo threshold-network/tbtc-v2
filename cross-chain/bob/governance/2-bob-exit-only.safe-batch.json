@@ -1,0 +1,28 @@
+{
+  "version": "1.0",
+  "chainId": "60808",
+  "createdAt": 1794398400000,
+  "meta": {
+    "name": "BOB exit-only: BOB CCIP pool",
+    "description": "Run after the Ethereum batch, once no Ethereum-to-BOB CCIP message is in flight. 1) changeAdmin(0xe931f1ac...) on the BurnFromMintTokenPool proxy: the Safe is the proxy admin today, so its owner calls cannot reach the pool. 0xe931f1ac is the 24h TimelockController (this Safe proposes, executes and cancels). 2) setChainRateLimiterConfig(Ethereum 5009297550715157269, outbound {disabled}, inbound {enabled, capacity 2, rate 1}): blocks new mints on BOB; BOB-to-Ethereum exits stay unlimited.",
+    "txBuilderVersion": "1.16.5",
+    "createdFromSafeAddress": "0x694DeC29F197c76eb13d4Cc549cE38A1e06Cd24C",
+    "createdFromOwnerAddress": ""
+  },
+  "transactions": [
+    {
+      "to": "0x36ee23c94523A05981bAAeeAeA4bA97CDde21F6A",
+      "value": "0",
+      "data": "0x8f283970000000000000000000000000e931f1ac6b00400e1dad153e184afee164d2d88b",
+      "contractMethod": null,
+      "contractInputsValues": null
+    },
+    {
+      "to": "0x36ee23c94523A05981bAAeeAeA4bA97CDde21F6A",
+      "value": "0",
+      "data": "0xcf7401f300000000000000000000000000000000000000000000000045849994fc9c7b15000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000001",
+      "contractMethod": null,
+      "contractInputsValues": null
+    }
+  ]
+}
