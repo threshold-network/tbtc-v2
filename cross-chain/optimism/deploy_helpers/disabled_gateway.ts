@@ -1,0 +1,110 @@
+// Each cross-chain package (arbitrum, base, optimism, polygon) publishes its
+// own copy of this file: the published packages ship their deploy scripts
+// without the rest of the monorepo. Keep the copies identical;
+// polygon/test/disabledGateway.test.ts checks that they match.
+
+export type DisabledGatewayHardhatRuntimeEnvironment = {
+  network: { name: string }
+  ethers: {
+    provider: {
+      call(transaction: { to: string; data: string }): Promise<string>
+    }
+    utils: {
+      id(text: string): string
+    }
+  }
+  deployments: {
+    log(message: string): void
+  }
+}
+
+export async function isDisabledGatewaySupported(
+  hre: DisabledGatewayHardhatRuntimeEnvironment,
+  gatewayAddress: string,
+  gatewayName: string,
+  destinationName: string,
+  disabledGateway: string
+): Promise<boolean> {
+  // Probe the deployed gateway on every network, hardhat included. The
+  // cross-chain packages deploy and upgrade gateways from the pinned
+  // @keep-network/tbtc-v2 release, which may predate DISABLED_GATEWAY; writing
+  // the sentinel to such a gateway would not block sends but route them to
+  // the address 0x...01.
+  const deprecationTags = ["DeprecatePolygon", "DeprecateOptimism"]
+  const isDeprecationTag =
+    process.argv.includes("--tags") &&
+    (process.argv[process.argv.indexOf("--tags") + 1]
+      ?.split(",")
+      .some((tag) => deprecationTags.includes(tag)) ??
+      false)
+  const envRequireSupport = process.env.REQUIRE_DISABLED_GATEWAY_SUPPORT
+
+  let encodedDisabledGateway: string | undefined
+  let error: unknown
+
+  try {
+    encodedDisabledGateway = await hre.ethers.provider.call({
+      to: gatewayAddress,
+      data: hre.ethers.utils.id("DISABLED_GATEWAY()").slice(0, 10),
+    })
+  } catch (e: unknown) {
+    error = e
+    const isCallException =
+      isErrorWithCode(error) && error.code === "CALL_EXCEPTION"
+
+    if (!isCallException) {
+      throw error
+    }
+  }
+
+  return evaluateDisabledGatewaySupport(
+    encodedDisabledGateway,
+    disabledGateway,
+    error,
+    isDeprecationTag,
+    envRequireSupport,
+    hre,
+    gatewayName,
+    destinationName
+  )
+}
+
+export function evaluateDisabledGatewaySupport(
+  callResult: string | undefined,
+  disabledGateway: string,
+  error: unknown,
+  isDeprecationTag: boolean,
+  envRequireSupport: string | undefined,
+  hre: DisabledGatewayHardhatRuntimeEnvironment,
+  gatewayName: string,
+  destinationName: string
+): boolean {
+  const isSupported =
+    callResult?.toLowerCase() === disabledGateway.toLowerCase()
+  const isStrict = envRequireSupport === "true" || isDeprecationTag
+
+  if (isSupported) {
+    return true
+  }
+
+  const errorMessage = error instanceof Error ? error.message : String(error)
+  const callFailure = error ? ` Call failure: ${errorMessage}` : ""
+  const message = [
+    `${gatewayName} is not upgraded with disabled gateway support;`,
+    `skipping ${destinationName} gateway block. The existing gateway`,
+    "mapping remains unchanged, so coordinate the remote deprecation",
+    "steps before relying on exit-only behavior. Upgrade the gateway",
+    `implementation, then rerun this deployment.${callFailure}`,
+  ].join(" ")
+
+  if (isStrict) {
+    throw new Error(message)
+  }
+
+  hre.deployments.log(message)
+  return false
+}
+
+function isErrorWithCode(error: unknown): error is { code: unknown } {
+  return typeof error === "object" && error !== null && "code" in error
+}

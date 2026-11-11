@@ -1,6 +1,6 @@
 import type { HardhatRuntimeEnvironment } from "hardhat/types"
 import type { DeployFunction } from "hardhat-deploy/types"
-import { isDisabledGatewaySupported } from "../../deploy_helpers/disabled_gateway"
+import { isDisabledGatewaySupported } from "../deploy_helpers/disabled_gateway"
 
 const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const { deployments, ethers, getNamedAccounts } = hre

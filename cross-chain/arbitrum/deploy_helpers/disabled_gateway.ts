@@ -1,3 +1,8 @@
+// Each cross-chain package (arbitrum, base, optimism, polygon) publishes its
+// own copy of this file: the published packages ship their deploy scripts
+// without the rest of the monorepo. Keep the copies identical;
+// polygon/test/disabledGateway.test.ts checks that they match.
+
 export type DisabledGatewayHardhatRuntimeEnvironment = {
   network: { name: string }
   ethers: {
@@ -83,13 +88,14 @@ export function evaluateDisabledGatewaySupport(
   }
 
   const errorMessage = error instanceof Error ? error.message : String(error)
-  const message =
-    `${gatewayName} is not upgraded with disabled gateway support; ` +
-    `skipping ${destinationName} gateway block. The existing gateway ` +
-    "mapping remains unchanged, so coordinate the remote deprecation " +
-    "steps before relying on exit-only behavior. Upgrade the gateway " +
-    "implementation, then rerun this deployment." +
-    (error ? ` Call failure: ${errorMessage}` : "")
+  const callFailure = error ? ` Call failure: ${errorMessage}` : ""
+  const message = [
+    `${gatewayName} is not upgraded with disabled gateway support;`,
+    `skipping ${destinationName} gateway block. The existing gateway`,
+    "mapping remains unchanged, so coordinate the remote deprecation",
+    "steps before relying on exit-only behavior. Upgrade the gateway",
+    `implementation, then rerun this deployment.${callFailure}`,
+  ].join(" ")
 
   if (isStrict) {
     throw new Error(message)
