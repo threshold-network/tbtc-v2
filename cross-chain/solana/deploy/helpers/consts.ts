@@ -3,6 +3,8 @@ export const WH_ARBITRUM_CHAIN_ID = 23
 
 export const WH_OPTIMISM_CHAIN_ID = 24
 
+export const WH_POLYGON_CHAIN_ID = 5
+
 export const WH_BASE_CHAIN_ID = 30
 
 export const WH_SOLANA_CHAIN_ID = 1
@@ -37,3 +39,10 @@ export const WRAPPED_TBTC_MINT_TESTNET =
 // deriveWrappedMintKey("wormDTUJ6AWPNvk59vGQbDvGJmqbDTdgWgAqcLBCgUb", 2, "0x18084fbA666a33d37592fA2633fD49a74DD93a88")
 export const WRAPPED_TBTC_MINT_MAINNET =
   "25rXTx9zDZcHyTav5sRqM6YBvTGu9pPH9yv83uAEqbgG"
+
+// Gateway address that blocks sends to a deprecated chain (DISABLED_GATEWAY).
+// An unregistered peer is not enough: sendTbtcWrapped accepts an
+// uninitialized gateway-info account and bridges raw Wormhole tBTC to it.
+export const DISABLED_GATEWAY_ADDRESS = Array.from(
+  Buffer.concat([Buffer.alloc(31), Buffer.from([1])])
+)

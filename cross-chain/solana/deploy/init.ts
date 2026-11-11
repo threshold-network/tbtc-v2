@@ -188,6 +188,29 @@ async function run(): Promise<void> {
     Array.from(new PublicKey(OPTIMISM_GATEWAY).toBuffer())
   )
 
+  // Polygon is deprecated: register its peer with the DISABLED_GATEWAY
+  // sentinel so sends to it are rejected, as on migrated deployments.
+  const encodedPolyChain = Buffer.alloc(2)
+  encodedPolyChain.writeUInt16LE(consts.WH_POLYGON_CHAIN_ID)
+  const gatewayPolyInfo = PublicKey.findProgramAddressSync(
+    [Buffer.from("gateway-info"), encodedPolyChain],
+    wormholeGatewayProgram.programId
+  )[0]
+
+  await wormholeGatewayProgram.methods
+    .updateGatewayAddress({
+      chain: consts.WH_POLYGON_CHAIN_ID,
+      address: consts.DISABLED_GATEWAY_ADDRESS,
+    })
+    .accounts({
+      custodian: minter,
+      gatewayInfo: gatewayPolyInfo,
+      authority,
+    })
+    .rpc()
+
+  console.log("Disabled Solana gateway Polygon peer..")
+
   // Updating with BASE
   const baseArgs = {
     chain: consts.WH_BASE_CHAIN_ID,
