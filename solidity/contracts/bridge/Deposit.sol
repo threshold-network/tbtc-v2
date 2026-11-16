@@ -211,6 +211,27 @@ library Deposit {
             validateDepositRefundLocktime(self, reveal.refundLocktime);
         }
 
+        // The funding transaction hash is derived below by hashing the raw
+        // concatenation of the version, input vector, output vector and
+        // locktime. That concatenation commits to all the bytes but not to the
+        // boundary between the two vectors, so without the checks below a
+        // genuine transaction's bytes can be re-split into a different vector
+        // pair that hashes to the very same genuine transaction hash while
+        // exposing a fabricated funding output.
+        // Requiring both vectors to be structurally valid and exactly consumed
+        // - exactly as `BitcoinTx.validateProof` already does for proof
+        // submissions - pins that boundary and makes such a re-split
+        // impossible. An empty vector makes the BTCUtils validators panic
+        // (0x32) instead of returning false, so the reveal still reverts.
+        require(
+            fundingTx.inputVector.validateVin(),
+            "Invalid input vector provided"
+        );
+        require(
+            fundingTx.outputVector.validateVout(),
+            "Invalid output vector provided"
+        );
+
         bytes memory expectedScript;
 
         if (extraData == bytes32(0)) {

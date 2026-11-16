@@ -963,11 +963,15 @@ describe("Bridge - Deposit", () => {
         context("when funding transaction is neither P2SH nor P2WSH", () => {
           it("should revert", async () => {
             // Corrupt transaction output data by making a 21-byte script hash.
+            // The output vector stays canonically encoded (the script length
+            // byte is adjusted to 0x18 to match the 24-byte script) so the
+            // reveal reaches the script hash length check rather than being
+            // rejected earlier as a non-canonical vector.
             const corruptedP2SHFundingTx = { ...P2SHFundingTx }
             corruptedP2SHFundingTx.outputVector =
-              "0x02102700000000000017a9156a6ade1c799a3e5a59678e776f21be14d66dc" +
-              "15ed8877ed73b00000000001600147ac2d9378a1c47e589dfb8095ca95ed2" +
-              "140d2726"
+              "0x02102700000000000018a9152c1444d23936c57bdd8b3e67e5938a5440cd" +
+              "a45500877ed73b00000000001600147ac2d9378a1c47e589dfb8095ca95e" +
+              "d2140d2726"
 
             await expect(
               bridge
@@ -1775,12 +1779,16 @@ describe("Bridge - Deposit", () => {
 
           context("when funding transaction is neither P2SH nor P2WSH", () => {
             it("should revert", async () => {
-              // Corrupt transaction output data by making a 21-byte script hash.
+              // Corrupt transaction output data by making a 21-byte script
+              // hash. The output vector stays canonically encoded (the script
+              // length byte is adjusted to 0x18 to match the 24-byte script)
+              // so the reveal reaches the script hash length check rather than
+              // being rejected earlier as a non-canonical vector.
               const corruptedP2SHFundingTx = { ...P2SHFundingTx }
               corruptedP2SHFundingTx.outputVector =
-                "0x02102700000000000017a9156a6ade1c799a3e5a59678e776f21be14d66dc" +
-                "15ed8877ed73b00000000001600147ac2d9378a1c47e589dfb8095ca95ed2" +
-                "140d2726"
+                "0x02102700000000000018a9152c1444d23936c57bdd8b3e67e5938a5440cd" +
+                "a45500877ed73b00000000001600147ac2d9378a1c47e589dfb8095ca95e" +
+                "d2140d2726"
 
               await expect(
                 bridge

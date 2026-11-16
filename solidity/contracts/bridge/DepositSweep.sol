@@ -19,6 +19,7 @@ import {BTCUtils} from "@keep-network/bitcoin-spv-sol/contracts/BTCUtils.sol";
 
 import "./BitcoinTx.sol";
 import "./BridgeState.sol";
+import "./MovingFunds.sol";
 import "./Wallets.sol";
 
 import "../bank/Bank.sol";
@@ -418,15 +419,70 @@ library DepositSweep {
                     inputStartingIndex
                 );
 
-            Deposit.DepositRequest storage deposit = self.deposits[
-                uint256(
-                    keccak256(abi.encodePacked(outpointTxHash, outpointIndex))
-                )
-            ];
+            uint256 outpointKey = uint256(
+                keccak256(abi.encodePacked(outpointTxHash, outpointIndex))
+            );
+            Deposit.DepositRequest storage deposit = self.deposits[outpointKey];
 
-            if (deposit.revealedAt != 0) {
+            // The expected main UTXO identity is checked BEFORE the deposit
+            // mapping. Both lookups are keyed by the same outpoint and, in a
+            // valid Bitcoin state, a single outpoint cannot be an unswept
+            // deposit and the wallet's already-established main UTXO at the
+            // same time. That disjointness is not an assumption: a main UTXO is
+            // always a P2(W)PKH wallet output, while `Deposit._revealDeposit`
+            // requires every revealed deposit's funding output to be P2SH or
+            // P2WSH, so the two sets cannot overlap. Note the dependency runs
+            // both ways - weakening the script check in `Deposit` would
+            // invalidate the ordering argument here.
+            //
+            // If a deposit entry does exist under the main UTXO's outpoint,
+            // that entry is necessarily bogus and the explicit main UTXO
+            // identity must win. Consulting the mapping first would let such an
+            // entry take the main UTXO's place, exhaust the deposit slots and
+            // make an otherwise valid sweep proof permanently unprovable.
+            if (
+                mainUtxoExpected != mainUtxoFound &&
+                processInfo.mainUtxo.txHash == outpointTxHash &&
+                processInfo.mainUtxo.txOutputIndex == outpointIndex
+            ) {
+                // If we entered here, that means the input was identified as
+                // the expected main UTXO.
+                resultInfo.inputsTotalValue += processInfo
+                    .mainUtxo
+                    .txOutputValue;
+                mainUtxoFound = true;
+
+                // Main UTXO used as an input, mark it as spent.
+                self.spentMainUTXOs[outpointKey] = true;
+            } else if (deposit.revealedAt != 0) {
                 // If we entered here, that means the input was identified as
                 // a revealed deposit.
+
+                // A revealed deposit can be planted at an outpoint already
+                // claimed by another Bridge accounting path. Two storage
+                // maps record such claims. `spentMainUTXOs` is written by
+                // the main UTXO branch of this loop, by
+                // `OutboundTx.processWalletOutboundTxInput` whenever an
+                // outbound transaction of a redemption or a moving funds
+                // proof spends the wallet's main UTXO, and by
+                // `MovingFunds.processMovedFundsSweepTxInputs` when a moved
+                // funds sweep transaction spends it.
+                // `movedFundsSweepRequests` is written by `MovingFunds` for
+                // every output of a moving funds transaction; the entry
+                // leaves `Unknown` when the request is registered and stays
+                // out of it once the request is processed or timed out, so
+                // any state other than `Unknown` is a claim as well. Left
+                // unchecked, the same genuine Bitcoin transaction could be
+                // accepted both by `submitMovingFundsProof` and by
+                // `submitDepositSweepProof`, crediting Bank balance backed
+                // by no new BTC.
+                require(
+                    !self.spentMainUTXOs[outpointKey] &&
+                        self.movedFundsSweepRequests[outpointKey].state ==
+                        MovingFunds.MovedFundsSweepRequestState.Unknown,
+                    "Deposit outpoint already claimed"
+                );
+
                 require(deposit.sweptAt == 0, "Deposit already swept");
 
                 require(
@@ -458,26 +514,6 @@ library DepositSweep {
                     .treasuryFee;
 
                 processedDepositsCount++;
-            } else if (
-                mainUtxoExpected != mainUtxoFound &&
-                processInfo.mainUtxo.txHash == outpointTxHash &&
-                processInfo.mainUtxo.txOutputIndex == outpointIndex
-            ) {
-                // If we entered here, that means the input was identified as
-                // the expected main UTXO.
-                resultInfo.inputsTotalValue += processInfo
-                    .mainUtxo
-                    .txOutputValue;
-                mainUtxoFound = true;
-
-                // Main UTXO used as an input, mark it as spent.
-                self.spentMainUTXOs[
-                    uint256(
-                        keccak256(
-                            abi.encodePacked(outpointTxHash, outpointIndex)
-                        )
-                    )
-                ] = true;
             } else {
                 revert("Unknown input type");
             }
