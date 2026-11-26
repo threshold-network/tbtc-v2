@@ -980,6 +980,80 @@ describe("Bridge - Deposit", () => {
             ).to.be.revertedWith("Wrong script hash length")
           })
         })
+
+        context("when funding transaction input vector is not valid", () => {
+          context("when the vectors are split at a wrong boundary", () => {
+            it("should revert", async () => {
+              // Move the last byte of the input vector to the front of the
+              // output vector. The concatenated transaction bytes, and with
+              // them the funding transaction hash, stay the same, but the
+              // input vector no longer ends where its last input ends.
+              const inputVector = P2SHFundingTx.inputVector as string
+              const outputVector = P2SHFundingTx.outputVector as string
+              const resplitFundingTx = {
+                ...P2SHFundingTx,
+                inputVector: inputVector.slice(0, -2),
+                outputVector: `0x${inputVector.slice(-2)}${outputVector.slice(
+                  2
+                )}`,
+              }
+
+              await expect(
+                bridge
+                  .connect(depositor)
+                  .revealDeposit(resplitFundingTx, reveal)
+              ).to.be.revertedWith("Invalid input vector provided")
+            })
+          })
+
+          context("when the input vector is empty", () => {
+            it("should revert", async () => {
+              await expect(
+                bridge
+                  .connect(depositor)
+                  .revealDeposit(
+                    { ...P2SHFundingTx, inputVector: "0x" },
+                    reveal
+                  )
+              ).to.be.reverted
+            })
+          })
+        })
+
+        context("when funding transaction output vector is not valid", () => {
+          context("when the output vector is not exactly consumed", () => {
+            it("should revert", async () => {
+              // The first output declares a 23-byte script but carries 24
+              // bytes, so the declared outputs end before the vector does.
+              const corruptedP2SHFundingTx = {
+                ...P2SHFundingTx,
+                outputVector:
+                  "0x02102700000000000017a9156a6ade1c799a3e5a59678e776f21be14d66dc" +
+                  "15ed8877ed73b00000000001600147ac2d9378a1c47e589dfb8095ca95ed2" +
+                  "140d2726",
+              }
+
+              await expect(
+                bridge
+                  .connect(depositor)
+                  .revealDeposit(corruptedP2SHFundingTx, reveal)
+              ).to.be.revertedWith("Invalid output vector provided")
+            })
+          })
+
+          context("when the output vector is empty", () => {
+            it("should revert", async () => {
+              await expect(
+                bridge
+                  .connect(depositor)
+                  .revealDeposit(
+                    { ...P2SHFundingTx, outputVector: "0x" },
+                    reveal
+                  )
+              ).to.be.reverted
+            })
+          })
+        })
       })
 
       context("when reveal ahead period validation is enabled", () => {
@@ -1799,6 +1873,90 @@ describe("Bridge - Deposit", () => {
                     extraData
                   )
               ).to.be.revertedWith("Wrong script hash length")
+            })
+          })
+
+          context("when funding transaction input vector is not valid", () => {
+            context("when the vectors are split at a wrong boundary", () => {
+              it("should revert", async () => {
+                // Move the last byte of the input vector to the front of the
+                // output vector. The concatenated transaction bytes, and with
+                // them the funding transaction hash, stay the same, but the
+                // input vector no longer ends where its last input ends.
+                const inputVector = P2SHFundingTx.inputVector as string
+                const outputVector = P2SHFundingTx.outputVector as string
+                const resplitFundingTx = {
+                  ...P2SHFundingTx,
+                  inputVector: inputVector.slice(0, -2),
+                  outputVector: `0x${inputVector.slice(-2)}${outputVector.slice(
+                    2
+                  )}`,
+                }
+
+                await expect(
+                  bridge
+                    .connect(depositor)
+                    .revealDepositWithExtraData(
+                      resplitFundingTx,
+                      reveal,
+                      extraData
+                    )
+                ).to.be.revertedWith("Invalid input vector provided")
+              })
+            })
+
+            context("when the input vector is empty", () => {
+              it("should revert", async () => {
+                await expect(
+                  bridge
+                    .connect(depositor)
+                    .revealDepositWithExtraData(
+                      { ...P2SHFundingTx, inputVector: "0x" },
+                      reveal,
+                      extraData
+                    )
+                ).to.be.reverted
+              })
+            })
+          })
+
+          context("when funding transaction output vector is not valid", () => {
+            context("when the output vector is not exactly consumed", () => {
+              it("should revert", async () => {
+                // The first output declares a 23-byte script but carries 24
+                // bytes, so the declared outputs end before the vector does.
+                const corruptedP2SHFundingTx = {
+                  ...P2SHFundingTx,
+                  outputVector:
+                    "0x02102700000000000017a9156a6ade1c799a3e5a59678e776f21be14d66dc" +
+                    "15ed8877ed73b00000000001600147ac2d9378a1c47e589dfb8095ca95ed2" +
+                    "140d2726",
+                }
+
+                await expect(
+                  bridge
+                    .connect(depositor)
+                    .revealDepositWithExtraData(
+                      corruptedP2SHFundingTx,
+                      reveal,
+                      extraData
+                    )
+                ).to.be.revertedWith("Invalid output vector provided")
+              })
+            })
+
+            context("when the output vector is empty", () => {
+              it("should revert", async () => {
+                await expect(
+                  bridge
+                    .connect(depositor)
+                    .revealDepositWithExtraData(
+                      { ...P2SHFundingTx, outputVector: "0x" },
+                      reveal,
+                      extraData
+                    )
+                ).to.be.reverted
+              })
             })
           })
         })
@@ -2632,6 +2790,148 @@ describe("Bridge - Deposit", () => {
                         }
                       )
 
+                      context(
+                        "when the single input is a revealed unswept deposit whose outpoint is already claimed",
+                        () => {
+                          const data: DepositSweepTestData = SingleP2SHDeposit
+                          // Take wallet public key hash from first deposit. All
+                          // deposits in same sweep batch should have the same value
+                          // of that field.
+                          const { walletPubKeyHash } = data.deposits[0].reveal
+                          // Another wallet, owning the moved funds sweep
+                          // requests registered under the deposit's outpoint.
+                          const otherWalletPubKeyHash =
+                            "0x7abdee3c88cba8a890537e8d1417df87a7271f9d"
+                          const depositOutpoint = {
+                            txHash: data.deposits[0].fundingTx.hash,
+                            txOutputIndex:
+                              data.deposits[0].reveal.fundingOutputIndex,
+                            txOutputValue: 20000,
+                          }
+
+                          before(async () => {
+                            await createSnapshot()
+
+                            // Simulate the wallet is a Live one and is known in
+                            // the system.
+                            await bridge.setWallet(walletPubKeyHash, {
+                              ...walletDraft,
+                              state: walletState.Live,
+                            })
+                          })
+
+                          after(async () => {
+                            await restoreSnapshot()
+                          })
+
+                          context(
+                            "when the outpoint is recorded as a spent main UTXO",
+                            () => {
+                              before(async () => {
+                                await createSnapshot()
+                              })
+
+                              after(async () => {
+                                await restoreSnapshot()
+                              })
+
+                              it("should revert", async () => {
+                                await expect(
+                                  runDepositSweepScenario(data, async () => {
+                                    await bridge.setSpentMainUtxos([
+                                      depositOutpoint,
+                                    ])
+                                  })
+                                ).to.be.revertedWith(
+                                  "Deposit outpoint already claimed"
+                                )
+                              })
+                            }
+                          )
+
+                          context(
+                            "when the outpoint has a pending moved funds sweep request",
+                            () => {
+                              before(async () => {
+                                await createSnapshot()
+                              })
+
+                              after(async () => {
+                                await restoreSnapshot()
+                              })
+
+                              it("should revert", async () => {
+                                await expect(
+                                  runDepositSweepScenario(data, async () => {
+                                    await bridge.setPendingMovedFundsSweepRequest(
+                                      otherWalletPubKeyHash,
+                                      depositOutpoint
+                                    )
+                                  })
+                                ).to.be.revertedWith(
+                                  "Deposit outpoint already claimed"
+                                )
+                              })
+                            }
+                          )
+
+                          context(
+                            "when the outpoint has a processed moved funds sweep request",
+                            () => {
+                              before(async () => {
+                                await createSnapshot()
+                              })
+
+                              after(async () => {
+                                await restoreSnapshot()
+                              })
+
+                              it("should revert", async () => {
+                                await expect(
+                                  runDepositSweepScenario(data, async () => {
+                                    await bridge.setProcessedMovedFundsSweepRequests(
+                                      [depositOutpoint]
+                                    )
+                                  })
+                                ).to.be.revertedWith(
+                                  "Deposit outpoint already claimed"
+                                )
+                              })
+                            }
+                          )
+
+                          context(
+                            "when the outpoint has a timed out moved funds sweep request",
+                            () => {
+                              before(async () => {
+                                await createSnapshot()
+                              })
+
+                              after(async () => {
+                                await restoreSnapshot()
+                              })
+
+                              it("should revert", async () => {
+                                await expect(
+                                  runDepositSweepScenario(data, async () => {
+                                    await bridge.setPendingMovedFundsSweepRequest(
+                                      otherWalletPubKeyHash,
+                                      depositOutpoint
+                                    )
+                                    await bridge.timeoutPendingMovedFundsSweepRequest(
+                                      otherWalletPubKeyHash,
+                                      depositOutpoint
+                                    )
+                                  })
+                                ).to.be.revertedWith(
+                                  "Deposit outpoint already claimed"
+                                )
+                              })
+                            }
+                          )
+                        }
+                      )
+
                       context("when the single input is an unknown", () => {
                         const data: DepositSweepTestData = SingleP2SHDeposit
                         // Take wallet public key hash from first deposit. All
@@ -2818,6 +3118,129 @@ describe("Bridge - Deposit", () => {
 
                             expect(await bridge.spentMainUTXOs(mainUtxoKey)).to
                               .be.true
+                          })
+
+                          it("should emit DepositsSwept event", async () => {
+                            await expect(tx)
+                              .to.emit(bridge, "DepositsSwept")
+                              .withArgs(walletPubKeyHash, data.sweepTx.hash)
+                          })
+                        }
+                      )
+
+                      context(
+                        "when input vector consists only of revealed unswept deposits and the expected main UTXO whose outpoint also holds a revealed deposit",
+                        () => {
+                          let tx: ContractTransaction
+                          const previousData: DepositSweepTestData =
+                            MultipleDepositsNoMainUtxo
+                          const data: DepositSweepTestData =
+                            MultipleDepositsWithMainUtxo
+                          // Take wallet public key hash from first deposit. All
+                          // deposits in same sweep batch should have the same value
+                          // of that field.
+                          const { walletPubKeyHash } = data.deposits[0].reveal
+                          // Depositor of the deposit request written under the
+                          // main UTXO's outpoint.
+                          const mainUtxoDepositor =
+                            "0x7abdee3c88cba8a890537e8d1417df87a7271f9d"
+                          const mainUtxoKey = ethers.utils.solidityKeccak256(
+                            ["bytes32", "uint32"],
+                            [data.mainUtxo.txHash, data.mainUtxo.txOutputIndex]
+                          )
+
+                          before(async () => {
+                            await createSnapshot()
+
+                            // Simulate the wallet is a Live one and is known in
+                            // the system.
+                            await bridge.setWallet(walletPubKeyHash, {
+                              ...walletDraft,
+                              state: walletState.Live,
+                            })
+
+                            // Make the first sweep which is actually the predecessor
+                            // of the sweep tested within this scenario.
+                            await runDepositSweepScenario(previousData)
+
+                            tx = await runDepositSweepScenario(
+                              data,
+                              async () => {
+                                // The main UTXO is a P2WPKH output, so no
+                                // reveal can record a deposit under its
+                                // outpoint; the stub writes one directly.
+                                await bridge.setDepositRequest(data.mainUtxo, {
+                                  depositor: mainUtxoDepositor,
+                                  amount: data.mainUtxo.txOutputValue,
+                                  revealedAt: await lastBlockTime(),
+                                  vault: ZERO_ADDRESS,
+                                  treasuryFee: 0,
+                                  sweptAt: 0,
+                                  extraData: ethers.constants.HashZero,
+                                })
+                              }
+                            )
+                          })
+
+                          after(async () => {
+                            await restoreSnapshot()
+                          })
+
+                          it("should mark the revealed deposits as swept", async () => {
+                            for (let i = 0; i < data.deposits.length; i++) {
+                              // Deposit key is keccak256(fundingTxHash | fundingOutputIndex).
+                              const depositKey = ethers.utils.solidityKeccak256(
+                                ["bytes32", "uint32"],
+                                [
+                                  data.deposits[i].fundingTx.hash,
+                                  data.deposits[i].reveal.fundingOutputIndex,
+                                ]
+                              )
+
+                              // eslint-disable-next-line no-await-in-loop
+                              const deposit = await bridge.deposits(depositKey)
+
+                              expect(deposit.sweptAt).to.be.equal(
+                                // eslint-disable-next-line no-await-in-loop
+                                await lastBlockTime(),
+                                `Deposit with index ${i} has an unexpected swept time`
+                              )
+                            }
+                          })
+
+                          it("should not sweep the deposit recorded under the main UTXO's outpoint", async () => {
+                            const deposit = await bridge.deposits(mainUtxoKey)
+
+                            expect(deposit.sweptAt).to.be.equal(0)
+                          })
+
+                          it("should not credit the depositor of the deposit recorded under the main UTXO's outpoint", async () => {
+                            expect(
+                              await bank.balanceOf(mainUtxoDepositor)
+                            ).to.be.equal(0)
+                          })
+
+                          it("should mark the previous main UTXO as spent", async () => {
+                            expect(await bridge.spentMainUTXOs(mainUtxoKey)).to
+                              .be.true
+                          })
+
+                          it("should update main UTXO for the given wallet", async () => {
+                            const { mainUtxoHash } = await bridge.wallets(
+                              walletPubKeyHash
+                            )
+
+                            // The same main UTXO as when no deposit is recorded
+                            // under the previous main UTXO's outpoint: the sum
+                            // of inputs is 4148000 satoshi and there is a fee of
+                            // 2999 so the output value is 4145001.
+                            const expectedMainUtxo =
+                              ethers.utils.solidityKeccak256(
+                                ["bytes32", "uint32", "uint64"],
+                                [data.sweepTx.hash, 0, 4145001]
+                              )
+
+                            expect(mainUtxoHash).to.be.equal(expectedMainUtxo)
                           })
 
                           it("should emit DepositsSwept event", async () => {

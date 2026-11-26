@@ -4,11 +4,24 @@ pragma solidity 0.8.17;
 
 import "../bridge/BitcoinTx.sol";
 import "../bridge/Bridge.sol";
+import "../bridge/Deposit.sol";
 import "../bridge/MovingFunds.sol";
 import "../bridge/RebateStaking.sol";
 import "../bridge/Wallets.sol";
 
 contract BridgeStub is Bridge {
+    // Records a deposit request under any outpoint, including outpoints no
+    // valid reveal can point to, such as a wallet's main UTXO.
+    function setDepositRequest(
+        BitcoinTx.UTXO calldata utxo,
+        Deposit.DepositRequest calldata request
+    ) external {
+        uint256 depositKey = uint256(
+            keccak256(abi.encodePacked(utxo.txHash, utxo.txOutputIndex))
+        );
+        self.deposits[depositKey] = request;
+    }
+
     function setSweptDeposits(BitcoinTx.UTXO[] calldata utxos) external {
         for (uint256 i = 0; i < utxos.length; i++) {
             uint256 utxoKey = uint256(
