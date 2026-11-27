@@ -43,7 +43,13 @@ pinned `@keep-network/tbtc-v2` release (1.4.0-dev.0 or 1.7.2), which predates
 `DISABLED_GATEWAY`. So the order is: release `@keep-network/tbtc-v2` with this
 `L2WormholeGateway`, bump the pins, upgrade the gateways, then run the mapping
 scripts. Until then the mapping scripts probe the deployed gateway and skip the
-block, on Hardhat dry runs too. The
+block, on Hardhat dry runs too. Before governance executes any
+`updateGatewayAddress(..., DISABLED_GATEWAY())` call, including one built by
+hand for another chain's gateway, check that the target gateway's
+`DISABLED_GATEWAY()` returns the sentinel: a gateway without it sends every
+later transfer to `0x...01`, where nobody can redeem it.
+`34_manual_deprecate_polygon_wormhole_gateway.ts` prints the Polygon calls,
+with the gateway owner as sender, only after that check passes. The
 EVM mapping scripts skip the gateway block if the deployed gateway is not
 upgraded with `DISABLED_GATEWAY()` support yet; set
 `REQUIRE_DISABLED_GATEWAY_SUPPORT=true` to make that precondition fatal for a
