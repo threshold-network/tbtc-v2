@@ -1164,6 +1164,63 @@ describe("wormhole-gateway", () => {
   });
 
   describe("send wrapped tbtc", () => {
+    it("keeps the pre-deprecation account order and appends gateway_info last", async () => {
+      // Clients built from the IDL deployed before the disabled-gateway check
+      // pass these accounts in this order. Appending gateway_info instead of
+      // inserting it lets an updated client work with both program versions,
+      // because the older program ignores trailing accounts.
+      const preDeprecationAccounts = [
+        "custodian",
+        "wrappedTbtcToken",
+        "wrappedTbtcMint",
+        "tbtcMint",
+        "senderToken",
+        "sender",
+        "tokenBridgeConfig",
+        "tokenBridgeWrappedAsset",
+        "tokenBridgeTransferAuthority",
+        "coreBridgeData",
+        "coreMessage",
+        "tokenBridgeCoreEmitter",
+        "coreEmitterSequence",
+        "coreFeeCollector",
+        "clock",
+        "rent",
+        "tokenBridgeProgram",
+        "coreBridgeProgram",
+        "tokenProgram",
+        "systemProgram",
+      ];
+      const sendTbtcWrapped = program.idl.instructions.find(
+        (instruction) => instruction.name === "sendTbtcWrapped"
+      );
+      expect(sendTbtcWrapped?.accounts.map((account) => account.name)).to.eql([
+        ...preDeprecationAccounts,
+        "gatewayInfo",
+      ]);
+
+      const sender = commonTokenOwner.publicKey;
+      const recipientChain = 2;
+      const ix = await wormholeGateway.sendTbtcWrappedIx(
+        {
+          senderToken: getAssociatedTokenAddressSync(tbtc.getMintPDA(), sender),
+          sender,
+        },
+        {
+          amount: new anchor.BN(1),
+          recipientChain,
+          recipient: Array.from(Buffer.alloc(32, "deadbeef", "hex")),
+          arbiterFee: new anchor.BN(0),
+          nonce: 0,
+        }
+      );
+      expect(ix.keys).to.have.length(preDeprecationAccounts.length + 1);
+      expect(ix.keys[0].pubkey.toBase58()).to.equal(custodian.toBase58());
+      expect(ix.keys[preDeprecationAccounts.length].pubkey.toBase58()).to.equal(
+        wormholeGateway.getGatewayInfoPDA(recipientChain).toBase58()
+      );
+    });
+
     it("send wrapped tbtc to a chain with a real, non-disabled gateway", async () => {
       // Chain 2's GatewayInfo was initialized to a real (non-disabled) address
       // in the "gateway address" describe block above and never cleared or
