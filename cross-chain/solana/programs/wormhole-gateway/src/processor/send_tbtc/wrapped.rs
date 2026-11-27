@@ -23,22 +23,6 @@ pub struct SendTbtcWrapped<'info> {
     )]
     custodian: Account<'info, Custodian>,
 
-    /// CHECK: Gateway info for the recipient chain, seeds-pinned to
-    /// `recipient_chain`. It is mandatory (not optional) so the caller cannot
-    /// bypass the disabled-gateway check by omitting or substituting it — the
-    /// seeds constraint forces the caller to pass the canonical PDA for the
-    /// chain. It is an `UncheckedAccount` because gateway-less chains (the plain
-    /// wrapped-transfer path, mirroring the EVM `gateway == bytes32(0)` branch)
-    /// have no initialized `GatewayInfo` PDA. The instruction body branches on
-    /// the account's on-chain state: program-owned (initialized) is deserialized
-    /// and checked for the disabled sentinel; empty/uninitialized means the
-    /// chain has no registered gateway and the send is allowed.
-    #[account(
-        seeds = [GatewayInfo::SEED_PREFIX, &args.recipient_chain.to_le_bytes()],
-        bump,
-    )]
-    gateway_info: UncheckedAccount<'info>,
-
     /// Custody account.
     #[account(mut)]
     wrapped_tbtc_token: Box<Account<'info, token::TokenAccount>>,
@@ -105,6 +89,26 @@ pub struct SendTbtcWrapped<'info> {
     core_bridge_program: Program<'info, CoreBridge>,
     token_program: Program<'info, token::Token>,
     system_program: Program<'info, System>,
+
+    /// CHECK: Gateway info for the recipient chain, seeds-pinned to
+    /// `recipient_chain`. It is mandatory (not optional) so the caller cannot
+    /// bypass the disabled-gateway check by omitting or substituting it — the
+    /// seeds constraint forces the caller to pass the canonical PDA for the
+    /// chain. It is an `UncheckedAccount` because gateway-less chains (the plain
+    /// wrapped-transfer path, mirroring the EVM `gateway == bytes32(0)` branch)
+    /// have no initialized `GatewayInfo` PDA. The instruction body branches on
+    /// the account's on-chain state: program-owned (initialized) is deserialized
+    /// and checked for the disabled sentinel; empty/uninitialized means the
+    /// chain has no registered gateway and the send is allowed.
+    ///
+    /// It is the last account so that clients can add it before the program
+    /// upgrade: the program deployed before it ignores trailing accounts, so a
+    /// client that appends this PDA works with both versions.
+    #[account(
+        seeds = [GatewayInfo::SEED_PREFIX, &args.recipient_chain.to_le_bytes()],
+        bump,
+    )]
+    gateway_info: UncheckedAccount<'info>,
 }
 
 impl<'info> SendTbtcWrapped<'info> {

@@ -57,6 +57,15 @@ deprecation-specific run. The Solana cleanup script refuses to disable the
 Polygon peer unless the deployed Anchor IDL contains the `GatewayDisabled`
 error and the `gatewayInfo` account on the `sendTbtcWrapped` instruction.
 
+The upgraded Solana program adds that `gatewayInfo` account, the recipient
+chain's `GatewayInfo` PDA (seeds `gateway-info` and the chain ID as a
+little-endian `u16`), as the last account of `send_tbtc_wrapped`, the
+Solana-to-Ethereum exit path. Clients built from the IDL deployed today fail
+against the upgraded program, while a client that appends the PDA works with
+both programs, because the program deployed today ignores trailing accounts.
+Update every client that builds `sendTbtcWrapped` to append it before the
+Squads upgrade.
+
 The Solana script reads the gateway custodian's authority on chain. On mainnet
 that authority is a Squads vault (`814TqVmhQGKB3srSLRuMcH6m8qWFHRSbNpRxC5Xnador`),
 an off-curve PDA with no secret key, so the script does not sign: it simulates

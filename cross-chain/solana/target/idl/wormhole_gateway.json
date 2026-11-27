@@ -465,11 +465,6 @@
           "isSigner": false
         },
         {
-          "name": "gatewayInfo",
-          "isMut": false,
-          "isSigner": false
-        },
-        {
           "name": "wrappedTbtcToken",
           "isMut": true,
           "isSigner": false,
@@ -564,6 +559,11 @@
         },
         {
           "name": "systemProgram",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "gatewayInfo",
           "isMut": false,
           "isSigner": false
         }
