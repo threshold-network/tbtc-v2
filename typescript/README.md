@@ -48,6 +48,17 @@ not send new BTC to previously generated cross-chain addresses. Keep
 funded-but-unrevealed receipts for later recovery; the SDK will not reveal
 them while this pause is active.
 
+The pause does not move the Bridge's reveal deadline. The Bridge rejects a
+reveal once the deposit's refund locktime is less than its
+`depositRevealAheadPeriod` away (see the Bridge contract's
+`depositParameters()`). SDK receipts set the refund locktime 270 days after
+they are created and the period is 150 days on mainnet, so a mainnet receipt
+must be revealed within 120 days of its creation. After that deadline the
+deposit can no longer be minted, and its BTC can only be refunded once the
+refund locktime has passed. Track the deadline of every funded receipt you
+keep: if it comes before the pause ends, the deposit can be minted only by a
+reveal made outside the SDK before the deadline.
+
 This change requires a new SDK release and adoption by consumers. It cannot
 stop older installed versions or direct contract calls. The `3.1.0-beta.0`
 package also exposed gasless cross-chain deposit APIs that are absent from this
