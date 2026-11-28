@@ -1735,6 +1735,29 @@ describe("Deposits", () => {
                   )
                   expect(receipt.extraData).to.be.undefined
                 })
+
+                it("should set the refund locktime 270 days after creation", async () => {
+                  // The README's reveal deadline for paused cross-chain
+                  // receipts is derived from this duration.
+                  const refundLockDuration = 270 * 24 * 60 * 60
+
+                  const startedAt = Math.floor(Date.now() / 1000)
+                  const created = await depositService.initiateDeposit(
+                    "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc"
+                  )
+                  const finishedAt = Math.floor(Date.now() / 1000)
+
+                  const refundLocktime = BigNumber.from(
+                    created
+                      .getReceipt()
+                      .refundLocktime.reverse()
+                      .toPrefixedString()
+                  ).toNumber()
+                  expect(refundLocktime).to.be.within(
+                    startedAt + refundLockDuration,
+                    finishedAt + refundLockDuration
+                  )
+                })
               })
 
               context("when recovery address is P2WPKH", () => {
