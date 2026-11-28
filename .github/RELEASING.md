@@ -50,11 +50,15 @@ overwrite existing artifacts.
 
 Publication runs on a separate GitHub-hosted runner. It has no checkout,
 dependency installation, build, or cache restore. Its working directory remains
-empty; the downloaded tarball is stored under `runner.temp`. Before introducing
-the npm token, it rejects missing or malformed artifact IDs/digests, additional
-files, symlinks, and a tarball whose SHA-256 differs from the preparation output.
-This explicit checksum check fails closed even though the download action's
-built-in artifact digest mismatch handling only emits a warning.
+empty; the downloaded tarball is stored under `runner.temp`. The download action
+is pinned to a release whose extractor keeps every archive entry inside the
+download directory, so an extra or path-traversing entry stays where the checks
+below see it. Some earlier releases, v4.3.0 among them, bundle an extractor that
+can write outside that directory, for example over the npm configuration that
+holds the token. Before introducing the npm token, the publisher rejects missing
+or malformed artifact IDs/digests, additional files, symlinks, and a tarball
+whose SHA-256 differs from the preparation output. This explicit checksum check
+fails closed independently of the download action's own artifact digest check.
 
 Before receiving the token, the publisher also reads package metadata with the
 `pacote` parser bundled with its pinned npm toolchain. It uses offline mode,

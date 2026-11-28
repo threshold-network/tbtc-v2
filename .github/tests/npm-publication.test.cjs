@@ -376,7 +376,7 @@ test("publish jobs receive only the same-run tarball without build code or cache
     )
     const allowedActions = [
       "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020",
-      "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093",
+      "actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333",
     ]
     const actions = [...publish.matchAll(/uses: ([^ \n]+)/g)].map(
       (match) => match[1]
