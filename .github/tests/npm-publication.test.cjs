@@ -57,7 +57,19 @@ function job(workflow, name) {
   return lines.slice(start, next === -1 ? undefined : next).join("\n")
 }
 
-function fixture(t, hooks) {
+function manifestName(directory) {
+  return JSON.parse(
+    fs.readFileSync(path.join(__dirname, "../..", directory, "package.json"))
+  ).name
+}
+
+// The package each publishing workflow builds, as its checked-in manifest names it.
+const publishedPackages = {
+  "npm-typescript.yml": manifestName("typescript"),
+  "npm-contracts.yml": manifestName("solidity"),
+}
+
+function fixture(t, hooks, name = "publication-fixture") {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "npm-publication-"))
   t.after(() => fs.rmSync(root, { recursive: true, force: true }))
   const directory = path.join(root, "package")
@@ -69,7 +81,7 @@ function fixture(t, hooks) {
   fs.writeFileSync(
     path.join(directory, "package.json"),
     JSON.stringify({
-      name: "publication-fixture",
+      name,
       version: "1.0.0",
       files: ["index.js", "artifacts", "export"],
       scripts: hooks,
@@ -162,10 +174,20 @@ const packHooks = Object.fromEntries(
     .map((name) => [name, forbiddenHook])
 )
 
+// npm names the packed archive after the package, so find the one it wrote.
+function packedArchive(f) {
+  const directory = path.join(f.root, "npm-package")
+  const archives = fs
+    .readdirSync(directory)
+    .filter((name) => name.endsWith(".tgz"))
+  assert.equal(archives.length, 1, `expected one packed archive: ${archives}`)
+  return path.join(directory, archives[0])
+}
+
 function mutateArchiveManifest(f, update) {
   // Include every forbidden lifecycle hook in the credentialed publication test,
   // without running a hook while creating the fixture's archive.
-  const archive = path.join(f.root, "npm-package/publication-fixture-1.0.0.tgz")
+  const archive = packedArchive(f)
   const unpacked = path.join(f.root, "unpacked")
   fs.mkdirSync(unpacked)
   succeeds(
@@ -222,7 +244,7 @@ test("checked-in package manifests can be packed by the publishing npm version",
 })
 
 test("SDK packing and credentialed tarball publication skip lifecycle scripts", (t) => {
-  const f = fixture(t, packHooks)
+  const f = fixture(t, packHooks, publishedPackages["npm-typescript.yml"])
   succeeds(
     run(
       step("npm-typescript.yml", "Pack package without publishing credentials"),
@@ -240,7 +262,7 @@ test("contract artifacts are prepared once before the token is introduced", (t) 
   const hooks = { ...packHooks }
   hooks.prepublishOnly = "node prepare.cjs artifacts"
   hooks.prepack = "node prepare.cjs export"
-  const f = fixture(t, hooks)
+  const f = fixture(t, hooks, publishedPackages["npm-contracts.yml"])
   fs.writeFileSync(
     path.join(f.directory, "prepare.cjs"),
     `const fs = require("node:fs")
@@ -266,8 +288,9 @@ fs.appendFileSync(path.join(process.env.RUNNER_TEMP, "hooks.log"), name + "\\n")
       )
     )
   )
-  const archive = path.join(f.root, "npm-package/publication-fixture-1.0.0.tgz")
-  const listing = spawnSync("tar", ["-tzf", archive], { encoding: "utf8" })
+  const listing = spawnSync("tar", ["-tzf", packedArchive(f)], {
+    encoding: "utf8",
+  })
   succeeds(listing)
   assert.match(listing.stdout, /package\/artifacts\/prepared\.json/)
   assert.match(listing.stdout, /package\/export\/prepared\.json/)
@@ -423,7 +446,7 @@ test("publisher rejects package-controlled npm configuration before receiving cr
     {},
     null,
   ]) {
-    const f = fixture(t, packHooks)
+    const f = fixture(t, packHooks, publishedPackages["npm-typescript.yml"])
     succeeds(
       run(
         step(
@@ -446,5 +469,31 @@ test("publisher rejects package-controlled npm configuration before receiving cr
       result.stderr,
       /publishConfig must not override publisher settings/
     )
+  }
+})
+
+test("publisher rejects a tarball for a package other than the one its workflow builds", (t) => {
+  for (const [workflow, expected] of Object.entries(publishedPackages)) {
+    const foreign = [...Object.values(publishedPackages), "@keep-network/ecdsa"]
+    for (const name of foreign.filter((name) => name !== expected)) {
+      // Any packed tarball will do: only the name it declares is under test.
+      const f = fixture(t, {}, name)
+      succeeds(
+        run(
+          step(
+            "npm-typescript.yml",
+            "Pack package without publishing credentials"
+          ),
+          f
+        )
+      )
+      const publisher = transferPackage(t, f, workflow)
+      const result = run(step(workflow, "Inspect package metadata"), publisher)
+      assert.notEqual(result.status, 0, `${workflow} accepted ${name}`)
+      assert.ok(
+        result.stderr.includes(`Package name must be ${expected}`),
+        result.stderr
+      )
+    }
   }
 })

@@ -64,8 +64,10 @@ Before receiving the token, the publisher also reads package metadata with the
 `pacote` parser bundled with its pinned npm toolchain. It uses offline mode,
 disabled scripts, and a fresh inspection cache under `runner.temp`. It rejects
 any `publishConfig` field so package metadata cannot override publisher network
-or authentication settings. This parser may unpack files into that isolated
-inspection cache; no package code is run and the cache is not shared or restored.
+or authentication settings, and any package name other than the one the workflow
+builds, because npm publishes whatever name the tarball declares. This parser
+may unpack files into that isolated inspection cache; no package code is run and
+the cache is not shared or restored.
 
 Only the final `npm publish <tarball>` step receives `NPM_TOKEN`. It uses the npm
 registry explicitly and disables lifecycle scripts and their script shell. Build
@@ -81,7 +83,7 @@ preparation checkout does not persist credentials.
 Run `node --test .github/tests/npm-publication.test.cjs` to check preparation,
 transfer validation, and publication against local package fixtures without
 publishing. The tests use separate build and publisher directories, exercise
-malformed identities, changed/additional files, forbidden lifecycle hooks, and
-package-controlled npm configuration,
-and guard the publish job's action and command allowlist. They also flag new
+malformed identities, changed/additional files, forbidden lifecycle hooks,
+package-controlled npm configuration and tarballs for another package, and
+guard the publish job's action and command allowlist. They also flag new
 package lifecycle hooks that need explicit preparation.

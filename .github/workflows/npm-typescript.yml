@@ -149,6 +149,11 @@ jobs:
               fullReadJson: true,
               fullMetadata: true,
             })
+            // npm publishes whatever name the tarball declares, so the token must
+            // only ever publish the package this workflow builds.
+            if (manifest.name !== "@keep-network/tbtc-v2.ts") {
+              throw new Error("Package name must be @keep-network/tbtc-v2.ts")
+            }
             if (Object.prototype.hasOwnProperty.call(manifest, "publishConfig")) {
               throw new Error("Package publishConfig must not override publisher settings")
             }
