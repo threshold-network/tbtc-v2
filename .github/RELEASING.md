@@ -34,9 +34,11 @@ distribution channel, not a build input.
 ## Preparation and publication
 
 Builds, local Hardhat deployment, version bumping and artifact preparation run
-in the `prepare` job without `NPM_TOKEN`. The contracts job explicitly runs its
-existing `prepublishOnly` and `prepack` hooks before creating a tarball. The SDK
-has no pack hooks. Packing uses `--ignore-scripts --script-shell=/usr/bin/false`:
+in the `prepare` job without `NPM_TOKEN`. The version bump starts a series with
+no published version yet, such as a new `-dev` series, from the manifest's
+version. The contracts job explicitly runs its existing `prepublishOnly` and
+`prepack` hooks before creating a tarball. The SDK has no pack hooks. Packing
+uses `--ignore-scripts --script-shell=/usr/bin/false`:
 npm 10 can still invoke `prepare` despite `--ignore-scripts`, so an unexpected
 hook fails closed without executing it.
 
@@ -85,5 +87,6 @@ transfer validation, and publication against local package fixtures without
 publishing. The tests use separate build and publisher directories, exercise
 malformed identities, changed/additional files, forbidden lifecycle hooks,
 package-controlled npm configuration and tarballs for another package, and
-guard the publish job's action and command allowlist. They also flag new
-package lifecycle hooks that need explicit preparation.
+guard the publish job's action and command allowlist and the version bump
+action's pin. They also flag new package lifecycle hooks that need explicit
+preparation.

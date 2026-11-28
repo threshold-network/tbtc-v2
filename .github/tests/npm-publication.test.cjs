@@ -497,3 +497,15 @@ test("publisher rejects a tarball for a package other than the one its workflow 
     }
   }
 })
+
+test("version bumps start an unpublished version series from the manifest", () => {
+  // npm 10 exits with E404 for a version range with no published release.
+  // Releases of the bump action before threshold-network/ci@f7481b89 failed on
+  // that error instead of falling back to the manifest's version.
+  for (const workflow of Object.keys(publishedPackages)) {
+    assert.match(
+      stepBlock(workflow, "Bump up package version").join("\n"),
+      /uses: threshold-network\/ci\/actions\/npm-version-bump@91f574f226348afad6b87beb353a4e9718f2b652$/m
+    )
+  }
+})
